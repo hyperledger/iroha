@@ -14,7 +14,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::query::{
     builder::batch_downcast::HasTypedBatchIter,
-    dsl::{BaseProjector, CompoundPredicate, HasPrototype, PredicateMarker, SelectorTuple},
+    dsl::{
+        BaseProjector, CompoundPredicate, HasPrototype, IntoSelectorTuple, PredicateMarker,
+        SelectorMarker, SelectorTuple,
+    },
     parameters::{FetchSize, Pagination, QueryParams, Sorting},
     Query, QueryBox, QueryOutputBatchBoxTuple, QueryWithFilter, QueryWithParams, SingularQueryBox,
     SingularQueryOutputBox,
@@ -105,6 +108,7 @@ where
     pagination: Pagination,
     sorting: Sorting,
     fetch_size: FetchSize,
+    // NOTE: T is a phantom type used to denote the selected tuple in `selector`
     phantom: PhantomData<T>,
 }
 
@@ -127,7 +131,7 @@ where
     }
 }
 
-impl<E, Q, T> QueryBuilder<'_, E, Q, T>
+impl<'a, E, Q, T> QueryBuilder<'a, E, Q, T>
 where
     Q: Query,
 {
@@ -161,6 +165,36 @@ where
         >: Default,
     {
         self.filter(predicate_builder(Default::default()))
+    }
+
+    #[must_use]
+    pub fn select_with<B, O>(self, f: B) -> QueryBuilder<'a, E, Q, O::SelectedTuple>
+    where
+        Q::Item: HasPrototype,
+        B: FnOnce(
+            <Q::Item as HasPrototype>::Prototype<
+                SelectorMarker,
+                BaseProjector<SelectorMarker, Q::Item>,
+            >,
+        ) -> O,
+        <Q::Item as HasPrototype>::Prototype<
+            SelectorMarker,
+            BaseProjector<SelectorMarker, Q::Item>,
+        >: Default,
+        O: IntoSelectorTuple<SelectingType = Q::Item>,
+    {
+        let new_selector = f(Default::default()).into_selector_tuple();
+
+        QueryBuilder {
+            query_executor: self.query_executor,
+            query: self.query,
+            filter: self.filter,
+            selector: new_selector,
+            pagination: self.pagination,
+            sorting: self.sorting,
+            fetch_size: self.fetch_size,
+            phantom: PhantomData,
+        }
     }
 
     /// Sort the results according to the specified sorting.

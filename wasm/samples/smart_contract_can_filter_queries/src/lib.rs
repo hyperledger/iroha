@@ -41,7 +41,7 @@ fn main(host: Iroha, _context: Context) {
     // genesis registers some more asset definitions, but we apply a filter to find only the ones from the `looking_glass` domain
     let cursor = host
         .query(FindAssetsDefinitions)
-        .filter_with(|asset_definition| asset_definition.id.domain.eq(domain_id))
+        .filter_with(|asset_definition| asset_definition.id.domain.eq(domain_id.clone()))
         .execute()
         .dbg_unwrap();
 
@@ -52,8 +52,32 @@ fn main(host: Iroha, _context: Context) {
         asset_definition_ids.insert(asset_definition.id().clone());
     }
 
-    assert_eq!(
-        asset_definition_ids,
-        [time_id, space_id].into_iter().collect()
-    );
+    let expected_asset_definition_ids = [time_id.clone(), space_id.clone()].into_iter().collect();
+
+    assert_eq!(asset_definition_ids, expected_asset_definition_ids);
+
+    // do the same as above, but utilizing server-side projections
+    let asset_definition_ids = host
+        .query(FindAssetsDefinitions)
+        .filter_with(|asset_definition| asset_definition.id.domain.eq(domain_id.clone()))
+        .select_with(|asset_definition| asset_definition.id)
+        .execute()
+        .dbg_unwrap()
+        .map(|v| v.dbg_unwrap())
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(asset_definition_ids, expected_asset_definition_ids);
+
+    // do the same as above, but passing the asset definition id as a 2-tuple
+    let asset_definition_ids = host
+        .query(FindAssetsDefinitions)
+        .filter_with(|asset_definition| asset_definition.id.domain.eq(domain_id))
+        .select_with(|asset_definition| (asset_definition.id.domain, asset_definition.id.name))
+        .execute()
+        .dbg_unwrap()
+        .map(|v| v.dbg_unwrap())
+        .map(|(domain, name)| AssetDefinitionId::new(domain, name))
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(asset_definition_ids, expected_asset_definition_ids);
 }

@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 
 // used in the macro
 use crate::query::dsl::{
-    EvaluatePredicate, EvaluateSelector, HasProjection, HasPrototype, ObjectProjector,
-    PredicateMarker, Projectable, SelectorMarker,
+    EvaluatePredicate, EvaluateSelector, HasProjection, HasPrototype, IntoSelector,
+    ObjectProjector, PredicateMarker, Projectable, SelectorMarker,
 };
 use crate::{
     account::{Account, AccountId},
@@ -198,6 +198,19 @@ macro_rules! type_descriptions {
             impl HasPrototype for $ty
             {
                 type Prototype<Marker, Projector> = $prototype_name<Marker, Projector>;
+            }
+
+            impl<Projector> IntoSelector for $prototype_name<SelectorMarker, Projector>
+            where
+                Projector: ObjectProjector<SelectorMarker, InputType = $ty>,
+                Projector::OutputType: HasProjection<SelectorMarker, AtomType = ()>,
+            {
+                type SelectingType = Projector::OutputType;
+                type SelectedType = Projector::InputType;
+
+                fn into_selector(self) -> <Projector::OutputType as HasProjection<SelectorMarker>>::Projection {
+                    Projector::wrap_atom(())
+                }
             }
         )*
 

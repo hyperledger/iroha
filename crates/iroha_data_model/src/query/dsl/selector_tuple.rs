@@ -18,6 +18,10 @@ use crate::query::{
 pub struct SelectorTuple<T: HasProjection<SelectorMarker, AtomType = ()>>(Vec<T::Projection>);
 
 impl<T: HasProjection<SelectorMarker, AtomType = ()>> SelectorTuple<T> {
+    pub fn new(selectors: Vec<T::Projection>) -> Self {
+        Self(selectors)
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &T::Projection> {
         self.0.iter()
     }

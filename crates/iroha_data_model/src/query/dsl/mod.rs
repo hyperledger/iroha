@@ -9,12 +9,17 @@ use derive_where::derive_where;
 
 mod compound_predicate;
 pub mod predicates;
+mod selector_traits;
 mod selector_tuple;
 pub mod type_descriptions;
 
 use iroha_schema::IntoSchema;
 
-pub use self::{compound_predicate::CompoundPredicate, selector_tuple::SelectorTuple};
+pub use self::{
+    compound_predicate::CompoundPredicate,
+    selector_traits::{IntoSelector, IntoSelectorTuple},
+    selector_tuple::SelectorTuple,
+};
 use crate::query::QueryOutputBatchBox;
 
 pub trait EvaluatePredicate<T: ?Sized> {
