@@ -411,10 +411,8 @@ fn multisig_recursion_base(suite: TestSuite) -> Result<()> {
         proposal_value_at_12.expires_at_ms,
         proposal_value_at_012345.expires_at_ms
     );
-    assert!(
-        1 == proposal_value_at_12.approvals.len()
-            && proposal_value_at_12.approvals.contains(&msa_12345)
-    );
+    assert!(proposal_value_at_12.approvals.is_empty());
+    assert_eq!(proposal_value_at_12.is_relayed, Some(false));
 
     // All the rest signatories try to approve the multisig transaction
     let mut approvals_iter = sigs_12
@@ -460,8 +458,9 @@ fn multisig_recursion_base(suite: TestSuite) -> Result<()> {
         _ => assert!(res.is_err()),
     }
 
-    // Check if the transaction entries on the last approval path are deleted
+    // Check if the transaction entries are deleted
     for (msa, mst_hash) in [
+        (msa_12, approval_hash_to_12345),
         (msa_345, approval_hash_to_12345),
         (msa_12345, approval_hash_to_012345),
         (msa_012345, instructions_hash),
@@ -471,7 +470,7 @@ fn multisig_recursion_base(suite: TestSuite) -> Result<()> {
             format!("multisig/proposals/{mst_hash}").parse().unwrap(),
         ));
         match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
-            // In case the root proposal is failing validation, the entries on the last approval path can exit only by expiring
+            // In case the root proposal is failing validation, the relevant entries can exit only by expiring
             (None, Some(_)) => assert!(res.is_ok()),
             _ => assert!(res.is_err()),
         }

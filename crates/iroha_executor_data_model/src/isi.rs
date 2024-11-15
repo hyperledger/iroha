@@ -137,6 +137,8 @@ pub mod multisig {
         pub expires_at_ms: NonZeroU64,
         /// List of approvers of the proposal so far
         pub approvals: BTreeSet<AccountId>,
+        /// In case this proposal is some relaying approval, indicates if it has executed or not
+        pub is_relayed: Option<bool>,
     }
 
     impl From<MultisigSpec> for Json {

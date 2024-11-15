@@ -1402,12 +1402,23 @@ mod multisig {
     }
 
     #[derive(Debug, SerializeDisplay, Display, Constructor)]
-    #[display(fmt = "{weight} -> [{got}/{quorum}] {target}")]
+    #[display(fmt = "{weight} {} [{got}/{quorum}] {target}", "self.relation()")]
     struct ApprovalEdge {
         weight: u8,
+        has_approved: bool,
         got: u16,
         quorum: u16,
         target: AccountId,
+    }
+
+    impl ApprovalEdge {
+        fn relation(&self) -> &str {
+            if self.has_approved {
+                "joined"
+            } else {
+                "->"
+            }
+        }
     }
 
     #[derive(Debug, Constructor)]
@@ -1471,6 +1482,7 @@ mod multisig {
             };
             let edge = ApprovalEdge::new(
                 *spec.signatories.get(&context.child).unwrap(),
+                proposal_value.approvals.contains(&context.child),
                 spec.signatories
                     .iter()
                     .filter(|(id, _)| proposal_value.approvals.contains(id))

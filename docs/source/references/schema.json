@@ -2647,6 +2647,10 @@
       {
         "name": "approvals",
         "type": "SortedVec<AccountId>"
+      },
+      {
+        "name": "is_relayed",
+        "type": "Option<bool>"
       }
     ]
   },
@@ -2841,6 +2845,9 @@
   },
   "Option<TriggerId>": {
     "Option": "TriggerId"
+  },
+  "Option<bool>": {
+    "Option": "bool"
   },
   "Option<u32>": {
     "Option": "u32"
@@ -5057,6 +5064,7 @@
     ]
   },
   "WasmSmartContract": "Vec<u8>",
+  "bool": "bool",
   "u16": {
     "Int": "FixedWidth"
   },
