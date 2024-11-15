@@ -7,10 +7,10 @@ use super::*;
 impl VisitExecute for MultisigPropose {
     fn visit<V: Execute + Visit + ?Sized>(&self, executor: &mut V) {
         let proposer = executor.context().authority.clone();
-        let target_account = self.account.clone();
+        let multisig_account = self.account.clone();
         let host = executor.host();
         let instructions_hash = HashOf::new(&self.instructions);
-        let multisig_role = multisig_role_for(&target_account);
+        let multisig_role = multisig_role_for(&multisig_account);
         let is_downward_proposal = host
             .query_single(FindAccountMetadata::new(
                 proposer.clone(),
@@ -20,7 +20,7 @@ impl VisitExecute for MultisigPropose {
                 proposer_signatories
                     .try_into_any::<BTreeMap<AccountId, u8>>()
                     .dbg_unwrap()
-                    .contains_key(&target_account)
+                    .contains_key(&multisig_account)
             });
         let has_multisig_role = host
             .query(FindRolesByAccountId::new(proposer))
@@ -34,7 +34,7 @@ impl VisitExecute for MultisigPropose {
 
         if host
             .query_single(FindAccountMetadata::new(
-                target_account.clone(),
+                multisig_account.clone(),
                 approvals_key(&instructions_hash),
             ))
             .is_ok()
@@ -45,16 +45,16 @@ impl VisitExecute for MultisigPropose {
 
     fn execute<V: Execute + Visit + ?Sized>(self, executor: &mut V) -> Result<(), ValidationFail> {
         let proposer = executor.context().authority.clone();
-        let target_account = self.account;
+        let multisig_account = self.account;
 
         // Authorize as the multisig account
-        executor.context_mut().authority = target_account.clone();
+        executor.context_mut().authority = multisig_account.clone();
 
         let instructions_hash = HashOf::new(&self.instructions);
         let signatories: BTreeMap<AccountId, u8> = executor
             .host()
             .query_single(FindAccountMetadata::new(
-                target_account.clone(),
+                multisig_account.clone(),
                 SIGNATORIES.parse().unwrap(),
             ))
             .dbg_unwrap()
@@ -82,7 +82,7 @@ impl VisitExecute for MultisigPropose {
             if is_multisig_again {
                 let propose_to_approve_me = {
                     let approve_me =
-                        MultisigApprove::new(target_account.clone(), instructions_hash);
+                        MultisigApprove::new(multisig_account.clone(), instructions_hash);
 
                     MultisigPropose::new(signatory, [approve_me.into()].to_vec())
                 };
@@ -92,19 +92,19 @@ impl VisitExecute for MultisigPropose {
         }
 
         visit_seq!(executor.visit_set_account_key_value(&SetKeyValue::account(
-            target_account.clone(),
+            multisig_account.clone(),
             instructions_key(&instructions_hash).clone(),
             Json::new(&self.instructions),
         )));
 
         visit_seq!(executor.visit_set_account_key_value(&SetKeyValue::account(
-            target_account.clone(),
+            multisig_account.clone(),
             proposed_at_ms_key(&instructions_hash).clone(),
             Json::new(now_ms),
         )));
 
         visit_seq!(executor.visit_set_account_key_value(&SetKeyValue::account(
-            target_account,
+            multisig_account,
             approvals_key(&instructions_hash).clone(),
             Json::new(&approvals),
         )));
@@ -116,9 +116,9 @@ impl VisitExecute for MultisigPropose {
 impl VisitExecute for MultisigApprove {
     fn visit<V: Execute + Visit + ?Sized>(&self, executor: &mut V) {
         let approver = executor.context().authority.clone();
-        let target_account = self.account.clone();
+        let multisig_account = self.account.clone();
         let host = executor.host();
-        let multisig_role = multisig_role_for(&target_account);
+        let multisig_role = multisig_role_for(&multisig_account);
 
         if host
             .query(FindRolesByAccountId::new(approver))
@@ -132,16 +132,16 @@ impl VisitExecute for MultisigApprove {
 
     fn execute<V: Execute + Visit + ?Sized>(self, executor: &mut V) -> Result<(), ValidationFail> {
         let approver = executor.context().authority.clone();
-        let target_account = self.account;
+        let multisig_account = self.account;
 
         // Authorize as the multisig account
-        executor.context_mut().authority = target_account.clone();
+        executor.context_mut().authority = multisig_account.clone();
 
         let host = executor.host();
         let instructions_hash = self.instructions_hash;
         let signatories: BTreeMap<AccountId, u8> = host
             .query_single(FindAccountMetadata::new(
-                target_account.clone(),
+                multisig_account.clone(),
                 SIGNATORIES.parse().unwrap(),
             ))
             .dbg_unwrap()
@@ -149,7 +149,7 @@ impl VisitExecute for MultisigApprove {
             .dbg_unwrap();
         let quorum: u16 = host
             .query_single(FindAccountMetadata::new(
-                target_account.clone(),
+                multisig_account.clone(),
                 QUORUM.parse().unwrap(),
             ))
             .dbg_unwrap()
@@ -157,7 +157,7 @@ impl VisitExecute for MultisigApprove {
             .dbg_unwrap();
         let transaction_ttl_ms: u64 = host
             .query_single(FindAccountMetadata::new(
-                target_account.clone(),
+                multisig_account.clone(),
                 TRANSACTION_TTL_MS.parse().unwrap(),
             ))
             .dbg_unwrap()
@@ -165,14 +165,14 @@ impl VisitExecute for MultisigApprove {
             .dbg_unwrap();
         let instructions: Vec<InstructionBox> = host
             .query_single(FindAccountMetadata::new(
-                target_account.clone(),
+                multisig_account.clone(),
                 instructions_key(&instructions_hash),
             ))?
             .try_into_any()
             .dbg_unwrap();
         let proposed_at_ms: u64 = host
             .query_single(FindAccountMetadata::new(
-                target_account.clone(),
+                multisig_account.clone(),
                 proposed_at_ms_key(&instructions_hash),
             ))
             .dbg_unwrap()
@@ -187,7 +187,7 @@ impl VisitExecute for MultisigApprove {
             .dbg_expect("shouldn't overflow within 584942417 years");
         let mut approvals: BTreeSet<AccountId> = host
             .query_single(FindAccountMetadata::new(
-                target_account.clone(),
+                multisig_account.clone(),
                 approvals_key(&instructions_hash),
             ))
             .dbg_unwrap()
@@ -197,7 +197,7 @@ impl VisitExecute for MultisigApprove {
         approvals.insert(approver);
 
         visit_seq!(executor.visit_set_account_key_value(&SetKeyValue::account(
-            target_account.clone(),
+            multisig_account.clone(),
             approvals_key(&instructions_hash),
             Json::new(&approvals),
         )));
@@ -215,21 +215,21 @@ impl VisitExecute for MultisigApprove {
             // Cleanup the transaction entry
             visit_seq!(
                 executor.visit_remove_account_key_value(&RemoveKeyValue::account(
-                    target_account.clone(),
+                    multisig_account.clone(),
                     approvals_key(&instructions_hash),
                 ))
             );
 
             visit_seq!(
                 executor.visit_remove_account_key_value(&RemoveKeyValue::account(
-                    target_account.clone(),
+                    multisig_account.clone(),
                     proposed_at_ms_key(&instructions_hash),
                 ))
             );
 
             visit_seq!(
                 executor.visit_remove_account_key_value(&RemoveKeyValue::account(
-                    target_account.clone(),
+                    multisig_account.clone(),
                     instructions_key(&instructions_hash),
                 ))
             );
