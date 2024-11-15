@@ -1266,7 +1266,7 @@ pub mod role {
                         if let Err(err) = executor.host().submit(isi) {
                             deny!(executor, err);
                         }
-                        return executor.visit_grant_account_role(grant_role);
+                        execute!(executor, grant_role);
                     }
                     deny!(
                         executor,
@@ -1309,7 +1309,7 @@ pub mod role {
                 deny!(executor, err);
             }
 
-            return executor.visit_grant_account_role(grant_role);
+            execute!(executor, grant_role);
         }
 
         deny!(executor, "Can't register role");
