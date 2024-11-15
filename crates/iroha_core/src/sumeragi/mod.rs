@@ -140,7 +140,9 @@ impl SumeragiStartArgs {
     #[allow(clippy::too_many_lines)]
     pub fn start(self, shutdown_signal: ShutdownSignal) -> (SumeragiHandle, Child) {
         let Self {
-            sumeragi_config,
+            config: SumeragiConfig {
+                debug_force_soft_fork,
+            },
             common_config,
             events_sender,
             state,
@@ -151,7 +153,7 @@ impl SumeragiStartArgs {
             genesis_network,
             block_count: BlockCount(block_count),
             #[cfg(feature = "telemetry")]
-                sumeragi_metrics:
+                metrics:
                 SumeragiMetrics {
                     view_changes,
                     dropped_messages,
@@ -176,7 +178,7 @@ impl SumeragiStartArgs {
 
             topology = match state_view.height() {
                 0 => Topology::new(
-                    sumeragi_config
+                    common_config
                         .trusted_peers
                         .value()
                         .clone()
@@ -206,11 +208,6 @@ impl SumeragiStartArgs {
         }
 
         info!("Sumeragi has finished loading blocks and setting up the state");
-
-        #[cfg(debug_assertions)]
-        let debug_force_soft_fork = sumeragi_config.debug_force_soft_fork;
-        #[cfg(not(debug_assertions))]
-        let debug_force_soft_fork = false;
 
         let peer = common_config.peer;
         let sumeragi = main_loop::Sumeragi {
@@ -295,7 +292,7 @@ impl VotingBlock<'_> {
 /// Arguments for [`SumeragiHandle::start`] function
 #[allow(missing_docs)]
 pub struct SumeragiStartArgs {
-    pub sumeragi_config: SumeragiConfig,
+    pub config: SumeragiConfig,
     pub common_config: CommonConfig,
     pub events_sender: EventsSender,
     pub state: Arc<State>,
@@ -306,7 +303,7 @@ pub struct SumeragiStartArgs {
     pub genesis_network: GenesisWithPubKey,
     pub block_count: BlockCount,
     #[cfg(feature = "telemetry")]
-    pub sumeragi_metrics: SumeragiMetrics,
+    pub metrics: SumeragiMetrics,
 }
 
 /// Relevant sumeragi metrics

@@ -57,7 +57,7 @@ mod model {
     #[derive(
         Debug, Display, Clone, IdEqOrdHash, Decode, Encode, Deserialize, Serialize, IntoSchema,
     )]
-    #[display(fmt = "@@{id}")]
+    #[display(fmt = "{id}")]
     #[ffi_type]
     pub struct Trigger {
         /// [`Id`] of the [`Trigger`].

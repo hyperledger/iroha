@@ -85,6 +85,26 @@ fn minimal_config_snapshot() {
                     address: 127.0.0.1:1337,
                     id: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB,
                 },
+                trusted_peers: WithOrigin {
+                    value: TrustedPeers {
+                        myself: Peer {
+                            address: 127.0.0.1:1337,
+                            id: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB,
+                        },
+                        others: UniqueVec(
+                            [
+                                Peer {
+                                    address: 127.0.0.1:1338,
+                                    id: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB,
+                                },
+                            ],
+                        ),
+                    },
+                    origin: File {
+                        id: ParameterId(trusted_peers),
+                        path: "tests/fixtures/base_trusted_peers.toml",
+                    },
+                },
             },
             network: Network {
                 address: WithOrigin {
@@ -135,26 +155,6 @@ fn minimal_config_snapshot() {
                 debug_output_new_blocks: false,
             },
             sumeragi: Sumeragi {
-                trusted_peers: WithOrigin {
-                    value: TrustedPeers {
-                        myself: Peer {
-                            address: 127.0.0.1:1337,
-                            id: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB,
-                        },
-                        others: UniqueVec(
-                            [
-                                Peer {
-                                    address: 127.0.0.1:1338,
-                                    id: ed01208BA62848CF767D72E7F7F4B9D2D7BA07FEE33760F79ABE5597A51520E292A0CB,
-                                },
-                            ],
-                        ),
-                    },
-                    origin: File {
-                        id: ParameterId(sumeragi.trusted_peers),
-                        path: "tests/fixtures/base_trusted_peers.toml",
-                    },
-                },
                 debug_force_soft_fork: false,
             },
             block_sync: BlockSync {
@@ -210,7 +210,7 @@ fn self_is_presented_in_trusted_peers() {
         load_config_from_fixtures("minimal_alone_with_genesis.toml").expect("valid config");
 
     assert!(config
-        .sumeragi
+        .common
         .trusted_peers
         .value()
         .clone()

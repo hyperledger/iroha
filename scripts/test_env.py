@@ -36,7 +36,7 @@ class Network:
         self.peers = [_Peer(args, i) for i in range(args.n_peers)]
 
         logging.info("Generating shared configuration...")
-        trusted_peers = [{"address": f"{peer.host_ip}:{peer.p2p_port}", "public_key": peer.public_key} for peer in self.peers]
+        trusted_peers = [peer.public_key + f"@{peer.host_ip}:{peer.p2p_port}" for peer in self.peers]
         topology = [peer.public_key for peer in self.peers]
         genesis_path = pathlib.Path(args.out_dir) / "genesis.json"
         genesis_key_pair = kagami_generate_key_pair(args.out_dir, seed="Irohagenesis")
@@ -44,11 +44,9 @@ class Network:
         genesis_private_key = genesis_key_pair["private_key"]
         shared_config = {
             "chain": "00000000-0000-0000-0000-000000000000",
+            "trusted_peers": trusted_peers,
             "genesis": {
                 "public_key": genesis_public_key
-            },
-            "sumeragi": {
-                "trusted_peers": trusted_peers
             },
             "logger": {
                 "level": "INFO",
@@ -85,7 +83,7 @@ class Network:
         sys.exit(2)
 
     def run(self):
-        for i, peer in enumerate(self.peers):
+        for peer in self.peers:
             peer.run()
         self.wait_for_genesis(20)
 

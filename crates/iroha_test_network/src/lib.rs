@@ -182,11 +182,11 @@ impl Network {
 
     /// Base configuration of all peers.
     ///
-    /// Includes `sumeragi.trusted_peers` parameter, containing all currently present peers.
+    /// Includes `trusted_peers` parameter, containing all currently present peers.
     pub fn config(&self) -> Table {
         self.config
             .clone()
-            .write(["sumeragi", "trusted_peers"], self.topology())
+            .write(["trusted_peers"], self.topology())
     }
 
     /// Network genesis block.
@@ -521,7 +521,7 @@ impl NetworkPeer {
 
     /// Spawn the child process.
     ///
-    /// Passed configuration must contain network topology in the `sumeragi.trusted_peers` parameter.
+    /// Passed configuration must contain network topology in the `trusted_peers` parameter.
     ///
     /// This function doesn't wait for peer server to start working, or for it to commit genesis block.
     /// Iroha could as well terminate immediately with an error, and it is not tracked by this function.

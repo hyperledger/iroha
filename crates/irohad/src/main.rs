@@ -260,14 +260,14 @@ impl Iroha {
         );
 
         let (peers_gossiper, child) = PeersGossiper::start(
-            config.sumeragi.trusted_peers.value().clone(),
+            config.common.trusted_peers.value().clone(),
             network.clone(),
             supervisor.shutdown_signal(),
         );
         supervisor.monitor(child);
 
         let (sumeragi, child) = SumeragiStartArgs {
-            sumeragi_config: config.sumeragi.clone(),
+            config: config.sumeragi,
             common_config: config.common.clone(),
             events_sender: events_sender.clone(),
             state: state.clone(),
@@ -281,7 +281,7 @@ impl Iroha {
             },
             block_count,
             #[cfg(feature = "telemetry")]
-            sumeragi_metrics: SumeragiMetrics {
+            metrics: SumeragiMetrics {
                 dropped_messages: metrics_reporter.metrics().dropped_messages.clone(),
                 view_changes: metrics_reporter.metrics().view_changes.clone(),
             },
@@ -554,17 +554,17 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
 
     if config.genesis.file.is_none()
         && !config
-            .sumeragi
+            .common
             .trusted_peers
             .value()
             .contains_other_trusted_peers()
     {
         emitter.emit(Report::new(ConfigError::LonePeer).attach_printable("\
-            Reason: the network consists from this one peer only (no `sumeragi.trusted_peers` provided).\n\
+            Reason: the network consists from this one peer only (no `trusted_peers` provided).\n\
             Since `genesis.file` is not set, there is no way to receive the genesis block.\n\
             Either provide the genesis by setting `genesis.file` configuration parameter,\n\
-            or increase the number of trusted peers in the network using `sumeragi.trusted_peers` configuration parameter.\
-        ").attach_printable(config.sumeragi.trusted_peers.clone().into_attachment().display_as_debug()));
+            or increase the number of trusted peers in the network using `trusted_peers` configuration parameter.\
+        ").attach_printable(config.common.trusted_peers.clone().into_attachment().display_as_debug()));
     }
 
     if config.network.address.value() == config.torii.address.value() {
