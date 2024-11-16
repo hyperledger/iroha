@@ -1254,51 +1254,49 @@ pub mod role {
             }
 
             if role.id().name().as_ref().starts_with(MULTISIG_SIGNATORY) {
-                if let Some(multisig_account) = multisig_account_from(role.id()) {
-                    if is_domain_owner(
-                        multisig_account.domain(),
-                        &executor.context().authority,
-                        executor.host(),
-                    )
-                    .unwrap_or_default()
-                    {
-                        let isi = &Register::role(new_role);
-                        if let Err(err) = executor.host().submit(isi) {
-                            deny!(executor, err);
-                        }
-                        execute!(executor, grant_role);
+                let Some(multisig_account) = multisig_account_from(role.id()) else {
+                    deny!(executor, "violates multisig role name format")
+                };
+                if is_domain_owner(
+                    multisig_account.domain(),
+                    &executor.context().authority,
+                    executor.host(),
+                )
+                .unwrap_or_default()
+                {
+                    let isi = &Register::role(new_role);
+                    if let Err(err) = executor.host().submit(isi) {
+                        deny!(executor, err);
                     }
-                    deny!(
-                        executor,
-                        "only the domain owner can register multisig roles"
-                    )
+                    execute!(executor, grant_role);
                 }
-                deny!(executor, "violates multisig role name format")
+                deny!(
+                    executor,
+                    "only the domain owner can register multisig roles"
+                )
             }
         }
 
         for permission in role.inner().permissions() {
             iroha_smart_contract::log::debug!(&format!("Checking `{permission:?}`"));
 
-            if let Ok(any_permission) = AnyPermission::try_from(permission) {
-                if !executor.context().curr_block.is_genesis() {
-                    if let Err(error) = crate::permission::ValidateGrantRevoke::validate_grant(
-                        &any_permission,
-                        role.grant_to(),
-                        executor.context(),
-                        executor.host(),
-                    ) {
-                        deny!(executor, error);
-                    }
-                }
-
-                new_role = new_role.add_permission(any_permission);
-            } else {
+            let Ok(any_permission) = AnyPermission::try_from(permission) else {
                 deny!(
                     executor,
                     ValidationFail::NotPermitted(format!("{permission:?}: Unknown permission"))
                 );
+            };
+            if !executor.context().curr_block.is_genesis() {
+                if let Err(error) = crate::permission::ValidateGrantRevoke::validate_grant(
+                    &any_permission,
+                    role.grant_to(),
+                    executor.context(),
+                    executor.host(),
+                ) {
+                    deny!(executor, error);
+                }
             }
+            new_role = new_role.add_permission(any_permission);
         }
 
         if executor.context().curr_block.is_genesis()
