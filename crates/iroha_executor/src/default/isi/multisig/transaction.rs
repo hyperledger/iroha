@@ -6,6 +6,7 @@ use core::num::NonZeroU64;
 use iroha_smart_contract::data_model::query::error::QueryExecutionFail;
 
 use super::*;
+use crate::data_model::Level;
 
 impl VisitExecute for MultisigPropose {
     fn visit<V: Execute + Visit + ?Sized>(&self, executor: &mut V) {
@@ -210,7 +211,9 @@ impl VisitExecute for MultisigApprove {
             proposal_value(multisig_account.clone(), instructions_hash, executor)
         else {
             // The proposal is pruned
-            // TODO Notify that the proposal has expired, while returning Ok for the entry deletion to take effect
+            // Notify that the proposal has expired, while returning Ok for the entry deletion to take effect
+            let log = Log::new(Level::INFO, format!("multisig proposal expired:\naccount: {multisig_account}\ninstructions hash: {instructions_hash}"));
+            visit_seq!(executor.visit_log(&log));
             return Ok(());
         };
         if let Some(true) = proposal_value.is_relayed {
