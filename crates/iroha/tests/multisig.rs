@@ -238,8 +238,12 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
         let approver = approvers.next().unwrap();
         let res = alt_client(approver, &test_client).submit_blocking(approve.clone());
         match &transaction_ttl_ms_opt {
-            None => assert!(res.is_ok()),
-            _ => assert!(res.is_err()),
+            None => {
+                res.unwrap();
+            }
+            _ => {
+                let _err = res.unwrap_err();
+            }
         }
     }
 
@@ -255,15 +259,23 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
     let approver = approvers.next().unwrap();
     let res = alt_client(approver, &test_client).submit_blocking(approve.clone());
     match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
-        (None, None) => assert!(res.is_ok()),
-        _ => assert!(res.is_err()),
+        (None, None) => {
+            res.unwrap();
+        }
+        _ => {
+            let _err = res.unwrap_err();
+        }
     }
 
     // Check if the multisig transaction has executed
     let res = test_client.query_single(FindAccountMetadata::new(transaction_target, key.clone()));
     match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
-        (None, None) => assert!(res.is_ok()),
-        _ => assert!(res.is_err()),
+        (None, None) => {
+            res.unwrap();
+        }
+        _ => {
+            let _err = res.unwrap_err();
+        }
     }
 
     // Check if the transaction entry is deleted
@@ -274,9 +286,13 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
             .unwrap(),
     ));
     match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
-        // In case failing validation, the entry can exit only by expiring
-        (None, Some(_)) => assert!(res.is_ok()),
-        _ => assert!(res.is_err()),
+        (None, Some(_)) => {
+            // In case failing validation, the entry can exit only by expiring
+            res.unwrap();
+        }
+        _ => {
+            let _err = res.unwrap_err();
+        }
     }
 
     Ok(())
@@ -430,8 +446,12 @@ fn multisig_recursion_base(suite: TestSuite) -> Result<()> {
         let (approver, approve) = approvals_iter.next().unwrap();
         let res = alt_client(approver, &test_client).submit_blocking(approve.clone());
         match &transaction_ttl_ms_opt {
-            None => assert!(res.is_ok()),
-            _ => assert!(res.is_err()),
+            None => {
+                res.unwrap();
+            }
+            _ => {
+                let _err = res.unwrap_err();
+            }
         }
     }
 
@@ -447,15 +467,23 @@ fn multisig_recursion_base(suite: TestSuite) -> Result<()> {
     let (approver, approve) = approvals_iter.next().unwrap();
     let res = alt_client(approver, &test_client).submit_blocking(approve.clone());
     match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
-        (None, None) => assert!(res.is_ok()),
-        _ => assert!(res.is_err()),
+        (None, None) => {
+            res.unwrap();
+        }
+        _ => {
+            let _err = res.unwrap_err();
+        }
     }
 
     // Check if the multisig transaction has executed
     let res = test_client.query_single(FindAccountMetadata::new(transaction_target, key.clone()));
     match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
-        (None, None) => assert!(res.is_ok()),
-        _ => assert!(res.is_err()),
+        (None, None) => {
+            res.unwrap();
+        }
+        _ => {
+            let _err = res.unwrap_err();
+        }
     }
 
     // Check if the transaction entries are deleted
@@ -470,9 +498,13 @@ fn multisig_recursion_base(suite: TestSuite) -> Result<()> {
             format!("multisig/proposals/{mst_hash}").parse().unwrap(),
         ));
         match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
-            // In case the root proposal is failing validation, the relevant entries can exit only by expiring
-            (None, Some(_)) => assert!(res.is_ok()),
-            _ => assert!(res.is_err()),
+            (None, Some(_)) => {
+                // In case the root proposal is failing validation, the relevant entries can exit only by expiring
+                res.unwrap();
+            }
+            _ => {
+                let _err = res.unwrap_err();
+            }
         }
     }
 
