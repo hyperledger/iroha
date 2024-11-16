@@ -181,7 +181,7 @@ enum MainError {
     #[error("Failed to run the command")]
     Subcommand,
 }
-#[allow(unused)]
+
 fn main() -> error_stack::Result<(), MainError> {
     let Args {
         config: config_path,
