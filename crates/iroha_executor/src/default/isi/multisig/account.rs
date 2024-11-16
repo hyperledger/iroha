@@ -15,7 +15,7 @@ impl VisitExecute for MultisigRegister {
         };
 
         // The multisig registrant needs to have sufficient permission to register personal accounts
-        // TODO Loosen to just being one of the signatories? But impose the procedure of propose and approve?
+        // TODO Relax the requirement to just being one of the signatories? But impose a proposal and approval procedure?
         visit_seq!(executor.visit_register_account(&Register::account(
             Account::new(multisig_account.clone()).with_metadata(metadata)
         )));
