@@ -3,6 +3,8 @@
 use alloc::{collections::btree_set::BTreeSet, vec};
 use core::num::NonZeroU64;
 
+use iroha_smart_contract::data_model::query::error::QueryExecutionFail;
+
 use super::*;
 
 impl VisitExecute for MultisigPropose {
@@ -11,22 +13,18 @@ impl VisitExecute for MultisigPropose {
         let proposer = executor.context().authority.clone();
         let multisig_account = self.account.clone();
         let instructions_hash = HashOf::new(&self.instructions);
-        let multisig_role = multisig_role_for(&multisig_account);
-        let Some(multisig_spec) = multisig_spec(multisig_account.clone(), executor) else {
-            deny!(executor, "multisig spec not found or malformed");
+        let multisig_spec = match multisig_spec(multisig_account.clone(), executor) {
+            Ok(spec) => spec,
+            Err(err) => deny!(executor, err),
         };
-
         let is_downward_proposal = host
-            .query_single(FindAccountMetadata::new(proposer.clone(), spec_key()))
-            .map_or(false, |json| {
-                json.try_into_any::<MultisigSpec>()
-                    .dbg_unwrap()
-                    .signatories
-                    .contains_key(&multisig_account)
-            });
+            .query(FindRolesByAccountId::new(multisig_account.clone()))
+            .filter_with(|role_id| role_id.eq(multisig_role_for(&proposer)))
+            .execute_single()
+            .is_ok();
         let has_multisig_role = host
             .query(FindRolesByAccountId::new(proposer))
-            .filter_with(|role_id| role_id.eq(multisig_role))
+            .filter_with(|role_id| role_id.eq(multisig_role_for(&multisig_account)))
             .execute_single()
             .is_ok();
         let has_not_longer_ttl = self.transaction_ttl_ms.map_or(true, |override_ttl_ms| {
@@ -43,7 +41,7 @@ impl VisitExecute for MultisigPropose {
 
         if host
             .query_single(FindAccountMetadata::new(
-                multisig_account.clone(),
+                multisig_account,
                 proposal_key(&instructions_hash),
             ))
             .is_ok()
@@ -56,7 +54,7 @@ impl VisitExecute for MultisigPropose {
         let proposer = executor.context().authority.clone();
         let multisig_account = self.account;
         let instructions_hash = HashOf::new(&self.instructions);
-        let spec = multisig_spec(multisig_account.clone(), executor).unwrap();
+        let spec = multisig_spec(multisig_account.clone(), executor)?;
 
         let now_ms = now_ms(executor);
         let expires_at_ms = {
@@ -107,7 +105,7 @@ fn deploy_relayer<V: Execute + Visit + ?Sized>(
     relay_value: impl Fn(MultisigApprove) -> MultisigProposalValue + Clone,
     executor: &mut V,
 ) -> Result<(), ValidationFail> {
-    let spec = multisig_spec(relayer.clone(), executor).unwrap();
+    let spec = multisig_spec(relayer.clone(), executor)?;
 
     let relay_hash = HashOf::new(&vec![relay.clone().into()]);
     let sub_relay = MultisigApprove::new(relayer.clone(), relay_hash);
@@ -143,27 +141,27 @@ fn is_multisig<V: Execute + Visit + ?Sized>(account: &AccountId, executor: &V) -
 fn multisig_spec<V: Execute + Visit + ?Sized>(
     multisig_account: AccountId,
     executor: &V,
-) -> Option<MultisigSpec> {
+) -> Result<MultisigSpec, ValidationFail> {
     executor
         .host()
-        .query_single(FindAccountMetadata::new(multisig_account, spec_key()))
-        .ok()
-        .and_then(|json| json.try_into_any().ok())
+        .query_single(FindAccountMetadata::new(multisig_account, spec_key()))?
+        .try_into_any()
+        .map_err(metadata_conversion_error)
 }
 
 fn proposal_value<V: Execute + Visit + ?Sized>(
     multisig_account: AccountId,
     instructions_hash: HashOf<Vec<InstructionBox>>,
     executor: &V,
-) -> Option<MultisigProposalValue> {
+) -> Result<MultisigProposalValue, ValidationFail> {
     executor
         .host()
         .query_single(FindAccountMetadata::new(
             multisig_account,
             proposal_key(&instructions_hash),
-        ))
-        .ok()
-        .and_then(|json| json.try_into_any().ok())
+        ))?
+        .try_into_any()
+        .map_err(metadata_conversion_error)
 }
 
 fn now_ms<V: Execute + Visit + ?Sized>(executor: &V) -> NonZeroU64 {
@@ -184,19 +182,18 @@ impl VisitExecute for MultisigApprove {
         let multisig_account = self.account.clone();
         let host = executor.host();
         let instructions_hash = self.instructions_hash;
-        let multisig_role = multisig_role_for(&multisig_account);
 
         if host
             .query(FindRolesByAccountId::new(approver))
-            .filter_with(|role_id| role_id.eq(multisig_role))
+            .filter_with(|role_id| role_id.eq(multisig_role_for(&multisig_account)))
             .execute_single()
             .is_err()
         {
             deny!(executor, "not qualified to approve multisig");
         };
 
-        if proposal_value(multisig_account, instructions_hash, executor).is_none() {
-            deny!(executor, "no proposals to approve")
+        if let Err(err) = proposal_value(multisig_account, instructions_hash, executor) {
+            deny!(executor, err)
         };
     }
 
@@ -209,7 +206,7 @@ impl VisitExecute for MultisigApprove {
         // Authorize as the multisig account
         prune_expired(multisig_account.clone(), instructions_hash, executor)?;
 
-        let Some(mut proposal_value) =
+        let Ok(mut proposal_value) =
             proposal_value(multisig_account.clone(), instructions_hash, executor)
         else {
             // The proposal is pruned
@@ -228,7 +225,7 @@ impl VisitExecute for MultisigApprove {
             Json::new(&proposal_value),
         )));
 
-        let spec = multisig_spec(multisig_account.clone(), executor).unwrap();
+        let spec = multisig_spec(multisig_account.clone(), executor)?;
         let is_authenticated = u16::from(spec.quorum)
             <= spec
                 .signatories
@@ -270,8 +267,7 @@ fn prune_expired<V: Execute + Visit + ?Sized>(
     instructions_hash: HashOf<Vec<InstructionBox>>,
     executor: &mut V,
 ) -> Result<(), ValidationFail> {
-    let proposal_value = proposal_value(multisig_account.clone(), instructions_hash, executor)
-        .expect("entry existence should be confirmed in advance");
+    let proposal_value = proposal_value(multisig_account.clone(), instructions_hash, executor)?;
 
     if now_ms(executor) < proposal_value.expires_at_ms {
         // Authorize as the multisig account
@@ -298,7 +294,7 @@ fn prune_down<V: Execute + Visit + ?Sized>(
     instructions_hash: HashOf<Vec<InstructionBox>>,
     executor: &mut V,
 ) -> Result<(), ValidationFail> {
-    let spec = multisig_spec(multisig_account.clone(), executor).unwrap();
+    let spec = multisig_spec(multisig_account.clone(), executor)?;
 
     // Authorize as the multisig account
     executor.context_mut().authority = multisig_account.clone();
@@ -324,4 +320,11 @@ fn prune_down<V: Execute + Visit + ?Sized>(
     executor.context_mut().authority = multisig_account;
 
     Ok(())
+}
+
+#[expect(clippy::needless_pass_by_value)]
+fn metadata_conversion_error(err: serde_json::Error) -> ValidationFail {
+    ValidationFail::QueryFailed(QueryExecutionFail::Conversion(format!(
+        "multisig account metadata malformed:\n{err}"
+    )))
 }
