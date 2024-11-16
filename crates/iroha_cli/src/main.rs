@@ -10,9 +10,11 @@ use std::{
 use erased_serde::Serialize;
 use error_stack::{fmt::ColorMode, IntoReportCompat, ResultExt};
 use eyre::{eyre, Error, Result, WrapErr};
+use futures::TryStreamExt;
 use iroha::{client::Client, config::Config, data_model::prelude::*};
 use iroha_primitives::json::Json;
 use thiserror::Error;
+use tokio::{runtime::Runtime, time::Duration};
 
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
 /// Should be combined with `#[command(flatten)]` attr.
@@ -179,7 +181,7 @@ enum MainError {
     #[error("Failed to run the command")]
     Subcommand,
 }
-
+#[allow(unused)]
 fn main() -> error_stack::Result<(), MainError> {
     let Args {
         config: config_path,
@@ -309,37 +311,85 @@ mod events {
     #[derive(clap::Subcommand, Debug, Clone, Copy)]
     pub enum Args {
         /// Gets block pipeline events
-        BlockPipeline,
+        BlockPipeline(Options),
         /// Gets transaction pipeline events
-        TransactionPipeline,
+        TransactionPipeline(Options),
         /// Gets data events
-        Data,
+        Data(Options),
         /// Get execute trigger events
-        ExecuteTrigger,
+        ExecuteTrigger(Options),
         /// Get trigger completed events
-        TriggerCompleted,
+        TriggerCompleted(Options),
+    }
+
+    #[derive(clap::Args, Debug, Clone, Copy)]
+    pub struct Options {
+        /// Wait timeout in seconds
+        #[clap(short, long)]
+        timeout: Option<u64>,
     }
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             match self {
-                Args::TransactionPipeline => listen(TransactionEventFilter::default(), context),
-                Args::BlockPipeline => listen(BlockEventFilter::default(), context),
-                Args::Data => listen(DataEventFilter::Any, context),
-                Args::ExecuteTrigger => listen(ExecuteTriggerEventFilter::new(), context),
-                Args::TriggerCompleted => listen(TriggerCompletedEventFilter::new(), context),
+                Args::TransactionPipeline(Options { timeout }) => listen(
+                    TransactionEventFilter::default(),
+                    context,
+                    timeout.map(Duration::from_secs),
+                ),
+                Args::BlockPipeline(Options { timeout }) => listen(
+                    BlockEventFilter::default(),
+                    context,
+                    timeout.map(Duration::from_secs),
+                ),
+                Args::Data(Options { timeout }) => listen(
+                    DataEventFilter::Any,
+                    context,
+                    timeout.map(Duration::from_secs),
+                ),
+                Args::ExecuteTrigger(Options { timeout }) => listen(
+                    ExecuteTriggerEventFilter::new(),
+                    context,
+                    timeout.map(Duration::from_secs),
+                ),
+                Args::TriggerCompleted(Options { timeout }) => listen(
+                    TriggerCompletedEventFilter::new(),
+                    context,
+                    timeout.map(Duration::from_secs),
+                ),
             }
         }
     }
 
-    fn listen(filter: impl Into<EventFilterBox>, context: &mut dyn RunContext) -> Result<()> {
+    fn listen(
+        filter: impl Into<EventFilterBox>,
+        context: &mut dyn RunContext,
+        timeout: Option<Duration>,
+    ) -> Result<()> {
         let filter = filter.into();
         let client = context.client_from_config();
-        eprintln!("Listening to events with filter: {filter:?}");
-        client
-            .listen_for_events([filter])
-            .wrap_err("Failed to listen for events.")?
-            .try_for_each(|event| context.print_data(&event?))?;
+
+        if let Some(timeout) = timeout {
+            eprintln!("Listening to events with filter: {filter:?} and timeout: {timeout:?}");
+            let rt = Runtime::new().wrap_err("Failed to create runtime.")?;
+            rt.block_on(async {
+                let mut stream = client
+                    .listen_for_events_async([filter])
+                    .await
+                    .expect("Failed to listen for events.");
+                while let Ok(event) = tokio::time::timeout(timeout, stream.try_next()).await {
+                    context.print_data(&event?)?;
+                }
+                eprintln!("Timeout period has expired.");
+                Result::<()>::Ok(())
+            })?;
+        } else {
+            eprintln!("Listening to events with filter: {filter:?}");
+            client
+                .listen_for_events([filter])
+                .wrap_err("Failed to listen for events.")?
+                .try_for_each(|event| context.print_data(&event?))?;
+        }
         Ok(())
     }
 }
@@ -354,22 +404,46 @@ mod blocks {
     pub struct Args {
         /// Block height from which to start streaming blocks
         height: NonZeroU64,
+
+        /// Wait timeout in seconds
+        #[clap(short, long)]
+        timeout: Option<u64>,
     }
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Args { height } = self;
-            listen(height, context)
+            let Args { height, timeout } = self;
+            listen(height, context, timeout.map(Duration::from_secs))
         }
     }
 
-    fn listen(height: NonZeroU64, context: &mut dyn RunContext) -> Result<()> {
+    fn listen(
+        height: NonZeroU64,
+        context: &mut dyn RunContext,
+        timeout: Option<Duration>,
+    ) -> Result<()> {
         let client = context.client_from_config();
-        eprintln!("Listening to blocks from height: {height}");
-        client
-            .listen_for_blocks(height)
-            .wrap_err("Failed to listen for blocks.")?
-            .try_for_each(|event| context.print_data(&event?))?;
+        if let Some(timeout) = timeout {
+            eprintln!("Listening to blocks from height: {height} and timeout: {timeout:?}");
+            let rt = Runtime::new().wrap_err("Failed to create runtime.")?;
+            rt.block_on(async {
+                let mut stream = client
+                    .listen_for_blocks_async(height)
+                    .await
+                    .expect("Failed to listen for blocks.");
+                while let Ok(event) = tokio::time::timeout(timeout, stream.try_next()).await {
+                    context.print_data(&event?)?;
+                }
+                eprintln!("Timeout period has expired.");
+                Result::<()>::Ok(())
+            })?;
+        } else {
+            eprintln!("Listening to blocks from height: {height}");
+            client
+                .listen_for_blocks(height)
+                .wrap_err("Failed to listen for blocks.")?
+                .try_for_each(|event| context.print_data(&event?))?;
+        }
         Ok(())
     }
 }
