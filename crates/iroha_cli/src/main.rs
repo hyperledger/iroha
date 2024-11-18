@@ -102,7 +102,6 @@ enum Subcommand {
     #[clap(subcommand)]
     Peer(peer::Args),
     /// The subcommand related to event streaming
-    // #[clap(args)]
     Events(events::Args),
     /// The subcommand related to Wasm
     Wasm(wasm::Args),
@@ -1442,7 +1441,6 @@ mod multisig {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     #[test]
