@@ -45,6 +45,7 @@ where
 
     while let Some(item) = iter.next() {
         if iter.peek().is_none() {
+            // do not clone the last item
             batch_tuple.push(item.project(batch.into_iter()));
             return QueryOutputBatchBoxTuple { tuple: batch_tuple };
         }
@@ -141,7 +142,7 @@ where
     }
 }
 
-/// A query output iterator that combines batching and type erasure.
+/// A query output iterator that combines evaluating selectors, batching and type erasure.
 pub struct ErasedQueryIterator {
     inner: Box<dyn BatchedTrait + Send + Sync>,
 }
@@ -153,7 +154,7 @@ impl Debug for ErasedQueryIterator {
 }
 
 impl ErasedQueryIterator {
-    /// Creates a new batched iterator. Boxes the inner iterator to erase its type.
+    /// Creates a new erased query iterator. Boxes the inner iterator to erase its type.
     pub fn new<I>(iter: I, selector: SelectorTuple<I::Item>, batch_size: NonZeroU64) -> Self
     where
         I: ExactSizeIterator + Send + Sync + 'static,

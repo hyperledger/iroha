@@ -1,20 +1,30 @@
 #[cfg(not(feature = "std"))]
-use alloc::{vec, vec::Vec};
+use alloc::vec;
 
 use crate::{
     prelude::SelectorTuple,
     query::dsl::{HasProjection, SelectorMarker},
 };
 
+/// A trait implemented on all types that can be converted into a selector (usually prototypes).
 pub trait IntoSelector {
+    /// A type that the selector is selecting from
     type SelectingType: HasProjection<SelectorMarker, AtomType = ()>;
+    /// A type that the selector ends up selecting
+    // Note that this type is not exposed by the converted selector
+    // As such, it is not possible to do type-safe queries just by looking at the selector, a type implementing this trait must be used
     type SelectedType;
+    /// Convert the type into a selector
     fn into_selector(self) -> <Self::SelectingType as HasProjection<SelectorMarker>>::Projection;
 }
 
+/// A trait implemented on all types that can be converted into a selector tuple (usually prototypes).
 pub trait IntoSelectorTuple {
+    /// A type that the selector is selecting from
     type SelectingType: HasProjection<SelectorMarker, AtomType = ()>;
+    /// A tuple of types that the selector ends up selecting
     type SelectedTuple;
+    /// Convert the type into a selector tuple
     fn into_selector_tuple(self) -> SelectorTuple<Self::SelectingType>;
 }
 

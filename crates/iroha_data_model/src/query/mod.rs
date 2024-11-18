@@ -1,8 +1,6 @@
 //! Iroha Queries provides declarative API for Iroha Queries.
 
 #![allow(clippy::missing_inline_in_public_items)]
-// TODO
-#![allow(missing_docs)]
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
@@ -360,6 +358,11 @@ impl QueryOutputBatchBox {
 }
 
 impl QueryOutputBatchBoxTuple {
+    /// Extends this batch tuple with another batch tuple of the same type
+    ///
+    /// # Panics
+    ///
+    /// Panics if the types or lengths of the two batche tuples do not match
     pub fn extend(&mut self, other: Self) {
         if self.tuple.len() != other.tuple.len() {
             panic!("Cannot extend QueryOutputBatchBoxTuple with different number of elements");
@@ -371,6 +374,8 @@ impl QueryOutputBatchBoxTuple {
             .for_each(|(self_batch, other_batch)| self_batch.extend(other_batch));
     }
 
+    /// Returns length of this batch tuple
+    // This works under assumption that all batches in the tuples have the same length, which should be true for iroha
     pub fn len(&self) -> usize {
         self.tuple.iter().map(QueryOutputBatchBox::len).sum()
     }

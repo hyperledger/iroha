@@ -167,6 +167,9 @@ where
         self.filter(predicate_builder(Default::default()))
     }
 
+    /// Return only the fields of the results specified by the given closure.
+    ///
+    /// You can select multiple fields by returning a tuple from the closure.
     #[must_use]
     pub fn select_with<B, O>(self, f: B) -> QueryBuilder<'a, E, Q, O::SelectedTuple>
     where

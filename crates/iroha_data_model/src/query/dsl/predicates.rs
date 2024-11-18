@@ -1,3 +1,5 @@
+//! This module contains predicate definitions for all queryable types. See the [module-level documentation](crate::query::dsl) for more information.
+
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
@@ -25,7 +27,7 @@ use crate::{
                 StringPrototype, TransactionErrorPrototype, TransactionHashPrototype,
                 TriggerIdPrototype, TriggerPrototype,
             },
-            CompoundPredicate, HasPrototype, ObjectProjector, PredicateMarker,
+            CompoundPredicate, ObjectProjector, PredicateMarker,
         },
         CommittedTransaction,
     },
@@ -57,7 +59,7 @@ macro_rules! impl_predicate_atom {
         )*
     ) => {
         $(
-
+            #[doc = concat!("At atomic predicate on [`", stringify!($ty_name), "`]")]
             #[derive(
                 Debug, Clone, PartialEq, Eq,
                 parity_scale_codec::Decode, parity_scale_codec::Encode, serde::Deserialize, serde::Serialize, iroha_schema::IntoSchema
@@ -92,6 +94,7 @@ macro_rules! impl_predicate_atom {
                 Projector: ObjectProjector<PredicateMarker, InputType = $ty_name>,
             {
                 $(
+                    $(#[$($variant_attrs)*])*
                     pub fn $constructor_name(self $(, $variant_pat: $variant_ty)?) -> CompoundPredicate<Projector::OutputType> {
                         CompoundPredicate::Atom(Projector::wrap_atom(
                             $atom_name::$variant_name$(($variant_pat))?
@@ -103,7 +106,8 @@ macro_rules! impl_predicate_atom {
     };
 }
 
-// Defined separately because it needs an `AsRef<str>` generic
+/// An atomic predicate on [`String`] or [`Name`]
+// Defined separately because it is shared between [String] and [Name]
 #[derive(
     Debug,
     Clone,
@@ -157,17 +161,19 @@ impl super::EvaluatePredicate<Name> for StringPredicateAtom {
     }
 }
 
-// TODO: can we coalesce String and Name prototypes, so these impls wouldn't have to be repeated? I am not sure if it's possible tbh...
+// It is unfortunate that we have to repeat the prototype methods on String and Name, but I don't think it's possible to remove this duplication
 impl<Projection> StringPrototype<PredicateMarker, Projection>
 where
     Projection: ObjectProjector<PredicateMarker, InputType = String>,
 {
+    /// Checks if the input is equal to the expected value.
     pub fn eq(self, expected: impl Into<String>) -> CompoundPredicate<Projection::OutputType> {
         CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::Equals(
             expected.into(),
         )))
     }
 
+    /// Checks if the input contains an expected substring, like [`str::contains()`].
     pub fn contains(
         self,
         expected: impl Into<String>,
@@ -177,6 +183,7 @@ where
         )))
     }
 
+    /// Checks if the input starts with an expected substring, like [`str::starts_with()`].
     pub fn starts_with(
         self,
         expected: impl Into<String>,
@@ -186,6 +193,7 @@ where
         )))
     }
 
+    /// Checks if the input ends with an expected substring, like [`str::ends_with()`].
     pub fn ends_with(
         self,
         expected: impl Into<String>,
@@ -200,12 +208,14 @@ impl<Projection> NamePrototype<PredicateMarker, Projection>
 where
     Projection: ObjectProjector<PredicateMarker, InputType = Name>,
 {
+    /// Checks if the input is equal to the expected value.
     pub fn eq(self, expected: impl Into<String>) -> CompoundPredicate<Projection::OutputType> {
         CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::Equals(
             expected.into(),
         )))
     }
 
+    /// Checks if the input contains an expected substring, like [`str::contains()`].
     pub fn contains(
         self,
         expected: impl Into<String>,
@@ -215,6 +225,7 @@ where
         )))
     }
 
+    /// Checks if the input starts with an expected substring, like [`str::starts_with()`].
     pub fn starts_with(
         self,
         expected: impl Into<String>,
@@ -224,6 +235,7 @@ where
         )))
     }
 
+    /// Checks if the input ends with an expected substring, like [`str::ends_with()`].
     pub fn ends_with(
         self,
         expected: impl Into<String>,
@@ -235,7 +247,7 @@ where
 }
 
 impl_predicate_atom! {
-    MetadataPredicateAtom(input: Metadata) [MetadataPrototype] {
+    MetadataPredicateAtom(_input: Metadata) [MetadataPrototype] {
         // TODO: populate
     }
     PublicKeyPredicateAtom(input: PublicKey) [PublicKeyPrototype] {

@@ -1,10 +1,10 @@
+//! This module contains definitions of prototypes and projections for the data model types. See the [module-level documentation](crate::query::dsl) for more information.
+
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
 
 use derive_where::derive_where;
 use iroha_crypto::{HashOf, PublicKey};
-use iroha_macro::serde_where;
-use serde::{Deserialize, Serialize};
 
 // used in the macro
 use crate::query::dsl::{
@@ -83,6 +83,7 @@ macro_rules! type_descriptions {
         // unpack tt sequence back
         ($($dep_ty_bounds:tt)*)
     ) => {
+        #[doc = concat!("A projector on [`", stringify!($ty), "`] for its `", stringify!($field_name), "` field.")]
         pub struct $projector_name<Marker, Base>(core::marker::PhantomData<(Marker, Base)>);
 
         impl<Marker, Base> ObjectProjector<Marker> for $projector_name<Marker, Base>
@@ -129,6 +130,7 @@ macro_rules! type_descriptions {
             type_descriptions!(@check_attrs $(#[$($attrs)*])*);
 
             // hints to the IDE that these are types
+            #[allow(unused_variables)]
             const _:() = {
                 let t: $ty;
                 $($(let t: $dep_ty;)+)?
@@ -136,6 +138,7 @@ macro_rules! type_descriptions {
             };
 
             // projection enum
+            #[doc = concat!("A projection for the [`", stringify!($ty), "`] type.")]
             // use derive_where to generate trait bounds
             #[derive_where::derive_where(Debug, Eq, PartialEq, Copy, Clone;
                 <$ty as Projectable<Marker>>::AtomType
@@ -154,8 +157,10 @@ macro_rules! type_descriptions {
                 $ty: Projectable<Marker>
                 $($(, $dep_ty: HasProjection<Marker>)*)?
             {
+                #[doc = "Finish the projection with an atom."]
                 Atom(<$ty as Projectable<Marker>>::AtomType),
                 $(
+                    #[doc = concat!("Projection for the `", stringify!($field_name), "` field.")]
                     $proj_variant(
                         <$field_ty as HasProjection<Marker>>::Projection
                     ),
@@ -187,9 +192,12 @@ macro_rules! type_descriptions {
             )*) ($(, $($dep_ty: Projectable<Marker>),*)?));
 
             // prototype struct
+            #[doc = concat!("A prototype for the [`", stringify!($ty), "`] type.")]
             #[derive_where::derive_where(Default, Copy, Clone)]
             pub struct $prototype_name<Marker, Projector> {
                 $(
+                    // TODO: I think it might make sense to provide field documentation here. How would we do that without copying the docs to the type description macro though?
+                    #[doc = concat!("Accessor for the `", stringify!($field_name), "` field.")]
                     pub $field_name: <$field_ty as HasPrototype>::Prototype<Marker, $projector_name<Marker, Projector>>,
                 )*
                 phantom: core::marker::PhantomData<(Marker, Projector)>,
@@ -427,5 +435,6 @@ impl EvaluateSelector<SignedTransaction> for SignedTransactionProjection<Selecto
 }
 
 pub mod prelude {
+    //! Re-export all projections for a glob import `(::*)`
     pub use super::projections::*;
 }

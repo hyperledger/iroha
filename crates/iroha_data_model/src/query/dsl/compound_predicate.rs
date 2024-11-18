@@ -11,18 +11,26 @@ use crate::query::dsl::{
     BaseProjector, EvaluatePredicate, HasProjection, HasPrototype, PredicateMarker,
 };
 
+/// A compound predicate that is be used to combine multiple predicates using logical operators.
 #[derive_where(Debug, Eq, PartialEq, Clone; T::Projection)]
 #[serde_where(T::Projection)]
 #[derive(Decode, Encode, Deserialize, Serialize, IntoSchema)]
 pub enum CompoundPredicate<T: HasProjection<PredicateMarker>> {
+    /// A predicate as-is
     Atom(T::Projection),
+    /// A negation of a compound predicate.
     Not(Box<CompoundPredicate<T>>),
+    /// A conjunction of multiple predicates.
     And(Vec<CompoundPredicate<T>>),
+    /// A disjunction of multiple predicates.
     Or(Vec<CompoundPredicate<T>>),
 }
 
 impl<T: HasProjection<PredicateMarker>> CompoundPredicate<T> {
+    /// A compound predicate that always evaluates to `true`.
     pub const PASS: Self = Self::And(Vec::new());
+    /// A compound predicate that always evaluates to `false`.
+    pub const FAIL: Self = Self::Or(Vec::new());
 
     // aliases for logical operations
     /// Negate the predicate.
@@ -49,6 +57,7 @@ where
     T: HasProjection<PredicateMarker>,
     T::Projection: EvaluatePredicate<T>,
 {
+    /// Evaluate the predicate on the given input.
     pub fn applies(&self, input: &T) -> bool {
         match self {
             CompoundPredicate::Atom(projection) => projection.applies(input),
@@ -112,6 +121,7 @@ impl<T: HasProjection<PredicateMarker>> core::ops::BitOr for CompoundPredicate<T
 }
 
 impl<T: HasProjection<PredicateMarker>> CompoundPredicate<T> {
+    /// Build a new compound predicate using the provided closure.
     pub fn build<F>(f: F) -> Self
     where
         T: HasPrototype,

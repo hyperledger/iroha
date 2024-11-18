@@ -68,14 +68,6 @@ where
 }
 
 macro_rules! typed_batch_tuple {
-    // (@repeat_none @recur) => {};
-    // (@repeat_none @recur $dummy1:ident $($rest:ident)*) => {
-    //     None, typed_batch_tuple!(@repeat_none @recur $($rest)*)
-    // };
-    // (@repeat_none $($rest:ident)*) => {
-    //     (typed_batch_tuple!(@repeat_none @recur $($rest)*))
-    // };
-    // (@first $first:tt $($rest:tt)*) => { $first };
     (
         $(
             $name:ident($($ty_name:ident: $ty:ident),+);
@@ -160,38 +152,3 @@ typed_batch_tuple! {
     TypedBatch8(t1: T1, t2: T2, t3: T3, t4: T4, t5: T5, t6: T6, t7: T7, t8: T8);
     // who needs more than 8 values in their query, right?
 }
-
-// pub struct QueryIterator<T>
-// where
-//     T: HasTypedBatchIter,
-// {
-//     batch: T::TypedBatchIter,
-//     // TODO: include the query executor in here
-// }
-//
-// impl<T> QueryIterator<T>
-// where
-//     T: HasTypedBatchIter,
-// {
-//     pub fn new(first_batch: QueryOutputBatchBoxTuple) -> Result<Self, TypedBatchDowncastError> {
-//         let batch = T::downcast(first_batch)?;
-//
-//         Ok(Self { batch })
-//     }
-// }
-//
-// impl<T> Iterator for QueryIterator<T>
-// where
-//     T: HasTypedBatchIter,
-// {
-//     type Item = Result<T, ()>;
-//
-//     fn next(&mut self) -> Option<Self::Item> {
-//         if let Some(item) = self.batch.next() {
-//             return Some(Ok(item));
-//         }
-//
-//         // TODO: request next batch
-//         None
-//     }
-// }
