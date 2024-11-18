@@ -284,7 +284,7 @@ mod filter {
     #[derive(Clone, Debug, clap::Parser)]
     pub struct AssetDefinitionFilter {
         /// Predicate for filtering given as JSON5 string
-        #[clap(value_parser = parse_json5::<CompoundPredicate<Asset>>)]
+        #[clap(value_parser = parse_json5::<CompoundPredicate<AssetDefinition>>)]
         pub predicate: CompoundPredicate<AssetDefinition>,
     }
 

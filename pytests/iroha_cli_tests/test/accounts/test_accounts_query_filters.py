@@ -11,7 +11,7 @@ def test_filter_by_domain(GIVEN_registered_account):
         domain = GIVEN_registered_account.domain
         with allure.step(f"WHEN iroha_cli query accounts " f'in the "{domain}" domain'):
             accounts = iroha.list_filter(
-                {"Atom": {"Id": {"DomainId": {"Equals": domain}}}}
+                {"Atom": {"Id": {"Domain": {"Atom": {"Equals": domain}}}}}
             ).accounts()
         with allure.step("THEN Iroha should return only accounts with this domain"):
             allure.attach(
@@ -33,7 +33,7 @@ def test_filter_by_account_id(GIVEN_registered_account):
             f'WHEN iroha_cli query accounts with account id "{account_id}"'
         ):
             accounts = iroha.list_filter(
-                {"Atom": {"Id": {"Equals": account_id}}}
+                {"Atom": {"Id": {"Atom": {"Equals": account_id}}}}
             ).accounts()
         with allure.step("THEN Iroha should return only accounts with this id"):
             allure.attach(
