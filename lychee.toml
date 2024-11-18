@@ -1,0 +1,8 @@
+verbose = "error"
+no_progress = true
+cache = false
+
+timeout = 20
+max_retries = 2
+
+exclude = ['^http[s]?://127.0.0.1', '^http[s]?://localhost', '^http[s]?://iroha-']
