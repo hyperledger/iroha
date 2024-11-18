@@ -1,6 +1,7 @@
 # Hyperledger Iroha
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Check Links](https://github.com/hyperledger-iroha/iroha/actions/workflows/iroha2-doc-links.yml/badge.svg)](https://github.com/hyperledger-iroha/iroha/actions/workflows/iroha2-doc-links.yml)
 
 Iroha is a simple and efficient blockchain ledger based on the **distributed ledger technology (DLT)**. Its design principles are inspired by the Japanese Kaizen principle of eliminating excesses (*muri*).
 

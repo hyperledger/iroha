@@ -1,0 +1,25 @@
+name: I2::Doc::Links
+
+on:
+  pull_request:
+    branches: [main, stable, lts]
+    paths:
+      - '**/*.md'
+      - '**/*.txt'
+      - '**/*.html'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  link_checker:
+    runs-on: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Link Checker
+        id: lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          fail: true
