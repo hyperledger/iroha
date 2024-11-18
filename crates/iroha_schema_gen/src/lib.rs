@@ -34,8 +34,7 @@ macro_rules! types {
 /// shall be included recursively.
 pub fn build_schemas() -> MetaMap {
     use iroha_data_model::prelude::*;
-    use iroha_executor_data_model::permission;
-    use iroha_multisig_data_model as multisig;
+    use iroha_executor_data_model::{isi::multisig, permission};
 
     macro_rules! schemas {
         ($($t:ty),* $(,)?) => {{
@@ -85,8 +84,6 @@ pub fn build_schemas() -> MetaMap {
         permission::asset::CanModifyAssetMetadata,
         permission::parameter::CanSetParameters,
         permission::role::CanManageRoles,
-        permission::trigger::CanRegisterAnyTrigger,
-        permission::trigger::CanUnregisterAnyTrigger,
         permission::trigger::CanRegisterTrigger,
         permission::trigger::CanExecuteTrigger,
         permission::trigger::CanUnregisterTrigger,
@@ -94,9 +91,8 @@ pub fn build_schemas() -> MetaMap {
         permission::trigger::CanModifyTriggerMetadata,
         permission::executor::CanUpgradeExecutor,
 
-        // Arguments attached to multi-signature operations
-        multisig::MultisigAccountArgs,
-        multisig::MultisigTransactionArgs,
+        // Multi-signature operations
+        multisig::MultisigInstructionBox,
 
         // Genesis file - used by SDKs to generate the genesis block
         // TODO: IMO it could/should be removed from the schema
@@ -287,13 +283,12 @@ types!(
     MintabilityError,
     Mintable,
     Mismatch<AssetType>,
-    MultisigAccountArgs,
-    MultisigTransactionArgs,
     Name,
     NewAccount,
     NewAssetDefinition,
     NewDomain,
     NewRole,
+    NonZeroU16,
     NonZeroU32,
     NonZeroU64,
     Numeric,
@@ -507,7 +502,7 @@ types!(
 pub mod complete_data_model {
     //! Complete set of types participating in the schema
 
-    pub use core::num::{NonZeroU32, NonZeroU64};
+    pub use core::num::{NonZeroU16, NonZeroU32, NonZeroU64};
     pub use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
     pub use iroha_crypto::*;
@@ -551,7 +546,6 @@ pub mod complete_data_model {
         Level,
     };
     pub use iroha_genesis::{GenesisWasmAction, GenesisWasmTrigger, WasmPath};
-    pub use iroha_multisig_data_model::{MultisigAccountArgs, MultisigTransactionArgs};
     pub use iroha_primitives::{const_vec::ConstVec, conststr::ConstString, json::Json};
     pub use iroha_schema::Compact;
 }
@@ -621,12 +615,6 @@ mod tests {
         insert_into_test_map!(iroha_executor_data_model::permission::asset::CanModifyAssetMetadata);
         insert_into_test_map!(iroha_executor_data_model::permission::parameter::CanSetParameters);
         insert_into_test_map!(iroha_executor_data_model::permission::role::CanManageRoles);
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::trigger::CanRegisterAnyTrigger
-        );
-        insert_into_test_map!(
-            iroha_executor_data_model::permission::trigger::CanUnregisterAnyTrigger
-        );
         insert_into_test_map!(iroha_executor_data_model::permission::trigger::CanRegisterTrigger);
         insert_into_test_map!(iroha_executor_data_model::permission::trigger::CanExecuteTrigger);
         insert_into_test_map!(iroha_executor_data_model::permission::trigger::CanUnregisterTrigger);
@@ -635,6 +623,11 @@ mod tests {
             iroha_executor_data_model::permission::trigger::CanModifyTriggerMetadata
         );
         insert_into_test_map!(iroha_executor_data_model::permission::executor::CanUpgradeExecutor);
+
+        insert_into_test_map!(iroha_executor_data_model::isi::multisig::MultisigInstructionBox);
+        insert_into_test_map!(iroha_executor_data_model::isi::multisig::MultisigRegister);
+        insert_into_test_map!(iroha_executor_data_model::isi::multisig::MultisigPropose);
+        insert_into_test_map!(iroha_executor_data_model::isi::multisig::MultisigApprove);
 
         map
     }

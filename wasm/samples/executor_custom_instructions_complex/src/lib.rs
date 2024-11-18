@@ -23,14 +23,14 @@ use iroha_executor::{
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 #[derive(Visit, Execute, Entrypoints)]
-#[visit(custom(visit_custom))]
+#[visit(custom(visit_custom_instruction))]
 struct Executor {
     host: Iroha,
     context: iroha_executor::prelude::Context,
     verdict: Result,
 }
 
-fn visit_custom(executor: &mut Executor, isi: &CustomInstruction) {
+fn visit_custom_instruction(executor: &mut Executor, isi: &CustomInstruction) {
     let Ok(isi) = CustomInstructionExpr::try_from(isi.payload()) else {
         deny!(executor, "Failed to parse custom instruction");
     };

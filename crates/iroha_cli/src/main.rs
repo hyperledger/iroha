@@ -1251,11 +1251,12 @@ mod json {
 }
 
 mod multisig {
-    use std::io::{BufReader, Read as _};
-
-    use iroha::multisig_data_model::{
-        MultisigAccountArgs, MultisigTransactionArgs, DEFAULT_MULTISIG_TTL_MS,
+    use std::{
+        io::{BufReader, Read as _},
+        num::{NonZeroU16, NonZeroU64},
     };
+
+    use iroha::executor_data_model::isi::multisig::*;
 
     use super::*;
 
@@ -1264,7 +1265,7 @@ mod multisig {
     pub enum Args {
         /// Register a multisig account
         Register(Register),
-        /// Propose a multisig transaction
+        /// Propose a multisig transaction, with `Vec<InstructionBox>` stdin
         Propose(Propose),
         /// Approve a multisig transaction
         Approve(Approve),
@@ -1304,30 +1305,20 @@ mod multisig {
 
     impl RunArgs for Register {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self {
-                account,
-                signatories,
-                weights,
-                quorum,
-                transaction_ttl,
-            } = self;
-            if signatories.len() != weights.len() {
+            if self.signatories.len() != self.weights.len() {
                 return Err(eyre!("signatories and weights must be equal in length"));
             }
-            let registry_id: TriggerId = format!("multisig_accounts_{}", account.domain())
-                .parse()
-                .unwrap();
-            let args = MultisigAccountArgs {
-                account: account.signatory().clone(),
-                signatories: signatories.into_iter().zip(weights).collect(),
-                quorum,
-                transaction_ttl_ms: transaction_ttl
+            let register_multisig_account = MultisigRegister::new(
+                self.account,
+                self.signatories.into_iter().zip(self.weights).collect(),
+                NonZeroU16::new(self.quorum).expect("quorum should not be 0"),
+                self.transaction_ttl
                     .as_millis()
                     .try_into()
-                    .expect("ttl must be within 584942417 years"),
-            };
-            let register_multisig_account =
-                iroha::data_model::isi::ExecuteTrigger::new(registry_id).with_args(&args);
+                    .ok()
+                    .and_then(NonZeroU64::new)
+                    .expect("ttl should be between 1 ms and 584942417 years"),
+            );
 
             submit([register_multisig_account], Metadata::default(), context)
                 .wrap_err("Failed to register multisig account")
@@ -1344,14 +1335,6 @@ mod multisig {
 
     impl RunArgs for Propose {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self { account } = self;
-            let registry_id: TriggerId = format!(
-                "multisig_transactions_{}_{}",
-                account.signatory(),
-                account.domain()
-            )
-            .parse()
-            .unwrap();
             let instructions: Vec<InstructionBox> = {
                 let mut reader = BufReader::new(stdin());
                 let mut raw_content = Vec::new();
@@ -1361,9 +1344,7 @@ mod multisig {
             };
             let instructions_hash = HashOf::new(&instructions);
             println!("{instructions_hash}");
-            let args = MultisigTransactionArgs::Propose(instructions);
-            let propose_multisig_transaction =
-                iroha::data_model::isi::ExecuteTrigger::new(registry_id).with_args(&args);
+            let propose_multisig_transaction = MultisigPropose::new(self.account, instructions);
 
             submit([propose_multisig_transaction], Metadata::default(), context)
                 .wrap_err("Failed to propose transaction")
@@ -1383,20 +1364,8 @@ mod multisig {
 
     impl RunArgs for Approve {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let Self {
-                account,
-                instructions_hash,
-            } = self;
-            let registry_id: TriggerId = format!(
-                "multisig_transactions_{}_{}",
-                account.signatory(),
-                account.domain()
-            )
-            .parse()
-            .unwrap();
-            let args = MultisigTransactionArgs::Approve(instructions_hash);
             let approve_multisig_transaction =
-                iroha::data_model::isi::ExecuteTrigger::new(registry_id).with_args(&args);
+                MultisigApprove::new(self.account, self.instructions_hash);
 
             submit([approve_multisig_transaction], Metadata::default(), context)
                 .wrap_err("Failed to approve transaction")
@@ -1419,6 +1388,22 @@ mod multisig {
         }
     }
 
+    const DELIMITER: char = '/';
+    const PROPOSALS: &str = "proposals";
+    const MULTISIG_SIGNATORY: &str = "MULTISIG_SIGNATORY";
+
+    fn multisig_account_from(role: &RoleId) -> Option<AccountId> {
+        role.name()
+            .as_ref()
+            .strip_prefix(MULTISIG_SIGNATORY)?
+            .rsplit_once(DELIMITER)
+            .and_then(|(init, last)| {
+                format!("{last}@{}", init.trim_matches(DELIMITER))
+                    .parse()
+                    .ok()
+            })
+    }
+
     /// Recursively trace back to the root multisig account
     fn trace_back_from(
         account: AccountId,
@@ -1427,42 +1412,27 @@ mod multisig {
     ) -> Result<()> {
         let Ok(multisig_roles) = client
             .query(FindRolesByAccountId::new(account))
-            .filter_with(|role_id| role_id.name.starts_with("multisig_signatory_"))
+            .filter_with(|role_id| role_id.name.starts_with(MULTISIG_SIGNATORY))
             .execute_all()
         else {
             return Ok(());
         };
 
         for role_id in multisig_roles {
-            let super_account: AccountId = role_id
-                .name()
-                .as_ref()
-                .strip_prefix("multisig_signatory_")
-                .unwrap()
-                .replacen('_', "@", 1)
-                .parse()
-                .unwrap();
+            let super_account_id: AccountId = multisig_account_from(&role_id).unwrap();
 
-            trace_back_from(super_account, client, context)?;
+            trace_back_from(super_account_id.clone(), client, context)?;
 
-            let transactions_registry_id: TriggerId = role_id
-                .name()
-                .as_ref()
-                .replace("signatory", "transactions")
-                .parse()
-                .unwrap();
+            context.print_data(&super_account_id)?;
 
-            context.print_data(&transactions_registry_id)?;
-
-            let transactions_registry = client
-                .query(FindTriggers::new())
-                .filter_with(|trigger| trigger.id.eq(transactions_registry_id))
+            let super_account = client
+                .query(FindAccounts)
+                .filter_with(|account| account.id.eq(super_account_id))
                 .execute_single()?;
-            let proposal_kvs = transactions_registry
-                .action()
+            let proposal_kvs = super_account
                 .metadata()
                 .iter()
-                .filter(|kv| kv.0.as_ref().starts_with("proposals"));
+                .filter(|kv| kv.0.as_ref().starts_with(PROPOSALS));
 
             proposal_kvs.fold("", |acc, (k, v)| {
                 let mut path = k.as_ref().split('/');

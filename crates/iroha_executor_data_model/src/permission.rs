@@ -179,16 +179,6 @@ pub mod trigger {
     use super::*;
 
     permission! {
-        #[derive(Copy)]
-        pub struct CanRegisterAnyTrigger;
-    }
-
-    permission! {
-        #[derive(Copy)]
-        pub struct CanUnregisterAnyTrigger;
-    }
-
-    permission! {
         pub struct CanRegisterTrigger {
             pub authority: AccountId,
         }
