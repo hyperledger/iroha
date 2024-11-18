@@ -308,7 +308,7 @@ mod events {
 
     #[derive(clap::Args, Debug, Clone, Copy)]
     pub struct Args {
-        #[clap(short, long)]
+        #[clap(short, long, global = true)]
         timeout: Option<u64>,
         #[clap(subcommand)]
         command: Command,
