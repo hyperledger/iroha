@@ -5,7 +5,6 @@ use alloc::{borrow::ToOwned as _, vec::Vec};
 use iroha_executor_data_model::permission::Permission;
 
 use crate::{
-    deny,
     prelude::Context,
     smart_contract::{
         data_model::{executor::Result, permission::Permission as PermissionObject, prelude::*},
@@ -1089,34 +1088,26 @@ pub(crate) fn roles_permissions(host: &Iroha) -> impl Iterator<Item = (RoleId, P
 
 /// Revoked all permissions satisfied given [condition].
 ///
-/// Note: you must manually check after this function:
-/// `if executor.verdict().is_err() { return; }`
+/// Note: you must manually call `deny!` if this function returns error.
 pub(crate) fn revoke_permissions<V: Execute + ?Sized>(
     executor: &mut V,
     condition: impl Fn(&PermissionObject) -> bool,
-) {
-    let mut err = None;
+) -> Result<(), ValidationFail> {
     for (owner_id, permission) in accounts_permissions(executor.host()) {
         if condition(&permission) {
             let isi = Revoke::account_permission(permission, owner_id.clone());
 
-            if let Err(error) = executor.host().submit(&isi) {
-                err = Some(error);
-                break;
-            }
+            executor.host().submit(&isi)?;
         }
-    }
-    if let Some(err) = err {
-        deny!(executor, err);
     }
 
     for (role_id, permission) in roles_permissions(executor.host()) {
         if condition(&permission) {
             let isi = Revoke::role_permission(permission, role_id.clone());
 
-            if let Err(err) = executor.host().submit(&isi) {
-                deny!(executor, err);
-            }
+            executor.host().submit(&isi)?;
         }
     }
+
+    Ok(())
 }

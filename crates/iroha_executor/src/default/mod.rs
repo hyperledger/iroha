@@ -202,11 +202,11 @@ pub mod domain {
                     .is_owned_by(&executor.context().authority, executor.host())
             }
         {
-            revoke_permissions(executor, |permission| {
+            let err = revoke_permissions(executor, |permission| {
                 is_permission_domain_associated(permission, domain_id)
             });
-            if executor.verdict().is_err() {
-                return;
+            if let Err(err) = err {
+                deny!(executor, err);
             }
 
             execute!(executor, isi);
@@ -424,11 +424,11 @@ pub mod account {
                     .is_owned_by(&executor.context().authority, executor.host())
             }
         {
-            revoke_permissions(executor, |permission| {
+            let err = revoke_permissions(executor, |permission| {
                 is_permission_account_associated(permission, account_id)
             });
-            if executor.verdict().is_err() {
-                return;
+            if let Err(err) = err {
+                deny!(executor, err);
             }
 
             execute!(executor, isi);
@@ -603,11 +603,11 @@ pub mod asset_definition {
                     .is_owned_by(&executor.context().authority, executor.host())
             }
         {
-            revoke_permissions(executor, |permission| {
+            let err = revoke_permissions(executor, |permission| {
                 is_permission_asset_definition_associated(permission, asset_definition_id)
             });
-            if executor.verdict().is_err() {
-                return;
+            if let Err(err) = err {
+                deny!(executor, err);
             }
 
             execute!(executor, isi);
@@ -1368,11 +1368,11 @@ pub mod trigger {
                     .is_owned_by(&executor.context().authority, executor.host())
             }
         {
-            revoke_permissions(executor, |permission| {
+            let err = revoke_permissions(executor, |permission| {
                 is_permission_trigger_associated(permission, trigger_id)
             });
-            if executor.verdict().is_err() {
-                return;
+            if let Err(err) = err {
+                deny!(executor, err);
             }
 
             execute!(executor, isi);
