@@ -361,7 +361,7 @@ mod events {
         }
     }
 
-    fn listen(
+    pub fn listen(
         filter: impl Into<EventFilterBox>,
         context: &mut dyn RunContext,
         timeout: Option<Duration>,
@@ -417,7 +417,7 @@ mod blocks {
         }
     }
 
-    fn listen(
+    pub fn listen(
         height: NonZeroU64,
         context: &mut dyn RunContext,
         timeout: Option<Duration>,
@@ -1451,8 +1451,13 @@ mod multisig {
         Ok(())
     }
 }
+
 #[cfg(test)]
 mod tests {
+    use iroha::crypto::KeyPair;
+    use iroha_test_network::*;
+    use serde_json::to_string;
+
     use super::*;
 
     #[test]
@@ -1476,5 +1481,81 @@ mod tests {
         // JSON Value
         let json_str = r#"{"Vec":[{"String":"a"},{"String":"b"}]}"#;
         case!(json_str, serde_json::from_str(json_str).unwrap());
+    }
+
+    struct MockContext {
+        network: Network,
+        config: Config,
+        datastream: String,
+    }
+
+    impl MockContext {
+        fn test_config() -> Config {
+            return Config{
+                chain: ChainId::from("00000000-0000-0000-0000-000000000000"),
+                account: "ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland".parse().expect("Can't parse mock account"),
+                key_pair: KeyPair::random(),
+                basic_auth: None,
+                torii_api_url: "http://127.0.0.1:8080/".parse().expect("Can't parse mock url"),
+                transaction_ttl: Duration::from_millis(100_000),
+                transaction_status_timeout: Duration::from_millis(100_000),
+                transaction_add_nonce: false,
+            };
+        }
+    }
+
+    impl RunContext for MockContext {
+        fn configuration(&self) -> &Config {
+            return &self.config;
+        }
+
+        fn client_from_config(&self) -> Client {
+            self.network.client()
+        }
+
+        fn print_data(&mut self, data: &dyn Serialize) -> Result<()> {
+            self.datastream.push_str(&to_string(data)?);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn listen_events_timeouts() {
+        let (network, _rt) = NetworkBuilder::new()
+            .start_blocking()
+            .expect("Failed to start network.");
+        let mut tc = MockContext {
+            network,
+            config: MockContext::test_config(),
+            datastream: String::new(),
+        };
+
+        assert!(events::listen(
+            ExecuteTriggerEventFilter::new(),
+            &mut tc,
+            Some(Duration::from_secs(1))
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn listen_blocks_timeouts() {
+        use std::num::NonZeroU64;
+
+        let (network, _rt) = NetworkBuilder::new()
+            .start_blocking()
+            .expect("Failed to start network.");
+        let mut tc = MockContext {
+            network,
+            config: MockContext::test_config(),
+            datastream: String::new(),
+        };
+
+        assert!(blocks::listen(
+            NonZeroU64::new(1).expect("Blocks cannot be zero"),
+            &mut tc,
+            Some(Duration::from_secs(1))
+        )
+        .is_ok());
     }
 }

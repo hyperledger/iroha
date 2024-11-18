@@ -2956,6 +2956,7 @@ dependencies = [
  "humantime",
  "iroha",
  "iroha_primitives",
+ "iroha_test_network",
  "json5",
  "serde",
  "serde_json",
