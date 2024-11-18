@@ -38,12 +38,12 @@ for signatory in ${SIGNATORIES[@]}; do
     ./iroha account register --id $signatory
 done
 
-# register a multisig account
+# register a multisig account by the domain owner
 MULTISIG_ACCOUNT=$(gen_account_id "msa")
 WEIGHTS=($(yes 1 | head -n $N_SIGNATORIES)) # equal votes
 QUORUM=$N_SIGNATORIES # unanimous
 TRANSACTION_TTL="1y 6M 2w 3d 12h 30m 30s 500ms"
-./iroha --config "client.1.toml" multisig register --account $MULTISIG_ACCOUNT --signatories ${SIGNATORIES[*]} --weights ${WEIGHTS[*]} --quorum $QUORUM --transaction-ttl "$TRANSACTION_TTL"
+./iroha --config "client.toml" multisig register --account $MULTISIG_ACCOUNT --signatories ${SIGNATORIES[*]} --weights ${WEIGHTS[*]} --quorum $QUORUM --transaction-ttl "$TRANSACTION_TTL"
 
 # propose a multisig transaction
 INSTRUCTIONS="../scripts/tests/instructions.json"

@@ -155,7 +155,7 @@ pub fn impl_derive_visit(emitter: &mut Emitter, input: &syn::DeriveInput) -> Tok
         "fn visit_set_parameter(operation: &SetParameter)",
         "fn visit_upgrade(operation: &Upgrade)",
         "fn visit_log(operation: &Log)",
-        "fn visit_custom(operation: &CustomInstruction)",
+        "fn visit_custom_instruction(operation: &CustomInstruction)",
     ]
     .into_iter()
     .map(|item| {
@@ -233,6 +233,10 @@ pub fn impl_derive_execute(emitter: &mut Emitter, input: &syn::DeriveInput) -> T
 
             fn context(&self) -> &::iroha_executor::prelude::Context {
                 &self.context
+            }
+
+            fn context_mut(&mut self) -> &mut ::iroha_executor::prelude::Context {
+                &mut self.context
             }
 
             fn verdict(&self) -> &::iroha_executor::prelude::Result {

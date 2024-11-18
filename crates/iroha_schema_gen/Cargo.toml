@@ -14,7 +14,6 @@ workspace = true
 # TODO: `transparent_api` feature shouldn't be activated/required here
 iroha_data_model = { workspace = true, features = ["http", "transparent_api"] }
 iroha_executor_data_model = { workspace = true }
-iroha_multisig_data_model = { workspace = true }
 
 iroha_primitives = { workspace = true }
 iroha_genesis = { workspace = true }

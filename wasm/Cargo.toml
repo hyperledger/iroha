@@ -30,7 +30,6 @@ iroha_executor = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_executor",
 iroha_schema = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_schema" }
 
 iroha_data_model = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_data_model", default-features = false }
-iroha_multisig_data_model = { version = "=2.0.0-rc.1.0", path = "../data_model/libs/iroha_multisig_data_model" }
 iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_executor_data_model" }
 mint_rose_trigger_data_model = { path = "../data_model/samples/mint_rose_trigger_data_model" }
 executor_custom_data_model = { path = "../data_model/samples/executor_custom_data_model" }
