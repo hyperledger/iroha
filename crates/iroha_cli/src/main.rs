@@ -394,13 +394,19 @@ mod blocks {
 
         /// Wait timeout in seconds
         #[clap(short, long)]
-        timeout: Option<u64>,
+        timeout: Option<f32>,
     }
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Args { height, timeout } = self;
-            listen(height, context, timeout.map(Duration::from_secs))
+            listen(
+                height,
+                context,
+                timeout
+                    .map(|t| (1000f32 * t).floor() as u64)
+                    .map(Duration::from_millis),
+            )
         }
     }
 
