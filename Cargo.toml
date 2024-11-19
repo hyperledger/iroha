@@ -44,7 +44,6 @@ iroha_smart_contract_utils = { version = "=2.0.0-rc.1.0", path = "crates/iroha_s
 iroha_executor = { version = "=2.0.0-rc.1.0", path = "crates/iroha_executor" }
 
 iroha_data_model = { version = "=2.0.0-rc.1.0", path = "crates/iroha_data_model", default-features = false }
-iroha_multisig_data_model = { version = "=2.0.0-rc.1.0", path = "data_model/libs/iroha_multisig_data_model" }
 iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "crates/iroha_executor_data_model" }
 
 iroha_test_network = { version = "=2.0.0-rc.1.0", path = "crates/iroha_test_network" }
@@ -199,7 +198,6 @@ clippy.wildcard_dependencies = "deny"
 resolver = "2"
 members = [
     "crates/*",
-    "data_model/libs/*",
     "data_model/samples/*"
 ]
 

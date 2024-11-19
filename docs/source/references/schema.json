@@ -228,10 +228,22 @@
       }
     ]
   },
+  "Array<u16, 8>": {
+    "Array": {
+      "type": "u16",
+      "len": 8
+    }
+  },
   "Array<u8, 32>": {
     "Array": {
       "type": "u8",
       "len": 32
+    }
+  },
+  "Array<u8, 4>": {
+    "Array": {
+      "type": "u8",
+      "len": 4
     }
   },
   "Asset": {
@@ -872,7 +884,6 @@
       }
     ]
   },
-  "CanRegisterAnyTrigger": null,
   "CanRegisterAsset": {
     "Struct": [
       {
@@ -930,7 +941,6 @@
       }
     ]
   },
-  "CanUnregisterAnyTrigger": null,
   "CanUnregisterAsset": {
     "Struct": [
       {
@@ -2366,6 +2376,8 @@
     ]
   },
   "IpfsPath": "String",
+  "Ipv4Addr": "Array<u8, 4>",
+  "Ipv6Addr": "Array<u16, 8>",
   "Json": "String",
   "Level": {
     "Enum": [
@@ -2601,11 +2613,54 @@
       }
     ]
   },
-  "MultisigAccountArgs": {
+  "MultisigApprove": {
     "Struct": [
       {
         "name": "account",
-        "type": "PublicKey"
+        "type": "AccountId"
+      },
+      {
+        "name": "instructions_hash",
+        "type": "HashOf<Vec<InstructionBox>>"
+      }
+    ]
+  },
+  "MultisigInstructionBox": {
+    "Enum": [
+      {
+        "tag": "Register",
+        "discriminant": 0,
+        "type": "MultisigRegister"
+      },
+      {
+        "tag": "Propose",
+        "discriminant": 1,
+        "type": "MultisigPropose"
+      },
+      {
+        "tag": "Approve",
+        "discriminant": 2,
+        "type": "MultisigApprove"
+      }
+    ]
+  },
+  "MultisigPropose": {
+    "Struct": [
+      {
+        "name": "account",
+        "type": "AccountId"
+      },
+      {
+        "name": "instructions",
+        "type": "Vec<InstructionBox>"
+      }
+    ]
+  },
+  "MultisigRegister": {
+    "Struct": [
+      {
+        "name": "account",
+        "type": "AccountId"
       },
       {
         "name": "signatories",
@@ -2613,25 +2668,11 @@
       },
       {
         "name": "quorum",
-        "type": "u16"
+        "type": "NonZero<u16>"
       },
       {
         "name": "transaction_ttl_ms",
-        "type": "u64"
-      }
-    ]
-  },
-  "MultisigTransactionArgs": {
-    "Enum": [
-      {
-        "tag": "Propose",
-        "discriminant": 0,
-        "type": "Vec<InstructionBox>"
-      },
-      {
-        "tag": "Approve",
-        "discriminant": 1,
-        "type": "HashOf<Vec<InstructionBox>>"
+        "type": "NonZero<u64>"
       }
     ]
   },
@@ -2700,6 +2741,7 @@
       }
     ]
   },
+  "NonZero<u16>": "u16",
   "NonZero<u32>": "u32",
   "NonZero<u64>": "u64",
   "Numeric": {
@@ -2871,6 +2913,18 @@
       {
         "name": "custom",
         "type": "SortedMap<CustomParameterId, CustomParameter>"
+      }
+    ]
+  },
+  "Peer": {
+    "Struct": [
+      {
+        "name": "address",
+        "type": "SocketAddr"
+      },
+      {
+        "name": "id",
+        "type": "PeerId"
       }
     ]
   },
@@ -4190,6 +4244,61 @@
       {
         "name": "memory",
         "type": "NonZero<u64>"
+      }
+    ]
+  },
+  "SocketAddr": {
+    "Enum": [
+      {
+        "tag": "Ipv4",
+        "discriminant": 0,
+        "type": "SocketAddrV4"
+      },
+      {
+        "tag": "Ipv6",
+        "discriminant": 1,
+        "type": "SocketAddrV6"
+      },
+      {
+        "tag": "Host",
+        "discriminant": 2,
+        "type": "SocketAddrHost"
+      }
+    ]
+  },
+  "SocketAddrHost": {
+    "Struct": [
+      {
+        "name": "host",
+        "type": "String"
+      },
+      {
+        "name": "port",
+        "type": "u16"
+      }
+    ]
+  },
+  "SocketAddrV4": {
+    "Struct": [
+      {
+        "name": "ip",
+        "type": "Ipv4Addr"
+      },
+      {
+        "name": "port",
+        "type": "u16"
+      }
+    ]
+  },
+  "SocketAddrV6": {
+    "Struct": [
+      {
+        "name": "ip",
+        "type": "Ipv6Addr"
+      },
+      {
+        "name": "port",
+        "type": "u16"
       }
     ]
   },

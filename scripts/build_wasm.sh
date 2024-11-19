@@ -57,9 +57,6 @@ build() {
         "libs")
             NAMES=(
                 # order by dependency
-                "multisig_transactions"
-                "multisig_accounts"
-                "multisig_domains"
                 "default_executor"
             )
             ;;

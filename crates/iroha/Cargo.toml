@@ -58,7 +58,7 @@ iroha_torii_const = { workspace = true }
 iroha_version = { workspace = true }
 
 iroha_data_model = { workspace = true, features = ["http"] }
-iroha_multisig_data_model = { workspace = true }
+iroha_executor_data_model = { workspace = true }
 
 attohttpc = { version = "0.28.0", default-features = false }
 eyre = { workspace = true }
@@ -88,7 +88,6 @@ iroha_test_network = { workspace = true }
 
 mint_rose_trigger_data_model = { path = "../../data_model/samples/mint_rose_trigger_data_model" }
 executor_custom_data_model = { path = "../../data_model/samples/executor_custom_data_model" }
-iroha_executor_data_model = { workspace = true }
 
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 reqwest = { version = "0.12.7", features = ["json"] }
