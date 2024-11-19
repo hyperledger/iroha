@@ -1,5 +1,5 @@
 [profile.default]
-retries = { backoff = "fixed", count = 2, delay = "3s" }
+retries = { backoff = "fixed", count = 4, delay = "3s" }
 
 [profile.ci]
 fail-fast = false

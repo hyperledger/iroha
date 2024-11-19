@@ -347,9 +347,6 @@ impl NetworkBuilder {
                 InstructionBox::SetParameter(SetParameter::new(Parameter::Sumeragi(
                     SumeragiParameter::CommitTimeMs(commit_time.as_millis() as u64),
                 ))),
-                InstructionBox::SetParameter(SetParameter::new(Parameter::Executor(
-                    SmartContractParameter::Fuel(std::num::NonZero::new(u64::MAX).unwrap()),
-                ))),
             ]
             .into_iter()
             .chain(self.extra_isi),
