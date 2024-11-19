@@ -38,7 +38,7 @@ pub const TX_RETRIEVAL_INTERVAL: Duration = Duration::from_millis(100);
 pub type IrohaNetwork = iroha_p2p::NetworkHandle<NetworkMessage>;
 
 /// Ids of peers.
-pub type PeersIds = UniqueVec<PeerId>;
+pub type Peers = UniqueVec<PeerId>;
 
 /// Type of `Sender<EventBox>` which should be used for channels of `Event` messages.
 pub type EventsSender = broadcast::Sender<EventBox>;

@@ -54,9 +54,9 @@ pub struct Status {
     /// Number of committed blocks (blockchain height)
     #[codec(compact)]
     pub blocks: u64,
-    /// Number of accepted transactions
+    /// Number of approved transactions
     #[codec(compact)]
-    pub txs_accepted: u64,
+    pub txs_approved: u64,
     /// Number of rejected transactions
     #[codec(compact)]
     pub txs_rejected: u64,
@@ -76,7 +76,7 @@ impl<T: Deref<Target = Metrics>> From<&T> for Status {
         Self {
             peers: val.connected_peers.get(),
             blocks: val.block_height.get(),
-            txs_accepted: val.txs.with_label_values(&["accepted"]).get(),
+            txs_approved: val.txs.with_label_values(&["accepted"]).get(),
             txs_rejected: val.txs.with_label_values(&["rejected"]).get(),
             uptime: Uptime(Duration::from_millis(val.uptime_since_genesis_ms.get())),
             view_changes: val
@@ -249,7 +249,7 @@ mod test {
         Status {
             peers: 4,
             blocks: 5,
-            txs_accepted: 31,
+            txs_approved: 31,
             txs_rejected: 3,
             uptime: Uptime(Duration::new(5, 937_000_000)),
             view_changes: 2,
@@ -268,7 +268,7 @@ mod test {
             {
               "peers": 4,
               "blocks": 5,
-              "txs_accepted": 31,
+              "txs_approved": 31,
               "txs_rejected": 3,
               "uptime": {
                 "secs": 5,
