@@ -7,7 +7,7 @@ use tokio::task::spawn_blocking;
 fn status_eq_excluding_uptime_and_queue(lhs: &Status, rhs: &Status) -> bool {
     lhs.peers == rhs.peers
         && lhs.blocks == rhs.blocks
-        && lhs.txs_accepted == rhs.txs_accepted
+        && lhs.txs_approved == rhs.txs_approved
         && lhs.txs_rejected == rhs.txs_rejected
         && lhs.view_changes == rhs.view_changes
 }
