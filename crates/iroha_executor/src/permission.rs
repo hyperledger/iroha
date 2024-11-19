@@ -10,6 +10,7 @@ use crate::{
         data_model::{executor::Result, permission::Permission as PermissionObject, prelude::*},
         prelude::*,
     },
+    Execute,
 };
 
 /// Declare permission types of current module. Use it with a full path to the permission.
@@ -1083,4 +1084,30 @@ pub(crate) fn roles_permissions(host: &Iroha) -> impl Iterator<Item = (RoleId, P
                 .into_iter()
                 .map(move |permission| (role.id().clone(), permission))
         })
+}
+
+/// Revoked all permissions satisfied given [condition].
+///
+/// Note: you must manually call `deny!` if this function returns error.
+pub(crate) fn revoke_permissions<V: Execute + ?Sized>(
+    executor: &mut V,
+    condition: impl Fn(&PermissionObject) -> bool,
+) -> Result<(), ValidationFail> {
+    for (owner_id, permission) in accounts_permissions(executor.host()) {
+        if condition(&permission) {
+            let isi = Revoke::account_permission(permission, owner_id.clone());
+
+            executor.host().submit(&isi)?;
+        }
+    }
+
+    for (role_id, permission) in roles_permissions(executor.host()) {
+        if condition(&permission) {
+            let isi = Revoke::role_permission(permission, role_id.clone());
+
+            executor.host().submit(&isi)?;
+        }
+    }
+
+    Ok(())
 }

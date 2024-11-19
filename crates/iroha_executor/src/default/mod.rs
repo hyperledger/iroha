@@ -166,7 +166,7 @@ pub mod domain {
 
     use super::*;
     use crate::permission::{
-        account::is_account_owner, accounts_permissions, domain::is_domain_owner, roles_permissions,
+        account::is_account_owner, domain::is_domain_owner, revoke_permissions,
     };
 
     pub fn visit_register_domain<V: Execute + Visit + ?Sized>(
@@ -202,30 +202,13 @@ pub mod domain {
                     .is_owned_by(&executor.context().authority, executor.host())
             }
         {
-            let mut err = None;
-            for (owner_id, permission) in accounts_permissions(executor.host()) {
-                if is_permission_domain_associated(&permission, domain_id) {
-                    let isi = &Revoke::account_permission(permission, owner_id.clone());
-
-                    if let Err(error) = executor.host().submit(isi) {
-                        err = Some(error);
-                        break;
-                    }
-                }
-            }
-            if let Some(err) = err {
+            let err = revoke_permissions(executor, |permission| {
+                is_permission_domain_associated(permission, domain_id)
+            });
+            if let Err(err) = err {
                 deny!(executor, err);
             }
 
-            for (role_id, permission) in roles_permissions(executor.host()) {
-                if is_permission_domain_associated(&permission, domain_id) {
-                    let isi = &Revoke::role_permission(permission, role_id.clone());
-
-                    if let Err(err) = executor.host().submit(isi) {
-                        deny!(executor, err);
-                    }
-                }
-            }
             execute!(executor, isi);
         }
         deny!(executor, "Can't unregister domain");
@@ -389,7 +372,7 @@ pub mod account {
     };
 
     use super::*;
-    use crate::permission::{account::is_account_owner, accounts_permissions, roles_permissions};
+    use crate::permission::{account::is_account_owner, revoke_permissions};
 
     pub fn visit_register_account<V: Execute + Visit + ?Sized>(
         executor: &mut V,
@@ -441,30 +424,13 @@ pub mod account {
                     .is_owned_by(&executor.context().authority, executor.host())
             }
         {
-            let mut err = None;
-            for (owner_id, permission) in accounts_permissions(executor.host()) {
-                if is_permission_account_associated(&permission, account_id) {
-                    let isi = &Revoke::account_permission(permission, owner_id.clone());
-
-                    if let Err(error) = executor.host().submit(isi) {
-                        err = Some(error);
-                        break;
-                    }
-                }
-            }
-            if let Some(err) = err {
+            let err = revoke_permissions(executor, |permission| {
+                is_permission_account_associated(permission, account_id)
+            });
+            if let Err(err) = err {
                 deny!(executor, err);
             }
 
-            for (role_id, permission) in roles_permissions(executor.host()) {
-                if is_permission_account_associated(&permission, account_id) {
-                    let isi = &Revoke::role_permission(permission, role_id.clone());
-
-                    if let Err(err) = executor.host().submit(isi) {
-                        deny!(executor, err);
-                    }
-                }
-            }
             execute!(executor, isi);
         }
         deny!(executor, "Can't unregister another account");
@@ -580,8 +546,7 @@ pub mod asset_definition {
 
     use super::*;
     use crate::permission::{
-        account::is_account_owner, accounts_permissions,
-        asset_definition::is_asset_definition_owner, roles_permissions,
+        account::is_account_owner, asset_definition::is_asset_definition_owner, revoke_permissions,
     };
 
     pub fn visit_register_asset_definition<V: Execute + Visit + ?Sized>(
@@ -638,30 +603,13 @@ pub mod asset_definition {
                     .is_owned_by(&executor.context().authority, executor.host())
             }
         {
-            let mut err = None;
-            for (owner_id, permission) in accounts_permissions(executor.host()) {
-                if is_permission_asset_definition_associated(&permission, asset_definition_id) {
-                    let isi = &Revoke::account_permission(permission, owner_id.clone());
-
-                    if let Err(error) = executor.host().submit(isi) {
-                        err = Some(error);
-                        break;
-                    }
-                }
-            }
-            if let Some(err) = err {
+            let err = revoke_permissions(executor, |permission| {
+                is_permission_asset_definition_associated(permission, asset_definition_id)
+            });
+            if let Err(err) = err {
                 deny!(executor, err);
             }
 
-            for (role_id, permission) in roles_permissions(executor.host()) {
-                if is_permission_asset_definition_associated(&permission, asset_definition_id) {
-                    let isi = &Revoke::role_permission(permission, role_id.clone());
-
-                    if let Err(err) = executor.host().submit(isi) {
-                        deny!(executor, err);
-                    }
-                }
-            }
             execute!(executor, isi);
         }
         deny!(
@@ -1367,7 +1315,7 @@ pub mod trigger {
 
     use super::*;
     use crate::permission::{
-        accounts_permissions, domain::is_domain_owner, roles_permissions, trigger::is_trigger_owner,
+        domain::is_domain_owner, revoke_permissions, trigger::is_trigger_owner,
     };
 
     pub fn visit_register_trigger<V: Execute + Visit + ?Sized>(
@@ -1420,28 +1368,11 @@ pub mod trigger {
                     .is_owned_by(&executor.context().authority, executor.host())
             }
         {
-            let mut err = None;
-            for (owner_id, permission) in accounts_permissions(executor.host()) {
-                if is_permission_trigger_associated(&permission, trigger_id) {
-                    let isi = &Revoke::account_permission(permission, owner_id.clone());
-
-                    if let Err(error) = executor.host().submit(isi) {
-                        err = Some(error);
-                        break;
-                    }
-                }
-            }
-            if let Some(err) = err {
+            let err = revoke_permissions(executor, |permission| {
+                is_permission_trigger_associated(permission, trigger_id)
+            });
+            if let Err(err) = err {
                 deny!(executor, err);
-            }
-
-            for (role_id, permission) in roles_permissions(executor.host()) {
-                if is_permission_trigger_associated(&permission, trigger_id) {
-                    let isi = &Revoke::role_permission(permission, role_id.clone());
-                    if let Err(err) = executor.host().submit(isi) {
-                        deny!(executor, err);
-                    }
-                }
             }
 
             execute!(executor, isi);
