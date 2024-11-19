@@ -27,7 +27,7 @@ use iroha_crypto::{ExposedPrivateKey, KeyPair, PrivateKey};
 use iroha_data_model::{
     events::pipeline::BlockEventFilter,
     isi::InstructionBox,
-    parameter::{SumeragiParameter, SumeragiParameters},
+    parameter::{SumeragiParameter, SumeragiParameters, SmartContractParameter},
     ChainId,
 };
 use iroha_genesis::GenesisBlock;
@@ -346,6 +346,9 @@ impl NetworkBuilder {
                 ))),
                 InstructionBox::SetParameter(SetParameter::new(Parameter::Sumeragi(
                     SumeragiParameter::CommitTimeMs(commit_time.as_millis() as u64),
+                ))),
+                InstructionBox::SetParameter(SetParameter::new(Parameter::Executor(
+                    SmartContractParameter::Fuel(std::num::NonZeroU64::new(u64::MAX).unwrap()),
                 ))),
             ]
             .into_iter()
