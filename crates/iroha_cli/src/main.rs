@@ -308,8 +308,9 @@ mod events {
 
     #[derive(clap::Args, Debug, Clone, Copy)]
     pub struct Args {
+        /// Wait timeout in seconds
         #[clap(short, long, global = true)]
-        timeout: Option<u64>,
+        timeout: Option<f32>,
         #[clap(subcommand)]
         command: Command,
     }
@@ -331,7 +332,11 @@ mod events {
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let timeout = self.timeout.map(Duration::from_secs);
+            let timeout = self
+                .timeout
+                .map(|t| (1000f32 * t).floor() as u64)
+                .map(Duration::from_millis);
+
             match self.command {
                 Command::TransactionPipeline => {
                     listen(TransactionEventFilter::default(), context, timeout)
@@ -348,7 +353,7 @@ mod events {
         }
     }
 
-    pub fn listen(
+    fn listen(
         filter: impl Into<EventFilterBox>,
         context: &mut dyn RunContext,
         timeout: Option<Duration>,
@@ -400,17 +405,14 @@ mod blocks {
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Args { height, timeout } = self;
-            listen(
-                height,
-                context,
-                timeout
-                    .map(|t| (1000f32 * t).floor() as u64)
-                    .map(Duration::from_millis),
-            )
+            let timeout = timeout
+                .map(|t| (1000f32 * t).floor() as u64)
+                .map(Duration::from_millis);
+            listen(height, context, timeout)
         }
     }
 
-    pub fn listen(
+    fn listen(
         height: NonZeroU64,
         context: &mut dyn RunContext,
         timeout: Option<Duration>,
