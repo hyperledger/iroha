@@ -262,11 +262,11 @@ impl Sumeragi {
                         }
                     };
 
-                    if let Some(err) = block.as_ref().errors().next() {
+                    if block.as_ref().errors().next().is_some() {
                         error!(
                             peer_id=%self.peer,
                             role=%self.role(),
-                            "Genesis contains invalid transactions {err:?}"
+                            "Genesis contains invalid transactions"
                         );
 
                         continue;
