@@ -5,6 +5,7 @@ use std::{
     io::{stdin, stdout},
     path::PathBuf,
     str::FromStr,
+    time::Duration,
 };
 
 use erased_serde::Serialize;
@@ -14,7 +15,7 @@ use futures::TryStreamExt;
 use iroha::{client::Client, config::Config, data_model::prelude::*};
 use iroha_primitives::json::Json;
 use thiserror::Error;
-use tokio::{runtime::Runtime, time::Duration};
+use tokio::runtime::Runtime;
 
 /// Re-usable clap `--metadata <PATH>` (`-m`) argument.
 /// Should be combined with `#[command(flatten)]` attr.
@@ -308,9 +309,9 @@ mod events {
 
     #[derive(clap::Args, Debug, Clone, Copy)]
     pub struct Args {
-        /// Wait timeout in seconds
+        /// Wait timeout
         #[clap(short, long, global = true)]
-        timeout: Option<f32>,
+        timeout: Option<humantime::Duration>,
         #[clap(subcommand)]
         command: Command,
     }
@@ -332,10 +333,7 @@ mod events {
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
-            let timeout = self
-                .timeout
-                .map(|t| (1000f32 * t).floor() as u64)
-                .map(Duration::from_millis);
+            let timeout: Option<Duration> = self.timeout.map(Into::into);
 
             match self.command {
                 Command::TransactionPipeline => {
@@ -397,17 +395,15 @@ mod blocks {
         /// Block height from which to start streaming blocks
         height: NonZeroU64,
 
-        /// Wait timeout in seconds
+        /// Wait timeout
         #[clap(short, long)]
-        timeout: Option<f32>,
+        timeout: Option<humantime::Duration>,
     }
 
     impl RunArgs for Args {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Args { height, timeout } = self;
-            let timeout = timeout
-                .map(|t| (1000f32 * t).floor() as u64)
-                .map(Duration::from_millis);
+            let timeout: Option<Duration> = timeout.map(Into::into);
             listen(height, context, timeout)
         }
     }
