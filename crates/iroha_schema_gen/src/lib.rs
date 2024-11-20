@@ -64,16 +64,23 @@ pub fn build_schemas() -> MetaMap {
 
         // Default permissions
         permission::peer::CanManagePeers,
+
+        permission::domain::CanRegisterDomain,
         permission::domain::CanUnregisterDomain,
         permission::domain::CanModifyDomainMetadata,
+
         permission::account::CanRegisterAccount,
         permission::account::CanUnregisterAccount,
         permission::account::CanModifyAccountMetadata,
+
         permission::asset_definition::CanRegisterAssetDefinition,
         permission::asset_definition::CanUnregisterAssetDefinition,
         permission::asset_definition::CanModifyAssetDefinitionMetadata,
+
         permission::asset::CanRegisterAssetWithDefinition,
         permission::asset::CanUnregisterAssetWithDefinition,
+        permission::asset::CanMintAssetWithDefinition,
+        permission::asset::CanBurnAssetWithDefinition,
         permission::asset::CanTransferAssetWithDefinition,
         permission::asset::CanRegisterAsset,
         permission::asset::CanUnregisterAsset,
@@ -81,13 +88,16 @@ pub fn build_schemas() -> MetaMap {
         permission::asset::CanBurnAsset,
         permission::asset::CanTransferAsset,
         permission::asset::CanModifyAssetMetadata,
+
         permission::parameter::CanSetParameters,
         permission::role::CanManageRoles,
+
         permission::trigger::CanRegisterTrigger,
         permission::trigger::CanExecuteTrigger,
         permission::trigger::CanUnregisterTrigger,
         permission::trigger::CanModifyTrigger,
         permission::trigger::CanModifyTriggerMetadata,
+
         permission::executor::CanUpgradeExecutor,
 
         // Multi-signature operations
@@ -595,6 +605,7 @@ mod tests {
         insert_into_test_map!(Compact<u32>);
 
         insert_into_test_map!(iroha_executor_data_model::permission::peer::CanManagePeers);
+        insert_into_test_map!(iroha_executor_data_model::permission::domain::CanRegisterDomain);
         insert_into_test_map!(iroha_executor_data_model::permission::domain::CanUnregisterDomain);
         insert_into_test_map!(
             iroha_executor_data_model::permission::domain::CanModifyDomainMetadata
@@ -618,6 +629,12 @@ mod tests {
             iroha_executor_data_model::permission::asset::CanUnregisterAssetWithDefinition
         );
         insert_into_test_map!(
+            iroha_executor_data_model::permission::asset::CanMintAssetWithDefinition
+        );
+        insert_into_test_map!(
+            iroha_executor_data_model::permission::asset::CanBurnAssetWithDefinition
+        );
+        insert_into_test_map!(
             iroha_executor_data_model::permission::asset::CanTransferAssetWithDefinition
         );
         insert_into_test_map!(iroha_executor_data_model::permission::asset::CanRegisterAsset);
@@ -626,8 +643,10 @@ mod tests {
         insert_into_test_map!(iroha_executor_data_model::permission::asset::CanBurnAsset);
         insert_into_test_map!(iroha_executor_data_model::permission::asset::CanTransferAsset);
         insert_into_test_map!(iroha_executor_data_model::permission::asset::CanModifyAssetMetadata);
+
         insert_into_test_map!(iroha_executor_data_model::permission::parameter::CanSetParameters);
         insert_into_test_map!(iroha_executor_data_model::permission::role::CanManageRoles);
+
         insert_into_test_map!(iroha_executor_data_model::permission::trigger::CanRegisterTrigger);
         insert_into_test_map!(iroha_executor_data_model::permission::trigger::CanExecuteTrigger);
         insert_into_test_map!(iroha_executor_data_model::permission::trigger::CanUnregisterTrigger);
