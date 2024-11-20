@@ -14,10 +14,6 @@ def test_stream_data_events_timeouts(GIVEN_currently_authorized_account):
     with allure.step(
         f"WHEN {GIVEN_currently_authorized_account} streams block-pipeline events with timeout "
     ):
-        iroha_cli.execute(
-            f"events data --timeout 1s"
-        )
+        iroha_cli.execute(f"events data --timeout 1s")
 
-        iroha_cli.should(
-            have.error("Timeout period has expired.\n")
-        )
+        iroha_cli.should(have.error("Timeout period has expired.\n"))
