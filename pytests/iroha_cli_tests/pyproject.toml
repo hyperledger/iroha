@@ -8,6 +8,7 @@ readme = "README.md"
 [tool.poetry.dependencies]
 python = "^3.11"
 faker = "*"
+cffi = ">=1.17.0"
 allure-python-commons = "*"
 cryptography = "*"
 python-dotenv = "*"
