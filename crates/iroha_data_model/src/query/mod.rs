@@ -377,7 +377,17 @@ impl QueryOutputBatchBoxTuple {
     /// Returns length of this batch tuple
     // This works under assumption that all batches in the tuples have the same length, which should be true for iroha
     pub fn len(&self) -> usize {
-        self.tuple.iter().map(QueryOutputBatchBox::len).sum()
+        self.tuple[0].len()
+    }
+
+    /// Returns an iterator over the batches in this tuple
+    pub fn iter(&self) -> impl Iterator<Item = &QueryOutputBatchBox> {
+        self.tuple.iter()
+    }
+
+    /// Consumes this batch tuple and returns an iterator over the batches
+    pub fn into_iter(self) -> impl Iterator<Item = QueryOutputBatchBox> {
+        self.tuple.into_iter()
     }
 }
 

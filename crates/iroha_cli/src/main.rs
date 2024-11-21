@@ -1214,18 +1214,40 @@ mod json {
                             // we can't really do type-erased iterable queries in a nice way right now...
                             use iroha::data_model::query::builder::QueryExecutor;
 
-                            let (mut first_batch, _remaining_items, mut continue_cursor) =
+                            let (mut accumulated_batch, _remaining_items, mut continue_cursor) =
                                 client.start_query(query)?;
 
                             while let Some(cursor) = continue_cursor {
                                 let (next_batch, _remaining_items, next_continue_cursor) =
                                     <Client as QueryExecutor>::continue_query(cursor)?;
 
-                                first_batch.extend(next_batch);
+                                accumulated_batch.extend(next_batch);
                                 continue_cursor = next_continue_cursor;
                             }
 
-                            context.print_data(&first_batch)?;
+                            // for efficiency reasons iroha encodes query results in a columnar format,
+                            // so we need to transpose the batch to get the format that is more natural for humans
+                            let mut batches = vec![Vec::new(); accumulated_batch.len()];
+                            for batch in accumulated_batch.into_iter() {
+                                // downcast to json and extract the actual array
+                                // dynamic typing is just easier to use here than introducing a bunch of new types only for iroha_cli
+                                let batch = serde_json::to_value(batch)?;
+                                let serde_json::Value::Object(batch) = batch else {
+                                    panic!("Expected the batch serialization to be a JSON object");
+                                };
+                                let (_ty, batch) = batch
+                                    .into_iter()
+                                    .next()
+                                    .expect("Expected the batch to have exactly one key");
+                                let serde_json::Value::Array(batch_vec) = batch else {
+                                    panic!("Expected the batch payload to be a JSON array");
+                                };
+                                for (target, value) in batches.iter_mut().zip(batch_vec) {
+                                    target.push(value);
+                                }
+                            }
+
+                            context.print_data(&batches)?;
                         }
                     }
 
