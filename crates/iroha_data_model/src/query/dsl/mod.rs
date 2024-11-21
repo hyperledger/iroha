@@ -28,7 +28,7 @@
 //! # use iroha_data_model::{domain::DomainId, account::AccountId, query::dsl::CompoundPredicate};
 //! let filter_by_domain_name = CompoundPredicate::<AccountId>::build(|account_id| account_id.domain.name.eq("wonderland"));
 //! ```
-//! For selectors, they have to return a type implementing the [1IntoSelectorTuple1] trait.
+//! For selectors, they have to return a type implementing the [`IntoSelectorTuple`] trait.
 //!
 //! It can be either a standalone prototype or a tuple of prototypes.
 //!
@@ -64,9 +64,11 @@
 //!
 //! # Compound predicates and selectors
 //!
-//! Normally a predicates has just a single condition on a single field.
+//! Normally a predicate has just a single condition on a single field.
 //! [`CompoundPredicate`] allows composition of multiple predicates using logical operators.
-//! This is the type that is actually
+//! This is the type that is actually sent when a query is requested.
+//!
+//! A selector also selects just a single field. To allow selecting multiple fields, [`SelectorTuple`] is used in queries.
 
 #[cfg(not(feature = "std"))]
 use alloc::{format, string::String, vec::Vec};
