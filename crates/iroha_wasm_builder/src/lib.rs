@@ -226,10 +226,10 @@ mod internal {
         }
 
         fn build_profile(&self) -> String {
-            return format!("--profile={}", self.profile);
+            return format!("--profile={}", self.profile.clone());
         }
 
-        fn build_options(&self) -> impl Iterator<Item = &'static str> {
+        fn build_options() -> impl Iterator<Item = &'static str> {
             [
                 "-Z",
                 "build-std",
@@ -250,7 +250,7 @@ mod internal {
                 .stderr(Stdio::inherit())
                 .arg(cmd)
                 .arg(self.build_profile())
-                .args(self.build_options());
+                .args(Self::build_options());
 
             command
         }
