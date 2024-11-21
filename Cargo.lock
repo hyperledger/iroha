@@ -2952,6 +2952,7 @@ dependencies = [
  "erased-serde",
  "error-stack",
  "eyre",
+ "futures",
  "humantime",
  "iroha",
  "iroha_primitives",
@@ -2960,6 +2961,7 @@ dependencies = [
  "serde_json",
  "supports-color 2.1.0",
  "thiserror",
+ "tokio",
  "vergen",
 ]
 
