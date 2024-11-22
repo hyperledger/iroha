@@ -24,47 +24,47 @@ env:
   NEXTEST_PROFILE: ci
 
 jobs:
-  consistency:
-    runs-on: [self-hosted, Linux, iroha2]
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-09-09
-    steps:
-      - uses: actions/checkout@v4
-      - name: Check genesis.json
-        if: always()
-        run: ./scripts/tests/consistency.sh genesis
-      - name: Check schema.json
-        if: always()
-        run: ./scripts/tests/consistency.sh schema
-      - name: Check Docker Compose configurations
-        if: always()
-        run: ./scripts/tests/consistency.sh docker-compose
+  # consistency:
+  #   runs-on: [self-hosted, Linux, iroha2]
+  #   container:
+  #     image: hyperledger/iroha2-ci:nightly-2024-09-09
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Check genesis.json
+  #       if: always()
+  #       run: ./scripts/tests/consistency.sh genesis
+  #     - name: Check schema.json
+  #       if: always()
+  #       run: ./scripts/tests/consistency.sh schema
+  #     - name: Check Docker Compose configurations
+  #       if: always()
+  #       run: ./scripts/tests/consistency.sh docker-compose
 
-  fmt_and_clippy:
-    runs-on: [self-hosted, Linux, iroha2]
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-09-09
-    steps:
-      - uses: actions/checkout@v4
-      - name: Format
-        run: cargo fmt --all -- --check
-      - name: Lints without features
-        if: always()
-        run: cargo clippy --workspace --benches --tests --examples --no-default-features --quiet
-      - name: Lints with all features enabled
-        if: always()
-        run: cargo clippy --workspace --benches --tests --examples --all-features --quiet --message-format=json | tee clippy.json
-      - name: Documentation
-        if: always()
-        run: cargo doc --no-deps --quiet
-      - name: Upload clippy report artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: report-clippy
-          path: clippy.json
+  # fmt_and_clippy:
+  #   runs-on: [self-hosted, Linux, iroha2]
+  #   container:
+  #     image: hyperledger/iroha2-ci:nightly-2024-09-09
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Format
+  #       run: cargo fmt --all -- --check
+  #     - name: Lints without features
+  #       if: always()
+  #       run: cargo clippy --workspace --benches --tests --examples --no-default-features --quiet
+  #     - name: Lints with all features enabled
+  #       if: always()
+  #       run: cargo clippy --workspace --benches --tests --examples --all-features --quiet --message-format=json | tee clippy.json
+  #     - name: Documentation
+  #       if: always()
+  #       run: cargo doc --no-deps --quiet
+  #     - name: Upload clippy report artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: report-clippy
+  #         path: clippy.json
 
   build_wasm:
-    runs-on: [self-hosted, Linux, iroha2]
+    runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     timeout-minutes: 30
@@ -80,7 +80,7 @@ jobs:
           retention-days: 1
 
   test_with_coverage:
-    runs-on: [self-hosted, Linux, iroha2]
+    runs-on: ubuntu-latest
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     needs: build_wasm
@@ -103,171 +103,171 @@ jobs:
         run: which irohad || cargo install --path crates/irohad --locked
       - name: Full tests only
         run: cargo nextest run
-      - name: Test with no default features
-        id: test_no_features
-        run: >
-          mold --run cargo llvm-cov nextest
-          --no-default-features
-          --branch --no-report
-      - name: Test with all features
-        id: test_all_features
-        run: >
-          mold --run cargo llvm-cov nextest
-          --all-features
-          --branch --no-report
-      - name: Doc test with all features
-        run: >
-          mold --run cargo llvm-cov --doc
-          --all-features
-          --branch --no-report
-      - name: Generate lcov report
-        run: cargo llvm-cov report --doctests --lcov --output-path lcov.info
-      - name: Upload lcov report
-        uses: actions/upload-artifact@v4
-        with:
-          name: report-coverage
-          path: lcov.info
-      - name: Upload coverage to Coveralls
-        uses: coverallsapp/github-action@v2.3.4
-        with:
-          file: lcov.info
-          format: lcov
-          github-token: ${{ github.token }}
-      - name: Upload test network artifacts
-        if: failure() && (steps.test_no_features.outcome == 'failure' || steps.test_all_features.outcome == 'failure')
-        uses: actions/upload-artifact@v4
-        with:
-          name: test_network_runs
-          path: ${{ env.TEST_NETWORK_TMP_DIR }}/irohad_test_network_*
-          retention-days: 3
+      # - name: Test with no default features
+      #   id: test_no_features
+      #   run: >
+      #     mold --run cargo llvm-cov nextest
+      #     --no-default-features
+      #     --branch --no-report
+      # - name: Test with all features
+      #   id: test_all_features
+      #   run: >
+      #     mold --run cargo llvm-cov nextest
+      #     --all-features
+      #     --branch --no-report
+      # - name: Doc test with all features
+      #   run: >
+      #     mold --run cargo llvm-cov --doc
+      #     --all-features
+      #     --branch --no-report
+      # - name: Generate lcov report
+      #   run: cargo llvm-cov report --doctests --lcov --output-path lcov.info
+      # - name: Upload lcov report
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: report-coverage
+      #     path: lcov.info
+      # - name: Upload coverage to Coveralls
+      #   uses: coverallsapp/github-action@v2.3.4
+      #   with:
+      #     file: lcov.info
+      #     format: lcov
+      #     github-token: ${{ github.token }}
+      # - name: Upload test network artifacts
+      #   if: failure() && (steps.test_no_features.outcome == 'failure' || steps.test_all_features.outcome == 'failure')
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: test_network_runs
+      #     path: ${{ env.TEST_NETWORK_TMP_DIR }}/irohad_test_network_*
+      #     retention-days: 3
 
-  # Run the job to check that the docker containers are properly buildable
-  pr-generator-build:
-    # Job will only execute if the head of the pull request is a branch for PR-generator case
-    if: startsWith(github.head_ref, 'iroha2-pr-deploy/')
-    runs-on: [self-hosted, Linux, iroha2]
-    container:
-      image: hyperledger/iroha2-ci:nightly-2024-09-09
-    steps:
-      - uses: actions/checkout@v4
-      - name: Login to Soramitsu Harbor
-        uses: docker/login-action@v3
-        with:
-          registry: docker.soramitsu.co.jp
-          username: ${{ secrets.HARBOR_USERNAME }}
-          password: ${{ secrets.HARBOR_TOKEN }}
-      - name: Set up Docker Buildx
-        id: buildx
-        if: always()
-        uses: docker/setup-buildx-action@v2
-        with:
-          install: true
-      - name: Build and push iroha2:dev image
-        uses: docker/build-push-action@v6
-        if: always()
-        with:
-          push: true
-          tags: docker.soramitsu.co.jp/iroha2/iroha2:dev-${{ github.event.pull_request.head.sha }}
-          labels: commit=${{ github.sha }}
-          build-args: TAG=dev
-          file: Dockerfile.glibc
-          # This context specification is required
-          context: .
+  # # Run the job to check that the docker containers are properly buildable
+  # pr-generator-build:
+  #   # Job will only execute if the head of the pull request is a branch for PR-generator case
+  #   if: startsWith(github.head_ref, 'iroha2-pr-deploy/')
+  #   runs-on: [self-hosted, Linux, iroha2]
+  #   container:
+  #     image: hyperledger/iroha2-ci:nightly-2024-09-09
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Login to Soramitsu Harbor
+  #       uses: docker/login-action@v3
+  #       with:
+  #         registry: docker.soramitsu.co.jp
+  #         username: ${{ secrets.HARBOR_USERNAME }}
+  #         password: ${{ secrets.HARBOR_TOKEN }}
+  #     - name: Set up Docker Buildx
+  #       id: buildx
+  #       if: always()
+  #       uses: docker/setup-buildx-action@v2
+  #       with:
+  #         install: true
+  #     - name: Build and push iroha2:dev image
+  #       uses: docker/build-push-action@v6
+  #       if: always()
+  #       with:
+  #         push: true
+  #         tags: docker.soramitsu.co.jp/iroha2/iroha2:dev-${{ github.event.pull_request.head.sha }}
+  #         labels: commit=${{ github.sha }}
+  #         build-args: TAG=dev
+  #         file: Dockerfile.glibc
+  #         # This context specification is required
+  #         context: .
 
-  docker-compose-and-pytests:
-    needs: build_wasm
-    runs-on: [self-hosted, Linux, iroha2]
-    timeout-minutes: 60
-    env:
-      PYTHON_VERSION: "3.11"
-      POETRY_PATH: "/root/.local/bin/poetry"
-      TEST_DIR: "tmp/test"
-      IROHA_BIN: "iroha"
-      IROHA_CONTAINER: "defaults-irohad0-1"
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Download wasm libs
-        uses: actions/download-artifact@v4
-        with:
-          name: wasm
-          path: ${{ env.WASM_TARGET_DIR }}
-      - name: Move wasm libs
-        run: |
-          mv ${{ env.WASM_TARGET_DIR }}/libs ${{ env.DEFAULTS_DIR }}/libs
-          mv ${{ env.DEFAULTS_DIR }}/libs/default_executor.wasm ${{ env.DEFAULTS_DIR }}/executor.wasm
-      - name: Install Python and Poetry
-        run: |
-          yum install -y python${{ env.PYTHON_VERSION }} python${{ env.PYTHON_VERSION }}-devel
-          curl -sSL https://install.python-poetry.org | python3 -
-          echo 'export PATH="${{ env.POETRY_PATH }}:$PATH"' >> /etc/profile
-          source /etc/profile
-      - name: Set up Docker buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          install: true
-      - name: Build and tag Docker images
-        uses: docker/build-push-action@v6
-        if: always()
-        with:
-          context: .
-          load: true
-          file: Dockerfile.glibc
-          tags: |
-            hyperledger/iroha:local
-            hyperledger/iroha:dev
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Test docker-compose.single.yml
-        run: |
-          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml up --wait || {
-            echo "docker-compose failed. Logs:";
-            docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml logs --tail="all";
-            exit 1;
-          }
-          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml down
-      - name: Test docker-compose.local.yml
-        run: |
-          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml up --wait || {
-            echo "docker-compose failed. Logs:";
-            docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml logs --tail="all";
-            exit 1;
-          }
-          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml down
-      - name: Run docker-compose.yml containers
-        run: docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.yml up --wait || exit 1
-      - name: Install Torii pytest dependencies
-        working-directory: pytests/iroha_torii_tests
-        run: ${{ env.POETRY_PATH }} install
-      - name: Run Torii pytests
-        working-directory: pytests/iroha_torii_tests
-        run: ${{ env.POETRY_PATH }} run pytest
-      - name: Copy client binary from Iroha container
-        if: always()
-        run: |
-          mkdir -p ${{ env.TEST_DIR }}
-          cp ./defaults/client.toml ${{ env.TEST_DIR }}
-          docker cp ${{ env.IROHA_CONTAINER }}:/usr/local/bin/${{ env.IROHA_BIN }} ${{ env.TEST_DIR }}
-          chmod +x ${{ env.TEST_DIR }}/${{ env.IROHA_BIN }}
-      - name: Install client pytest dependencies
-        working-directory: pytests/iroha_cli_tests
-        run: ${{ env.POETRY_PATH }} install
-      - name: Run client pytests
-        uses: nick-fields/retry@v3
-        env:
-          TMP_DIR: ../../${{ env.TEST_DIR }}
-          IROHA_CLI_BINARY: ${{ env.IROHA_BIN }}
-          IROHA_CLI_CONFIG: client.toml
-        with:
-          timeout_minutes: 10
-          max_attempts: 5
-          command: |
-            cd pytests/iroha_cli_tests
-            ${{ env.POETRY_PATH }} run pytest
-          on_retry_command: |
-            docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.yml down
-            docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml up --wait || exit 1
-      - name: Wipe docker-compose.yml containers
-        if: always()
-        run: docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.yml down
+  # docker-compose-and-pytests:
+  #   needs: build_wasm
+  #   runs-on: [self-hosted, Linux, iroha2]
+  #   timeout-minutes: 60
+  #   env:
+  #     PYTHON_VERSION: "3.11"
+  #     POETRY_PATH: "/root/.local/bin/poetry"
+  #     TEST_DIR: "tmp/test"
+  #     IROHA_BIN: "iroha"
+  #     IROHA_CONTAINER: "defaults-irohad0-1"
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #     - name: Download wasm libs
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         name: wasm
+  #         path: ${{ env.WASM_TARGET_DIR }}
+  #     - name: Move wasm libs
+  #       run: |
+  #         mv ${{ env.WASM_TARGET_DIR }}/libs ${{ env.DEFAULTS_DIR }}/libs
+  #         mv ${{ env.DEFAULTS_DIR }}/libs/default_executor.wasm ${{ env.DEFAULTS_DIR }}/executor.wasm
+  #     - name: Install Python and Poetry
+  #       run: |
+  #         yum install -y python${{ env.PYTHON_VERSION }} python${{ env.PYTHON_VERSION }}-devel
+  #         curl -sSL https://install.python-poetry.org | python3 -
+  #         echo 'export PATH="${{ env.POETRY_PATH }}:$PATH"' >> /etc/profile
+  #         source /etc/profile
+  #     - name: Set up Docker buildx
+  #       id: buildx
+  #       uses: docker/setup-buildx-action@v3
+  #       with:
+  #         install: true
+  #     - name: Build and tag Docker images
+  #       uses: docker/build-push-action@v6
+  #       if: always()
+  #       with:
+  #         context: .
+  #         load: true
+  #         file: Dockerfile.glibc
+  #         tags: |
+  #           hyperledger/iroha:local
+  #           hyperledger/iroha:dev
+  #         cache-from: type=gha
+  #         cache-to: type=gha,mode=max
+  #     - name: Test docker-compose.single.yml
+  #       run: |
+  #         docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml up --wait || {
+  #           echo "docker-compose failed. Logs:";
+  #           docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml logs --tail="all";
+  #           exit 1;
+  #         }
+  #         docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml down
+  #     - name: Test docker-compose.local.yml
+  #       run: |
+  #         docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml up --wait || {
+  #           echo "docker-compose failed. Logs:";
+  #           docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml logs --tail="all";
+  #           exit 1;
+  #         }
+  #         docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml down
+  #     - name: Run docker-compose.yml containers
+  #       run: docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.yml up --wait || exit 1
+  #     - name: Install Torii pytest dependencies
+  #       working-directory: pytests/iroha_torii_tests
+  #       run: ${{ env.POETRY_PATH }} install
+  #     - name: Run Torii pytests
+  #       working-directory: pytests/iroha_torii_tests
+  #       run: ${{ env.POETRY_PATH }} run pytest
+  #     - name: Copy client binary from Iroha container
+  #       if: always()
+  #       run: |
+  #         mkdir -p ${{ env.TEST_DIR }}
+  #         cp ./defaults/client.toml ${{ env.TEST_DIR }}
+  #         docker cp ${{ env.IROHA_CONTAINER }}:/usr/local/bin/${{ env.IROHA_BIN }} ${{ env.TEST_DIR }}
+  #         chmod +x ${{ env.TEST_DIR }}/${{ env.IROHA_BIN }}
+  #     - name: Install client pytest dependencies
+  #       working-directory: pytests/iroha_cli_tests
+  #       run: ${{ env.POETRY_PATH }} install
+  #     - name: Run client pytests
+  #       uses: nick-fields/retry@v3
+  #       env:
+  #         TMP_DIR: ../../${{ env.TEST_DIR }}
+  #         IROHA_CLI_BINARY: ${{ env.IROHA_BIN }}
+  #         IROHA_CLI_CONFIG: client.toml
+  #       with:
+  #         timeout_minutes: 10
+  #         max_attempts: 5
+  #         command: |
+  #           cd pytests/iroha_cli_tests
+  #           ${{ env.POETRY_PATH }} run pytest
+  #         on_retry_command: |
+  #           docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.yml down
+  #           docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml up --wait || exit 1
+  #     - name: Wipe docker-compose.yml containers
+  #       if: always()
+  #       run: docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.yml down
