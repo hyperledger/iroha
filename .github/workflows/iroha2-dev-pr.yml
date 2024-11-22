@@ -80,7 +80,7 @@ jobs:
           retention-days: 1
 
   test_with_coverage:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, iroha2]
     container:
       image: hyperledger/iroha2-ci:nightly-2024-09-09
     needs: build_wasm
