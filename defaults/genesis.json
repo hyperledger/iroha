@@ -15,11 +15,11 @@
       "smart_contract_size": 4194304
     },
     "executor": {
-      "fuel": 18446744073709551615,
+      "fuel": 55000000,
       "memory": 55000000
     },
     "smart_contract": {
-      "fuel": 18446744073709551615,
+      "fuel": 55000000,
       "memory": 55000000
     }
   },
