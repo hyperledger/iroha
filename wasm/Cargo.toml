@@ -14,7 +14,7 @@ members = [
 ]
 
 [profile.release]
-panic = "unwind"
+panic = "abort"
 overflow-checks = true
 debug-assertions = true
 
@@ -25,7 +25,6 @@ panic = "abort"
 inherits = "release"
 overflow-checks = false
 debug-assertions = false
-panic = "abort"
 strip = "debuginfo" # Remove debugging info from the binary
 lto = true          # Link-time-optimization produces notable decrease in binary size
 opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorization)

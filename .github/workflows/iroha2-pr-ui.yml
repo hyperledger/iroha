@@ -2,7 +2,7 @@ name: I2::Tests::UI
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main, stable, lts]
     paths:
       - 'crates/*_derive/**.rs'
       - 'crates/*_macro*/**.rs'
