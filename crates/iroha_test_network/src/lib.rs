@@ -27,7 +27,7 @@ use iroha_crypto::{ExposedPrivateKey, KeyPair, PrivateKey};
 use iroha_data_model::{
     events::pipeline::BlockEventFilter,
     isi::InstructionBox,
-    parameter::{SumeragiParameter, SumeragiParameters},
+    parameter::{SmartContractParameter, SumeragiParameter, SumeragiParameters},
     ChainId,
 };
 use iroha_genesis::GenesisBlock;
@@ -339,6 +339,15 @@ impl NetworkBuilder {
             commit_time = SumeragiParameters::default().commit_time();
         }
 
+        // Unoptimized profile requires additional resources.
+        if cfg!(debug_assertions) {
+            extra_isi.push(InstructionBox::SetParameter(SetParameter::new(
+                Parameter::Executor(SmartContractParameter::Fuel(
+                    std::num::NonZeroU64::new(80000000).expect("Fuel must be positive."),
+                )),
+            )));
+        }
+
         let genesis = config::genesis(
             [
                 InstructionBox::SetParameter(SetParameter::new(Parameter::Sumeragi(
@@ -349,7 +358,8 @@ impl NetworkBuilder {
                 ))),
             ]
             .into_iter()
-            .chain(self.extra_isi),
+            .chain(self.extra_isi)
+            .chain(extra_isi),
             topology,
         );
 

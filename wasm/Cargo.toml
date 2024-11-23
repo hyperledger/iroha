@@ -14,15 +14,18 @@ members = [
 ]
 
 [profile.release]
-panic = "abort"
-lto = true
-codegen-units = 1
+panic = "unwind"
+overflow-checks = true
+debug-assertions = true
 
 [profile.dev]
 panic = "abort"
 
 [profile.deploy]
 inherits = "release"
+overflow-checks = false
+debug-assertions = false
+panic = "abort"
 strip = "debuginfo" # Remove debugging info from the binary
 lto = true          # Link-time-optimization produces notable decrease in binary size
 opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorization)
