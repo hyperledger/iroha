@@ -1,5 +1,9 @@
 name: I2::Doc::Links
 
+# Verify all links in text files and generated documentation
+# from source files are valid (return 200-like http code).
+# https://github.com/lycheeverse/lychee
+
 on:
   pull_request:
     branches: [main, stable, lts]
