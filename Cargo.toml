@@ -201,14 +201,10 @@ members = [
     "data_model/samples/*"
 ]
 
-[profile.release]
-debug-assertions = true
-
 [profile.deploy]
 inherits = "release"
 strip = "symbols"
 lto = true
-debug-assertions = false
 
 [profile.profiling]
 inherits = "release"
