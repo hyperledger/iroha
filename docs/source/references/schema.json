@@ -810,6 +810,14 @@
       }
     ]
   },
+  "CanBurnAssetWithDefinition": {
+    "Struct": [
+      {
+        "name": "asset_definition",
+        "type": "AssetDefinitionId"
+      }
+    ]
+  },
   "CanExecuteTrigger": {
     "Struct": [
       {
@@ -825,6 +833,14 @@
       {
         "name": "asset",
         "type": "AssetId"
+      }
+    ]
+  },
+  "CanMintAssetWithDefinition": {
+    "Struct": [
+      {
+        "name": "asset_definition",
+        "type": "AssetDefinitionId"
       }
     ]
   },
@@ -908,6 +924,7 @@
       }
     ]
   },
+  "CanRegisterDomain": null,
   "CanRegisterTrigger": {
     "Struct": [
       {
