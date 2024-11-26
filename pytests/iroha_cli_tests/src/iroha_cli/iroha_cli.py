@@ -7,12 +7,12 @@ import shlex
 import subprocess
 from pathlib import Path
 from time import monotonic, sleep
-from typing import Callable
+from typing import Callable, Optional
 
 import allure  # type: ignore
 
 from ...common.helpers import extract_hash, read_isi_from_json, write_isi_to_json
-from ...common.settings import IROHA_CLI_BINARY, ISI_PATH, IROHA_CLI_CONFIG, ROOT_DIR
+from ...common.settings import IROHA_CLI_BINARY, ISI_PATH, IROHA_CLI_CONFIG, BASE_DIR
 from .configuration import Config
 
 
@@ -29,11 +29,11 @@ class IrohaCli:
         :param config: The configuration object.
         :type config: Config
         """
-        self.config = config
+        self._config = config
         self.command = [self.BASE_PATH] + self.BASE_FLAGS
-        self.stdout = None
-        self.stderr = None
-        self.transaction_hash = None
+        self.stdout: Optional[str] = None
+        self.stderr: Optional[str] = None
+        self.transaction_hash: Optional[str] = None
         self._timeout = 20
 
     def __enter__(self):
@@ -113,6 +113,7 @@ class IrohaCli:
     def list_filter(self, filter_criteria):
         """
         Appends the 'list filter' command to the command list.
+
         :param filter_criteria: Criteria to filter the list.
         """
         self.command.append("list")
@@ -181,7 +182,7 @@ class IrohaCli:
 
     def transfer(self, asset, source_account, target_account, quantity: str):
         """
-        Executes the 'transfer' command for the given asset
+        Executes the 'transfer' command for the given asset.
 
         :param asset: The asset to be transferred.
         :type asset: str
@@ -215,9 +216,10 @@ class IrohaCli:
         """
         Executes the 'burn' command for the given asset
 
+        :param account: The account from which the asset is burned.
+        :type account: Account
         :param asset: The asset to be burned.
         :type asset: str
-
         :param quantity: The quantity of the asset to be burned.
         :type quantity: str
         :return: The current IrohaCli object.
@@ -259,35 +261,26 @@ class IrohaCli:
         self.execute()
         return self
 
-    def _read_and_update_json(self, template_filename, key_path=None, value=None):
+    def _read_and_update_json(self, template_filename, changes=None):
         """
-        Reads a JSON file template, updates a specific key with the provided value,
-        and writes the updated data to a temporary JSON file.
+        Reads a JSON template, applies multiple updates, and writes the modified data to a JSON file.
 
         :param template_filename: The name of the JSON template file.
         :type template_filename: str
-        :param key_path: The path to the key in the JSON data to be updated.
-        :type key_path: list of str
-        :param value: The value to set for the specified key.
-        :type value: str
+        :param changes: A dictionary of updates where each key is a path to a JSON key
+        :type changes: dict
         :return: The path to the temporary JSON file.
         :rtype: str
         """
-        json_template_path = (
-            Path(ROOT_DIR)
-            / "pytests"
-            / "common"
-            / "json_isi_examples"
-            / template_filename
-        )
+        json_template_path = Path("common") / "json_isi_examples" / template_filename
         data = read_isi_from_json(str(json_template_path))
 
-        if key_path and value is not None:
-            # Update the specific key with the provided value
-            element = data[0]
-            for key in key_path[:-1]:
-                element = element[key]
-            element[key_path[-1]] = value
+        if changes:
+            for key_path, value in changes.items():
+                element = data[0]
+                for key in key_path[:-1]:
+                    element = element[key]
+                element[key_path[-1]] = value
 
         json_temp_file_path = Path(ISI_PATH) / f"isi_{template_filename}"
         write_isi_to_json(data, str(json_temp_file_path))
@@ -303,7 +296,7 @@ class IrohaCli:
         """
         self._execute_pipe(
             ["cat", temp_file_path],
-            [self.BASE_PATH] + self.BASE_FLAGS + ["json"] + ["transaction"],
+            [self.BASE_PATH] + self.BASE_FLAGS + ["json", "transaction"],
         )
 
     def register_trigger(self, account):
@@ -313,11 +306,10 @@ class IrohaCli:
         :param account: The account to be used in the register_trigger.
         :type account: str
         """
-        temp_file_path = self._read_and_update_json(
-            "register_trigger.json",
-            ["Register", "Trigger", "action", "authority"],
-            str(account),
-        )
+        changes = {
+            ("Register", "Trigger", "action", "authority"): str(account),
+        }
+        temp_file_path = self._read_and_update_json("register_trigger.json", changes)
         self._execute_isi(temp_file_path)
         return self
 
@@ -328,15 +320,54 @@ class IrohaCli:
         :param asset: The object ID to be used in the unregister_asset.
         :type asset: str
         """
-        temp_file_path = self._read_and_update_json(
-            "unregister_asset.json", ["Unregister", "Asset", "object"], str(asset)
-        )
+        changes = {
+            ("Unregister", "Asset", "object"): str(asset),
+        }
+        temp_file_path = self._read_and_update_json("unregister_asset.json", changes)
+        self._execute_isi(temp_file_path)
+        return self
+
+    def grant_permission(self, destination, permission):
+        """
+        Grants a permission to a destination account.
+
+        :param destination: The account to which the permission is granted.
+        :type destination: str
+        :param permission: The permission to grant.
+        :type permission: str
+        :return: The current IrohaCli object.
+        :rtype: IrohaCli
+        """
+        changes = {
+            ("Grant", "Permission", "object", "name"): str(permission),
+            ("Grant", "Permission", "destination"): str(destination),
+        }
+        temp_file_path = self._read_and_update_json("grant_permission.json", changes)
+        self._execute_isi(temp_file_path)
+        return self
+
+    def revoke_permission(self, destination, permission):
+        """
+        Revokes a permission from a destination account.
+
+        :param destination: The account from which the permission is revoked.
+        :type destination: str
+        :param permission: The permission to revoke.
+        :type permission: str
+        :return: The current IrohaCli object.
+        :rtype: IrohaCli
+        """
+        changes = {
+            ("Revoke", "Permission", "object", "name"): str(permission),
+            ("Revoke", "Permission", "destination"): str(destination),
+        }
+        temp_file_path = self._read_and_update_json("revoke_permission.json", changes)
         self._execute_isi(temp_file_path)
         return self
 
     def send_wrong_instruction(self):
         """
-        Creates a JSON file for the send_wrong_instruction executes it using the Iroha CLI.
+        Creates a JSON file for the send_wrong_instruction and executes it using the Iroha CLI.
         """
         temp_file_path = self._read_and_update_json("wrong_instruction.json")
         self._execute_isi(temp_file_path)
@@ -346,8 +377,8 @@ class IrohaCli:
         """
         Placeholder method for implementing assertions.
 
-        :param expected: The expected value.
-        :type expected: str
+        :param _expected: The expected value.
+        :type _expected: Any
         :return: The current IrohaCli object.
         :rtype: IrohaCli
         """
@@ -357,6 +388,8 @@ class IrohaCli:
         """
         Executes the command and captures stdout and stderr.
 
+        :param command: The command to execute, defaults to None.
+        :type command: Optional[List[str]]
         :return: The current IrohaCli object.
         :rtype: IrohaCli
         """
@@ -389,6 +422,7 @@ class IrohaCli:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 env=self.config.env,
+                text=True,
             ) as proc2,
         ):
             self.stdout, self.stderr = proc2.communicate()
