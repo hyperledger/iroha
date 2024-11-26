@@ -39,6 +39,7 @@ pub trait QueryExecutor {
     /// # Errors
     ///
     /// Returns an error if the query execution fails.
+    #[expect(clippy::type_complexity)]
     fn start_query(
         &self,
         query: QueryWithParams,
@@ -49,6 +50,7 @@ pub trait QueryExecutor {
     /// # Errors
     ///
     /// Returns an error if the query execution fails.
+    #[expect(clippy::type_complexity)]
     fn continue_query(
         cursor: Self::Cursor,
     ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error>;
@@ -130,6 +132,7 @@ where
     Vec<T>: TryFrom<QueryOutputBatchBox>,
     <Vec<T> as TryFrom<QueryOutputBatchBox>>::Error: core::fmt::Debug,
 {
+    #[expect(clippy::cast_possible_truncation)]
     fn len(&self) -> usize {
         self.current_batch_iter.len() + self.remaining_items as usize
     }

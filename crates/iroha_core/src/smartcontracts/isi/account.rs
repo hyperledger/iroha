@@ -57,7 +57,7 @@ pub mod isi {
                         )?;
                         let asset = state_transaction
                             .world
-                            .asset_or_insert(asset_id.clone(), self.object.value)
+                            .asset_or_insert(&asset_id, self.object.value)
                             .expect("Account exists");
 
                         match asset.value {
