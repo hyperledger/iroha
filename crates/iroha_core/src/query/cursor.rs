@@ -6,35 +6,15 @@ use iroha_data_model::{
     prelude::SelectorTuple,
     query::{
         dsl::{EvaluateSelector, HasProjection, SelectorMarker},
+        error::QueryExecutionFail,
         QueryOutputBatchBox, QueryOutputBatchBoxTuple,
     },
 };
-use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize};
-
-/// An error with cursor processing.
-#[derive(
-    Debug,
-    displaydoc::Display,
-    thiserror::Error,
-    Copy,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-)]
-pub enum Error {
-    /// The server's cursor does not match the provided cursor.
-    Mismatch,
-    /// There aren't enough items to proceed.
-    Done,
-}
 
 fn evaluate_selector_tuple<T>(
     batch: Vec<T>,
     selector: &SelectorTuple<T>,
-) -> QueryOutputBatchBoxTuple
+) -> Result<QueryOutputBatchBoxTuple, QueryExecutionFail>
 where
     T: HasProjection<SelectorMarker, AtomType = ()> + 'static,
     T::Projection: EvaluateSelector<T>,
@@ -46,22 +26,22 @@ where
     while let Some(item) = iter.next() {
         if iter.peek().is_none() {
             // do not clone the last item
-            batch_tuple.push(item.project(batch.into_iter()));
-            return QueryOutputBatchBoxTuple { tuple: batch_tuple };
+            batch_tuple.push(item.project(batch.into_iter())?);
+            return Ok(QueryOutputBatchBoxTuple { tuple: batch_tuple });
         }
 
-        batch_tuple.push(item.project_clone(batch.iter()));
+        batch_tuple.push(item.project_clone(batch.iter())?);
     }
 
     // this should only happen for empty selectors
-    QueryOutputBatchBoxTuple { tuple: batch_tuple }
+    Ok(QueryOutputBatchBoxTuple { tuple: batch_tuple })
 }
 
 trait BatchedTrait {
     fn next_batch(
         &mut self,
         cursor: u64,
-    ) -> Result<(QueryOutputBatchBoxTuple, Option<NonZeroU64>), Error>;
+    ) -> Result<(QueryOutputBatchBoxTuple, Option<NonZeroU64>), QueryExecutionFail>;
     fn remaining(&self) -> u64;
 }
 
@@ -86,15 +66,15 @@ where
     fn next_batch(
         &mut self,
         cursor: u64,
-    ) -> Result<(QueryOutputBatchBoxTuple, Option<NonZeroU64>), Error> {
+    ) -> Result<(QueryOutputBatchBoxTuple, Option<NonZeroU64>), QueryExecutionFail> {
         let Some(server_cursor) = self.cursor else {
             // the server is done with the iterator
-            return Err(Error::Done);
+            return Err(QueryExecutionFail::CursorDone);
         };
 
         if cursor != server_cursor {
             // the cursor doesn't match
-            return Err(Error::Mismatch);
+            return Err(QueryExecutionFail::CursorMismatch);
         }
 
         let expected_batch_size: usize = self
@@ -117,7 +97,7 @@ where
             .collect();
 
         // evaluate the requested projections
-        let batch = evaluate_selector_tuple(batch, &self.selector);
+        let batch = evaluate_selector_tuple(batch, &self.selector)?;
 
         // did we get enough elements to continue?
         if current_batch_size >= expected_batch_size {
@@ -186,7 +166,7 @@ impl ErasedQueryIterator {
     pub fn next_batch(
         &mut self,
         cursor: u64,
-    ) -> Result<(QueryOutputBatchBoxTuple, Option<NonZeroU64>), Error> {
+    ) -> Result<(QueryOutputBatchBoxTuple, Option<NonZeroU64>), QueryExecutionFail> {
         self.inner.next_batch(cursor)
     }
 

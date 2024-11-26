@@ -5,6 +5,7 @@ use alloc::{format, string::String, vec::Vec};
 
 use derive_where::derive_where;
 use iroha_crypto::{HashOf, PublicKey};
+use iroha_primitives::json::Json;
 
 // used in the macro
 use crate::query::dsl::{
@@ -21,7 +22,10 @@ use crate::{
     parameter::Parameter,
     peer::PeerId,
     permission::Permission,
-    query::{CommittedTransaction, QueryOutputBatchBox},
+    query::{
+        error::{FindError, QueryExecutionFail},
+        CommittedTransaction, QueryOutputBatchBox,
+    },
     role::{Role, RoleId},
     transaction::{error::TransactionRejectionReason, SignedTransaction},
     trigger::{Trigger, TriggerId},
@@ -58,18 +62,18 @@ macro_rules! type_descriptions {
 
         impl EvaluateSelector<$ty> for $projection_name<SelectorMarker> {
                 #[expect(single_use_lifetimes)] // FP, this the suggested change is not allowed on stable
-                fn project_clone<'a>(&self, batch: impl Iterator<Item = &'a $ty>) -> QueryOutputBatchBox {
+                fn project_clone<'a>(&self, batch: impl Iterator<Item = &'a $ty>) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
                     match self {
-                        $projection_name::Atom(_) => batch.cloned().collect::<Vec<_>>().into(),
+                        $projection_name::Atom(_) => Ok(batch.cloned().collect::<Vec<_>>().into()),
                         $(
                             $projection_name::$proj_variant(field) => field.project_clone(batch.map(|item| &item.$field_name)),
                         )*
                     }
                 }
 
-                fn project(&self, batch: impl Iterator<Item = $ty>) -> QueryOutputBatchBox {
+                fn project(&self, batch: impl Iterator<Item = $ty>) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
                     match self {
-                        $projection_name::Atom(_) => batch.collect::<Vec<_>>().into(),
+                        $projection_name::Atom(_) => Ok(batch.collect::<Vec<_>>().into()),
                         $(
                             $projection_name::$proj_variant(field) => field.project(batch.map(|item| item.$field_name)),
                         )*
@@ -84,7 +88,11 @@ macro_rules! type_descriptions {
         ($($dep_ty_bounds:tt)*)
     ) => {
         #[doc = concat!("A projector on [`", stringify!($ty), "`] for its `", stringify!($field_name), "` field.")]
-        pub struct $projector_name<Marker, Base>(core::marker::PhantomData<(Marker, Base)>);
+        #[derive_where::derive_where(Default, Copy, Clone; Base)]
+        pub struct $projector_name<Marker, Base> {
+            base: Base,
+            phantom: core::marker::PhantomData<Marker>
+        }
 
         impl<Marker, Base> ObjectProjector<Marker> for $projector_name<Marker, Base>
         where
@@ -96,9 +104,10 @@ macro_rules! type_descriptions {
             type OutputType = Base::OutputType;
 
             fn project(
+                &self,
                 projection: <$field_ty as HasProjection<Marker>>::Projection
             ) -> <Self::OutputType as HasProjection<Marker>>::Projection {
-                Base::project($projection_name::$proj_variant(projection))
+                self.base.project($projection_name::$proj_variant(projection))
             }
         }
     };
@@ -193,14 +202,15 @@ macro_rules! type_descriptions {
 
             // prototype struct
             #[doc = concat!("A prototype for the [`", stringify!($ty), "`] type.")]
-            #[derive_where::derive_where(Default, Copy, Clone)]
+            #[derive_where::derive_where(Default, Copy, Clone; Projector)]
             pub struct $prototype_name<Marker, Projector> {
                 $(
                     // TODO: I think it might make sense to provide field documentation here. How would we do that without copying the docs to the type description macro though?
                     #[doc = concat!("Accessor for the `", stringify!($field_name), "` field.")]
                     pub $field_name: <$field_ty as HasPrototype>::Prototype<Marker, $projector_name<Marker, Projector>>,
                 )*
-                phantom: core::marker::PhantomData<(Marker, Projector)>,
+                pub(super) projector: Projector,
+                phantom: core::marker::PhantomData<Marker>,
             }
 
             impl HasPrototype for $ty
@@ -217,7 +227,7 @@ macro_rules! type_descriptions {
                 type SelectedType = Projector::InputType;
 
                 fn into_selector(self) -> <Projector::OutputType as HasProjection<SelectorMarker>>::Projection {
-                    Projector::wrap_atom(())
+                    self.projector.wrap_atom(())
                 }
             }
         )*
@@ -232,7 +242,7 @@ macro_rules! type_descriptions {
 
 type_descriptions! {
     // Type[ProjectionName, PrototypeName]: Dependency1, Dependency2, ...
-    Account[AccountProjection, AccountPrototype]: AccountId, DomainId, Name, PublicKey, Metadata {
+    Account[AccountProjection, AccountPrototype]: AccountId, DomainId, Name, PublicKey, Metadata, Json {
         // field_name(ProjectionVariant, ProjectorName): FieldType
         id(Id, AccountIdProjector): AccountId,
         metadata(Metadata, AccountMetadataProjector): Metadata,
@@ -243,7 +253,7 @@ type_descriptions! {
     }
 
     // asset
-    AssetDefinition[AssetDefinitionProjection, AssetDefinitionPrototype]: AssetDefinitionId, DomainId, Name, Metadata {
+    AssetDefinition[AssetDefinitionProjection, AssetDefinitionPrototype]: AssetDefinitionId, DomainId, Name, Metadata, Json {
         id(Id, AssetDefinitionIdProjector): AssetDefinitionId,
         metadata(Metadata, AssetDefinitionMetadataProjector): Metadata,
     }
@@ -285,7 +295,7 @@ type_descriptions! {
     }
 
     // domain
-    Domain[DomainProjection, DomainPrototype]: DomainId, Name, Metadata {
+    Domain[DomainProjection, DomainPrototype]: DomainId, Name, Metadata, Json {
         id(Id, DomainIdProjector): DomainId,
         metadata(Metadata, DomainMetadataProjector): Metadata,
     }
@@ -328,9 +338,7 @@ type_descriptions! {
     String[StringProjection, StringPrototype] {}
 
     PublicKey[PublicKeyProjection, PublicKeyPrototype] {}
-    Metadata[MetadataProjection, MetadataPrototype] {
-        // TODO: we will probably want to have a special-cased metadata projection that allows accessing fields by string keys (because metadata is not statically typed)
-    }
+    Json[JsonProjection, JsonPrototype] {}
 }
 
 // evaluate implementations that could not be implemented in a macro
@@ -348,16 +356,19 @@ impl EvaluateSelector<BlockHeader> for BlockHeaderProjection<SelectorMarker> {
     fn project_clone<'a>(
         &self,
         batch: impl Iterator<Item = &'a BlockHeader>,
-    ) -> QueryOutputBatchBox {
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            BlockHeaderProjection::Atom(_) => batch.cloned().collect::<Vec<_>>().into(),
+            BlockHeaderProjection::Atom(_) => Ok(batch.cloned().collect::<Vec<_>>().into()),
             BlockHeaderProjection::Hash(hash) => hash.project(batch.map(|item| item.hash())),
         }
     }
 
-    fn project(&self, batch: impl Iterator<Item = BlockHeader>) -> QueryOutputBatchBox {
+    fn project(
+        &self,
+        batch: impl Iterator<Item = BlockHeader>,
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            BlockHeaderProjection::Atom(_) => batch.collect::<Vec<_>>().into(),
+            BlockHeaderProjection::Atom(_) => Ok(batch.collect::<Vec<_>>().into()),
             BlockHeaderProjection::Hash(hash) => hash.project(batch.map(|item| item.hash())),
         }
     }
@@ -377,18 +388,21 @@ impl EvaluateSelector<SignedBlock> for SignedBlockProjection<SelectorMarker> {
     fn project_clone<'a>(
         &self,
         batch: impl Iterator<Item = &'a SignedBlock>,
-    ) -> QueryOutputBatchBox {
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            SignedBlockProjection::Atom(_) => batch.cloned().collect::<Vec<_>>().into(),
+            SignedBlockProjection::Atom(_) => Ok(batch.cloned().collect::<Vec<_>>().into()),
             SignedBlockProjection::Header(header) => {
                 header.project(batch.map(|item| item.header()))
             }
         }
     }
 
-    fn project(&self, batch: impl Iterator<Item = SignedBlock>) -> QueryOutputBatchBox {
+    fn project(
+        &self,
+        batch: impl Iterator<Item = SignedBlock>,
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            SignedBlockProjection::Atom(_) => batch.collect::<Vec<_>>().into(),
+            SignedBlockProjection::Atom(_) => Ok(batch.collect::<Vec<_>>().into()),
             SignedBlockProjection::Header(header) => {
                 header.project(batch.map(|item| item.header()))
             }
@@ -413,9 +427,9 @@ impl EvaluateSelector<SignedTransaction> for SignedTransactionProjection<Selecto
     fn project_clone<'a>(
         &self,
         batch: impl Iterator<Item = &'a SignedTransaction>,
-    ) -> QueryOutputBatchBox {
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            SignedTransactionProjection::Atom(_) => batch.cloned().collect::<Vec<_>>().into(),
+            SignedTransactionProjection::Atom(_) => Ok(batch.cloned().collect::<Vec<_>>().into()),
             SignedTransactionProjection::Hash(hash) => hash.project(batch.map(|item| item.hash())),
             SignedTransactionProjection::Authority(authority) => {
                 authority.project_clone(batch.map(|item| item.authority()))
@@ -423,9 +437,12 @@ impl EvaluateSelector<SignedTransaction> for SignedTransactionProjection<Selecto
         }
     }
 
-    fn project(&self, batch: impl Iterator<Item = SignedTransaction>) -> QueryOutputBatchBox {
+    fn project(
+        &self,
+        batch: impl Iterator<Item = SignedTransaction>,
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            SignedTransactionProjection::Atom(_) => batch.collect::<Vec<_>>().into(),
+            SignedTransactionProjection::Atom(_) => Ok(batch.collect::<Vec<_>>().into()),
             SignedTransactionProjection::Hash(hash) => hash.project(batch.map(|item| item.hash())),
             SignedTransactionProjection::Authority(authority) => {
                 authority.project(batch.map(|item| item.authority().clone()))
@@ -434,7 +451,216 @@ impl EvaluateSelector<SignedTransaction> for SignedTransactionProjection<Selecto
     }
 }
 
+// metadata is a special case because we allow projecting on string-typed keys
+/// A projection for the [`Metadata`] type.
+#[derive_where(Debug, Eq, PartialEq, Copy, Clone; <Metadata as Projectable<Marker>>::AtomType, MetadataKeyProjection<Marker>)]
+// parity-scale-codec and iroha_schema generates correct bounds by themselves
+#[derive(parity_scale_codec::Decode, parity_scale_codec::Encode, iroha_schema::IntoSchema)]
+// use serde_where macro to generate the correct #[serde(bounds(...))] attribute
+#[iroha_macro::serde_where(<Metadata as Projectable<Marker>>::AtomType, MetadataKeyProjection<Marker>)]
+#[derive(serde::Deserialize, serde::Serialize)]
+pub enum MetadataProjection<Marker>
+where
+    Metadata: Projectable<Marker>,
+    Json: HasProjection<Marker>,
+{
+    /// Finish the projection with an atom.
+    Atom(<Metadata as Projectable<Marker>>::AtomType),
+    // unlike other projections, this one needs to store a value (key being projected)
+    // hence the separate struct (iroha does not allow enums with more than one field)
+    /// Projection for a key in the metadata.
+    Key(MetadataKeyProjection<Marker>),
+}
+
+/// A projection for a key in the [`Metadata`] type.
+#[derive_where(Debug, Eq, PartialEq, Clone; <Json as HasProjection<Marker>>::Projection)]
+// parity-scale-codec and iroha_schema generates correct bounds by themselves
+#[derive(parity_scale_codec::Decode, parity_scale_codec::Encode, iroha_schema::IntoSchema)]
+// use serde_where macro to generate the correct #[serde(bounds(...))] attribute
+#[iroha_macro::serde_where(<Json as HasProjection<Marker>>::Projection)]
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct MetadataKeyProjection<Marker>
+where
+    Json: HasProjection<Marker>,
+{
+    key: Name,
+    projection: <Json as HasProjection<Marker>>::Projection,
+}
+
+impl<Marker> HasProjection<Marker> for Metadata
+where
+    Metadata: Projectable<Marker>,
+    Json: HasProjection<Marker>,
+{
+    type Projection = MetadataProjection<Marker>;
+
+    fn atom(atom: Self::AtomType) -> Self::Projection {
+        MetadataProjection::Atom(atom)
+    }
+}
+impl EvaluatePredicate<Metadata> for MetadataProjection<PredicateMarker> {
+    fn applies(&self, input: &Metadata) -> bool {
+        match self {
+            MetadataProjection::Atom(atom) => atom.applies(input),
+            MetadataProjection::Key(proj) => input
+                .get(&proj.key)
+                .map_or(false, |value| proj.projection.applies(value)),
+        }
+    }
+}
+impl EvaluateSelector<Metadata> for MetadataProjection<SelectorMarker> {
+    #[expect(single_use_lifetimes)]
+    fn project_clone<'a>(
+        &self,
+        batch: impl Iterator<Item = &'a Metadata>,
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
+        match self {
+            MetadataProjection::Atom(_) => Ok(batch.cloned().collect::<Vec<_>>().into()),
+            MetadataProjection::Key(proj) => {
+                let mut error_accumulator = None;
+
+                // what we do here is a bit unwieldy
+                // the `project_clone` method accepts an iterator over references to the items
+                // however, while iterating over the metadatas we can find out that a key is missing
+                // in this case we need to fail the whole operation and return an error
+                // the `project_clone` by itself doesn't provide such a mechanism
+                // but we can achieve this by storing an error indicator in a variable and checking it after the iteration
+                let result = proj.projection.project_clone(
+                    batch
+                        // we use map_while to stop on first error
+                        .map_while(|item| {
+                            let res = item.get(&proj.key).ok_or_else(|| {
+                                QueryExecutionFail::Find(FindError::MetadataKey(proj.key.clone()))
+                            });
+
+                            match res {
+                                Ok(value) => Some(value),
+                                Err(error) => {
+                                    error_accumulator.get_or_insert(error);
+                                    None
+                                }
+                            }
+                        }),
+                );
+
+                // if we have an error, return it
+                if let Some(error) = error_accumulator {
+                    return Err(error);
+                }
+
+                result
+            }
+        }
+    }
+    fn project(
+        &self,
+        batch: impl Iterator<Item = Metadata>,
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
+        match self {
+            MetadataProjection::Atom(_) => Ok(batch.collect::<Vec<_>>().into()),
+            MetadataProjection::Key(proj) => {
+                let mut error_accumulator = None;
+
+                let result = proj.projection.project(batch.map_while(|mut item| {
+                    // using remove here to get a value, not a reference
+                    let res = item.remove(&proj.key).ok_or_else(|| {
+                        QueryExecutionFail::Find(FindError::MetadataKey(proj.key.clone()))
+                    });
+
+                    match res {
+                        Ok(value) => Some(value),
+                        Err(error) => {
+                            error_accumulator.get_or_insert(error);
+                            None
+                        }
+                    }
+                }));
+
+                if let Some(error) = error_accumulator {
+                    return Err(error);
+                }
+
+                result
+            }
+        }
+    }
+}
+
+/// A prototype for the [`Metadata`] type.
+#[derive_where(Default, Copy, Clone; Projector)]
+pub struct MetadataPrototype<Marker, Projector> {
+    projector: Projector,
+    phantom: core::marker::PhantomData<Marker>,
+}
+
+impl HasPrototype for Metadata {
+    type Prototype<Marker, Projector> = MetadataPrototype<Marker, Projector>;
+}
+impl<Projector> IntoSelector for MetadataPrototype<SelectorMarker, Projector>
+where
+    Projector: ObjectProjector<SelectorMarker, InputType = Metadata>,
+    Projector::OutputType: HasProjection<SelectorMarker, AtomType = ()>,
+{
+    type SelectingType = Projector::OutputType;
+    type SelectedType = Projector::InputType;
+
+    fn into_selector(self) -> <Projector::OutputType as HasProjection<SelectorMarker>>::Projection {
+        self.projector.wrap_atom(())
+    }
+}
+
+impl<Marker, Projector> MetadataPrototype<Marker, Projector>
+where
+    Projector: ObjectProjector<Marker, InputType = Metadata>,
+{
+    /// Accessor for a key in the metadata.
+    ///
+    /// ## Nonexistent keys
+    ///
+    /// When a nonexistent key is accessed in a predicate, it will evaluate to `false`.
+    ///
+    /// When a nonexistent key is accessed in a selector, the query will fail with a [`FindError::MetadataKey`] error.
+    pub fn key(self, key: Name) -> JsonPrototype<Marker, MetadataKeyProjector<Marker, Projector>> {
+        JsonPrototype {
+            projector: MetadataKeyProjector {
+                key,
+                base: self.projector,
+                phantom: core::marker::PhantomData,
+            },
+            phantom: core::marker::PhantomData,
+        }
+    }
+}
+
+/// A projector on [`Metadata`] for one of its keys.
+pub struct MetadataKeyProjector<Marker, Base> {
+    key: Name,
+    base: Base,
+    phantom: core::marker::PhantomData<Marker>,
+}
+
+impl<Marker, Base> ObjectProjector<Marker> for MetadataKeyProjector<Marker, Base>
+where
+    Base: ObjectProjector<Marker, InputType = Metadata>,
+    Json: Projectable<Marker>,
+    Metadata: Projectable<Marker>,
+{
+    type InputType = Json;
+    type OutputType = Base::OutputType;
+
+    fn project(
+        &self,
+        projection: <Json as HasProjection<Marker>>::Projection,
+    ) -> <Self::OutputType as HasProjection<Marker>>::Projection {
+        self.base
+            .project(MetadataProjection::Key(MetadataKeyProjection {
+                key: self.key.clone(),
+                projection,
+            }))
+    }
+}
+
 pub mod prelude {
     //! Re-export all projections for a glob import `(::*)`
-    pub use super::projections::*;
+    pub use super::{projections::*, MetadataKeyProjection, MetadataProjection};
 }

@@ -109,11 +109,6 @@ pub mod error {
     pub enum Error {
         /// Runtime initialization failure
         Initialization(#[source] WasmtimeError),
-        /// Runtime finalization failure.
-        ///
-        /// Currently only [`crate::query::store::Error`] might fail in this case.
-        /// [`From`] is not implemented to force users to explicitly wrap this error.
-        Finalization(#[source] crate::query::store::Error),
         /// Failed to load module
         ModuleLoading(#[source] WasmtimeError),
         /// Module could not be instantiated

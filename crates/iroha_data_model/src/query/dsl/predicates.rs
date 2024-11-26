@@ -4,6 +4,7 @@
 use alloc::{format, string::String, vec::Vec};
 
 use iroha_crypto::{HashOf, PublicKey};
+use iroha_primitives::json::Json;
 
 use crate::{
     account::{Account, AccountId},
@@ -21,11 +22,11 @@ use crate::{
                 AccountIdPrototype, AccountPrototype, AssetDefinitionIdPrototype,
                 AssetDefinitionPrototype, AssetIdPrototype, AssetPrototype, AssetValuePrototype,
                 BlockHeaderHashPrototype, BlockHeaderPrototype, CommittedTransactionPrototype,
-                DomainIdPrototype, DomainPrototype, MetadataPrototype, NamePrototype,
-                ParameterPrototype, PeerIdPrototype, PermissionPrototype, PublicKeyPrototype,
-                RoleIdPrototype, RolePrototype, SignedBlockPrototype, SignedTransactionPrototype,
-                StringPrototype, TransactionErrorPrototype, TransactionHashPrototype,
-                TriggerIdPrototype, TriggerPrototype,
+                DomainIdPrototype, DomainPrototype, JsonPrototype, MetadataPrototype,
+                NamePrototype, ParameterPrototype, PeerIdPrototype, PermissionPrototype,
+                PublicKeyPrototype, RoleIdPrototype, RolePrototype, SignedBlockPrototype,
+                SignedTransactionPrototype, StringPrototype, TransactionErrorPrototype,
+                TransactionHashPrototype, TriggerIdPrototype, TriggerPrototype,
             },
             CompoundPredicate, ObjectProjector, PredicateMarker,
         },
@@ -96,7 +97,7 @@ macro_rules! impl_predicate_atom {
                 $(
                     $(#[$($variant_attrs)*])*
                     pub fn $constructor_name(self $(, $variant_pat: $variant_ty)?) -> CompoundPredicate<Projector::OutputType> {
-                        CompoundPredicate::Atom(Projector::wrap_atom(
+                        CompoundPredicate::Atom(self.projector.wrap_atom(
                             $atom_name::$variant_name$(($variant_pat))?
                         ))
                     }
@@ -162,45 +163,46 @@ impl super::EvaluatePredicate<Name> for StringPredicateAtom {
 }
 
 // It is unfortunate that we have to repeat the prototype methods on String and Name, but I don't think it's possible to remove this duplication
-impl<Projection> StringPrototype<PredicateMarker, Projection>
+impl<Projector> StringPrototype<PredicateMarker, Projector>
 where
-    Projection: ObjectProjector<PredicateMarker, InputType = String>,
+    Projector: ObjectProjector<PredicateMarker, InputType = String>,
 {
     /// Checks if the input is equal to the expected value.
-    pub fn eq(self, expected: impl Into<String>) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::Equals(
-            expected.into(),
-        )))
+    pub fn eq(self, expected: impl Into<String>) -> CompoundPredicate<Projector::OutputType> {
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::Equals(expected.into())),
+        )
     }
 
     /// Checks if the input contains an expected substring, like [`str::contains()`].
-    pub fn contains(
-        self,
-        expected: impl Into<String>,
-    ) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::Contains(
-            expected.into(),
-        )))
+    pub fn contains(self, expected: impl Into<String>) -> CompoundPredicate<Projector::OutputType> {
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::Contains(expected.into())),
+        )
     }
 
     /// Checks if the input starts with an expected substring, like [`str::starts_with()`].
     pub fn starts_with(
         self,
         expected: impl Into<String>,
-    ) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::StartsWith(
-            expected.into(),
-        )))
+    ) -> CompoundPredicate<Projector::OutputType> {
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::StartsWith(expected.into())),
+        )
     }
 
     /// Checks if the input ends with an expected substring, like [`str::ends_with()`].
     pub fn ends_with(
         self,
         expected: impl Into<String>,
-    ) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::EndsWith(
-            expected.into(),
-        )))
+    ) -> CompoundPredicate<Projector::OutputType> {
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::EndsWith(expected.into())),
+        )
     }
 }
 
@@ -210,9 +212,10 @@ where
 {
     /// Checks if the input is equal to the expected value.
     pub fn eq(self, expected: impl Into<String>) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::Equals(
-            expected.into(),
-        )))
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::Equals(expected.into())),
+        )
     }
 
     /// Checks if the input contains an expected substring, like [`str::contains()`].
@@ -220,9 +223,10 @@ where
         self,
         expected: impl Into<String>,
     ) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::Contains(
-            expected.into(),
-        )))
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::Contains(expected.into())),
+        )
     }
 
     /// Checks if the input starts with an expected substring, like [`str::starts_with()`].
@@ -230,9 +234,10 @@ where
         self,
         expected: impl Into<String>,
     ) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::StartsWith(
-            expected.into(),
-        )))
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::StartsWith(expected.into())),
+        )
     }
 
     /// Checks if the input ends with an expected substring, like [`str::ends_with()`].
@@ -240,9 +245,10 @@ where
         self,
         expected: impl Into<String>,
     ) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::EndsWith(
-            expected.into(),
-        )))
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::EndsWith(expected.into())),
+        )
     }
 }
 
@@ -253,6 +259,10 @@ impl_predicate_atom! {
     PublicKeyPredicateAtom(input: PublicKey) [PublicKeyPrototype] {
         /// Checks if the input is equal to the expected value.
         Equals(expected: PublicKey) [eq] => input == expected,
+    }
+    JsonPredicateAtom(input: Json) [JsonPrototype] {
+        /// Checks if the input is equal to the expected value.
+        Equals(expected: Json) [eq] => input == expected,
     }
 
     // account
@@ -333,7 +343,7 @@ pub mod prelude {
         AssetDefinitionPredicateAtom, AssetIdPredicateAtom, AssetPredicateAtom,
         AssetValuePredicateAtom, BlockHeaderHashPredicateAtom, BlockHeaderPredicateAtom,
         CommittedTransactionPredicateAtom, DomainIdPredicateAtom, DomainPredicateAtom,
-        MetadataPredicateAtom, ParameterPredicateAtom, PeerIdPredicateAtom,
+        JsonPredicateAtom, MetadataPredicateAtom, ParameterPredicateAtom, PeerIdPredicateAtom,
         PermissionPredicateAtom, PublicKeyPredicateAtom, RoleIdPredicateAtom, RolePredicateAtom,
         SignedBlockPredicateAtom, SignedTransactionPredicateAtom, StringPredicateAtom,
         TransactionErrorPredicateAtom, TransactionHashPredicateAtom, TriggerIdPredicateAtom,

@@ -9,6 +9,7 @@ use iroha_test_network::*;
 
 mod account;
 mod asset;
+mod metadata;
 mod query_errors;
 mod role;
 mod smart_contract;
