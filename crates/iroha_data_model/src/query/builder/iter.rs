@@ -80,6 +80,10 @@ where
     T: HasTypedBatchIter,
 {
     fn len(&self) -> usize {
-        self.current_batch_iter.len() + self.remaining_items as usize
+        self.remaining_items
+            .try_into()
+            .ok()
+            .and_then(|r: usize| r.checked_add(self.current_batch_iter.len()))
+            .expect("should be within the range of usize")
     }
 }

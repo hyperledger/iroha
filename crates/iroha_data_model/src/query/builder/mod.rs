@@ -47,6 +47,7 @@ pub trait QueryExecutor {
     /// # Errors
     ///
     /// Returns an error if the query execution fails.
+    #[expect(clippy::type_complexity)]
     fn start_query(
         &self,
         query: QueryWithParams,
@@ -57,6 +58,7 @@ pub trait QueryExecutor {
     /// # Errors
     ///
     /// Returns an error if the query execution fails.
+    #[expect(clippy::type_complexity)]
     fn continue_query(
         cursor: Self::Cursor,
     ) -> Result<(QueryOutputBatchBoxTuple, u64, Option<Self::Cursor>), Self::Error>;

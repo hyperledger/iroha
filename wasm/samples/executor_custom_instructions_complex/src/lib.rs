@@ -35,7 +35,7 @@ fn visit_custom_instruction(executor: &mut Executor, isi: &CustomInstruction) {
         deny!(executor, "Failed to parse custom instruction");
     };
     match execute_custom_instruction(isi, executor.host()) {
-        Ok(()) => return,
+        Ok(()) => (),
         Err(err) => {
             deny!(executor, err);
         }
