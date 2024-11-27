@@ -1,5 +1,4 @@
 //! This file contains examples from the Rust tutorial.
-//! <https://hyperledger.github.io/iroha-2-docs/guide/rust.html#_2-configuring-iroha-2>
 
 use eyre::{Error, WrapErr};
 use iroha::{config::Config, data_model::prelude::Numeric};
