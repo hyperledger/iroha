@@ -7,11 +7,7 @@ use iroha_crypto::HashOf;
 use iroha_data_model::{
     block::{BlockHeader, SignedBlock},
     prelude::*,
-    query::{
-        error::QueryExecutionFail,
-        predicate::{predicate_atoms::block::CommittedTransactionPredicateBox, CompoundPredicate},
-        CommittedTransaction,
-    },
+    query::{dsl::CompoundPredicate, error::QueryExecutionFail, CommittedTransaction},
     transaction::error::TransactionRejectionReason,
 };
 use iroha_telemetry::metrics;
@@ -65,7 +61,7 @@ impl ValidQuery for FindTransactions {
     #[metrics(+"find_transactions")]
     fn execute(
         self,
-        filter: CompoundPredicate<CommittedTransactionPredicateBox>,
+        filter: CompoundPredicate<CommittedTransaction>,
         state_ro: &impl StateReadOnly,
     ) -> Result<impl Iterator<Item = Self::Item>, QueryExecutionFail> {
         Ok(state_ro

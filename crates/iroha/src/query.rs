@@ -4,6 +4,7 @@ use std::{collections::HashMap, fmt::Debug};
 
 use eyre::{eyre, Context, Result};
 use http::StatusCode;
+use iroha_data_model::query::QueryOutputBatchBoxTuple;
 use iroha_torii_const::uri as torii_uri;
 use parity_scale_codec::{DecodeAll, Encode};
 use url::Url;
@@ -16,9 +17,8 @@ use crate::{
         query::{
             builder::{QueryBuilder, QueryExecutor},
             parameters::ForwardCursor,
-            predicate::HasPredicateBox,
-            Query, QueryOutput, QueryOutputBatchBox, QueryRequest, QueryResponse, QueryWithParams,
-            SingularQuery, SingularQueryBox, SingularQueryOutputBox,
+            Query, QueryOutput, QueryRequest, QueryResponse, QueryWithParams, SingularQuery,
+            SingularQueryBox, SingularQueryOutputBox,
         },
         ValidationFail,
     },
@@ -158,7 +158,7 @@ impl QueryExecutor for Client {
     fn start_query(
         &self,
         query: QueryWithParams,
-    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
+    ) -> Result<(QueryOutputBatchBoxTuple, u64, Option<Self::Cursor>), Self::Error> {
         let request_head = self.get_query_request_head();
 
         let request = QueryRequest::Start(query);
@@ -178,7 +178,7 @@ impl QueryExecutor for Client {
 
     fn continue_query(
         cursor: Self::Cursor,
-    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
+    ) -> Result<(QueryOutputBatchBoxTuple, u64, Option<Self::Cursor>), Self::Error> {
         let QueryCursor {
             request_head,
             cursor,
@@ -235,10 +235,7 @@ impl Client {
     }
 
     /// Build an iterable query and return a builder object
-    pub fn query<Q>(
-        &self,
-        query: Q,
-    ) -> QueryBuilder<Self, Q, <<Q as Query>::Item as HasPredicateBox>::PredicateBoxType>
+    pub fn query<Q>(&self, query: Q) -> QueryBuilder<Self, Q, Q::Item>
     where
         Q: Query,
     {

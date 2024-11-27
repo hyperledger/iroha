@@ -96,7 +96,7 @@ async fn multiple_blocks_created() -> Result<()> {
             client
                 .query(FindAssets::new())
                 .filter_with(|asset| {
-                    asset.id.account.eq(account_id) & asset.id.definition_id.eq(definition)
+                    asset.id.account.eq(account_id) & asset.id.definition.eq(definition)
                 })
                 .execute_all()
         })

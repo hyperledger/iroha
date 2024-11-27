@@ -44,7 +44,9 @@ def domain(expected: Any, owned_by: Optional[Any] = None) -> bool:
     """
 
     def domain_in_domains() -> bool:
-        domains = iroha.list_filter({"Atom": {"Id": {"Equals": expected}}}).domains()
+        domains = iroha.list_filter(
+            {"Atom": {"Id": {"Atom": {"Equals": expected}}}}
+        ).domains()
         if not expected_in_actual(expected, domains):
             return False
         if owned_by:
@@ -65,7 +67,9 @@ def account(expected: Any) -> bool:
     """
 
     def account_in_accounts() -> bool:
-        accounts = iroha.list_filter({"Atom": {"Id": {"Equals": expected}}}).accounts()
+        accounts = iroha.list_filter(
+            {"Atom": {"Id": {"Atom": {"Equals": expected}}}}
+        ).accounts()
         return expected_in_actual(expected, accounts)
 
     return iroha_cli.wait_for(account_in_accounts)
@@ -81,7 +85,7 @@ def asset_definition(expected: Any) -> bool:
 
     def asset_definition_in_asset_definitions() -> bool:
         asset_definitions = iroha.list_filter(
-            {"Atom": {"Id": {"Equals": expected}}}
+            {"Atom": {"Id": {"Atom": {"Equals": expected}}}}
         ).asset_definitions()
         return expected_in_actual(expected, asset_definitions)
 
@@ -97,7 +101,9 @@ def asset(expected: Any) -> bool:
     """
 
     def asset_in_assets() -> bool:
-        assets = iroha.list_filter({"Atom": {"Id": {"Equals": expected}}}).assets()
+        assets = iroha.list_filter(
+            {"Atom": {"Id": {"Atom": {"Equals": expected}}}}
+        ).assets()
         return expected_in_actual(expected, assets)
 
     return iroha_cli.wait_for(asset_in_assets)
@@ -114,7 +120,7 @@ def asset_has_quantity(expected_asset_id: Any, expected_quantity: str) -> bool:
 
     def check_quantity() -> bool:
         assets = iroha.list_filter(
-            {"Atom": {"Id": {"Equals": expected_asset_id}}}
+            {"Atom": {"Id": {"Atom": {"Equals": expected_asset_id}}}}
         ).assets()
         actual_quantity = None
         for asset_item in assets:

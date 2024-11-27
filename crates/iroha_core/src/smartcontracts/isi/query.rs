@@ -6,17 +6,17 @@ use eyre::Result;
 use iroha_data_model::{
     prelude::*,
     query::{
-        error::QueryExecutionFail as Error, parameters::QueryParams, CommittedTransaction,
-        QueryBox, QueryOutputBatchBox, QueryRequest, QueryRequestWithAuthority, QueryResponse,
-        SingularQueryBox, SingularQueryOutputBox,
+        dsl::{EvaluateSelector, HasProjection, SelectorMarker},
+        error::QueryExecutionFail as Error,
+        parameters::QueryParams,
+        CommittedTransaction, QueryBox, QueryOutputBatchBox, QueryRequest,
+        QueryRequestWithAuthority, QueryResponse, SingularQueryBox, SingularQueryOutputBox,
     },
 };
 
 use crate::{
     prelude::ValidSingularQuery,
-    query::{
-        cursor::QueryBatchedErasedIterator, pagination::Paginate as _, store::LiveQueryStoreHandle,
-    },
+    query::{cursor::ErasedQueryIterator, pagination::Paginate as _, store::LiveQueryStoreHandle},
     smartcontracts::{wasm, ValidQuery},
     state::{StateReadOnly, WorldReadOnly},
 };
@@ -117,14 +117,17 @@ impl SortableQueryOutput for iroha_data_model::block::BlockHeader {
 /// Returns an error if the fetch size is too big
 pub fn apply_query_postprocessing<I>(
     iter: I,
+    selector: SelectorTuple<I::Item>,
     &QueryParams {
         pagination,
         ref sorting,
         fetch_size,
     }: &QueryParams,
-) -> Result<QueryBatchedErasedIterator, Error>
+) -> Result<ErasedQueryIterator, Error>
 where
     I: Iterator<Item: SortableQueryOutput + Send + Sync + 'static>,
+    I::Item: HasProjection<SelectorMarker, AtomType = ()> + 'static,
+    <I::Item as HasProjection<SelectorMarker>>::Projection: EvaluateSelector<I::Item> + Send + Sync,
     QueryOutputBatchBox: From<Vec<I::Item>>,
 {
     // validate the fetch (aka batch) size
@@ -153,8 +156,9 @@ where
             },
         );
 
-        QueryBatchedErasedIterator::new(
+        ErasedQueryIterator::new(
             pairs.into_iter().map(|(_, val)| val).paginate(pagination),
+            selector,
             fetch_size,
         )
     } else {
@@ -169,7 +173,7 @@ where
             // TODO: investigate this
             .collect::<Vec<_>>();
 
-        QueryBatchedErasedIterator::new(output.into_iter(), fetch_size)
+        ErasedQueryIterator::new(output.into_iter(), selector, fetch_size)
     };
 
     Ok(output)
@@ -265,62 +269,77 @@ impl ValidQueryRequest {
                     // dispatch on a concrete query type, erasing the type with `QueryBatchedErasedIterator` in the end
                     QueryBox::FindDomains(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                     QueryBox::FindAccounts(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                     QueryBox::FindAssets(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                     QueryBox::FindAssetsDefinitions(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                     QueryBox::FindRoles(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                     QueryBox::FindRoleIds(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                     QueryBox::FindPermissionsByAccountId(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                     QueryBox::FindRolesByAccountId(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                     QueryBox::FindAccountsWithAsset(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                     QueryBox::FindPeers(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                     QueryBox::FindActiveTriggerIds(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                     QueryBox::FindTriggers(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                     QueryBox::FindTransactions(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                     QueryBox::FindBlocks(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                     QueryBox::FindBlockHeaders(q) => apply_query_postprocessing(
                         ValidQuery::execute(q.query, q.predicate, state)?,
+                        q.selector,
                         &iter_query.params,
                     )?,
                 };
@@ -339,7 +358,7 @@ impl ValidQueryRequest {
 #[cfg(test)]
 mod tests {
     use iroha_crypto::{Hash, KeyPair};
-    use iroha_data_model::query::predicate::CompoundPredicate;
+    use iroha_data_model::{block::BlockHeader, query::dsl::CompoundPredicate};
     use iroha_primitives::json::Json;
     use iroha_test_samples::{gen_account_in, ALICE_ID, ALICE_KEYPAIR};
     use nonzero_ext::nonzero;
@@ -539,7 +558,7 @@ mod tests {
         assert_eq!(
             FindBlockHeaders::new()
                 .execute(
-                    BlockHeaderPredicateBox::build(|header| header.hash.eq(block.hash())),
+                    CompoundPredicate::<BlockHeader>::build(|header| header.hash.eq(block.hash())),
                     &state_view,
                 )
                 .expect("Query execution should not fail")
@@ -550,7 +569,7 @@ mod tests {
         assert!(
             FindBlockHeaders::new()
                 .execute(
-                    BlockHeaderPredicateBox::build(|header| {
+                    CompoundPredicate::<BlockHeader>::build(|header| {
                         header
                             .hash
                             .eq(HashOf::from_untyped_unchecked(Hash::new([42])))
@@ -634,7 +653,7 @@ mod tests {
 
         let not_found = FindTransactions::new()
             .execute(
-                CommittedTransactionPredicateBox::build(|tx| tx.value.hash.eq(wrong_hash)),
+                CompoundPredicate::<CommittedTransaction>::build(|tx| tx.value.hash.eq(wrong_hash)),
                 &state_view,
             )
             .expect("Query execution should not fail")
@@ -643,7 +662,7 @@ mod tests {
 
         let found_accepted = FindTransactions::new()
             .execute(
-                CommittedTransactionPredicateBox::build(|tx| {
+                CompoundPredicate::<CommittedTransaction>::build(|tx| {
                     tx.value.hash.eq(va_tx.as_ref().hash())
                 }),
                 &state_view,

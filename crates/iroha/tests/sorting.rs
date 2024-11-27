@@ -4,10 +4,7 @@ use eyre::{Result, WrapErr as _};
 use iroha::{
     client::QueryResult,
     crypto::KeyPair,
-    data_model::{
-        account::Account, name::Name, prelude::*,
-        query::predicate::predicate_atoms::asset::AssetPredicateBox,
-    },
+    data_model::{account::Account, name::Name, prelude::*},
 };
 use iroha_test_network::*;
 use iroha_test_samples::ALICE_ID;
@@ -24,7 +21,7 @@ fn correct_pagination_assets_after_creating_new_one() {
     let missing_indices = vec![N_ASSETS / 2];
     let pagination = Pagination::new(Some(nonzero!(N_ASSETS as u64 / 3)), N_ASSETS as u64 / 3);
     let xor_filter =
-        AssetPredicateBox::build(|asset| asset.id.definition_id.name.starts_with("xor"));
+        CompoundPredicate::<Asset>::build(|asset| asset.id.definition.name.starts_with("xor"));
 
     let sort_by_metadata_key = "sort".parse::<Name>().expect("Valid");
     let sorting = Sorting::by_metadata_key(sort_by_metadata_key.clone());
@@ -201,7 +198,7 @@ fn correct_sorting_of_entities() {
     let res = test_client
         .query(FindAccounts::new())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key.clone()))
-        .filter_with(|account| account.id.domain_id.eq(domain_id))
+        .filter_with(|account| account.id.domain.eq(domain_id))
         .execute_all()
         .expect("Valid");
 
@@ -339,7 +336,7 @@ fn sort_only_elements_which_have_sorting_key() -> Result<()> {
     let res = test_client
         .query(FindAccounts::new())
         .with_sorting(Sorting::by_metadata_key(sort_by_metadata_key))
-        .filter_with(|account| account.id.domain_id.eq(domain_id))
+        .filter_with(|account| account.id.domain.eq(domain_id))
         .execute_all()
         .wrap_err("Failed to submit request")?;
 

@@ -13,7 +13,11 @@ def test_filter_by_domain(GIVEN_currently_account_quantity_with_two_quantity_of_
         )
         with allure.step(f"WHEN iroha_cli query assets" f'in the "{domain}" domain'):
             assets = iroha.list_filter(
-                {"Atom": {"Id": {"DefinitionId": {"DomainId": {"Equals": domain}}}}}
+                {
+                    "Atom": {
+                        "Id": {"Definition": {"Domain": {"Atom": {"Equals": domain}}}}
+                    }
+                }
             ).assets()
         with allure.step("THEN Iroha should return only assets with this domain"):
             allure.attach(
@@ -38,7 +42,7 @@ def test_filter_by_asset_name(
         )
         with allure.step(f'WHEN iroha_cli query assets with name "{name}"'):
             assets = iroha.list_filter(
-                {"Atom": {"Id": {"DefinitionId": {"Name": {"Equals": name}}}}}
+                {"Atom": {"Id": {"Definition": {"Name": {"Atom": {"Equals": name}}}}}}
             ).assets()
         with allure.step("THEN Iroha should return only assets with this name"):
             allure.attach(
@@ -64,7 +68,9 @@ def test_filter_by_asset_id(
             + GIVEN_currently_authorized_account.domain
         )
         with allure.step(f'WHEN iroha_cli query assets with asset id "{asset_id}"'):
-            assets = iroha.list_filter({"Atom": {"Id": {"Equals": asset_id}}}).assets()
+            assets = iroha.list_filter(
+                {"Atom": {"Id": {"Atom": {"Equals": asset_id}}}}
+            ).assets()
         with allure.step("THEN Iroha should return only assets with this id"):
             allure.attach(
                 json.dumps(assets),
