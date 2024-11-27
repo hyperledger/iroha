@@ -451,16 +451,7 @@ pub mod query {
     use iroha_data_model::{
         parameter::Parameters,
         prelude::*,
-        query::{
-            error::QueryExecutionFail as Error,
-            predicate::{
-                predicate_atoms::{
-                    peer::PeerPredicateBox,
-                    role::{RoleIdPredicateBox, RolePredicateBox},
-                },
-                CompoundPredicate,
-            },
-        },
+        query::{dsl::CompoundPredicate, error::QueryExecutionFail as Error},
         role::Role,
     };
 
@@ -471,7 +462,7 @@ pub mod query {
         #[metrics(+"find_roles")]
         fn execute(
             self,
-            filter: CompoundPredicate<RolePredicateBox>,
+            filter: CompoundPredicate<Role>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = Self::Item>, Error> {
             Ok(state_ro
@@ -488,7 +479,7 @@ pub mod query {
         #[metrics(+"find_role_ids")]
         fn execute(
             self,
-            filter: CompoundPredicate<RoleIdPredicateBox>,
+            filter: CompoundPredicate<RoleId>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = Self::Item>, Error> {
             Ok(state_ro
@@ -506,7 +497,7 @@ pub mod query {
         #[metrics(+"find_peers")]
         fn execute(
             self,
-            filter: CompoundPredicate<PeerPredicateBox>,
+            filter: CompoundPredicate<PeerId>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = Self::Item>, Error> {
             Ok(state_ro

@@ -18,14 +18,16 @@ use serde::{Deserialize, Serialize};
 
 pub use self::model::*;
 use self::{
-    account::*, asset::*, block::*, domain::*, executor::*, peer::*, permission::*, predicate::*,
+    account::*, asset::*, block::*, domain::*, dsl::*, executor::*, peer::*, permission::*,
     role::*, transaction::*, trigger::*,
 };
 use crate::{
     account::{Account, AccountId},
-    asset::{Asset, AssetDefinition},
+    asset::{Asset, AssetDefinition, AssetDefinitionId, AssetId, AssetValue},
     block::{BlockHeader, SignedBlock},
-    domain::Domain,
+    domain::{Domain, DomainId},
+    metadata::Metadata,
+    name::Name,
     parameter::{Parameter, Parameters},
     peer::PeerId,
     permission::Permission,
@@ -36,8 +38,8 @@ use crate::{
 };
 
 pub mod builder;
+pub mod dsl;
 pub mod parameters;
-pub mod predicate;
 
 /// A query that either returns a single value or errors out
 // NOTE: we are planning to remove this class of queries (https://github.com/hyperledger-iroha/iroha/issues/4933)
@@ -53,30 +55,39 @@ pub trait SingularQuery: Sealed {
 /// [`builder::QueryIterator`] abstracts over this and allows the query consumer to use a familiar [`Iterator`] interface to iterate over the results.
 pub trait Query: Sealed {
     /// The type of single element of the output collection
-    type Item: HasPredicateBox;
+    type Item: HasProjection<PredicateMarker> + HasProjection<SelectorMarker, AtomType = ()>;
 }
 
 #[model]
 mod model {
+    use derive_where::derive_where;
     use getset::Getters;
     use iroha_crypto::HashOf;
+    use iroha_macro::serde_where;
 
     use super::*;
 
     /// An iterable query bundled with a filter
-    ///
-    /// The `P` type doesn't have any bounds to simplify generic trait bounds in some places.
-    /// Use [`super::QueryWithFilterFor`] if you have a concrete query type to avoid specifying `P` manually.
-    #[derive(
-        Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, Constructor,
+    #[serde_where(Q, CompoundPredicate<Q::Item>, SelectorTuple<Q::Item>)]
+    #[derive_where(
+        Debug, Clone, PartialEq, Eq; Q, CompoundPredicate<Q::Item>, SelectorTuple<Q::Item>
     )]
-    pub struct QueryWithFilter<Q, P> {
+    #[derive(Decode, Encode, Constructor, IntoSchema, Deserialize, Serialize)]
+    pub struct QueryWithFilter<Q>
+    where
+        Q: Query,
+    {
         pub query: Q,
         #[serde(default = "predicate_default")]
-        pub predicate: CompoundPredicate<P>,
+        pub predicate: CompoundPredicate<Q::Item>,
+        #[serde(default)]
+        pub selector: SelectorTuple<Q::Item>,
     }
 
-    fn predicate_default<P>() -> CompoundPredicate<P> {
+    fn predicate_default<T>() -> CompoundPredicate<T>
+    where
+        T: HasProjection<PredicateMarker>,
+    {
         CompoundPredicate::PASS
     }
 
@@ -85,23 +96,23 @@ mod model {
         Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
     )]
     pub enum QueryBox {
-        FindDomains(QueryWithFilterFor<FindDomains>),
-        FindAccounts(QueryWithFilterFor<FindAccounts>),
-        FindAssets(QueryWithFilterFor<FindAssets>),
-        FindAssetsDefinitions(QueryWithFilterFor<FindAssetsDefinitions>),
-        FindRoles(QueryWithFilterFor<FindRoles>),
+        FindDomains(QueryWithFilter<FindDomains>),
+        FindAccounts(QueryWithFilter<FindAccounts>),
+        FindAssets(QueryWithFilter<FindAssets>),
+        FindAssetsDefinitions(QueryWithFilter<FindAssetsDefinitions>),
+        FindRoles(QueryWithFilter<FindRoles>),
 
-        FindRoleIds(QueryWithFilterFor<FindRoleIds>),
-        FindPermissionsByAccountId(QueryWithFilterFor<FindPermissionsByAccountId>),
-        FindRolesByAccountId(QueryWithFilterFor<FindRolesByAccountId>),
-        FindAccountsWithAsset(QueryWithFilterFor<FindAccountsWithAsset>),
+        FindRoleIds(QueryWithFilter<FindRoleIds>),
+        FindPermissionsByAccountId(QueryWithFilter<FindPermissionsByAccountId>),
+        FindRolesByAccountId(QueryWithFilter<FindRolesByAccountId>),
+        FindAccountsWithAsset(QueryWithFilter<FindAccountsWithAsset>),
 
-        FindPeers(QueryWithFilterFor<FindPeers>),
-        FindActiveTriggerIds(QueryWithFilterFor<FindActiveTriggerIds>),
-        FindTriggers(QueryWithFilterFor<FindTriggers>),
-        FindTransactions(QueryWithFilterFor<FindTransactions>),
-        FindBlocks(QueryWithFilterFor<FindBlocks>),
-        FindBlockHeaders(QueryWithFilterFor<FindBlockHeaders>),
+        FindPeers(QueryWithFilter<FindPeers>),
+        FindActiveTriggerIds(QueryWithFilter<FindActiveTriggerIds>),
+        FindTriggers(QueryWithFilter<FindTriggers>),
+        FindTransactions(QueryWithFilter<FindTransactions>),
+        FindBlocks(QueryWithFilter<FindBlocks>),
+        FindBlockHeaders(QueryWithFilter<FindBlockHeaders>),
     }
 
     /// An enum of all possible iterable query batches.
@@ -111,20 +122,38 @@ mod model {
         Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
     )]
     pub enum QueryOutputBatchBox {
+        PublicKey(Vec<PublicKey>),
+        String(Vec<String>),
+        Metadata(Vec<Metadata>),
+        Name(Vec<Name>),
+        DomainId(Vec<DomainId>),
         Domain(Vec<Domain>),
+        AccountId(Vec<AccountId>),
         Account(Vec<Account>),
+        AssetId(Vec<AssetId>),
         Asset(Vec<Asset>),
+        AssetValue(Vec<AssetValue>),
+        AssetDefinitionId(Vec<AssetDefinitionId>),
         AssetDefinition(Vec<AssetDefinition>),
         Role(Vec<Role>),
         Parameter(Vec<Parameter>),
         Permission(Vec<Permission>),
-        Transaction(Vec<CommittedTransaction>),
+        CommittedTransaction(Vec<CommittedTransaction>),
+        SignedTransaction(Vec<SignedTransaction>),
+        TransactionHash(Vec<HashOf<SignedTransaction>>),
+        TransactionRejectionReason(Vec<Option<TransactionRejectionReason>>),
         Peer(Vec<PeerId>),
         RoleId(Vec<RoleId>),
         TriggerId(Vec<TriggerId>),
         Trigger(Vec<Trigger>),
         Block(Vec<SignedBlock>),
         BlockHeader(Vec<BlockHeader>),
+        BlockHeaderHash(Vec<HashOf<BlockHeader>>),
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    pub struct QueryOutputBatchBoxTuple {
+        pub tuple: Vec<QueryOutputBatchBox>,
     }
 
     /// An enum of all possible singular queries
@@ -161,7 +190,7 @@ mod model {
     #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
     pub struct QueryOutput {
         /// A single batch of results
-        pub batch: QueryOutputBatchBox,
+        pub batch: QueryOutputBatchBoxTuple,
         /// The number of items in the query remaining to be fetched after this batch
         pub remaining_items: u64,
         /// If not `None`, contains a cursor that can be used to fetch the next batch of results. Otherwise the current batch is the last one.
@@ -251,10 +280,6 @@ mod model {
     }
 }
 
-/// A type alias to refer to a [`QueryWithFilter`] paired with a correct predicate
-pub type QueryWithFilterFor<Q> =
-    QueryWithFilter<Q, <<Q as Query>::Item as HasPredicateBox>::PredicateBoxType>;
-
 impl QueryOutputBatchBox {
     // this is used in client cli to do type-erased iterable queries
     /// Extends this batch with another batch of the same type
@@ -264,20 +289,35 @@ impl QueryOutputBatchBox {
     /// Panics if the types of the two batches do not match
     pub fn extend(&mut self, other: QueryOutputBatchBox) {
         match (self, other) {
+            (Self::PublicKey(v1), Self::PublicKey(v2)) => v1.extend(v2),
+            (Self::String(v1), Self::String(v2)) => v1.extend(v2),
+            (Self::Metadata(v1), Self::Metadata(v2)) => v1.extend(v2),
+            (Self::Name(v1), Self::Name(v2)) => v1.extend(v2),
+            (Self::DomainId(v1), Self::DomainId(v2)) => v1.extend(v2),
             (Self::Domain(v1), Self::Domain(v2)) => v1.extend(v2),
+            (Self::AccountId(v1), Self::AccountId(v2)) => v1.extend(v2),
             (Self::Account(v1), Self::Account(v2)) => v1.extend(v2),
+            (Self::AssetId(v1), Self::AssetId(v2)) => v1.extend(v2),
             (Self::Asset(v1), Self::Asset(v2)) => v1.extend(v2),
+            (Self::AssetValue(v1), Self::AssetValue(v2)) => v1.extend(v2),
+            (Self::AssetDefinitionId(v1), Self::AssetDefinitionId(v2)) => v1.extend(v2),
             (Self::AssetDefinition(v1), Self::AssetDefinition(v2)) => v1.extend(v2),
             (Self::Role(v1), Self::Role(v2)) => v1.extend(v2),
             (Self::Parameter(v1), Self::Parameter(v2)) => v1.extend(v2),
             (Self::Permission(v1), Self::Permission(v2)) => v1.extend(v2),
-            (Self::Transaction(v1), Self::Transaction(v2)) => v1.extend(v2),
+            (Self::CommittedTransaction(v1), Self::CommittedTransaction(v2)) => v1.extend(v2),
+            (Self::SignedTransaction(v1), Self::SignedTransaction(v2)) => v1.extend(v2),
+            (Self::TransactionHash(v1), Self::TransactionHash(v2)) => v1.extend(v2),
+            (Self::TransactionRejectionReason(v1), Self::TransactionRejectionReason(v2)) => {
+                v1.extend(v2)
+            }
             (Self::Peer(v1), Self::Peer(v2)) => v1.extend(v2),
             (Self::RoleId(v1), Self::RoleId(v2)) => v1.extend(v2),
             (Self::TriggerId(v1), Self::TriggerId(v2)) => v1.extend(v2),
             (Self::Trigger(v1), Self::Trigger(v2)) => v1.extend(v2),
             (Self::Block(v1), Self::Block(v2)) => v1.extend(v2),
             (Self::BlockHeader(v1), Self::BlockHeader(v2)) => v1.extend(v2),
+            (Self::BlockHeaderHash(v1), Self::BlockHeaderHash(v2)) => v1.extend(v2),
             _ => panic!("Cannot extend different types of IterableQueryOutputBatchBox"),
         }
     }
@@ -286,21 +326,68 @@ impl QueryOutputBatchBox {
     #[allow(clippy::len_without_is_empty)] // having a len without `is_empty` is fine, we don't return empty batches
     pub fn len(&self) -> usize {
         match self {
+            Self::PublicKey(v) => v.len(),
+            Self::String(v) => v.len(),
+            Self::Metadata(v) => v.len(),
+            Self::Name(v) => v.len(),
+            Self::DomainId(v) => v.len(),
             Self::Domain(v) => v.len(),
+            Self::AccountId(v) => v.len(),
             Self::Account(v) => v.len(),
+            Self::AssetId(v) => v.len(),
             Self::Asset(v) => v.len(),
+            Self::AssetValue(v) => v.len(),
+            Self::AssetDefinitionId(v) => v.len(),
             Self::AssetDefinition(v) => v.len(),
             Self::Role(v) => v.len(),
             Self::Parameter(v) => v.len(),
             Self::Permission(v) => v.len(),
-            Self::Transaction(v) => v.len(),
+            Self::CommittedTransaction(v) => v.len(),
+            Self::SignedTransaction(v) => v.len(),
+            Self::TransactionHash(v) => v.len(),
+            Self::TransactionRejectionReason(v) => v.len(),
             Self::Peer(v) => v.len(),
             Self::RoleId(v) => v.len(),
             Self::TriggerId(v) => v.len(),
             Self::Trigger(v) => v.len(),
             Self::Block(v) => v.len(),
             Self::BlockHeader(v) => v.len(),
+            Self::BlockHeaderHash(v) => v.len(),
         }
+    }
+}
+
+impl QueryOutputBatchBoxTuple {
+    /// Extends this batch tuple with another batch tuple of the same type
+    ///
+    /// # Panics
+    ///
+    /// Panics if the types or lengths of the two batche tuples do not match
+    pub fn extend(&mut self, other: Self) {
+        if self.tuple.len() != other.tuple.len() {
+            panic!("Cannot extend QueryOutputBatchBoxTuple with different number of elements");
+        }
+
+        self.tuple
+            .iter_mut()
+            .zip(other.tuple.into_iter())
+            .for_each(|(self_batch, other_batch)| self_batch.extend(other_batch));
+    }
+
+    /// Returns length of this batch tuple
+    // This works under assumption that all batches in the tuples have the same length, which should be true for iroha
+    pub fn len(&self) -> usize {
+        self.tuple[0].len()
+    }
+
+    /// Returns an iterator over the batches in this tuple
+    pub fn iter(&self) -> impl Iterator<Item = &QueryOutputBatchBox> {
+        self.tuple.iter()
+    }
+
+    /// Consumes this batch tuple and returns an iterator over the batches
+    pub fn into_iter(self) -> impl Iterator<Item = QueryOutputBatchBox> {
+        self.tuple.into_iter()
     }
 }
 
@@ -311,7 +398,7 @@ impl SingularQuery for SingularQueryBox {
 impl QueryOutput {
     /// Create a new [`QueryOutput`] from the iroha response parts.
     pub fn new(
-        batch: QueryOutputBatchBox,
+        batch: QueryOutputBatchBoxTuple,
         remaining_items: u64,
         continue_cursor: Option<ForwardCursor>,
     ) -> Self {
@@ -323,7 +410,7 @@ impl QueryOutput {
     }
 
     /// Split this [`QueryOutput`] into its constituent parts.
-    pub fn into_parts(self) -> (QueryOutputBatchBox, u64, Option<ForwardCursor>) {
+    pub fn into_parts(self) -> (QueryOutputBatchBoxTuple, u64, Option<ForwardCursor>) {
         (self.batch, self.remaining_items, self.continue_cursor)
     }
 }
@@ -1097,8 +1184,8 @@ pub mod error {
 pub mod prelude {
     pub use super::{
         account::prelude::*, asset::prelude::*, block::prelude::*, builder::prelude::*,
-        domain::prelude::*, executor::prelude::*, parameters::prelude::*, peer::prelude::*,
-        permission::prelude::*, predicate::prelude::*, role::prelude::*, transaction::prelude::*,
+        domain::prelude::*, dsl::prelude::*, executor::prelude::*, parameters::prelude::*,
+        peer::prelude::*, permission::prelude::*, role::prelude::*, transaction::prelude::*,
         trigger::prelude::*, CommittedTransaction, QueryBox, QueryRequest, SingularQueryBox,
     };
 }
