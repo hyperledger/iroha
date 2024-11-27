@@ -56,6 +56,8 @@ iroha_logger = { workspace = true }
 iroha_telemetry = { workspace = true }
 iroha_torii_const = { workspace = true }
 iroha_version = { workspace = true }
+getset = { version = "0.1" }
+derive_builder = { version = "0.20" }
 
 iroha_data_model = { workspace = true, features = ["http"] }
 iroha_executor_data_model = { workspace = true }
