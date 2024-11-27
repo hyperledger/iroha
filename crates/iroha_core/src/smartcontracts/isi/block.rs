@@ -1,11 +1,8 @@
 //! This module contains trait implementations related to block queries
 use eyre::Result;
-use iroha_data_model::query::{
-    error::QueryExecutionFail,
-    predicate::{
-        predicate_atoms::block::{BlockHeaderPredicateBox, SignedBlockPredicateBox},
-        CompoundPredicate,
-    },
+use iroha_data_model::{
+    block::{BlockHeader, SignedBlock},
+    query::{dsl::CompoundPredicate, error::QueryExecutionFail},
 };
 use iroha_telemetry::metrics;
 use nonzero_ext::nonzero;
@@ -17,7 +14,7 @@ impl ValidQuery for FindBlocks {
     #[metrics(+"find_blocks")]
     fn execute(
         self,
-        filter: CompoundPredicate<SignedBlockPredicateBox>,
+        filter: CompoundPredicate<SignedBlock>,
         state_ro: &impl StateReadOnly,
     ) -> Result<impl Iterator<Item = Self::Item>, QueryExecutionFail> {
         Ok(state_ro
@@ -32,7 +29,7 @@ impl ValidQuery for FindBlockHeaders {
     #[metrics(+"find_block_headers")]
     fn execute(
         self,
-        filter: CompoundPredicate<BlockHeaderPredicateBox>,
+        filter: CompoundPredicate<BlockHeader>,
         state_ro: &impl StateReadOnly,
     ) -> Result<impl Iterator<Item = Self::Item>, QueryExecutionFail> {
         Ok(state_ro

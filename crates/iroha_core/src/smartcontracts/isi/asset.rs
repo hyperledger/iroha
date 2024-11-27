@@ -425,13 +425,7 @@ pub mod query {
     use eyre::Result;
     use iroha_data_model::{
         asset::{Asset, AssetDefinition, AssetValue},
-        query::{
-            error::QueryExecutionFail as Error,
-            predicate::{
-                predicate_atoms::asset::{AssetDefinitionPredicateBox, AssetPredicateBox},
-                CompoundPredicate,
-            },
-        },
+        query::{dsl::CompoundPredicate, error::QueryExecutionFail as Error},
     };
     use iroha_primitives::json::Json;
 
@@ -442,7 +436,7 @@ pub mod query {
         #[metrics(+"find_assets")]
         fn execute(
             self,
-            filter: CompoundPredicate<AssetPredicateBox>,
+            filter: CompoundPredicate<Asset>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = Asset>, Error> {
             Ok(state_ro
@@ -456,7 +450,7 @@ pub mod query {
         #[metrics(+"find_asset_definitions")]
         fn execute(
             self,
-            filter: CompoundPredicate<AssetDefinitionPredicateBox>,
+            filter: CompoundPredicate<AssetDefinition>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = AssetDefinition>, Error> {
             Ok(state_ro
