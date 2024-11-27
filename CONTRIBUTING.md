@@ -171,7 +171,7 @@ To pass the *`check-PR-title`* check, the pull request title must adhere to the 
 ### Git Workflow
 
 - [Fork](https://docs.github.com/en/get-started/quickstart/fork-a-repo) the [repository](https://github.com/hyperledger-iroha/iroha/tree/main) and [create a feature branch](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-and-deleting-branches-within-your-repository) for your contributions.
-- [Configure the remote](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/configuring-a-remote-for-a-fork) to sync your fork with the [Hyperledger Iroha repository](https://github.com/hyperledger-iroha/iroha/tree/main).
+- [Configure the remote](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/configuring-a-remote-repository-for-a-fork) to sync your fork with the [Hyperledger Iroha repository](https://github.com/hyperledger-iroha/iroha/tree/main).
 - Use the [Git Rebase Workflow](https://git-rebase.io/). Avoid using `git pull`. Use `git pull --rebase` instead.
 - Use the provided [git hooks](./hooks/) to ease the development process.
 
@@ -317,11 +317,9 @@ Code guidelines:
 - Use a domain-first modules structure.
 
   Example: don't do `constants::logger`. Instead, invert the hierarchy, putting the object for which it is used first: `iroha_logger::constants`.
-- Use [`expect`](https://learning-rust.github.io/docs/e4.unwrap_and_expect.html) with an explicit error message or proof of infallibility instead of `unwrap`.
+- Use [`expect`](https://learning-rust.github.io/docs/unwrap-and-expect/) with an explicit error message or proof of infallibility instead of `unwrap`.
 - Never ignore an error. If you can't `panic` and can't recover, it at least needs to be recorded in the log.
 - Prefer to return a `Result` instead of `panic!`.
-
-  Exception: when implementing something that uses `issue_send` instead of `send` ([more about actors](docs/source/guides/actor.md)). Actors and parallelism don't mix; you could deadlock the entire peer, so it's better to `panic!` if something goes wrong. This is a necessary concession for asynchronous programming.
 - Group related functionality spatially, preferably inside appropriate modules.
 
   For example, instead of having a block with `struct` definitions and then `impl`s for each individual struct, it is better to have the `impl`s related to that `struct` next to it.
