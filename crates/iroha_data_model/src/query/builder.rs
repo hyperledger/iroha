@@ -132,9 +132,12 @@ where
     Vec<T>: TryFrom<QueryOutputBatchBox>,
     <Vec<T> as TryFrom<QueryOutputBatchBox>>::Error: core::fmt::Debug,
 {
-    #[expect(clippy::cast_possible_truncation)]
     fn len(&self) -> usize {
-        self.current_batch_iter.len() + self.remaining_items as usize
+        self.remaining_items
+            .try_into()
+            .ok()
+            .and_then(|r: usize| r.checked_add(self.current_batch_iter.len()))
+            .expect("should be within the range of usize")
     }
 }
 
