@@ -72,7 +72,7 @@ get_list_as_signatory() {
 }
 
 get_target_account() {
-    ./iroha account list filter '{"Atom": {"Id": {"Equals": "'$MSA_012345'"}}}'
+    ./iroha account list filter '{"Atom": {"Id": {"Atom": {"Equals": "'$MSA_012345'"}}}}'
 }
 
 # check that the root proposal is entered
@@ -87,9 +87,9 @@ LIST_5_INIT=$(get_list_as_signatory 5)
 echo "$LIST_5_INIT" | jq '.[].instructions' | diff - <(cat $INSTRUCTIONS)
 
 # check that the multisig transaction has not yet executed
-ACCOUNT_0_INIT=$(get_target_account)
+TARGET_ACCOUNT_INIT=$(get_target_account)
 # NOTE: without ` || false` this line passes even if `success_marker` exists
-! echo "$ACCOUNT_0_INIT" | jq -e '.[0].metadata.success_marker' || false
+! echo "$TARGET_ACCOUNT_INIT" | jq -e '.[0].metadata.success_marker' || false
 
 # approve a relaying approval
 HASH_TO_12345=$(echo "$LIST_2_INIT" | jq -r 'keys[0]')
@@ -111,8 +111,8 @@ LIST_2_EXECUTED=$(get_list_as_signatory 2)
 ! echo "$LIST_2_EXECUTED" | jq -e '.[].instructions' || false
 
 # check that the multisig transaction has executed
-ACCOUNT_0_EXECUTED=$(get_target_account)
-echo "$ACCOUNT_0_EXECUTED" | jq -e '.[0].metadata.success_marker'
+TARGET_ACCOUNT_EXECUTED=$(get_target_account)
+echo "$TARGET_ACCOUNT_EXECUTED" | jq -e '.[0].metadata.success_marker'
 
 cd -
 scripts/test_env.py cleanup

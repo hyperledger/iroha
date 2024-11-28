@@ -39,8 +39,7 @@ pub mod isi {
             let peer_id = self.object;
 
             let world = &mut state_transaction.world;
-            if let PushResult::Duplicate(duplicate) = world.trusted_peers_ids.push(peer_id.clone())
-            {
+            if let PushResult::Duplicate(duplicate) = world.peers.push(peer_id.clone()) {
                 return Err(RepetitionError {
                     instruction: InstructionType::Register,
                     id: IdBox::PeerId(duplicate),
@@ -63,11 +62,11 @@ pub mod isi {
         ) -> Result<(), Error> {
             let peer_id = self.object;
             let world = &mut state_transaction.world;
-            let Some(index) = world.trusted_peers_ids.iter().position(|id| id == &peer_id) else {
+            let Some(index) = world.peers.iter().position(|id| id == &peer_id) else {
                 return Err(FindError::Peer(peer_id).into());
             };
 
-            world.trusted_peers_ids.remove(index);
+            world.peers.remove(index);
 
             world.emit_events(Some(PeerEvent::Removed(peer_id)));
 
@@ -452,16 +451,7 @@ pub mod query {
     use iroha_data_model::{
         parameter::Parameters,
         prelude::*,
-        query::{
-            error::QueryExecutionFail as Error,
-            predicate::{
-                predicate_atoms::{
-                    peer::PeerPredicateBox,
-                    role::{RoleIdPredicateBox, RolePredicateBox},
-                },
-                CompoundPredicate,
-            },
-        },
+        query::{dsl::CompoundPredicate, error::QueryExecutionFail as Error},
         role::Role,
     };
 
@@ -472,7 +462,7 @@ pub mod query {
         #[metrics(+"find_roles")]
         fn execute(
             self,
-            filter: CompoundPredicate<RolePredicateBox>,
+            filter: CompoundPredicate<Role>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = Self::Item>, Error> {
             Ok(state_ro
@@ -489,7 +479,7 @@ pub mod query {
         #[metrics(+"find_role_ids")]
         fn execute(
             self,
-            filter: CompoundPredicate<RoleIdPredicateBox>,
+            filter: CompoundPredicate<RoleId>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = Self::Item>, Error> {
             Ok(state_ro
@@ -507,12 +497,13 @@ pub mod query {
         #[metrics(+"find_peers")]
         fn execute(
             self,
-            filter: CompoundPredicate<PeerPredicateBox>,
+            filter: CompoundPredicate<PeerId>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = Self::Item>, Error> {
             Ok(state_ro
                 .world()
                 .peers()
+                .into_iter()
                 .filter(move |peer| filter.applies(peer))
                 .cloned())
         }

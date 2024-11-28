@@ -17,7 +17,7 @@ from .consts import ReservedChars, fake
 
 def extract_hash(stdout):
     """
-    Extracts a SHA-256 hash from the given string.
+    Extracts SHA-256 hash from the given string.
 
     :param stdout: The string from which to extract the hash.
     :return: The extracted hash if found, otherwise None.
@@ -54,15 +54,16 @@ def read_isi_from_json(file_path):
 
 def write_isi_to_json(isi_data, file_path):
     """
-    Writes ISI instruction to a JSON file.
+    Writes ISI instruction to a JSON file, ensuring the directory exists.
 
     :param isi_data: Dictionary with ISI instruction.
     :param file_path: Path to save the JSON file.
     """
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
     if not isinstance(isi_data, list):
         isi_data = [isi_data]
     with open(file_path, "w", encoding="utf-8") as file:
-        json.dump(isi_data, file, indent=4)
+        file.write(json.dumps(isi_data, indent=4, ensure_ascii=False))
 
 
 def generate_random_string_with_reserved_char():

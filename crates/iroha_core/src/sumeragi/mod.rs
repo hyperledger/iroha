@@ -118,10 +118,10 @@ impl SumeragiHandle {
         .expect("INTERNAL BUG: Invalid block stored in Kura");
 
         if block.as_ref().header().is_genesis() {
-            *topology = Topology::new(state_block.world.trusted_peers_ids.clone());
+            *topology = Topology::new(state_block.world.peers.clone());
         }
 
-        topology.block_committed(state_block.world.peers().cloned());
+        topology.block_committed(state_block.world.peers().clone());
 
         state_block
             .apply_without_execution(&block, topology.as_ref().to_owned())

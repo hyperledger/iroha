@@ -1005,6 +1005,7 @@ impl<'block, 'set> SetTransaction<'block, 'set> {
     }
 }
 
+#[expect(clippy::too_long_first_doc_paragraph)]
 /// Same as [`Executable`](iroha_data_model::transaction::Executable), but instead of
 /// [`Wasm`](iroha_data_model::transaction::Executable::Wasm) contains hash of the WASM blob
 /// Which can be used to obtain compiled by `wasmtime` module

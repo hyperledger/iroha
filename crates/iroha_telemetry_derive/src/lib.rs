@@ -185,14 +185,14 @@ pub fn metrics(attr: TokenStream, item: TokenStream) -> TokenStream {
         return emitter.finish_token_stream();
     };
 
-    let result = impl_metrics(&mut emitter, metric_specs, &func);
+    let result = impl_metrics(&mut emitter, &metric_specs, &func);
 
     emitter.finish_token_stream_with(result)
 }
 
 fn impl_metrics(
     emitter: &mut Emitter,
-    #[cfg_attr(not(feature = "metric-instrumentation"), expect(unused))] specs: MetricSpecs,
+    #[cfg_attr(not(feature = "metric-instrumentation"), expect(unused))] specs: &MetricSpecs,
     func: &syn::ItemFn,
 ) -> TokenStream {
     let syn::ItemFn {
@@ -247,7 +247,7 @@ fn impl_metrics(
 
     // #[cfg(feature = "metric-instrumentation")]
     // {
-    //     let (totals, successes, times) = write_metrics(metric_arg_ident, specs);
+    //     let (totals, successes, times) = write_metrics(metric_arg_ident, &specs);
     //     quote!(
     //         #(#attrs)* #vis #sig {
     //             let closure = || #block;
@@ -275,8 +275,8 @@ fn impl_metrics(
 // FIXME: metrics were removed https://github.com/hyperledger-iroha/iroha/issues/5134
 #[cfg(feature = "metric-instrumentation")]
 fn write_metrics(
-    metric_arg_ident: proc_macro2::Ident,
-    specs: MetricSpecs,
+    metric_arg_ident: &proc_macro2::Ident,
+    specs: &MetricSpecs,
 ) -> (TokenStream, TokenStream, TokenStream) {
     let inc_metric = |spec: &MetricSpec, kind: &str| {
         quote!(

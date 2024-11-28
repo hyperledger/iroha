@@ -75,6 +75,7 @@ macro_rules! from_uint(
                     let zeros = n.leading_zeros();
                     let end = core::mem::size_of::<$ty>() * 8 - zeros as usize;
 
+                    #[allow(clippy::cast_possible_truncation)]
                     let mut payload = (0..end)
                         .step_by(7)
                         .map(|offset| (((n >> offset) as u8) | 0b1000_0000))
