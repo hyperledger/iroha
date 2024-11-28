@@ -66,6 +66,7 @@ mod model {
     use iroha_macro::serde_where;
 
     use super::*;
+    use crate::trigger::action;
 
     /// An iterable query bundled with a filter
     #[serde_where(Q, CompoundPredicate<Q::Item>, SelectorTuple<Q::Item>)]
@@ -147,6 +148,7 @@ mod model {
         RoleId(Vec<RoleId>),
         TriggerId(Vec<TriggerId>),
         Trigger(Vec<Trigger>),
+        Action(Vec<action::Action>),
         Block(Vec<SignedBlock>),
         BlockHeader(Vec<BlockHeader>),
         BlockHeaderHash(Vec<HashOf<BlockHeader>>),
@@ -316,6 +318,7 @@ impl QueryOutputBatchBox {
             (Self::RoleId(v1), Self::RoleId(v2)) => v1.extend(v2),
             (Self::TriggerId(v1), Self::TriggerId(v2)) => v1.extend(v2),
             (Self::Trigger(v1), Self::Trigger(v2)) => v1.extend(v2),
+            (Self::Action(v1), Self::Action(v2)) => v1.extend(v2),
             (Self::Block(v1), Self::Block(v2)) => v1.extend(v2),
             (Self::BlockHeader(v1), Self::BlockHeader(v2)) => v1.extend(v2),
             (Self::BlockHeaderHash(v1), Self::BlockHeaderHash(v2)) => v1.extend(v2),
@@ -352,6 +355,7 @@ impl QueryOutputBatchBox {
             Self::RoleId(v) => v.len(),
             Self::TriggerId(v) => v.len(),
             Self::Trigger(v) => v.len(),
+            Self::Action(v) => v.len(),
             Self::Block(v) => v.len(),
             Self::BlockHeader(v) => v.len(),
             Self::BlockHeaderHash(v) => v.len(),

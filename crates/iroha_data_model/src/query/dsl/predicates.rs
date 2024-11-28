@@ -19,7 +19,7 @@ use crate::{
     query::{
         dsl::{
             type_descriptions::{
-                AccountIdPrototype, AccountPrototype, AssetDefinitionIdPrototype,
+                AccountIdPrototype, AccountPrototype, ActionPrototype, AssetDefinitionIdPrototype,
                 AssetDefinitionPrototype, AssetIdPrototype, AssetPrototype, AssetValuePrototype,
                 BlockHeaderHashPrototype, BlockHeaderPrototype, CommittedTransactionPrototype,
                 DomainIdPrototype, DomainPrototype, JsonPrototype, MetadataPrototype,
@@ -34,7 +34,7 @@ use crate::{
     },
     role::{Role, RoleId},
     transaction::{error::TransactionRejectionReason, SignedTransaction},
-    trigger::{Trigger, TriggerId},
+    trigger::{action, Trigger, TriggerId},
 };
 
 macro_rules! impl_predicate_atom {
@@ -334,19 +334,20 @@ impl_predicate_atom! {
         Equals(expected: TriggerId) [eq] => input == expected,
     }
     TriggerPredicateAtom(_input: Trigger) [TriggerPrototype] {}
+    ActionPredicateAtom(_input: action::Action) [ActionPrototype] {}
 }
 
 pub mod prelude {
     //! Re-export all predicate boxes for a glob import `(::*)`
     pub use super::{
-        AccountIdPredicateAtom, AccountPredicateAtom, AssetDefinitionIdPredicateAtom,
-        AssetDefinitionPredicateAtom, AssetIdPredicateAtom, AssetPredicateAtom,
-        AssetValuePredicateAtom, BlockHeaderHashPredicateAtom, BlockHeaderPredicateAtom,
-        CommittedTransactionPredicateAtom, DomainIdPredicateAtom, DomainPredicateAtom,
-        JsonPredicateAtom, MetadataPredicateAtom, ParameterPredicateAtom, PeerIdPredicateAtom,
-        PermissionPredicateAtom, PublicKeyPredicateAtom, RoleIdPredicateAtom, RolePredicateAtom,
-        SignedBlockPredicateAtom, SignedTransactionPredicateAtom, StringPredicateAtom,
-        TransactionErrorPredicateAtom, TransactionHashPredicateAtom, TriggerIdPredicateAtom,
-        TriggerPredicateAtom,
+        AccountIdPredicateAtom, AccountPredicateAtom, ActionPredicateAtom,
+        AssetDefinitionIdPredicateAtom, AssetDefinitionPredicateAtom, AssetIdPredicateAtom,
+        AssetPredicateAtom, AssetValuePredicateAtom, BlockHeaderHashPredicateAtom,
+        BlockHeaderPredicateAtom, CommittedTransactionPredicateAtom, DomainIdPredicateAtom,
+        DomainPredicateAtom, JsonPredicateAtom, MetadataPredicateAtom, ParameterPredicateAtom,
+        PeerIdPredicateAtom, PermissionPredicateAtom, PublicKeyPredicateAtom, RoleIdPredicateAtom,
+        RolePredicateAtom, SignedBlockPredicateAtom, SignedTransactionPredicateAtom,
+        StringPredicateAtom, TransactionErrorPredicateAtom, TransactionHashPredicateAtom,
+        TriggerIdPredicateAtom, TriggerPredicateAtom,
     };
 }

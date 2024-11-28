@@ -28,7 +28,7 @@ use crate::{
     },
     role::{Role, RoleId},
     transaction::{error::TransactionRejectionReason, SignedTransaction},
-    trigger::{Trigger, TriggerId},
+    trigger::{action, Trigger, TriggerId},
 };
 
 macro_rules! type_descriptions {
@@ -328,8 +328,12 @@ type_descriptions! {
     TriggerId[TriggerIdProjection, TriggerIdPrototype]: Name {
         name(Name, TriggerIdNameProjector): Name,
     }
-    Trigger[TriggerProjection, TriggerPrototype]: TriggerId, Name {
+    Trigger[TriggerProjection, TriggerPrototype]: TriggerId, Name, action::Action, Metadata, Json {
         id(Id, TriggerIdProjector): TriggerId,
+        action(Action, TriggerActionProjector): action::Action,
+    }
+    action::Action[ActionProjection, ActionPrototype]: Metadata, Json {
+        metadata(Metadata, ActionMetadataProjector): Metadata,
     }
 
     // note: even though `NameProjection` and `StringProjection` are distinct types,
