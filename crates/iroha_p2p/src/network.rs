@@ -77,15 +77,11 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
     #[log(skip(key_pair, shutdown_signal))]
     pub async fn start(
         key_pair: KeyPair,
-        Config {
-            address: listen_addr,
-            public_address,
-            idle_timeout,
-        }: Config,
+        config: Config,
         shutdown_signal: ShutdownSignal,
     ) -> Result<(Self, Child), Error> {
         // TODO: enhance the error by reporting the origin of `listen_addr`
-        let listener = TcpListener::bind(listen_addr.value().to_socket_addrs()?.as_slice()).await?;
+        let listener = TcpListener::bind(config.address().value().to_socket_addrs()?.as_slice()).await?;
         iroha_logger::info!("Network bound to listener");
         let (online_peers_sender, online_peers_receiver) = watch::channel(HashSet::new());
         let (subscribe_to_peers_messages_sender, subscribe_to_peers_messages_receiver) =
@@ -97,8 +93,8 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
         let (peer_message_sender, peer_message_receiver) = mpsc::channel(1);
         let (service_message_sender, service_message_receiver) = mpsc::channel(1);
         let network = NetworkBase {
-            listen_addr: listen_addr.into_value(),
-            public_address: public_address.into_value(),
+            listen_addr: config.address().clone().into_value(),
+            public_address: config.address().clone().into_value(),
             listener,
             peers: HashMap::new(),
             connecting_peers: HashMap::new(),
@@ -116,7 +112,7 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
             current_conn_id: 0,
             current_topology: HashSet::new(),
             current_peers_addresses: Vec::new(),
-            idle_timeout,
+            idle_timeout: config.idle_timeout().clone(),
             _key_exchange: core::marker::PhantomData::<K>,
             _encryptor: core::marker::PhantomData::<E>,
         };

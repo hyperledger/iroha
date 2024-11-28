@@ -140,9 +140,7 @@ impl SumeragiStartArgs {
     #[allow(clippy::too_many_lines)]
     pub fn start(self, shutdown_signal: ShutdownSignal) -> (SumeragiHandle, Child) {
         let Self {
-            config: SumeragiConfig {
-                debug_force_soft_fork,
-            },
+            config,
             common_config,
             events_sender,
             state,
@@ -179,7 +177,7 @@ impl SumeragiStartArgs {
             topology = match state_view.height() {
                 0 => Topology::new(
                     common_config
-                        .trusted_peers
+                        .trusted_peers()
                         .value()
                         .clone()
                         .into_non_empty_vec(),
@@ -196,7 +194,7 @@ impl SumeragiStartArgs {
         for block in blocks_iter {
             let mut state_block = state.block(block.header());
             SumeragiHandle::replay_block(
-                &common_config.chain,
+                &common_config.chain(),
                 &genesis_account,
                 &block,
                 &mut state_block,
@@ -209,10 +207,10 @@ impl SumeragiStartArgs {
 
         info!("Sumeragi has finished loading blocks and setting up the state");
 
-        let peer = common_config.peer;
+        let peer = common_config.peer().clone();
         let sumeragi = main_loop::Sumeragi {
-            chain_id: common_config.chain,
-            key_pair: common_config.key_pair,
+            chain_id: common_config.chain().clone(),
+            key_pair: common_config.key_pair().clone(),
             peer: peer.clone(),
             queue: Arc::clone(&queue),
             events_sender,
@@ -221,7 +219,7 @@ impl SumeragiStartArgs {
             peers_gossiper,
             control_message_receiver,
             message_receiver,
-            debug_force_soft_fork,
+            debug_force_soft_fork: config.debug_force_soft_fork().clone(),
             topology,
             transaction_cache: Vec::new(),
             #[cfg(feature = "telemetry")]

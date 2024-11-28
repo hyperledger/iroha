@@ -73,7 +73,7 @@ impl PeersGossiper {
         shutdown_signal: ShutdownSignal,
     ) -> (PeersGossiperHandle, Child) {
         let initial_peers = trusted_peers
-            .others
+            .others().clone()
             .into_iter()
             .map(|peer| (peer.id, peer.address))
             .collect();

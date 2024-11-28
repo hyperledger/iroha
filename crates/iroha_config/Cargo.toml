@@ -32,6 +32,8 @@ derive_more = { workspace = true }
 cfg-if = { workspace = true }
 nonzero_ext = { workspace = true }
 hex = { workspace = true, features = ["std"] }
+getset = { workspace = true }
+derive_builder = { version = "0.20" }
 
 # for tracing
 stderrlog = "0.6.0"

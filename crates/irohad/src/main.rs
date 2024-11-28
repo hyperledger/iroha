@@ -190,17 +190,17 @@ impl Iroha {
     > {
         let mut supervisor = Supervisor::new();
 
-        let (kura, block_count) = Kura::new(&config.kura).change_context(StartError::InitKura)?;
+        let (kura, block_count) = Kura::new(config.kura()).change_context(StartError::InitKura)?;
         let child = Kura::start(kura.clone(), supervisor.shutdown_signal());
         supervisor.monitor(child);
 
         let (live_query_store, child) =
-            LiveQueryStore::from_config(config.live_query_store, supervisor.shutdown_signal())
+            LiveQueryStore::from_config(config.live_query_store().clone(), supervisor.shutdown_signal())
                 .start();
         supervisor.monitor(child);
 
         let state = match try_read_snapshot(
-            config.snapshot.store_dir.resolve_relative_path(),
+            config.snapshot().store_dir.resolve_relative_path(),
             &kura,
             || live_query_store.clone(),
             block_count,
@@ -222,8 +222,8 @@ impl Iroha {
             }
         }.unwrap_or_else(|| {
             let world = World::with(
-                [genesis_domain(config.genesis.public_key.clone())],
-                [genesis_account(config.genesis.public_key.clone())],
+                [genesis_domain(config.genesis().public_key().clone())],
+                [genesis_account(config.genesis().public_key().clone())],
                 [],
             );
 
@@ -236,15 +236,15 @@ impl Iroha {
         let state = Arc::new(state);
 
         let (events_sender, _) = broadcast::channel(EVENTS_BUFFER_CAPACITY);
-        let queue = Arc::new(Queue::from_config(config.queue, events_sender.clone()));
+        let queue = Arc::new(Queue::from_config(config.queue().clone(), events_sender.clone()));
 
         let (network, child) = IrohaNetwork::start(
-            config.common.key_pair.clone(),
-            config.network.clone(),
+            config.common().key_pair().clone(),
+            config.network().clone(),
             supervisor.shutdown_signal(),
         )
         .await
-        .attach_printable_lazy(|| config.network.address.clone().into_attachment())
+        .attach_printable_lazy(|| config.network().address().clone().into_attachment())
         .change_context(StartError::StartP2p)?;
         supervisor.monitor(child);
 
@@ -260,15 +260,15 @@ impl Iroha {
         );
 
         let (peers_gossiper, child) = PeersGossiper::start(
-            config.common.trusted_peers.value().clone(),
+            config.common().trusted_peers().value().clone(),
             network.clone(),
             supervisor.shutdown_signal(),
         );
         supervisor.monitor(child);
 
         let (sumeragi, child) = SumeragiStartArgs {
-            config: config.sumeragi,
-            common_config: config.common.clone(),
+            config: config.sumeragi().clone(),
+            common_config: config.common().clone(),
             events_sender: events_sender.clone(),
             state: state.clone(),
             queue: queue.clone(),
@@ -277,7 +277,7 @@ impl Iroha {
             peers_gossiper: peers_gossiper.clone(),
             genesis_network: GenesisWithPubKey {
                 genesis,
-                public_key: config.genesis.public_key.clone(),
+                public_key: config.genesis().public_key().clone(),
             },
             block_count,
             #[cfg(feature = "telemetry")]
@@ -290,10 +290,10 @@ impl Iroha {
         supervisor.monitor(child);
 
         let (block_sync, child) = BlockSynchronizer::from_config(
-            &config.block_sync,
+            &config.block_sync(),
             sumeragi.clone(),
             kura.clone(),
-            config.common.peer.clone(),
+            config.common().peer().clone(),
             network.clone(),
             Arc::clone(&state),
         )
@@ -301,8 +301,8 @@ impl Iroha {
         supervisor.monitor(child);
 
         let (tx_gossiper, child) = TransactionGossiper::from_config(
-            config.common.chain.clone(),
-            config.transaction_gossiper,
+            config.common().chain().clone(),
+            config.transaction_gossiper().clone(),
             network.clone(),
             Arc::clone(&queue),
             Arc::clone(&state),
@@ -322,7 +322,7 @@ impl Iroha {
         ));
 
         if let Some(snapshot_maker) =
-            SnapshotMaker::from_config(&config.snapshot, Arc::clone(&state))
+            SnapshotMaker::from_config(config.snapshot(), Arc::clone(&state))
         {
             supervisor.monitor(snapshot_maker.start(supervisor.shutdown_signal()));
         }
@@ -331,9 +331,9 @@ impl Iroha {
         supervisor.monitor(child);
 
         let torii_run = Torii::new(
-            config.common.chain.clone(),
+            config.common().chain().clone(),
             kiso.clone(),
-            config.torii,
+            config.torii().clone(),
             queue,
             events_sender,
             live_query_store,
@@ -408,7 +408,7 @@ async fn start_telemetry(
         }
     }
 
-    if let Some(config) = &config.telemetry {
+    if let Some(config) = &config.telemetry() {
         let receiver = logger
             .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Regular)
             .await
@@ -515,7 +515,7 @@ pub fn read_config_and_genesis(
         .parse()
         .change_context(ConfigError::ParseConfig)?;
 
-    let genesis = if let Some(signed_file) = &config.genesis.file {
+    let genesis = if let Some(signed_file) = &config.genesis().file() {
         let genesis = read_genesis(&signed_file.resolve_relative_path())
             .attach_printable(signed_file.clone().into_attachment().display_path())?;
         Some(genesis)
@@ -525,7 +525,7 @@ pub fn read_config_and_genesis(
 
     validate_config(&config)?;
 
-    let logger_config = LoggerInitConfig::new(config.logger.clone(), args.terminal_colors);
+    let logger_config = LoggerInitConfig::new(config.logger().clone(), args.terminal_colors);
 
     Ok((config, logger_config, genesis))
 }
@@ -545,17 +545,17 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
     // it seems a fine compromise to run it only in release mode
     #[cfg(not(test))]
     {
-        validate_try_bind_address(&mut emitter, &config.network.address);
-        validate_try_bind_address(&mut emitter, &config.torii.address);
+        validate_try_bind_address(&mut emitter, &config.network().address());
+        validate_try_bind_address(&mut emitter, &config.torii().address());
     }
-    validate_directory_path(&mut emitter, &config.kura.store_dir);
+    validate_directory_path(&mut emitter, config.kura().store_dir());
     // maybe validate only if snapshot mode is enabled
-    validate_directory_path(&mut emitter, &config.snapshot.store_dir);
+    validate_directory_path(&mut emitter, &config.snapshot().store_dir);
 
-    if config.genesis.file.is_none()
+    if config.genesis().file().is_none()
         && !config
-            .common
-            .trusted_peers
+            .common()
+            .trusted_peers()
             .value()
             .contains_other_trusted_peers()
     {
@@ -564,14 +564,14 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
             Since `genesis.file` is not set, there is no way to receive the genesis block.\n\
             Either provide the genesis by setting `genesis.file` configuration parameter,\n\
             or increase the number of trusted peers in the network using `trusted_peers` configuration parameter.\
-        ").attach_printable(config.common.trusted_peers.clone().into_attachment().display_as_debug()));
+        ").attach_printable(config.common().trusted_peers().clone().into_attachment().display_as_debug()));
     }
 
-    if config.network.address.value() == config.torii.address.value() {
+    if config.network().address().value() == config.torii().address().value() {
         emitter.emit(
             Report::new(ConfigError::SameNetworkAndToriiAddrs)
-                .attach_printable(config.network.address.clone().into_attachment())
-                .attach_printable(config.torii.address.clone().into_attachment()),
+                .attach_printable(config.network().address().clone().into_attachment())
+                .attach_printable(config.torii().address().clone().into_attachment()),
         );
     }
 
@@ -583,7 +583,7 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
     }
 
     #[cfg(not(feature = "dev-telemetry"))]
-    if config.dev_telemetry.out_file.is_some() {
+    if config.dev_telemetry().out_file.is_some() {
         // TODO: use a centralized configuration logging
         //       https://github.com/hyperledger-iroha/iroha/issues/4300
         eprintln!("`dev_telemetry.out_file` config is specified, but ignored, because Iroha is compiled without `dev-telemetry` feature enabled");
@@ -688,9 +688,9 @@ async fn main() -> error_stack::Result<(), MainError> {
     iroha_logger::info!(
         version = env!("CARGO_PKG_VERSION"),
         git_commit_sha = env!("VERGEN_GIT_SHA"),
-        peer = %config.common.peer,
-        chain = %config.common.chain,
-        listening_on = %config.torii.address.value(),
+        peer = %config.common().peer(),
+        chain = %config.common().chain(),
+        listening_on = %config.torii().address().value(),
         "Hyperledgerいろは2にようこそ！(translation) Welcome to Hyperledger Iroha!"
     );
 
@@ -798,12 +798,12 @@ mod tests {
             assert!(genesis.is_some());
 
             assert_eq!(
-                config.kura.store_dir.resolve_relative_path().absolutize()?,
+                config.kura().store_dir().resolve_relative_path().absolutize()?,
                 dir.path().join("storage")
             );
             assert_eq!(
                 config
-                    .snapshot
+                    .snapshot()
                     .store_dir
                     .resolve_relative_path()
                     .absolutize()?,
@@ -811,8 +811,8 @@ mod tests {
             );
             assert_eq!(
                 config
-                    .dev_telemetry
-                    .out_file
+                    .dev_telemetry()
+                    .out_file.as_ref()
                     .expect("dev telemetry should be set")
                     .resolve_relative_path()
                     .absolutize()?,

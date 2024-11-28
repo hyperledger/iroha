@@ -23,24 +23,55 @@ use crate::{
     parameters::{defaults, user},
 };
 
+use getset::Getters;
+use derive_builder::Builder;
+// use derive_more::Display;
+
+// #[derive(Debug, Display, serde::Deserialize, PartialEq, Eq, Copy, Clone)]
+// #[display(fmt = "Config could not be constructed. {_0}")]
+// #[allow(missing_docs)]
+// pub struct RootBuildError(&'static str);
+
+// impl From<derive_builder::UninitializedFieldError> for RootBuildError {
+//     fn from(ufe: derive_builder::UninitializedFieldError) -> RootBuildError { ufe.into() }
+// }
+// impl error_stack::Context for RootBuildError {}
+
 /// Parsed configuration root
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Getters, Builder)]
+#[getset(get = "pub")]
+#[builder(pattern = "owned")]
+// #[builder(build_fn(error = "RootBuildError"))]
 #[allow(missing_docs)]
 pub struct Root {
-    pub common: Common,
-    pub network: Network,
-    pub genesis: Genesis,
-    pub torii: Torii,
-    pub kura: Kura,
-    pub sumeragi: Sumeragi,
-    pub block_sync: BlockSync,
-    pub transaction_gossiper: TransactionGossiper,
-    pub live_query_store: LiveQueryStore,
-    pub logger: Logger,
-    pub queue: Queue,
-    pub snapshot: Snapshot,
-    pub telemetry: Option<Telemetry>,
-    pub dev_telemetry: DevTelemetry,
+    ///
+    common: Common,
+    ///
+    network: Network,
+    ///
+    genesis: Genesis,
+    ///
+    torii: Torii,
+    ///
+    kura: Kura,
+    ///
+    sumeragi: Sumeragi,
+    ///
+    block_sync: BlockSync,
+    ///
+    transaction_gossiper: TransactionGossiper,
+    ///
+    live_query_store: LiveQueryStore,
+    ///
+    logger: Logger,
+    ///
+    queue: Queue,
+    ///
+    snapshot: Snapshot,
+    ///
+    telemetry: Option<Telemetry>,
+    ///
+    dev_telemetry: DevTelemetry,
 }
 
 /// See [`Root::from_toml_source`]
@@ -65,49 +96,77 @@ impl Root {
 
 /// Common options shared between multiple places
 #[allow(missing_docs)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Getters, Builder)]
+#[getset(get = "pub")]
+#[builder(pattern = "owned")]
 pub struct Common {
-    pub chain: ChainId,
-    pub key_pair: KeyPair,
-    pub peer: Peer,
-    pub trusted_peers: WithOrigin<TrustedPeers>,
+    ///
+    chain: ChainId,
+    ///
+    key_pair: KeyPair,
+    ///
+    peer: Peer,
+    ///
+    trusted_peers: WithOrigin<TrustedPeers>,
 }
 
 /// Network options
 #[allow(missing_docs)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Getters, Builder)]
+#[getset(get = "pub")]
+#[builder(pattern = "owned")]
 pub struct Network {
-    pub address: WithOrigin<SocketAddr>,
-    pub public_address: WithOrigin<SocketAddr>,
-    pub idle_timeout: Duration,
+    ///
+    address: WithOrigin<SocketAddr>,
+    ///
+    public_address: WithOrigin<SocketAddr>,
+    ///
+    idle_timeout: Duration,
 }
 
 /// Parsed genesis configuration
-#[derive(Debug, Clone)]
+#[allow(missing_docs)]
+#[derive(Debug, Clone, Getters, Builder)]
+#[getset(get = "pub")]
+#[builder(pattern = "owned")]
 pub struct Genesis {
     /// Genesis account public key
-    pub public_key: PublicKey,
+    public_key: PublicKey,
     /// Path to `GenesisBlock`.
     /// If it is none, the peer can only observe the genesis block.
     /// If it is some, the peer is responsible for submitting the genesis block.
-    pub file: Option<WithOrigin<PathBuf>>,
+    file: Option<WithOrigin<PathBuf>>,
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Getters, Builder)]
+#[getset(get = "pub")]
+#[builder(pattern = "owned")]
 pub struct Queue {
-    pub capacity: NonZeroUsize,
-    pub capacity_per_user: NonZeroUsize,
-    pub transaction_time_to_live: Duration,
+    ///
+    #[builder(default = "defaults::queue::CAPACITY")]
+    capacity: NonZeroUsize,
+    ///
+    #[builder(default = "defaults::queue::CAPACITY_PER_USER")]
+    capacity_per_user: NonZeroUsize,
+    ///
+    #[builder(default = "defaults::queue::TRANSACTION_TIME_TO_LIVE")]
+    transaction_time_to_live: Duration,
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Getters, Builder)]
+#[getset(get = "pub")]
+#[builder(pattern = "owned")]
 pub struct Kura {
-    pub init_mode: InitMode,
-    pub store_dir: WithOrigin<PathBuf>,
-    pub blocks_in_memory: NonZeroUsize,
-    pub debug_output_new_blocks: bool,
+    ///
+    init_mode: InitMode,
+    ///
+    store_dir: WithOrigin<PathBuf>,
+    ///
+    blocks_in_memory: NonZeroUsize,
+    ///
+    debug_output_new_blocks: bool,
 }
 
 impl Default for Queue {
@@ -120,17 +179,24 @@ impl Default for Queue {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
 #[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, Getters, Builder)]
+#[getset(get = "pub")]
+#[builder(pattern = "owned")]
 pub struct Sumeragi {
-    pub debug_force_soft_fork: bool,
+    ///
+    debug_force_soft_fork: bool,
 }
 
-#[derive(Debug, Clone)]
 #[allow(missing_docs)]
+#[derive(Debug, Clone, Getters, Builder)]
+#[getset(get = "pub")]
+#[builder(pattern = "owned")]
 pub struct TrustedPeers {
-    pub myself: Peer,
-    pub others: UniqueVec<Peer>,
+    ///
+    myself: Peer,
+    ///
+    others: UniqueVec<Peer>,
 }
 
 impl TrustedPeers {
@@ -149,12 +215,20 @@ impl TrustedPeers {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
 #[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, Getters, Builder)]
+#[getset(get = "pub")]
+#[builder(pattern = "owned")]
 pub struct LiveQueryStore {
-    pub idle_time: Duration,
-    pub capacity: NonZeroUsize,
-    pub capacity_per_user: NonZeroUsize,
+    ///
+    #[builder(default = "defaults::torii::QUERY_IDLE_TIME")]
+    idle_time: Duration,
+    ///
+    #[builder(default = "defaults::torii::QUERY_STORE_CAPACITY")]
+    capacity: NonZeroUsize,
+    ///
+    #[builder(default = "defaults::torii::QUERY_STORE_CAPACITY_PER_USER")]
+    capacity_per_user: NonZeroUsize,
 }
 
 impl Default for LiveQueryStore {
@@ -168,34 +242,52 @@ impl Default for LiveQueryStore {
 }
 
 #[allow(missing_docs)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Getters, Builder)]
+#[getset(get = "pub")]
+#[builder(pattern = "owned")]
 pub struct BlockSync {
-    pub gossip_period: Duration,
-    pub gossip_size: NonZeroU32,
+    ///
+    gossip_period: Duration,
+    ///
+    gossip_size: NonZeroU32,
 }
 
-#[derive(Debug, Clone, Copy)]
 #[allow(missing_docs)]
+#[derive(Debug, Clone, Copy, Getters, Builder)]
+#[getset(get = "pub")]
+#[builder(pattern = "owned")]
 pub struct TransactionGossiper {
-    pub gossip_period: Duration,
-    pub gossip_size: NonZeroU32,
+    ///
+    gossip_period: Duration,
+    ///
+    gossip_size: NonZeroU32,
 }
 
-#[derive(Debug, Clone)]
 #[allow(missing_docs)]
+#[derive(Debug, Clone, Getters, Builder)]
+#[getset(get = "pub")]
+#[builder(pattern = "owned")]
 pub struct Torii {
-    pub address: WithOrigin<SocketAddr>,
-    pub max_content_len: Bytes<u64>,
+    ///
+    address: WithOrigin<SocketAddr>,
+    ///
+    max_content_len: Bytes<u64>,
 }
 
 /// Complete configuration needed to start regular telemetry.
-#[derive(Debug, Clone)]
 #[allow(missing_docs)]
+#[derive(Debug, Clone, Getters, Builder)]
+#[getset(get = "pub")]
+#[builder(pattern = "owned")]
 pub struct Telemetry {
-    pub name: String,
-    pub url: Url,
-    pub min_retry_period: Duration,
-    pub max_retry_delay_exponent: u8,
+    ///
+    name: String,
+    ///
+    url: Url,
+    ///
+    min_retry_period: Duration,
+    ///
+    max_retry_delay_exponent: u8,
 }
 
 #[cfg(test)]

@@ -11,7 +11,6 @@ use error_stack::ResultExt;
 use expect_test::expect;
 use iroha_config::parameters::{actual::Root as Config, user::Root as UserConfig};
 use iroha_config_base::{env::MockEnv, read::ConfigReader};
-use iroha_data_model::Identifiable;
 use thiserror::Error;
 
 fn fixtures_dir() -> PathBuf {
@@ -210,12 +209,12 @@ fn self_is_presented_in_trusted_peers() {
         load_config_from_fixtures("minimal_alone_with_genesis.toml").expect("valid config");
 
     assert!(config
-        .common
-        .trusted_peers
+        .common()
+        .trusted_peers()
         .value()
         .clone()
         .into_non_empty_vec()
-        .contains(config.common.peer.id()));
+        .contains(&config.common().peer().id));
 }
 
 #[test]

@@ -97,9 +97,9 @@ impl LiveQueryStore {
         Self {
             queries: DashMap::new(),
             queries_per_user: DashMap::new(),
-            idle_time: cfg.idle_time,
-            capacity: cfg.capacity,
-            capacity_per_user: cfg.capacity_per_user,
+            idle_time: cfg.idle_time().clone(),
+            capacity: cfg.capacity().clone(),
+            capacity_per_user: cfg.capacity_per_user().clone(),
             shutdown_signal,
         }
     }

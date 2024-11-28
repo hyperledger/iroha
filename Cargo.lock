@@ -3021,10 +3021,12 @@ version = "2.0.0-rc.1.0"
 dependencies = [
  "assertables",
  "cfg-if",
+ "derive_builder",
  "derive_more",
  "displaydoc",
  "error-stack",
  "expect-test",
+ "getset",
  "hex",
  "iroha_config_base",
  "iroha_crypto",

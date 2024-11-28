@@ -30,10 +30,11 @@ impl KisoHandle {
     /// Spawn a new actor
     pub fn start(state: Config) -> (Self, Child) {
         let (actor_sender, actor_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
-        let (log_level_update, _) = watch::channel(state.logger.level.clone());
+        let (log_level_update, _) = watch::channel(state.logger().level.clone());
         let mut actor = Actor {
             handle: actor_receiver,
-            state,
+            // state,
+            logger: state.logger().clone(),
             log_level_update,
         };
         (
@@ -111,7 +112,8 @@ pub enum Error {
 
 struct Actor {
     handle: mpsc::Receiver<Message>,
-    state: Config,
+    // state: Config,
+    logger: iroha_config::parameters::user::Logger,
     // Current implementation is somewhat not scalable in terms of code writing: for any
     // future dynamic parameter, it will require its own `subscribe_on_<field>` function in [`KisoHandle`],
     // new channel here, and new [`Message`] variant. If boilerplate expands, a more general solution will be
@@ -129,7 +131,7 @@ impl Actor {
     fn handle_message(&mut self, msg: Message) {
         match msg {
             Message::GetDTO { respond_to } => {
-                let dto = ConfigDTO::from(&self.state);
+                let dto = ConfigDTO::from(&self.logger);
                 let _ = respond_to.send(dto);
             }
             Message::UpdateWithDTO {
@@ -140,7 +142,7 @@ impl Actor {
                 respond_to,
             } => {
                 let _ = self.log_level_update.send(new_level.clone());
-                self.state.logger.level = new_level;
+                self.logger.level = new_level;
 
                 let _ = respond_to.send(Ok(()));
             }
@@ -156,15 +158,13 @@ mod tests {
     use std::time::Duration;
 
     use iroha_config::{
-        base::{read::ConfigReader, toml::TomlSource},
-        client_api::{ConfigDTO, Logger as LoggerDTO},
-        parameters::{actual::Root, user::Root as UserConfig},
+        base::{read::ConfigReader, toml::TomlSource}, client_api::{ConfigDTO, Logger as LoggerDTO}, parameters::{actual::RootBuilder, user::Root as UserConfig}
     };
     use iroha_logger::Level;
 
     use super::*;
 
-    fn test_config() -> Root {
+    fn test_config() -> RootBuilder {
         // if it fails, it is probably a bug
         ConfigReader::new()
             .with_toml_source(
@@ -172,7 +172,7 @@ mod tests {
             )
             .read_and_complete::<UserConfig>()
             .unwrap()
-            .parse()
+            .parse_builder()
             .unwrap()
     }
 
@@ -182,9 +182,13 @@ mod tests {
         const NEW_LOG_LEVEL: Level = Level::DEBUG;
         const WATCH_LAG_MILLIS: u64 = 30;
 
-        let mut config = test_config();
-        config.logger.level = INIT_LOG_LEVEL.into();
-        let (kiso, _) = KisoHandle::start(config);
+        let original_config = test_config().build().expect("Should build original config");
+        let mut logger = original_config.logger().clone();
+        logger.level = INIT_LOG_LEVEL.into();
+        let warn_log_config = test_config().logger(logger).build().expect("Should build warn-level log config");
+        // config.logger
+        // config.logger.level = INIT_LOG_LEVEL.into();
+        let (kiso, _) = KisoHandle::start(warn_log_config);
 
         let mut recv = kiso
             .subscribe_on_log_level()

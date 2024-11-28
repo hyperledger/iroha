@@ -89,8 +89,8 @@ impl Torii {
             state,
             #[cfg(feature = "telemetry")]
             metrics_reporter,
-            address: config.address,
-            transaction_max_content_len: config.max_content_len,
+            address: config.address().clone(),
+            transaction_max_content_len: config.max_content_len().clone(),
         }
     }
 

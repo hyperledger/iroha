@@ -26,7 +26,15 @@ pub struct ConfigDTO {
 impl From<&'_ BaseConfig> for ConfigDTO {
     fn from(value: &'_ BaseConfig) -> Self {
         Self {
-            logger: (&value.logger).into(),
+            logger: value.logger().into(),
+        }
+    }
+}
+
+impl From<&'_ super::parameters::user::Logger> for ConfigDTO {
+    fn from(value: &'_ super::parameters::user::Logger) -> Self {
+        Self {
+            logger: value.into(),
         }
     }
 }
