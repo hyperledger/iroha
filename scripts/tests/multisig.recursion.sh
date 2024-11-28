@@ -46,7 +46,7 @@ WEIGHTS=($(yes 1 | head -n $N_SIGNATORIES))
 # register a multisig account, namely msa12
 MSA_12=$(gen_account_id "msa12")
 SIGS_12=(${SIGNATORIES[@]:1:2})
-./iroha multisig register --account $MSA_12 --signatories ${SIGS_12[*]} --weights 1 1 --quorum 2
+./iroha multisig register --account $MSA_12 --signatories ${SIGS_12[*]} --weights 1 1 --quorum 1
 
 # register a multisig account, namely msa345
 MSA_345=$(gen_account_id "msa345")
@@ -56,7 +56,7 @@ SIGS_345=(${SIGNATORIES[@]:3:3})
 # register a multisig account, namely msa12345
 MSA_12345=$(gen_account_id "msa12345")
 SIGS_12345=($MSA_12 $MSA_345)
-./iroha multisig register --account $MSA_12345 --signatories ${SIGS_12345[*]} --weights 1 1 --quorum 1
+./iroha multisig register --account $MSA_12345 --signatories ${SIGS_12345[*]} --weights 1 1 --quorum 2
 
 # register a multisig account, namely msa012345
 MSA_012345=$(gen_account_id "msa")
@@ -65,20 +65,54 @@ SIGS_012345=(${SIGNATORIES[0]} $MSA_12345)
 
 # propose a multisig transaction
 INSTRUCTIONS="../scripts/tests/instructions.json"
-propose_stdout=($(cat $INSTRUCTIONS | ./iroha --config "client.0.toml" multisig propose --account $MSA_012345))
-INSTRUCTIONS_HASH=${propose_stdout[0]}
+cat $INSTRUCTIONS | ./iroha --config "client.0.toml" multisig propose --account $MSA_012345
+
+get_list_as_signatory() {
+    ./iroha --config "client.$1.toml" multisig list all
+}
+
+get_target_account() {
+    ./iroha account list filter '{"Atom": {"Id": {"Atom": {"Equals": "'$MSA_012345'"}}}}'
+}
+
+# check that the root proposal is entered
+LIST_0_INIT=$(get_list_as_signatory 0)
+echo "$LIST_0_INIT" | jq '.[].instructions' | diff - <(cat $INSTRUCTIONS)
 
 # check that one of the leaf signatories is involved
-LIST=$(./iroha --config "client.5.toml" multisig list all)
-echo "$LIST" | grep $INSTRUCTIONS_HASH
+LIST_2_INIT=$(get_list_as_signatory 2)
+echo "$LIST_2_INIT" | jq '.[].instructions' | diff - <(cat $INSTRUCTIONS)
 
-# approve the multisig transaction
-HASH_TO_12345=$(echo "$LIST" | grep -A1 $MSA_345 | tail -n 1 | tr -d '"')
+LIST_5_INIT=$(get_list_as_signatory 5)
+echo "$LIST_5_INIT" | jq '.[].instructions' | diff - <(cat $INSTRUCTIONS)
+
+# check that the multisig transaction has not yet executed
+TARGET_ACCOUNT_INIT=$(get_target_account)
+# NOTE: without ` || false` this line passes even if `success_marker` exists
+! echo "$TARGET_ACCOUNT_INIT" | jq -e '.[0].metadata.success_marker' || false
+
+# approve a relaying approval
+HASH_TO_12345=$(echo "$LIST_2_INIT" | jq -r 'keys[0]')
+./iroha --config "client.2.toml" multisig approve --account $MSA_12 --instructions-hash $HASH_TO_12345
+
+# check that the relaying approval has passed but the whole entry stays in the list
+LIST_2_RELAYED=$(get_list_as_signatory 2)
+echo "$LIST_2_RELAYED" | jq '.[].instructions' | diff - <(cat $INSTRUCTIONS)
+
+# give the last approval to execute
 ./iroha --config "client.5.toml" multisig approve --account $MSA_345 --instructions-hash $HASH_TO_12345
 
-# check that the multisig transaction is executed
-./iroha account list all | grep "congratulations"
-! ./iroha --config "client.5.toml" multisig list all | grep $INSTRUCTIONS_HASH
+# check that the transaction entry is deleted when seen from the last approver
+LIST_5_EXECUTED=$(get_list_as_signatory 5)
+! echo "$LIST_5_EXECUTED" | jq -e '.[].instructions' || false
+
+# check that the transaction entry is deleted when seen from another signatory
+LIST_2_EXECUTED=$(get_list_as_signatory 2)
+! echo "$LIST_2_EXECUTED" | jq -e '.[].instructions' || false
+
+# check that the multisig transaction has executed
+TARGET_ACCOUNT_EXECUTED=$(get_target_account)
+echo "$TARGET_ACCOUNT_EXECUTED" | jq -e '.[0].metadata.success_marker'
 
 cd -
 scripts/test_env.py cleanup

@@ -2980,6 +2980,30 @@
       }
     ]
   },
+  "MultisigProposalValue": {
+    "Struct": [
+      {
+        "name": "instructions",
+        "type": "Vec<InstructionBox>"
+      },
+      {
+        "name": "proposed_at_ms",
+        "type": "NonZero<u64>"
+      },
+      {
+        "name": "expires_at_ms",
+        "type": "NonZero<u64>"
+      },
+      {
+        "name": "approvals",
+        "type": "SortedVec<AccountId>"
+      },
+      {
+        "name": "is_relayed",
+        "type": "Option<bool>"
+      }
+    ]
+  },
   "MultisigPropose": {
     "Struct": [
       {
@@ -2989,6 +3013,10 @@
       {
         "name": "instructions",
         "type": "Vec<InstructionBox>"
+      },
+      {
+        "name": "transaction_ttl_ms",
+        "type": "Option<NonZero<u64>>"
       }
     ]
   },
@@ -2998,6 +3026,14 @@
         "name": "account",
         "type": "AccountId"
       },
+      {
+        "name": "spec",
+        "type": "MultisigSpec"
+      }
+    ]
+  },
+  "MultisigSpec": {
+    "Struct": [
       {
         "name": "signatories",
         "type": "SortedMap<AccountId, u8>"
@@ -3177,6 +3213,9 @@
   },
   "Option<TriggerId>": {
     "Option": "TriggerId"
+  },
+  "Option<bool>": {
+    "Option": "bool"
   },
   "Option<u32>": {
     "Option": "u32"
@@ -4984,6 +5023,9 @@
       "value": "TransactionRejectionReason"
     }
   },
+  "SortedVec<AccountId>": {
+    "Vec": "AccountId"
+  },
   "SortedVec<Permission>": {
     "Vec": "Permission"
   },
@@ -5920,6 +5962,7 @@
     ]
   },
   "WasmSmartContract": "Vec<u8>",
+  "bool": "bool",
   "u16": {
     "Int": "FixedWidth"
   },
