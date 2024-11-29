@@ -48,11 +48,7 @@ async fn network_create() {
         .idle_timeout(idle_timeout)
         .build()
         .expect("Failed to build config");
-    // let config = Config {
-    //     address: WithOrigin::inline(address.clone()),
-    //     public_address: WithOrigin::inline(address.clone()),
-    //     idle_timeout,
-    // };
+
     let (network, _) = NetworkHandle::start(key_pair, config, ShutdownSignal::new())
         .await
         .unwrap();
@@ -325,11 +321,7 @@ async fn start_network(
         .idle_timeout(idle_timeout)
         .build()
         .expect("Failed to build config");
-    // let config = Config {
-    //     address: WithOrigin::inline(address.clone()),
-    //     public_address: WithOrigin::inline(address.clone()),
-    //     idle_timeout,
-    // };
+
     let (mut network, _) = NetworkHandle::start(key_pair, config, shutdown_signal)
         .await
         .unwrap();
