@@ -31,14 +31,6 @@ impl From<&'_ BaseConfig> for ConfigDTO {
     }
 }
 
-impl From<&'_ super::parameters::user::Logger> for ConfigDTO {
-    fn from(value: &'_ super::parameters::user::Logger) -> Self {
-        Self {
-            logger: value.into(),
-        }
-    }
-}
-
 /// Subset of [`super::logger`] configuration.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Logger {
@@ -49,7 +41,7 @@ pub struct Logger {
 impl From<&'_ BaseLogger> for Logger {
     fn from(value: &'_ BaseLogger) -> Self {
         Self {
-            level: value.level.clone(),
+            level: value.level().clone(),
         }
     }
 }

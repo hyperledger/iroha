@@ -33,7 +33,7 @@ cfg-if = { workspace = true }
 nonzero_ext = { workspace = true }
 hex = { workspace = true, features = ["std"] }
 getset = { workspace = true }
-derive_builder = { version = "0.20" }
+derive_builder = { workspace = true }
 
 # for tracing
 stderrlog = "0.6.0"

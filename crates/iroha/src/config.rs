@@ -3,15 +3,15 @@
 use core::str::FromStr;
 use std::{path::Path, time::Duration};
 
+use derive_builder::Builder;
 use derive_more::Display;
 use error_stack::ResultExt;
 use eyre::Result;
+use getset::Getters;
 use iroha_config_base::{read::ConfigReader, toml::TomlSource};
 use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
 use serde_with::{DeserializeFromStr, SerializeDisplay};
-use getset::Getters;
-use derive_builder::Builder;
 use url::Url;
 
 use crate::{
@@ -73,7 +73,7 @@ pub struct Config {
     account: AccountId,
     /// Public and Private keys
     key_pair: KeyPair,
-    /// Basic Authentication credentials 
+    /// Basic Authentication credentials
     basic_auth: Option<BasicAuth>,
     /// Torii url
     torii_api_url: Url,

@@ -42,7 +42,12 @@ async fn network_create() {
     let key_pair = KeyPair::random();
     let public_key = key_pair.public_key().clone();
     let idle_timeout = Duration::from_secs(60);
-    let config = ConfigBuilder::default().address(WithOrigin::inline(address.clone())).public_address(WithOrigin::inline(address.clone())).idle_timeout(idle_timeout).build().expect("Failed to build config");
+    let config = ConfigBuilder::default()
+        .address(WithOrigin::inline(address.clone()))
+        .public_address(WithOrigin::inline(address.clone()))
+        .idle_timeout(idle_timeout)
+        .build()
+        .expect("Failed to build config");
     // let config = Config {
     //     address: WithOrigin::inline(address.clone()),
     //     public_address: WithOrigin::inline(address.clone()),
@@ -156,7 +161,12 @@ async fn two_networks() {
     let public_key2 = key_pair2.public_key().clone();
     info!("Starting first network...");
     let address1 = socket_addr!(127.0.0.1:12_005);
-    let config1 = ConfigBuilder::default().address(WithOrigin::inline(address1.clone())).public_address(WithOrigin::inline(address1.clone())).idle_timeout(idle_timeout).build().expect("Failed to build config (1)");
+    let config1 = ConfigBuilder::default()
+        .address(WithOrigin::inline(address1.clone()))
+        .public_address(WithOrigin::inline(address1.clone()))
+        .idle_timeout(idle_timeout)
+        .build()
+        .expect("Failed to build config (1)");
     // let config1 = Config {
     //     address: WithOrigin::inline(address1.clone()),
     //     public_address: WithOrigin::inline(address1.clone()),
@@ -168,7 +178,12 @@ async fn two_networks() {
 
     info!("Starting second network...");
     let address2 = socket_addr!(127.0.0.1:12_010);
-    let config2 = ConfigBuilder::default().address(WithOrigin::inline(address2.clone())).public_address(WithOrigin::inline(address2.clone())).idle_timeout(idle_timeout).build().expect("Failed to build config (2)");
+    let config2 = ConfigBuilder::default()
+        .address(WithOrigin::inline(address2.clone()))
+        .public_address(WithOrigin::inline(address2.clone()))
+        .idle_timeout(idle_timeout)
+        .build()
+        .expect("Failed to build config (2)");
     // let config2 = Config {
     //     address: WithOrigin::inline(address2.clone()),
     //     public_address: WithOrigin::inline(address2.clone()),
@@ -304,7 +319,12 @@ async fn start_network(
 
     let address = peer.address().clone();
     let idle_timeout = Duration::from_secs(60);
-    let config = ConfigBuilder::default().address(WithOrigin::inline(address.clone())).public_address(WithOrigin::inline(address.clone())).idle_timeout(idle_timeout).build().expect("Failed to build config");
+    let config = ConfigBuilder::default()
+        .address(WithOrigin::inline(address.clone()))
+        .public_address(WithOrigin::inline(address.clone()))
+        .idle_timeout(idle_timeout)
+        .build()
+        .expect("Failed to build config");
     // let config = Config {
     //     address: WithOrigin::inline(address.clone()),
     //     public_address: WithOrigin::inline(address.clone()),

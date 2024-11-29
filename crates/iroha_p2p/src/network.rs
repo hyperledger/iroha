@@ -81,7 +81,8 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
         shutdown_signal: ShutdownSignal,
     ) -> Result<(Self, Child), Error> {
         // TODO: enhance the error by reporting the origin of `listen_addr`
-        let listener = TcpListener::bind(config.address().value().to_socket_addrs()?.as_slice()).await?;
+        let listener =
+            TcpListener::bind(config.address().value().to_socket_addrs()?.as_slice()).await?;
         iroha_logger::info!("Network bound to listener");
         let (online_peers_sender, online_peers_receiver) = watch::channel(HashSet::new());
         let (subscribe_to_peers_messages_sender, subscribe_to_peers_messages_receiver) =

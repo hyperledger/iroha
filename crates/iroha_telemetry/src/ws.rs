@@ -39,7 +39,10 @@ pub async fn start(
         config.name().clone(),
         write,
         WebsocketSinkFactory::new(config.url().clone()),
-        RetryPeriod::new(config.min_retry_period().clone(), config.max_retry_delay_exponent().clone()),
+        RetryPeriod::new(
+            config.min_retry_period().clone(),
+            config.max_retry_delay_exponent().clone(),
+        ),
         internal_sender,
     );
     let handle = tokio::task::spawn(async move {

@@ -194,13 +194,15 @@ impl Iroha {
         let child = Kura::start(kura.clone(), supervisor.shutdown_signal());
         supervisor.monitor(child);
 
-        let (live_query_store, child) =
-            LiveQueryStore::from_config(config.live_query_store().clone(), supervisor.shutdown_signal())
-                .start();
+        let (live_query_store, child) = LiveQueryStore::from_config(
+            config.live_query_store().clone(),
+            supervisor.shutdown_signal(),
+        )
+        .start();
         supervisor.monitor(child);
 
         let state = match try_read_snapshot(
-            config.snapshot().store_dir.resolve_relative_path(),
+            config.snapshot().store_dir().resolve_relative_path(),
             &kura,
             || live_query_store.clone(),
             block_count,
@@ -236,7 +238,10 @@ impl Iroha {
         let state = Arc::new(state);
 
         let (events_sender, _) = broadcast::channel(EVENTS_BUFFER_CAPACITY);
-        let queue = Arc::new(Queue::from_config(config.queue().clone(), events_sender.clone()));
+        let queue = Arc::new(Queue::from_config(
+            config.queue().clone(),
+            events_sender.clone(),
+        ));
 
         let (network, child) = IrohaNetwork::start(
             config.common().key_pair().clone(),
@@ -550,7 +555,7 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
     }
     validate_directory_path(&mut emitter, config.kura().store_dir());
     // maybe validate only if snapshot mode is enabled
-    validate_directory_path(&mut emitter, &config.snapshot().store_dir);
+    validate_directory_path(&mut emitter, &config.snapshot().store_dir());
 
     if config.genesis().file().is_none()
         && !config
@@ -583,7 +588,7 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
     }
 
     #[cfg(not(feature = "dev-telemetry"))]
-    if config.dev_telemetry().out_file.is_some() {
+    if config.dev_telemetry().out_file().is_some() {
         // TODO: use a centralized configuration logging
         //       https://github.com/hyperledger-iroha/iroha/issues/4300
         eprintln!("`dev_telemetry.out_file` config is specified, but ignored, because Iroha is compiled without `dev-telemetry` feature enabled");
@@ -798,13 +803,17 @@ mod tests {
             assert!(genesis.is_some());
 
             assert_eq!(
-                config.kura().store_dir().resolve_relative_path().absolutize()?,
+                config
+                    .kura()
+                    .store_dir()
+                    .resolve_relative_path()
+                    .absolutize()?,
                 dir.path().join("storage")
             );
             assert_eq!(
                 config
                     .snapshot()
-                    .store_dir
+                    .store_dir()
                     .resolve_relative_path()
                     .absolutize()?,
                 dir.path().join("snapshots")
@@ -812,7 +821,8 @@ mod tests {
             assert_eq!(
                 config
                     .dev_telemetry()
-                    .out_file.as_ref()
+                    .out_file()
+                    .as_ref()
                     .expect("dev telemetry should be set")
                     .resolve_relative_path()
                     .absolutize()?,

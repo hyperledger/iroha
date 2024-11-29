@@ -18,10 +18,12 @@ fn main() {
         .expect("Failed building the Runtime");
     {
         let _guard = rt.enter();
-        let config = ConfigReader::new()
+        let config: iroha_config::parameters::user::Logger = ConfigReader::new()
             .with_env(std_env)
             .read_and_complete()
             .expect("Failed to load config");
+        let config = config.parse().expect("Failed to parse config");
+
         let config = InitConfig::new(config, true);
         let _ = iroha_logger::init_global(config).expect("Failed to initialize logger");
     }

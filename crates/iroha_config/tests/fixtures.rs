@@ -180,9 +180,7 @@ fn minimal_config_snapshot() {
             },
             snapshot: Snapshot {
                 mode: ReadWrite,
-                create_every_ms: DurationMs(
-                    600s,
-                ),
+                create_every: 600s,
                 store_dir: WithOrigin {
                     value: "./storage/snapshot",
                     origin: Default {

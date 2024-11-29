@@ -1005,11 +1005,16 @@ mod tests {
     #[test]
     fn strict_init_kura() {
         let temp_dir = TempDir::new().unwrap();
-        let config = KuraBuilder::default().init_mode(InitMode::Strict).store_dir(iroha_config::base::WithOrigin::inline(
-            temp_dir.path().to_str().unwrap().into(),
-        )).blocks_in_memory(BLOCKS_IN_MEMORY).debug_output_new_blocks(false).build().expect("Should build config");
-        Kura::new(&config)
-        .unwrap();
+        let config = KuraBuilder::default()
+            .init_mode(InitMode::Strict)
+            .store_dir(iroha_config::base::WithOrigin::inline(
+                temp_dir.path().to_str().unwrap().into(),
+            ))
+            .blocks_in_memory(BLOCKS_IN_MEMORY)
+            .debug_output_new_blocks(false)
+            .build()
+            .expect("Should build config");
+        Kura::new(&config).unwrap();
     }
 
     #[test]
@@ -1031,11 +1036,16 @@ mod tests {
 
         // Reinitialize kura and check that correct blocks are loaded
         {
-            let config = KuraBuilder::default().init_mode(InitMode::Strict).store_dir(iroha_config::base::WithOrigin::inline(
-                temp_dir.path().to_str().unwrap().into(),
-            )).blocks_in_memory(BLOCKS_IN_MEMORY).debug_output_new_blocks(false).build().expect("Should build config");
-            let (kura, block_count) = Kura::new(&config)
-            .unwrap();
+            let config = KuraBuilder::default()
+                .init_mode(InitMode::Strict)
+                .store_dir(iroha_config::base::WithOrigin::inline(
+                    temp_dir.path().to_str().unwrap().into(),
+                ))
+                .blocks_in_memory(BLOCKS_IN_MEMORY)
+                .debug_output_new_blocks(false)
+                .build()
+                .expect("Should build config");
+            let (kura, block_count) = Kura::new(&config).unwrap();
 
             assert_eq!(block_count.0, 3);
 
@@ -1079,11 +1089,16 @@ mod tests {
             LiveQueryStore::start_test()
         };
 
-        let config = KuraBuilder::default().init_mode(InitMode::Strict).store_dir(iroha_config::base::WithOrigin::inline(
-            temp_dir.path().to_str().unwrap().into(),
-        )).blocks_in_memory(BLOCKS_IN_MEMORY).debug_output_new_blocks(false).build().expect("Should build config");
-        let (kura, block_count) = Kura::new(&config)
-        .unwrap();
+        let config = KuraBuilder::default()
+            .init_mode(InitMode::Strict)
+            .store_dir(iroha_config::base::WithOrigin::inline(
+                temp_dir.path().to_str().unwrap().into(),
+            ))
+            .blocks_in_memory(BLOCKS_IN_MEMORY)
+            .debug_output_new_blocks(false)
+            .build()
+            .expect("Should build config");
+        let (kura, block_count) = Kura::new(&config).unwrap();
         // Starting with empty block store
         assert_eq!(block_count.0, 0);
 

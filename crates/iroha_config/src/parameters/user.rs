@@ -31,14 +31,17 @@ use iroha_primitives::{addr::SocketAddr, unique_vec::UniqueVec};
 use serde::Deserialize;
 use url::Url;
 
+use super::actual::{
+    BlockSyncBuilder, DevTelemetryBuilder, GenesisBuilder, KuraBuilder, LiveQueryStoreBuilder,
+    LoggerBuilder, NetworkBuilder, QueueBuilder, SnapshotBuilder, SumeragiBuilder,
+    TelemetryBuilder, ToriiBuilder, TransactionGossiperBuilder, TrustedPeersBuilder,
+};
 use crate::{
     kura::InitMode as KuraInitMode,
     logger::{Directives, Format as LoggerFormat},
     parameters::{actual, defaults},
     snapshot::Mode as SnapshotMode,
 };
-
-use super::actual::{BlockSyncBuilder, GenesisBuilder, KuraBuilder, LiveQueryStoreBuilder, NetworkBuilder, QueueBuilder, SumeragiBuilder, TelemetryBuilder, ToriiBuilder, TransactionGossiperBuilder, TrustedPeersBuilder};
 
 #[derive(Deserialize, Debug)]
 struct ChainIdInConfig(ChainId);
@@ -98,8 +101,9 @@ impl Root {
     ///
     /// # Errors
     /// If any invalidity found.
-    pub fn parse(self) -> Result<actual::Root, ParseError> {        
-        self.parse_builder().and_then(|builder| builder.build().change_context(ParseError::BuildConfig))
+    pub fn parse(self) -> Result<actual::Root, ParseError> {
+        self.parse_builder()
+            .and_then(|builder| builder.build().change_context(ParseError::BuildConfig))
     }
 
     #[allow(clippy::too_many_lines)]
@@ -123,30 +127,14 @@ impl Root {
             network.address().value().clone(),
             key_pair.public_key().clone(),
         );
-        let trusted_peers = self.trusted_peers.map(|x| TrustedPeersBuilder::default().myself(peer.clone()).others(x.0).build().change_context(ParseError::BuildConfig).expect("msg"));
-            // actual::TrustedPeers {
-            // myself: peer,
-            // others: x.0,
-        // }
-        // let Some((peer, trusted_peers)) = key_pair.as_ref().map(|key_pair| {
-        //     let peer = Peer::new(
-        //         network.address().value().clone(),
-        //         key_pair.public_key().clone(),
-        //     );
-
-        //     (
-        //         peer.clone(),
-        //         self.trusted_peers.map(|x| TrustedPeersBuilder::default().myself(peer).others(x.0).build().change_context(ParseError::BuildConfig)
-        //             // actual::TrustedPeers {
-        //             // myself: peer,
-        //             // others: x.0,
-        //         // }
-        //     ),
-        //     )
-        // }) else {
-        //     panic!("Key pair is missing");
-        // };
-
+        let trusted_peers = self.trusted_peers.map(|x| {
+            TrustedPeersBuilder::default()
+                .myself(peer.clone())
+                .others(x.0)
+                .build()
+                .change_context(ParseError::BuildConfig)
+                .expect("msg")
+        });
         let genesis = self.genesis.parse()?;
 
         let kura = self.kura.parse()?;
@@ -162,37 +150,33 @@ impl Root {
 
         emitter.into_result()?;
 
-        let peer = actual::CommonBuilder::default().chain(self.chain.0).key_pair(key_pair.clone()).peer(peer).trusted_peers(trusted_peers).build().change_context(ParseError::BuildConfig)?;
+        let peer = actual::CommonBuilder::default()
+            .chain(self.chain.0)
+            .key_pair(key_pair.clone())
+            .peer(peer)
+            .trusted_peers(trusted_peers)
+            .build()
+            .change_context(ParseError::BuildConfig)?;
         let queue = queue.parse()?;
-        // let peer = actual::Common {
-        //     chain: self.chain.0,
-        //     key_pair,
-        //     peer,
-        //     trusted_peers,
-        // };
+        let logger = logger.parse()?;
+        let snapshot = snapshot.parse()?;
+        let dev_telemetry = dev_telemetry.parse()?;
 
-        Ok(actual::RootBuilder::default().common(peer)
-        .network(network).genesis(genesis).torii(torii).kura(kura)
-        .sumeragi(sumeragi).block_sync(block_sync).transaction_gossiper(transaction_gossiper)
-        .live_query_store(live_query_store).logger(logger).queue(queue).snapshot(snapshot)
-        .telemetry(telemetry).dev_telemetry(dev_telemetry))
-        // .map_err(|e| ParseError::BuildConfig(e.into()))
-        // Ok(actual::Root {
-        //     common: peer,
-        //     network,
-        //     genesis,
-        //     torii,
-        //     kura,
-        //     sumeragi,
-        //     block_sync,
-        //     transaction_gossiper,
-        //     live_query_store,
-        //     logger,
-        //     queue: queue.parse(),
-        //     snapshot,
-        //     telemetry,
-        //     dev_telemetry,
-        // })
+        Ok(actual::RootBuilder::default()
+            .common(peer)
+            .network(network)
+            .genesis(genesis)
+            .torii(torii)
+            .kura(kura)
+            .sumeragi(sumeragi)
+            .block_sync(block_sync)
+            .transaction_gossiper(transaction_gossiper)
+            .live_query_store(live_query_store)
+            .logger(logger)
+            .queue(queue)
+            .snapshot(snapshot)
+            .telemetry(telemetry)
+            .dev_telemetry(dev_telemetry))
     }
 }
 
@@ -206,18 +190,13 @@ pub struct Genesis {
 
 impl Genesis {
     pub fn parse(self) -> error_stack::Result<actual::Genesis, ParseError> {
-        GenesisBuilder::default().public_key(self.public_key.into_value()).file(self.file).build().change_context(ParseError::BuildConfig)
+        GenesisBuilder::default()
+            .public_key(self.public_key.into_value())
+            .file(self.file)
+            .build()
+            .change_context(ParseError::BuildConfig)
     }
 }
-
-// impl From<Genesis> for actual::Genesis {
-//     fn from(genesis: Genesis) -> Self {
-//         actual::Genesis {
-//             public_key: genesis.public_key().into_value(),
-//             file: genesis.file(),
-//         }
-//     }
-// }
 
 #[derive(Debug, ReadConfig)]
 pub struct Kura {
@@ -238,7 +217,7 @@ pub struct Kura {
 }
 
 impl Kura {
-    fn parse(self) -> error_stack::Result<actual::Kura, ParseError>  {
+    fn parse(self) -> error_stack::Result<actual::Kura, ParseError> {
         let Self {
             init_mode,
             store_dir,
@@ -248,13 +227,13 @@ impl Kura {
                     output_new_blocks: debug_output_new_blocks,
                 },
         } = self;
-        KuraBuilder::default().init_mode(init_mode).store_dir(store_dir).blocks_in_memory(blocks_in_memory).debug_output_new_blocks(debug_output_new_blocks).build().change_context(ParseError::BuildConfig)
-        // actual::Kura {
-        //     init_mode,
-        //     store_dir,
-        //     blocks_in_memory,
-        //     debug_output_new_blocks,
-        // }
+        KuraBuilder::default()
+            .init_mode(init_mode)
+            .store_dir(store_dir)
+            .blocks_in_memory(blocks_in_memory)
+            .debug_output_new_blocks(debug_output_new_blocks)
+            .build()
+            .change_context(ParseError::BuildConfig)
     }
 }
 
@@ -291,14 +270,14 @@ impl Default for TrustedPeers {
 }
 
 impl Sumeragi {
-    fn parse(self) -> error_stack::Result<actual::Sumeragi, ParseError>  {
+    fn parse(self) -> error_stack::Result<actual::Sumeragi, ParseError> {
         let Self {
             debug: SumeragiDebug { force_soft_fork },
         } = self;
-        SumeragiBuilder::default().debug_force_soft_fork(force_soft_fork).build().change_context(ParseError::BuildConfig)
-        // actual::Sumeragi {
-        //     debug_force_soft_fork: force_soft_fork,
-        // }
+        SumeragiBuilder::default()
+            .debug_force_soft_fork(force_soft_fork)
+            .build()
+            .change_context(ParseError::BuildConfig)
     }
 }
 
@@ -333,11 +312,14 @@ pub struct Network {
 impl Network {
     fn parse(
         self,
-    ) -> error_stack::Result<(
-        actual::Network,
-        actual::BlockSync,
-        actual::TransactionGossiper,
-    ), ParseError> {
+    ) -> error_stack::Result<
+        (
+            actual::Network,
+            actual::BlockSync,
+            actual::TransactionGossiper,
+        ),
+        ParseError,
+    > {
         let Self {
             address,
             public_address,
@@ -348,9 +330,22 @@ impl Network {
             idle_timeout_ms: idle_timeout,
         } = self;
 
-        let network_config = NetworkBuilder::default().address(address).public_address(public_address).idle_timeout(idle_timeout.get()).build().change_context(ParseError::BuildConfig)?;
-        let block_sync_config = BlockSyncBuilder::default().gossip_period(block_gossip_period.get()).gossip_size(block_gossip_size).build().change_context(ParseError::BuildConfig)?;
-        let transcation_gossiper_config = TransactionGossiperBuilder::default().gossip_period(transaction_gossip_period.get()).gossip_size(transaction_gossip_size).build().change_context(ParseError::BuildConfig)?;
+        let network_config = NetworkBuilder::default()
+            .address(address)
+            .public_address(public_address)
+            .idle_timeout(idle_timeout.get())
+            .build()
+            .change_context(ParseError::BuildConfig)?;
+        let block_sync_config = BlockSyncBuilder::default()
+            .gossip_period(block_gossip_period.get())
+            .gossip_size(block_gossip_size)
+            .build()
+            .change_context(ParseError::BuildConfig)?;
+        let transcation_gossiper_config = TransactionGossiperBuilder::default()
+            .gossip_period(transaction_gossip_period.get())
+            .gossip_size(transaction_gossip_size)
+            .build()
+            .change_context(ParseError::BuildConfig)?;
 
         Ok((
             network_config,
@@ -375,19 +370,19 @@ pub struct Queue {
 }
 
 impl Queue {
-    pub fn parse(self) -> error_stack::Result<actual::Queue, ParseError>  {
+    pub fn parse(self) -> error_stack::Result<actual::Queue, ParseError> {
         let Self {
             capacity,
             capacity_per_user,
             transaction_time_to_live_ms: transaction_time_to_live,
         } = self;
 
-        QueueBuilder::default().capacity(capacity).capacity_per_user(capacity_per_user).transaction_time_to_live(transaction_time_to_live.0).build().change_context(ParseError::BuildConfig)
-        // actual::Queue {
-        //     capacity,
-        //     capacity_per_user,
-        //     transaction_time_to_live: transaction_time_to_live.0,
-        // }
+        QueueBuilder::default()
+            .capacity(capacity)
+            .capacity_per_user(capacity_per_user)
+            .transaction_time_to_live(transaction_time_to_live.0)
+            .build()
+            .change_context(ParseError::BuildConfig)
     }
 }
 
@@ -402,6 +397,16 @@ pub struct Logger {
     /// Output format
     #[config(env = "LOG_FORMAT", default)]
     pub format: LoggerFormat,
+}
+
+impl Logger {
+    pub fn parse(self) -> error_stack::Result<actual::Logger, ParseError> {
+        LoggerBuilder::default()
+            .level(self.level)
+            .format(self.format)
+            .build()
+            .change_context(ParseError::BuildConfig)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -438,32 +443,30 @@ impl Default for TelemetryMaxRetryDelayExponent {
 impl Telemetry {
     pub fn parse(self) -> error_stack::Result<actual::Telemetry, ParseError> {
         let TelemetryMinRetryPeriod(DurationMs(min_retry_period)) = self.min_retry_period_ms;
-        let TelemetryMaxRetryDelayExponent(max_retry_delay_exponent) = self.max_retry_delay_exponent;
-        TelemetryBuilder::default().name(self.name).url(self.url).min_retry_period(min_retry_period)
-        .max_retry_delay_exponent(max_retry_delay_exponent).build().change_context(ParseError::BuildConfig)
+        let TelemetryMaxRetryDelayExponent(max_retry_delay_exponent) =
+            self.max_retry_delay_exponent;
+        TelemetryBuilder::default()
+            .name(self.name)
+            .url(self.url)
+            .min_retry_period(min_retry_period)
+            .max_retry_delay_exponent(max_retry_delay_exponent)
+            .build()
+            .change_context(ParseError::BuildConfig)
     }
 }
-// impl From<Telemetry> for actual::Telemetry {
-//     fn from(
-//         Telemetry {
-//             name,
-//             url,
-//             min_retry_period_ms: TelemetryMinRetryPeriod(DurationMs(min_retry_period)),
-//             max_retry_delay_exponent: TelemetryMaxRetryDelayExponent(max_retry_delay_exponent),
-//         }: Telemetry,
-//     ) -> Self {
-//         Self {
-//             name,
-//             url,
-//             min_retry_period,
-//             max_retry_delay_exponent,
-//         }
-//     }
-// }
 
 #[derive(Debug, Clone, ReadConfig)]
 pub struct DevTelemetry {
     pub out_file: Option<WithOrigin<PathBuf>>,
+}
+
+impl DevTelemetry {
+    pub fn parse(self) -> error_stack::Result<actual::DevTelemetry, ParseError> {
+        DevTelemetryBuilder::default()
+            .out_file(self.out_file)
+            .build()
+            .change_context(ParseError::BuildConfig)
+    }
 }
 
 #[derive(Debug, Clone, ReadConfig)]
@@ -477,6 +480,17 @@ pub struct Snapshot {
         env = "SNAPSHOT_STORE_DIR"
     )]
     pub store_dir: WithOrigin<PathBuf>,
+}
+
+impl Snapshot {
+    pub fn parse(self) -> error_stack::Result<actual::Snapshot, ParseError> {
+        SnapshotBuilder::default()
+            .mode(self.mode)
+            .create_every(self.create_every_ms.get())
+            .store_dir(self.store_dir)
+            .build()
+            .change_context(ParseError::BuildConfig)
+    }
 }
 
 #[derive(Debug, ReadConfig)]
@@ -497,20 +511,17 @@ pub struct Torii {
 
 impl Torii {
     fn parse(self) -> error_stack::Result<(actual::Torii, actual::LiveQueryStore), ParseError> {
-        let torii = ToriiBuilder::default().address(self.address).max_content_len(self.max_content_len).build().change_context(ParseError::BuildConfig)?;
-        let query = LiveQueryStoreBuilder::default().idle_time(self.query_idle_time_ms.get())
-        .capacity(self.query_store_capacity).capacity_per_user(self.query_store_capacity_per_user).build().change_context(ParseError::BuildConfig)?;
-
-        // let torii = actual::Torii {
-        //     address: self.address,
-        //     max_content_len: self.max_content_len,
-        // };
-
-        // let query = actual::LiveQueryStore {
-        //     idle_time: self.query_idle_time_ms.get(),
-        //     capacity: self.query_store_capacity,
-        //     capacity_per_user: self.query_store_capacity_per_user,
-        // };
+        let torii = ToriiBuilder::default()
+            .address(self.address)
+            .max_content_len(self.max_content_len)
+            .build()
+            .change_context(ParseError::BuildConfig)?;
+        let query = LiveQueryStoreBuilder::default()
+            .idle_time(self.query_idle_time_ms.get())
+            .capacity(self.query_store_capacity)
+            .capacity_per_user(self.query_store_capacity_per_user)
+            .build()
+            .change_context(ParseError::BuildConfig)?;
 
         Ok((torii, query))
     }

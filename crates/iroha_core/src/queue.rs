@@ -101,10 +101,7 @@ impl Drop for TransactionGuard {
 
 impl Queue {
     /// Makes queue from configuration
-    pub fn from_config(
-        config: Config,
-        events_sender: EventsSender,
-    ) -> Self {
+    pub fn from_config(config: Config, events_sender: EventsSender) -> Self {
         Self {
             events_sender,
             tx_hashes: ArrayQueue::new(config.capacity().get()),
@@ -473,11 +470,15 @@ pub mod tests {
     }
 
     fn default_config() -> Config {
-        default_config_factory().build().expect("Should build config")
+        default_config_factory()
+            .build()
+            .expect("Should build config")
     }
 
     fn default_config_factory() -> QueueBuilder {
-        QueueBuilder::default().transaction_time_to_live(Duration::from_secs(100)).capacity(100.try_into().unwrap())
+        QueueBuilder::default()
+            .transaction_time_to_live(Duration::from_secs(100))
+            .capacity(100.try_into().unwrap())
     }
 
     #[test]
@@ -504,12 +505,13 @@ pub mod tests {
         let state = Arc::new(State::new(world_with_test_domains(), kura, query_handle));
 
         let (time_handle, time_source) = TimeSource::new_mock(Duration::default());
-        let config =  default_config_factory().transaction_time_to_live(Duration::from_secs(100)).capacity(capacity).build().expect("Should build config");
-        
-        let queue = Queue::test(
-            config,
-            &time_source,
-        );
+        let config = default_config_factory()
+            .transaction_time_to_live(Duration::from_secs(100))
+            .capacity(capacity)
+            .build()
+            .expect("Should build config");
+
+        let queue = Queue::test(config, &time_source);
 
         for _ in 0..capacity.get() {
             queue
@@ -536,11 +538,11 @@ pub mod tests {
 
         let (time_handle, time_source) = TimeSource::new_mock(Duration::default());
 
-        let config = default_config_factory().transaction_time_to_live(Duration::from_secs(100)).build().expect("Should build config");
-        let queue = Queue::test(
-            config,
-            &time_source,
-        );
+        let config = default_config_factory()
+            .transaction_time_to_live(Duration::from_secs(100))
+            .build()
+            .expect("Should build config");
+        let queue = Queue::test(config, &time_source);
         let queue = Arc::new(queue);
         for _ in 0..5 {
             queue
@@ -616,11 +618,11 @@ pub mod tests {
 
         let (time_handle, time_source) = TimeSource::new_mock(Duration::default());
 
-        let config = QueueBuilder::default().transaction_time_to_live(Duration::from_millis(200)).build().expect("Should build config");
-        let queue = Queue::test(
-            config,
-            &time_source,
-        );
+        let config = QueueBuilder::default()
+            .transaction_time_to_live(Duration::from_millis(200))
+            .build()
+            .expect("Should build config");
+        let queue = Queue::test(config, &time_source);
         let queue = Arc::new(queue);
         for _ in 0..(max_txs_in_block.get() - 1) {
             queue
@@ -725,11 +727,12 @@ pub mod tests {
 
         let (time_handle, time_source) = TimeSource::new_mock(Duration::default());
 
-        let config = default_config_factory().transaction_time_to_live(Duration::from_secs(100)).capacity(100_000_000.try_into().unwrap()).build().expect("Should build config");
-        let queue = Arc::new(Queue::test(
-            config,
-            &time_source,
-        ));
+        let config = default_config_factory()
+            .transaction_time_to_live(Duration::from_secs(100))
+            .capacity(100_000_000.try_into().unwrap())
+            .build()
+            .expect("Should build config");
+        let queue = Arc::new(Queue::test(config, &time_source));
 
         let start_time = std::time::Instant::now();
         let run_for = Duration::from_secs(5);
@@ -808,11 +811,13 @@ pub mod tests {
 
         let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
 
-        let config = default_config_factory().transaction_time_to_live(Duration::from_secs(100)).capacity(100.try_into().unwrap()).capacity_per_user(1.try_into().unwrap()).build().expect("Should build config");
-        let queue = Queue::test(
-            config,
-            &time_source,
-        );
+        let config = default_config_factory()
+            .transaction_time_to_live(Duration::from_secs(100))
+            .capacity(100.try_into().unwrap())
+            .capacity_per_user(1.try_into().unwrap())
+            .build()
+            .expect("Should build config");
+        let queue = Queue::test(config, &time_source);
         let queue = Arc::new(queue);
 
         // First push by Alice should be fine
