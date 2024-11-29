@@ -4,7 +4,7 @@
 use alloc::{format, string::String, vec::Vec};
 
 use iroha_crypto::{HashOf, PublicKey};
-use iroha_primitives::json::Json;
+use iroha_primitives::{json::Json, numeric::Numeric};
 
 use crate::{
     account::{Account, AccountId},
@@ -23,10 +23,11 @@ use crate::{
                 AssetDefinitionPrototype, AssetIdPrototype, AssetPrototype, AssetValuePrototype,
                 BlockHeaderHashPrototype, BlockHeaderPrototype, CommittedTransactionPrototype,
                 DomainIdPrototype, DomainPrototype, JsonPrototype, MetadataPrototype,
-                NamePrototype, ParameterPrototype, PeerIdPrototype, PermissionPrototype,
-                PublicKeyPrototype, RoleIdPrototype, RolePrototype, SignedBlockPrototype,
-                SignedTransactionPrototype, StringPrototype, TransactionErrorPrototype,
-                TransactionHashPrototype, TriggerIdPrototype, TriggerPrototype,
+                NamePrototype, NumericPrototype, ParameterPrototype, PeerIdPrototype,
+                PermissionPrototype, PublicKeyPrototype, RoleIdPrototype, RolePrototype,
+                SignedBlockPrototype, SignedTransactionPrototype, StringPrototype,
+                TransactionErrorPrototype, TransactionHashPrototype, TriggerIdPrototype,
+                TriggerPrototype,
             },
             CompoundPredicate, ObjectProjector, PredicateMarker,
         },
@@ -264,6 +265,9 @@ impl_predicate_atom! {
         /// Checks if the input is equal to the expected value.
         Equals(expected: Json) [eq] => input == expected,
     }
+    NumericPredicateAtom(_input: Numeric) [NumericPrototype] {
+        // TODO: populate
+    }
 
     // account
     AccountIdPredicateAtom(input: AccountId) [AccountIdPrototype] {
@@ -275,8 +279,11 @@ impl_predicate_atom! {
     // asset
     AssetDefinitionPredicateAtom(_input: AssetDefinition) [AssetDefinitionPrototype] {}
     AssetPredicateAtom(_input: Asset) [AssetPrototype] {}
-    AssetValuePredicateAtom(_input: AssetValue) [AssetValuePrototype] {
-        // TODO: populate
+    AssetValuePredicateAtom(input: AssetValue) [AssetValuePrototype] {
+        /// Checks if the asset value is numeric
+        IsNumeric [is_numeric] => matches!(input, AssetValue::Numeric(_)),
+        /// Checks if the asset value is a store
+        IsStore [is_store] => matches!(input, AssetValue::Store(_)),
     }
     AssetIdPredicateAtom(input: AssetId) [AssetIdPrototype] {
         /// Checks if the input is equal to the expected value.
@@ -344,10 +351,10 @@ pub mod prelude {
         AssetDefinitionIdPredicateAtom, AssetDefinitionPredicateAtom, AssetIdPredicateAtom,
         AssetPredicateAtom, AssetValuePredicateAtom, BlockHeaderHashPredicateAtom,
         BlockHeaderPredicateAtom, CommittedTransactionPredicateAtom, DomainIdPredicateAtom,
-        DomainPredicateAtom, JsonPredicateAtom, MetadataPredicateAtom, ParameterPredicateAtom,
-        PeerIdPredicateAtom, PermissionPredicateAtom, PublicKeyPredicateAtom, RoleIdPredicateAtom,
-        RolePredicateAtom, SignedBlockPredicateAtom, SignedTransactionPredicateAtom,
-        StringPredicateAtom, TransactionErrorPredicateAtom, TransactionHashPredicateAtom,
-        TriggerIdPredicateAtom, TriggerPredicateAtom,
+        DomainPredicateAtom, JsonPredicateAtom, MetadataPredicateAtom, NumericPredicateAtom,
+        ParameterPredicateAtom, PeerIdPredicateAtom, PermissionPredicateAtom,
+        PublicKeyPredicateAtom, RoleIdPredicateAtom, RolePredicateAtom, SignedBlockPredicateAtom,
+        SignedTransactionPredicateAtom, StringPredicateAtom, TransactionErrorPredicateAtom,
+        TransactionHashPredicateAtom, TriggerIdPredicateAtom, TriggerPredicateAtom,
     };
 }

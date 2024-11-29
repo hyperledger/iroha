@@ -1,11 +1,15 @@
 //! This module contains definitions of prototypes and projections for the data model types. See the [module-level documentation](crate::query::dsl) for more information.
 
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 
 use derive_where::derive_where;
 use iroha_crypto::{HashOf, PublicKey};
-use iroha_primitives::json::Json;
+use iroha_primitives::{json::Json, numeric::Numeric};
 
 // used in the macro
 use crate::query::dsl::{
@@ -261,7 +265,7 @@ type_descriptions! {
         domain(Domain, AssetDefinitionIdDomainProjector): DomainId,
         name(Name, AssetDefinitionIdNameProjector): Name,
     }
-    Asset[AssetProjection, AssetPrototype]: AssetId, AccountId, DomainId, Name, PublicKey, AssetDefinitionId, AssetValue {
+    Asset[AssetProjection, AssetPrototype]: AssetId, AccountId, DomainId, Name, PublicKey, AssetDefinitionId, AssetValue, Numeric, Metadata, Json {
         id(Id, AssetIdProjector): AssetId,
         value(Value, AssetValueProjector): AssetValue,
     }
@@ -269,7 +273,11 @@ type_descriptions! {
         account(Account, AssetIdAccountProjector): AccountId,
         definition(Definition, AssetIdDefinitionProjector): AssetDefinitionId,
     }
-    AssetValue[AssetValueProjection, AssetValuePrototype] {}
+    #[custom_evaluate]
+    AssetValue[AssetValueProjection, AssetValuePrototype]: Numeric, Metadata, Json {
+        numeric(Numeric, AssetValueNumericProjector): Numeric,
+        store(Store, AssetValueStoreProjector): Metadata,
+    }
 
     // block
     HashOf<BlockHeader>[BlockHeaderHashProjection, BlockHeaderHashPrototype] {}
@@ -343,6 +351,118 @@ type_descriptions! {
 
     PublicKey[PublicKeyProjection, PublicKeyPrototype] {}
     Json[JsonProjection, JsonPrototype] {}
+    Numeric[NumericProjection, NumericPrototype] {}
+}
+
+/// A set of helpers for [`EvaluateSelector`] implementations that are fallible
+mod fallible_selector {
+    use crate::query::{
+        dsl::{EvaluateSelector, HasProjection, SelectorMarker},
+        error::QueryExecutionFail,
+        QueryOutputBatchBox,
+    };
+
+    trait Collector<TOut> {
+        fn collect(
+            &self,
+            iter: impl Iterator<Item = TOut>,
+        ) -> Result<QueryOutputBatchBox, QueryExecutionFail>;
+    }
+
+    struct CollectorClone<'proj, T: HasProjection<SelectorMarker>>(&'proj T::Projection);
+
+    impl<'a, T> Collector<&'a T> for CollectorClone<'_, T>
+    where
+        T: HasProjection<SelectorMarker> + 'static,
+        T::Projection: EvaluateSelector<T>,
+    {
+        fn collect(
+            &self,
+            iter: impl Iterator<Item = &'a T>,
+        ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
+            self.0.project_clone(iter)
+        }
+    }
+
+    struct CollectorNoClone<'proj, T: HasProjection<SelectorMarker>>(&'proj T::Projection);
+
+    impl<T> Collector<T> for CollectorNoClone<'_, T>
+    where
+        T: HasProjection<SelectorMarker> + 'static,
+        T::Projection: EvaluateSelector<T>,
+    {
+        fn collect(
+            &self,
+            iter: impl Iterator<Item = T>,
+        ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
+            self.0.project(iter)
+        }
+    }
+
+    fn map_general<TIn, TOut, IterIn>(
+        iterator: IterIn,
+        map: impl Fn(TIn) -> Result<TOut, QueryExecutionFail>,
+        collector: impl Collector<TOut>,
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail>
+    where
+        IterIn: Iterator<Item = TIn>,
+    {
+        // what we do here is a bit unwieldy
+        // the `project_clone` method accepts an iterator over references to the items
+        // however, while iterating over the metadatas we can find out that a key is missing
+        // in this case we need to fail the whole operation and return an error
+        // the `project_clone` by itself doesn't provide such a mechanism
+        // but we can achieve this by storing an error indicator in a variable and checking it after the iteration
+        let mut error_accumulator = None;
+
+        let iter_out = iterator
+            // we use map_while to stop on first error
+            .map_while(|item| {
+                let res = map(item);
+
+                match res {
+                    Ok(value) => Some(value),
+                    Err(error) => {
+                        error_accumulator.get_or_insert(error);
+                        None
+                    }
+                }
+            });
+        let result = collector.collect(iter_out);
+
+        // errors on this layer of projection take precedence
+        if let Some(error) = error_accumulator {
+            return Err(error);
+        }
+
+        result
+    }
+
+    pub fn map<TIn, TOut, IterIn>(
+        iterator: IterIn,
+        map: impl Fn(TIn) -> Result<TOut, QueryExecutionFail>,
+        proj: &TOut::Projection,
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail>
+    where
+        IterIn: Iterator<Item = TIn>,
+        TOut: HasProjection<SelectorMarker> + 'static,
+        TOut::Projection: EvaluateSelector<TOut>,
+    {
+        map_general(iterator, map, CollectorNoClone(proj))
+    }
+
+    pub fn map_clone<'a, TIn, TOut, IterIn>(
+        iterator: IterIn,
+        map: impl Fn(TIn) -> Result<&'a TOut, QueryExecutionFail>,
+        proj: &TOut::Projection,
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail>
+    where
+        IterIn: Iterator<Item = TIn>,
+        TOut: HasProjection<SelectorMarker> + 'static,
+        TOut::Projection: EvaluateSelector<TOut>,
+    {
+        map_general(iterator, map, CollectorClone(proj))
+    }
 }
 
 // evaluate implementations that could not be implemented in a macro
@@ -455,6 +575,83 @@ impl EvaluateSelector<SignedTransaction> for SignedTransactionProjection<Selecto
     }
 }
 
+impl EvaluatePredicate<AssetValue> for AssetValueProjection<PredicateMarker> {
+    fn applies(&self, input: &AssetValue) -> bool {
+        match self {
+            AssetValueProjection::Atom(atom) => atom.applies(input),
+            AssetValueProjection::Numeric(numeric) => match input {
+                AssetValue::Numeric(v) => numeric.applies(v),
+                AssetValue::Store(_) => false,
+            },
+            AssetValueProjection::Store(store) => match input {
+                AssetValue::Numeric(_) => false,
+                AssetValue::Store(v) => store.applies(v),
+            },
+        }
+    }
+}
+
+impl EvaluateSelector<AssetValue> for AssetValueProjection<SelectorMarker> {
+    #[expect(single_use_lifetimes)]
+    fn project_clone<'a>(
+        &self,
+        batch: impl Iterator<Item = &'a AssetValue>,
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
+        match self {
+            AssetValueProjection::Atom(_) => Ok(batch.cloned().collect::<Vec<_>>().into()),
+            AssetValueProjection::Numeric(proj) => fallible_selector::map_clone(
+                batch,
+                |item| match item {
+                    AssetValue::Numeric(v) => Ok(v),
+                    AssetValue::Store(_) => Err(QueryExecutionFail::Conversion(
+                        "Expected numeric value, got store".to_string(),
+                    )),
+                },
+                proj,
+            ),
+            AssetValueProjection::Store(proj) => fallible_selector::map_clone(
+                batch,
+                |item| match item {
+                    AssetValue::Numeric(_) => Err(QueryExecutionFail::Conversion(
+                        "Expected store value, got numeric".to_string(),
+                    )),
+                    AssetValue::Store(v) => Ok(v),
+                },
+                proj,
+            ),
+        }
+    }
+
+    fn project(
+        &self,
+        batch: impl Iterator<Item = AssetValue>,
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
+        match self {
+            AssetValueProjection::Atom(_) => Ok(batch.collect::<Vec<_>>().into()),
+            AssetValueProjection::Numeric(proj) => fallible_selector::map(
+                batch,
+                |item| match item {
+                    AssetValue::Numeric(v) => Ok(v),
+                    AssetValue::Store(_) => Err(QueryExecutionFail::Conversion(
+                        "Expected numeric value, got store".to_string(),
+                    )),
+                },
+                proj,
+            ),
+            AssetValueProjection::Store(proj) => fallible_selector::map(
+                batch,
+                |item| match item {
+                    AssetValue::Numeric(_) => Err(QueryExecutionFail::Conversion(
+                        "Expected store value, got numeric".to_string(),
+                    )),
+                    AssetValue::Store(v) => Ok(v),
+                },
+                proj,
+            ),
+        }
+    }
+}
+
 // metadata is a special case because we allow projecting on string-typed keys
 /// A projection for the [`Metadata`] type.
 #[derive_where(Debug, Eq, PartialEq, Copy, Clone; <Metadata as Projectable<Marker>>::AtomType, MetadataKeyProjection<Marker>)]
@@ -520,40 +717,15 @@ impl EvaluateSelector<Metadata> for MetadataProjection<SelectorMarker> {
     ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
             MetadataProjection::Atom(_) => Ok(batch.cloned().collect::<Vec<_>>().into()),
-            MetadataProjection::Key(proj) => {
-                let mut error_accumulator = None;
-
-                // what we do here is a bit unwieldy
-                // the `project_clone` method accepts an iterator over references to the items
-                // however, while iterating over the metadatas we can find out that a key is missing
-                // in this case we need to fail the whole operation and return an error
-                // the `project_clone` by itself doesn't provide such a mechanism
-                // but we can achieve this by storing an error indicator in a variable and checking it after the iteration
-                let result = proj.projection.project_clone(
-                    batch
-                        // we use map_while to stop on first error
-                        .map_while(|item| {
-                            let res = item.get(&proj.key).ok_or_else(|| {
-                                QueryExecutionFail::Find(FindError::MetadataKey(proj.key.clone()))
-                            });
-
-                            match res {
-                                Ok(value) => Some(value),
-                                Err(error) => {
-                                    error_accumulator.get_or_insert(error);
-                                    None
-                                }
-                            }
-                        }),
-                );
-
-                // if we have an error, return it
-                if let Some(error) = error_accumulator {
-                    return Err(error);
-                }
-
-                result
-            }
+            MetadataProjection::Key(proj) => fallible_selector::map_clone(
+                batch,
+                |item| {
+                    item.get(&proj.key).ok_or_else(|| {
+                        QueryExecutionFail::Find(FindError::MetadataKey(proj.key.clone()))
+                    })
+                },
+                &proj.projection,
+            ),
         }
     }
     fn project(
@@ -562,30 +734,16 @@ impl EvaluateSelector<Metadata> for MetadataProjection<SelectorMarker> {
     ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
             MetadataProjection::Atom(_) => Ok(batch.collect::<Vec<_>>().into()),
-            MetadataProjection::Key(proj) => {
-                let mut error_accumulator = None;
-
-                let result = proj.projection.project(batch.map_while(|mut item| {
+            MetadataProjection::Key(proj) => fallible_selector::map(
+                batch,
+                |mut item| {
                     // using remove here to get a value, not a reference
-                    let res = item.remove(&proj.key).ok_or_else(|| {
+                    item.remove(&proj.key).ok_or_else(|| {
                         QueryExecutionFail::Find(FindError::MetadataKey(proj.key.clone()))
-                    });
-
-                    match res {
-                        Ok(value) => Some(value),
-                        Err(error) => {
-                            error_accumulator.get_or_insert(error);
-                            None
-                        }
-                    }
-                }));
-
-                if let Some(error) = error_accumulator {
-                    return Err(error);
-                }
-
-                result
-            }
+                    })
+                },
+                &proj.projection,
+            ),
         }
     }
 }
