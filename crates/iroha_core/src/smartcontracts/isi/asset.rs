@@ -424,10 +424,9 @@ pub mod isi {
 pub mod query {
     use eyre::Result;
     use iroha_data_model::{
-        asset::{Asset, AssetDefinition, AssetValue},
+        asset::{Asset, AssetDefinition},
         query::{dsl::CompoundPredicate, error::QueryExecutionFail as Error},
     };
-    use iroha_primitives::json::Json;
 
     use super::*;
     use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
@@ -458,57 +457,6 @@ pub mod query {
                 .asset_definitions_iter()
                 .filter(move |&asset_definition| filter.applies(asset_definition))
                 .cloned())
-        }
-    }
-
-    impl ValidSingularQuery for FindAssetQuantityById {
-        #[metrics(+"find_asset_quantity_by_id")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Numeric, Error> {
-            let id = &self.id;
-            iroha_logger::trace!(%id);
-            let value = state_ro
-                .world()
-                .asset(id)
-                .map_err(|asset_err| {
-                    if let Err(definition_err) = state_ro.world().asset_definition(&id.definition) {
-                        Error::Find(definition_err)
-                    } else {
-                        asset_err
-                    }
-                })?
-                .value;
-
-            match value {
-                AssetValue::Store(_) => Err(Error::Conversion(
-                    "Can't get quantity for strore asset".to_string(),
-                )),
-                AssetValue::Numeric(numeric) => Ok(numeric),
-            }
-        }
-    }
-
-    impl ValidSingularQuery for FindAssetMetadata {
-        #[metrics(+"find_asset_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, Error> {
-            let id = &self.id;
-            let key = &self.key;
-            let asset = state_ro.world().asset(id).map_err(|asset_err| {
-                if let Err(definition_err) = state_ro.world().asset_definition(&id.definition) {
-                    Error::Find(definition_err)
-                } else {
-                    asset_err
-                }
-            })?;
-            iroha_logger::trace!(%id, %key);
-            let AssetValue::Store(store) = &asset.value else {
-                return Err(Error::Conversion("expected store, found other".to_owned()));
-            };
-
-            store
-                .get(key)
-                .ok_or_else(|| Error::Find(FindError::MetadataKey(key.clone())))
-                .cloned()
-                .map(Into::into)
         }
     }
 }

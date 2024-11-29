@@ -52,14 +52,8 @@ pub trait Visit {
         visit_custom_instruction(&CustomInstruction),
 
         // Visit SingularQueryBox
-        visit_find_asset_quantity_by_id(&FindAssetQuantityById),
         visit_find_executor_data_model(&FindExecutorDataModel),
         visit_find_parameters(&FindParameters),
-        visit_find_domain_metadata(&FindDomainMetadata),
-        visit_find_account_metadata(&FindAccountMetadata),
-        visit_find_asset_metadata(&FindAssetMetadata),
-        visit_find_asset_definition_metadata(&FindAssetDefinitionMetadata),
-        visit_find_trigger_metadata(&FindTriggerMetadata),
 
         // Visit IterableQueryBox
         visit_find_domains(&QueryWithFilter<FindDomains>),
@@ -158,14 +152,8 @@ pub fn visit_singular_query<V: Visit + ?Sized>(visitor: &mut V, query: &Singular
     }
 
     singular_query_visitors! {
-        visit_find_asset_quantity_by_id(FindAssetQuantityById),
         visit_find_executor_data_model(FindExecutorDataModel),
         visit_find_parameters(FindParameters),
-        visit_find_domain_metadata(FindDomainMetadata),
-        visit_find_account_metadata(FindAccountMetadata),
-        visit_find_asset_metadata(FindAssetMetadata),
-        visit_find_asset_definition_metadata(FindAssetDefinitionMetadata),
-        visit_find_trigger_metadata(FindTriggerMetadata),
     }
 }
 
@@ -375,15 +363,9 @@ leaf_visitors! {
     visit_log(&Log),
     visit_custom_instruction(&CustomInstruction),
 
-    // Singular Quert visitors
-    visit_find_asset_quantity_by_id(&FindAssetQuantityById),
+    // Singular Query visitors
     visit_find_executor_data_model(&FindExecutorDataModel),
     visit_find_parameters(&FindParameters),
-    visit_find_domain_metadata(&FindDomainMetadata),
-    visit_find_account_metadata(&FindAccountMetadata),
-    visit_find_asset_metadata(&FindAssetMetadata),
-    visit_find_asset_definition_metadata(&FindAssetDefinitionMetadata),
-    visit_find_trigger_metadata(&FindTriggerMetadata),
 
     // Iterable Query visitors
     visit_find_domains(&QueryWithFilter<FindDomains>),
