@@ -143,7 +143,7 @@ pub struct Client {
 impl Client {
     /// Constructor for client from configuration
     #[inline]
-    pub fn new(configuration: Config) -> Self {
+    pub fn new(configuration: &Config) -> Self {
         Self::with_headers(configuration, HashMap::new())
     }
 
@@ -151,7 +151,7 @@ impl Client {
     ///
     /// *Authorization* header will be added if `basic_auth` is presented
     #[inline]
-    pub fn with_headers(config: Config, mut headers: HashMap<String, String>) -> Self {
+    pub fn with_headers(config: &Config, mut headers: HashMap<String, String>) -> Self {
         if let Some(basic_auth) = config.basic_auth().clone() {
             let credentials = format!(
                 "{}:{}",
@@ -167,11 +167,11 @@ impl Client {
             chain: config.chain().clone(),
             torii_url: config.torii_api_url().clone(),
             key_pair: config.key_pair().clone(),
-            transaction_ttl: Some(config.transaction_ttl().clone()),
-            transaction_status_timeout: config.transaction_status_timeout().clone(),
+            transaction_ttl: Some(*config.transaction_ttl()),
+            transaction_status_timeout: *config.transaction_status_timeout(),
             account: config.account().clone(),
             headers,
-            add_transaction_nonce: config.transaction_add_nonce().clone(),
+            add_transaction_nonce: *config.transaction_add_nonce(),
         }
     }
 
@@ -998,7 +998,7 @@ mod tests {
             .transaction_add_nonce(true)
             .build()
             .expect("Can't build config");
-        let client = Client::new(config);
+        let client = Client::new(&config);
 
         let build_transaction =
             || client.build_transaction(Vec::<InstructionBox>::new(), Metadata::default());
@@ -1033,7 +1033,7 @@ mod tests {
             }))
             .build()
             .expect("Can't build config");
-        let client = Client::new(config);
+        let client = Client::new(&config);
 
         let value = client
             .headers

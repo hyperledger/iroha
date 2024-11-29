@@ -40,8 +40,8 @@ pub async fn start(
         write,
         WebsocketSinkFactory::new(config.url().clone()),
         RetryPeriod::new(
-            config.min_retry_period().clone(),
-            config.max_retry_delay_exponent().clone(),
+            *config.min_retry_period(),
+            *config.max_retry_delay_exponent(),
         ),
         internal_sender,
     );

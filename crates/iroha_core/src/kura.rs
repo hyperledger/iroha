@@ -66,7 +66,7 @@ impl Kura {
             .debug_output_new_blocks()
             .then(|| store_dir.join("blocks.json"));
 
-        let block_data = Kura::init(&mut block_store, config.init_mode().clone())?;
+        let block_data = Kura::init(&mut block_store, *config.init_mode())?;
         let block_count = block_data.len();
         info!(mode=?config.init_mode(), block_count, "Kura init complete");
 
@@ -74,7 +74,7 @@ impl Kura {
             block_store: Mutex::new(block_store),
             block_data: Mutex::new(block_data),
             block_plain_text_path,
-            blocks_in_memory: config.blocks_in_memory().clone(),
+            blocks_in_memory: *config.blocks_in_memory(),
             init_block_count: block_count,
         });
 

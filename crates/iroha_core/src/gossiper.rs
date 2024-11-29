@@ -68,8 +68,8 @@ impl TransactionGossiper {
     ) -> Self {
         Self {
             chain_id,
-            gossip_period: config.gossip_period().clone(),
-            gossip_size: config.gossip_size().clone(),
+            gossip_period: *config.gossip_period(),
+            gossip_size: *config.gossip_size(),
             network,
             queue,
             state,

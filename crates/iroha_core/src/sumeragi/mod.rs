@@ -194,7 +194,7 @@ impl SumeragiStartArgs {
         for block in blocks_iter {
             let mut state_block = state.block(block.header());
             SumeragiHandle::replay_block(
-                &common_config.chain(),
+                common_config.chain(),
                 &genesis_account,
                 &block,
                 &mut state_block,
@@ -219,7 +219,7 @@ impl SumeragiStartArgs {
             peers_gossiper,
             control_message_receiver,
             message_receiver,
-            debug_force_soft_fork: config.debug_force_soft_fork().clone(),
+            debug_force_soft_fork: *config.debug_force_soft_fork(),
             topology,
             transaction_cache: Vec::new(),
             #[cfg(feature = "telemetry")]

@@ -3,7 +3,7 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use iroha_config::{
     base::WithOrigin,
-    parameters::{actual::Kura as Config, defaults::kura::BLOCKS_IN_MEMORY},
+    parameters::{actual::KuraBuilder as ConfigBuilder, defaults::kura::BLOCKS_IN_MEMORY},
 };
 use iroha_core::{
     block::*,
@@ -21,12 +21,13 @@ use tokio::{fs, runtime::Runtime};
 
 async fn measure_block_size_for_n_executors(n_executors: u32) {
     let dir = tempfile::tempdir().expect("Could not create tempfile.");
-    let cfg = Config {
-        init_mode: iroha_config::kura::InitMode::Strict,
-        debug_output_new_blocks: false,
-        blocks_in_memory: BLOCKS_IN_MEMORY,
-        store_dir: WithOrigin::inline(dir.path().to_path_buf()),
-    };
+    let cfg = ConfigBuilder::default()
+        .init_mode(iroha_config::kura::InitMode::Strict)
+        .debug_output_new_blocks(false)
+        .blocks_in_memory(BLOCKS_IN_MEMORY)
+        .store_dir(WithOrigin::inline(dir.path().to_path_buf()))
+        .build()
+        .expect("Should build config");
     let chain_id = ChainId::from("00000000-0000-0000-0000-000000000000");
     let (kura, _) = iroha_core::kura::Kura::new(&cfg).unwrap();
     let _thread_handle = iroha_core::kura::Kura::start(kura.clone(), ShutdownSignal::new());

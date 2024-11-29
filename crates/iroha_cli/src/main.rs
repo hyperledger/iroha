@@ -121,7 +121,7 @@ trait RunContext {
     fn configuration(&self) -> &Config;
 
     fn client_from_config(&self) -> Client {
-        Client::new(self.configuration().clone())
+        Client::new(self.configuration())
     }
 
     /// Serialize and print data
@@ -1199,7 +1199,7 @@ mod json {
                         .wrap_err("Failed to submit parsed instructions")
                 }
                 Variant::Query => {
-                    let client = Client::new(context.configuration().clone());
+                    let client = Client::new(context.configuration());
                     let query: AnyQueryBox = json5::from_str(&string_content)?;
 
                     match query {

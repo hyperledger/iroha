@@ -194,11 +194,9 @@ impl Iroha {
         let child = Kura::start(kura.clone(), supervisor.shutdown_signal());
         supervisor.monitor(child);
 
-        let (live_query_store, child) = LiveQueryStore::from_config(
-            config.live_query_store().clone(),
-            supervisor.shutdown_signal(),
-        )
-        .start();
+        let (live_query_store, child) =
+            LiveQueryStore::from_config(*config.live_query_store(), supervisor.shutdown_signal())
+                .start();
         supervisor.monitor(child);
 
         let state = match try_read_snapshot(
@@ -238,10 +236,7 @@ impl Iroha {
         let state = Arc::new(state);
 
         let (events_sender, _) = broadcast::channel(EVENTS_BUFFER_CAPACITY);
-        let queue = Arc::new(Queue::from_config(
-            config.queue().clone(),
-            events_sender.clone(),
-        ));
+        let queue = Arc::new(Queue::from_config(*config.queue(), events_sender.clone()));
 
         let (network, child) = IrohaNetwork::start(
             config.common().key_pair().clone(),
@@ -265,14 +260,14 @@ impl Iroha {
         );
 
         let (peers_gossiper, child) = PeersGossiper::start(
-            config.common().trusted_peers().value().clone(),
+            config.common().trusted_peers().value(),
             network.clone(),
             supervisor.shutdown_signal(),
         );
         supervisor.monitor(child);
 
         let (sumeragi, child) = SumeragiStartArgs {
-            config: config.sumeragi().clone(),
+            config: *config.sumeragi(),
             common_config: config.common().clone(),
             events_sender: events_sender.clone(),
             state: state.clone(),
@@ -295,7 +290,7 @@ impl Iroha {
         supervisor.monitor(child);
 
         let (block_sync, child) = BlockSynchronizer::from_config(
-            &config.block_sync(),
+            config.block_sync(),
             sumeragi.clone(),
             kura.clone(),
             config.common().peer().clone(),
@@ -307,7 +302,7 @@ impl Iroha {
 
         let (tx_gossiper, child) = TransactionGossiper::from_config(
             config.common().chain().clone(),
-            config.transaction_gossiper().clone(),
+            *config.transaction_gossiper(),
             network.clone(),
             Arc::clone(&queue),
             Arc::clone(&state),
@@ -332,13 +327,13 @@ impl Iroha {
             supervisor.monitor(snapshot_maker.start(supervisor.shutdown_signal()));
         }
 
-        let (kiso, child) = KisoHandle::start(config.clone());
+        let (kiso, child) = KisoHandle::start(&config);
         supervisor.monitor(child);
 
         let torii_run = Torii::new(
             config.common().chain().clone(),
             kiso.clone(),
-            config.torii().clone(),
+            config.torii(),
             queue,
             events_sender,
             live_query_store,
@@ -555,7 +550,7 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
     }
     validate_directory_path(&mut emitter, config.kura().store_dir());
     // maybe validate only if snapshot mode is enabled
-    validate_directory_path(&mut emitter, &config.snapshot().store_dir());
+    validate_directory_path(&mut emitter, config.snapshot().store_dir());
 
     if config.genesis().file().is_none()
         && !config
@@ -581,7 +576,7 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
     }
 
     #[cfg(not(feature = "telemetry"))]
-    if config.telemetry.is_some() {
+    if config.telemetry().is_some() {
         // TODO: use a centralized configuration logging
         //       https://github.com/hyperledger-iroha/iroha/issues/4300
         eprintln!("`telemetry` config is specified, but ignored, because Iroha is compiled without `telemetry` feature enabled");

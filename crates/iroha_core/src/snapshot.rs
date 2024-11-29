@@ -110,7 +110,7 @@ impl SnapshotMaker {
             let latest_block_hash = state.view().latest_block_hash();
             Some(Self {
                 state,
-                create_every: config.create_every().clone(),
+                create_every: *config.create_every(),
                 store_dir: config.store_dir().resolve_relative_path(),
                 latest_block_hash,
             })

@@ -28,7 +28,7 @@ pub struct KisoHandle {
 
 impl KisoHandle {
     /// Spawn a new actor
-    pub fn start(state: Config) -> (Self, Child) {
+    pub fn start(state: &Config) -> (Self, Child) {
         let (actor_sender, actor_receiver) = mpsc::channel(DEFAULT_CHANNEL_SIZE);
         let (log_level_update, _) = watch::channel(state.logger().level().clone());
         let mut actor = Actor {
@@ -187,7 +187,7 @@ mod tests {
 
         config.logger_mut().set_level(INIT_LOG_LEVEL.into());
 
-        let (kiso, _) = KisoHandle::start(config);
+        let (kiso, _) = KisoHandle::start(&config);
 
         let mut recv = kiso
             .subscribe_on_log_level()

@@ -107,10 +107,10 @@ impl Queue {
             tx_hashes: ArrayQueue::new(config.capacity().get()),
             txs: DashMap::new(),
             txs_per_user: DashMap::new(),
-            capacity: config.capacity().clone(),
-            capacity_per_user: config.capacity_per_user().clone(),
+            capacity: *config.capacity(),
+            capacity_per_user: *config.capacity_per_user(),
             time_source: TimeSource::new_system(),
-            tx_time_to_live: config.transaction_time_to_live().clone(),
+            tx_time_to_live: *config.transaction_time_to_live(),
             tx_gossip: ArrayQueue::new(config.capacity().get()),
         }
     }
@@ -426,10 +426,10 @@ pub mod tests {
                 tx_gossip: ArrayQueue::new(cfg.capacity().get()),
                 txs: DashMap::new(),
                 txs_per_user: DashMap::new(),
-                capacity: cfg.capacity().clone(),
-                capacity_per_user: cfg.capacity_per_user().clone(),
+                capacity: *cfg.capacity(),
+                capacity_per_user: *cfg.capacity_per_user(),
                 time_source: time_source.clone(),
-                tx_time_to_live: cfg.transaction_time_to_live().clone(),
+                tx_time_to_live: *cfg.transaction_time_to_live(),
             }
         }
     }

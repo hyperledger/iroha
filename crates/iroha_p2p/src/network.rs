@@ -113,7 +113,7 @@ impl<T: Pload, K: Kex + Sync, E: Enc + Sync> NetworkBaseHandle<T, K, E> {
             current_conn_id: 0,
             current_topology: HashSet::new(),
             current_peers_addresses: Vec::new(),
-            idle_timeout: config.idle_timeout().clone(),
+            idle_timeout: *config.idle_timeout(),
             _key_exchange: core::marker::PhantomData::<K>,
             _encryptor: core::marker::PhantomData::<E>,
         };
