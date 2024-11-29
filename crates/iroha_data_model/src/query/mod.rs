@@ -155,7 +155,9 @@ mod model {
         BlockHeaderHash(Vec<HashOf<BlockHeader>>),
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug, Clone, PartialEq, Eq, Decode, Encode, Constructor, Deserialize, Serialize, IntoSchema,
+    )]
     pub struct QueryOutputBatchBoxTuple {
         pub tuple: Vec<QueryOutputBatchBox>,
     }

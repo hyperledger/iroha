@@ -284,7 +284,10 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     let assert_balance = |asset_id: AssetId, expected: Numeric| {
         let got = test_client
-            .query_single(FindAssetQuantityById::new(asset_id))
+            .query(FindAssets)
+            .filter_with(|asset| asset.id.eq(asset_id))
+            .select_with(|asset| asset.value.numeric)
+            .execute_single()
             .expect("query should succeed");
         assert_eq!(got, expected);
     };
@@ -293,7 +296,10 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
     assert_balance(buyer_eth.clone(), numeric!(200));
 
     let rate: u32 = test_client
-        .query_single(FindAssetQuantityById::new(rate))
+        .query(FindAssets)
+        .filter_with(|asset| asset.id.eq(rate))
+        .select_with(|asset| asset.value.numeric)
+        .execute_single()
         .expect("query should succeed")
         .try_into()
         .expect("numeric should be u32 originally");
@@ -306,7 +312,10 @@ fn find_rate_and_make_exchange_isi_should_succeed() {
 
     let assert_purged = |asset_id: AssetId| {
         let _err = test_client
-            .query_single(FindAssetQuantityById::new(asset_id))
+            .query(FindAssets)
+            .filter_with(|asset| asset.id.eq(asset_id))
+            .select_with(|asset| asset.value.numeric)
+            .execute_single()
             .expect_err("query should fail, as zero assets are purged from accounts");
     };
     let seller_eth: AssetId = format!("eth#crypto#{}", &seller_id)

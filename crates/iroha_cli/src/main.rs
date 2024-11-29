@@ -1059,10 +1059,13 @@ mod asset {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { id: asset_id, key } = self;
             let client = context.client_from_config();
-            let find_key_value = FindAssetMetadata::new(asset_id, key);
             let asset = client
-                .query_single(find_key_value)
+                .query(FindAssets)
+                .filter_with(|asset| asset.id.eq(asset_id))
+                .select_with(|asset| asset.value.store.key(key))
+                .execute_single()
                 .wrap_err("Failed to get key-value")?;
+
             context.print_data(&asset)?;
             Ok(())
         }
