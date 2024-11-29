@@ -327,7 +327,7 @@ impl NumericSpec {
 
     /// Get the scale
     #[inline]
-    pub const fn scale(&self) -> Option<u32> {
+    pub const fn scale(self) -> Option<u32> {
         self.scale
     }
 }

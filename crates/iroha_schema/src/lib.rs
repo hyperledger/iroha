@@ -280,6 +280,22 @@ pub struct BitmapMask {
 #[derive(Debug, Clone, Serialize)]
 pub struct Compact<T>(T);
 
+impl TypeId for () {
+    fn id() -> String {
+        "()".to_owned()
+    }
+}
+impl IntoSchema for () {
+    fn type_name() -> String {
+        "()".to_owned()
+    }
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(Metadata::Tuple(UnnamedFieldsMeta { types: vec![] }));
+        }
+    }
+}
+
 macro_rules! impl_schema_int {
     ($($t:ty),*) => {$(
         impl TypeId for $t {

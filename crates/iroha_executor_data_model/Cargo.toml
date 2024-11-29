@@ -16,6 +16,6 @@ iroha_executor_data_model_derive = { path = "../iroha_executor_data_model_derive
 iroha_data_model.workspace = true
 iroha_schema.workspace = true
 
-derive_more = { workspace = true, features = ["constructor", "from"] }
+derive_more = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true

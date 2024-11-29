@@ -251,12 +251,7 @@ fn submit(
 }
 
 mod filter {
-    use iroha::data_model::query::predicate::{
-        predicate_atoms::{
-            account::AccountPredicateBox, asset::AssetPredicateBox, domain::DomainPredicateBox,
-        },
-        CompoundPredicate,
-    };
+    use iroha::data_model::query::dsl::CompoundPredicate;
     use serde::Deserialize;
 
     use super::*;
@@ -265,32 +260,32 @@ mod filter {
     #[derive(Clone, Debug, clap::Parser)]
     pub struct DomainFilter {
         /// Predicate for filtering given as JSON5 string
-        #[clap(value_parser = parse_json5::<CompoundPredicate<DomainPredicateBox>>)]
-        pub predicate: CompoundPredicate<DomainPredicateBox>,
+        #[clap(value_parser = parse_json5::<CompoundPredicate<Domain>>)]
+        pub predicate: CompoundPredicate<Domain>,
     }
 
     /// Filter for account queries
     #[derive(Clone, Debug, clap::Parser)]
     pub struct AccountFilter {
         /// Predicate for filtering given as JSON5 string
-        #[clap(value_parser = parse_json5::<CompoundPredicate<AccountPredicateBox>>)]
-        pub predicate: CompoundPredicate<AccountPredicateBox>,
+        #[clap(value_parser = parse_json5::<CompoundPredicate<Account>>)]
+        pub predicate: CompoundPredicate<Account>,
     }
 
     /// Filter for asset queries
     #[derive(Clone, Debug, clap::Parser)]
     pub struct AssetFilter {
         /// Predicate for filtering given as JSON5 string
-        #[clap(value_parser = parse_json5::<CompoundPredicate<AssetPredicateBox>>)]
-        pub predicate: CompoundPredicate<AssetPredicateBox>,
+        #[clap(value_parser = parse_json5::<CompoundPredicate<Asset>>)]
+        pub predicate: CompoundPredicate<Asset>,
     }
 
     /// Filter for asset definition queries
     #[derive(Clone, Debug, clap::Parser)]
     pub struct AssetDefinitionFilter {
         /// Predicate for filtering given as JSON5 string
-        #[clap(value_parser = parse_json5::<CompoundPredicate<AssetDefinitionPredicateBox>>)]
-        pub predicate: CompoundPredicate<AssetDefinitionPredicateBox>,
+        #[clap(value_parser = parse_json5::<CompoundPredicate<AssetDefinition>>)]
+        pub predicate: CompoundPredicate<AssetDefinition>,
     }
 
     fn parse_json5<T>(s: &str) -> Result<T, String>
@@ -1219,18 +1214,40 @@ mod json {
                             // we can't really do type-erased iterable queries in a nice way right now...
                             use iroha::data_model::query::builder::QueryExecutor;
 
-                            let (mut first_batch, _remaining_items, mut continue_cursor) =
+                            let (mut accumulated_batch, _remaining_items, mut continue_cursor) =
                                 client.start_query(query)?;
 
                             while let Some(cursor) = continue_cursor {
                                 let (next_batch, _remaining_items, next_continue_cursor) =
                                     <Client as QueryExecutor>::continue_query(cursor)?;
 
-                                first_batch.extend(next_batch);
+                                accumulated_batch.extend(next_batch);
                                 continue_cursor = next_continue_cursor;
                             }
 
-                            context.print_data(&first_batch)?;
+                            // for efficiency reasons iroha encodes query results in a columnar format,
+                            // so we need to transpose the batch to get the format that is more natural for humans
+                            let mut batches = vec![Vec::new(); accumulated_batch.len()];
+                            for batch in accumulated_batch.into_iter() {
+                                // downcast to json and extract the actual array
+                                // dynamic typing is just easier to use here than introducing a bunch of new types only for iroha_cli
+                                let batch = serde_json::to_value(batch)?;
+                                let serde_json::Value::Object(batch) = batch else {
+                                    panic!("Expected the batch serialization to be a JSON object");
+                                };
+                                let (_ty, batch) = batch
+                                    .into_iter()
+                                    .next()
+                                    .expect("Expected the batch to have exactly one key");
+                                let serde_json::Value::Array(batch_vec) = batch else {
+                                    panic!("Expected the batch payload to be a JSON array");
+                                };
+                                for (target, value) in batches.iter_mut().zip(batch_vec) {
+                                    target.push(value);
+                                }
+                            }
+
+                            context.print_data(&batches)?;
                         }
                     }
 
@@ -1243,11 +1260,16 @@ mod json {
 
 mod multisig {
     use std::{
+        collections::BTreeMap,
         io::{BufReader, Read as _},
         num::{NonZeroU16, NonZeroU64},
+        time::{Duration, SystemTime},
     };
 
+    use derive_more::{Constructor, Display};
     use iroha::executor_data_model::isi::multisig::*;
+    use serde::Serialize;
+    use serde_with::{serde_as, DisplayFromStr, SerializeDisplay};
 
     use super::*;
 
@@ -1301,14 +1323,16 @@ mod multisig {
             }
             let register_multisig_account = MultisigRegister::new(
                 self.account,
-                self.signatories.into_iter().zip(self.weights).collect(),
-                NonZeroU16::new(self.quorum).expect("quorum should not be 0"),
-                self.transaction_ttl
-                    .as_millis()
-                    .try_into()
-                    .ok()
-                    .and_then(NonZeroU64::new)
-                    .expect("ttl should be between 1 ms and 584942417 years"),
+                MultisigSpec::new(
+                    self.signatories.into_iter().zip(self.weights).collect(),
+                    NonZeroU16::new(self.quorum).expect("quorum should not be 0"),
+                    self.transaction_ttl
+                        .as_millis()
+                        .try_into()
+                        .ok()
+                        .and_then(NonZeroU64::new)
+                        .expect("ttl should be between 1 ms and 584942417 years"),
+                ),
             );
 
             submit([register_multisig_account], Metadata::default(), context)
@@ -1322,6 +1346,9 @@ mod multisig {
         /// Multisig authority of the multisig transaction
         #[arg(short, long)]
         pub account: AccountId,
+        /// Time-to-live of multisig transactions that overrides to shorten the account default
+        #[arg(short, long)]
+        pub transaction_ttl: Option<humantime::Duration>,
     }
 
     impl RunArgs for Propose {
@@ -1333,9 +1360,20 @@ mod multisig {
                 let string_content = String::from_utf8(raw_content)?;
                 json5::from_str(&string_content)?
             };
+            let transaction_ttl_ms = self.transaction_ttl.map(|duration| {
+                duration
+                    .as_millis()
+                    .try_into()
+                    .ok()
+                    .and_then(NonZeroU64::new)
+                    .expect("ttl should be between 1 ms and 584942417 years")
+            });
+
             let instructions_hash = HashOf::new(&instructions);
             println!("{instructions_hash}");
-            let propose_multisig_transaction = MultisigPropose::new(self.account, instructions);
+
+            let propose_multisig_transaction =
+                MultisigPropose::new(self.account, instructions, transaction_ttl_ms);
 
             submit([propose_multisig_transaction], Metadata::default(), context)
                 .wrap_err("Failed to propose transaction")
@@ -1350,7 +1388,7 @@ mod multisig {
         pub account: AccountId,
         /// Instructions to approve
         #[arg(short, long)]
-        pub instructions_hash: HashOf<Vec<InstructionBox>>,
+        pub instructions_hash: ProposalKey,
     }
 
     impl RunArgs for Approve {
@@ -1374,14 +1412,38 @@ mod multisig {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let client = context.client_from_config();
             let me = client.account.clone();
+            let Ok(my_multisig_roles) = client
+                .query(FindRolesByAccountId::new(me.clone()))
+                .filter_with(|role_id| role_id.name.starts_with(MULTISIG_SIGNATORY))
+                .execute_all()
+            else {
+                return Ok(());
+            };
+            let mut stack = my_multisig_roles
+                .iter()
+                .filter_map(multisig_account_from)
+                .map(|account_id| Context::new(me.clone(), account_id, None))
+                .collect();
+            let mut proposals = BTreeMap::new();
 
-            trace_back_from(me, &client, context)
+            fold_proposals(&mut proposals, &mut stack, &client)?;
+            context.print_data(&proposals)?;
+
+            Ok(())
         }
     }
 
     const DELIMITER: char = '/';
-    const PROPOSALS: &str = "proposals";
+    const MULTISIG: &str = "multisig";
     const MULTISIG_SIGNATORY: &str = "MULTISIG_SIGNATORY";
+
+    fn spec_key() -> Name {
+        format!("{MULTISIG}{DELIMITER}spec").parse().unwrap()
+    }
+
+    fn proposal_key_prefix() -> String {
+        format!("{MULTISIG}{DELIMITER}proposals{DELIMITER}")
+    }
 
     fn multisig_account_from(role: &RoleId) -> Option<AccountId> {
         role.name()
@@ -1395,51 +1457,144 @@ mod multisig {
             })
     }
 
-    /// Recursively trace back to the root multisig account
-    fn trace_back_from(
-        account: AccountId,
+    type PendingProposals = BTreeMap<ProposalKey, ProposalStatus>;
+
+    type ProposalKey = HashOf<Vec<InstructionBox>>;
+
+    #[serde_as]
+    #[derive(Debug, Serialize, Constructor)]
+    struct ProposalStatus {
+        instructions: Vec<InstructionBox>,
+        #[serde_as(as = "DisplayFromStr")]
+        proposed_at: humantime::Timestamp,
+        #[serde_as(as = "DisplayFromStr")]
+        expires_in: humantime::Duration,
+        approval_path: Vec<ApprovalEdge>,
+    }
+
+    impl Default for ProposalStatus {
+        fn default() -> Self {
+            Self::new(
+                Vec::new(),
+                SystemTime::UNIX_EPOCH.into(),
+                Duration::ZERO.into(),
+                Vec::new(),
+            )
+        }
+    }
+
+    #[derive(Debug, SerializeDisplay, Display, Constructor)]
+    #[display(fmt = "{weight} {} [{got}/{quorum}] {target}", "self.relation()")]
+    struct ApprovalEdge {
+        weight: u8,
+        has_approved: bool,
+        got: u16,
+        quorum: u16,
+        target: AccountId,
+    }
+
+    impl ApprovalEdge {
+        fn relation(&self) -> &str {
+            if self.has_approved {
+                "joined"
+            } else {
+                "->"
+            }
+        }
+    }
+
+    #[derive(Debug, Constructor)]
+    struct Context {
+        child: AccountId,
+        this: AccountId,
+        key_span: Option<(ProposalKey, ProposalKey)>,
+    }
+
+    fn fold_proposals(
+        proposals: &mut PendingProposals,
+        stack: &mut Vec<Context>,
         client: &Client,
-        context: &mut dyn RunContext,
     ) -> Result<()> {
-        let Ok(multisig_roles) = client
-            .query(FindRolesByAccountId::new(account))
-            .filter_with(|role_id| role_id.name.starts_with(MULTISIG_SIGNATORY))
-            .execute_all()
-        else {
+        let Some(context) = stack.pop() else {
             return Ok(());
         };
-
-        for role_id in multisig_roles {
-            let super_account_id: AccountId = multisig_account_from(&role_id).unwrap();
-
-            trace_back_from(super_account_id.clone(), client, context)?;
-
-            context.print_data(&super_account_id)?;
-
-            let super_account = client
-                .query(FindAccounts)
-                .filter_with(|account| account.id.eq(super_account_id))
-                .execute_single()?;
-            let proposal_kvs = super_account
-                .metadata()
-                .iter()
-                .filter(|kv| kv.0.as_ref().starts_with(PROPOSALS));
-
-            proposal_kvs.fold("", |acc, (k, v)| {
-                let mut path = k.as_ref().split('/');
-                let hash = path.nth(1).unwrap();
-
-                if acc != hash {
-                    context.print_data(&hash).unwrap();
-                }
-                path.for_each(|seg| context.print_data(&seg).unwrap());
-                context.print_data(&v).unwrap();
-
-                hash
-            });
+        let account = client
+            .query(FindAccounts)
+            .filter_with(|account| account.id.eq(context.this.clone()))
+            .execute_single()?;
+        let spec: MultisigSpec = account
+            .metadata()
+            .get(&spec_key())
+            .unwrap()
+            .try_into_any()?;
+        for (proposal_key, proposal_value) in account
+            .metadata()
+            .iter()
+            .filter_map(|(k, v)| {
+                k.as_ref().strip_prefix(&proposal_key_prefix()).map(|k| {
+                    (
+                        k.parse::<ProposalKey>().unwrap(),
+                        v.try_into_any::<MultisigProposalValue>().unwrap(),
+                    )
+                })
+            })
+            .filter(|(k, _v)| context.key_span.map_or(true, |(_, top)| *k == top))
+        {
+            let mut is_root_proposal = true;
+            for instruction in &proposal_value.instructions {
+                let InstructionBox::Custom(instruction) = instruction else {
+                    continue;
+                };
+                let Ok(MultisigInstructionBox::Approve(approve)) = instruction.payload().try_into()
+                else {
+                    continue;
+                };
+                is_root_proposal = false;
+                let leaf = context.key_span.map_or(proposal_key, |(leaf, _)| leaf);
+                let top = approve.instructions_hash;
+                stack.push(Context::new(
+                    context.this.clone(),
+                    approve.account,
+                    Some((leaf, top)),
+                ));
+            }
+            let proposal_status = match context.key_span {
+                None => proposals.entry(proposal_key).or_default(),
+                Some((leaf, _)) => proposals.get_mut(&leaf).unwrap(),
+            };
+            let edge = ApprovalEdge::new(
+                *spec.signatories.get(&context.child).unwrap(),
+                proposal_value.approvals.contains(&context.child),
+                spec.signatories
+                    .iter()
+                    .filter(|(id, _)| proposal_value.approvals.contains(id))
+                    .map(|(_, weight)| u16::from(*weight))
+                    .sum(),
+                spec.quorum.into(),
+                context.this.clone(),
+            );
+            proposal_status.approval_path.push(edge);
+            if is_root_proposal {
+                proposal_status.instructions = proposal_value.instructions;
+                proposal_status.proposed_at = {
+                    let proposed_at = Duration::from_secs(
+                        Duration::from_millis(proposal_value.proposed_at_ms.into()).as_secs(),
+                    );
+                    SystemTime::UNIX_EPOCH
+                        .checked_add(proposed_at)
+                        .unwrap()
+                        .into()
+                };
+                proposal_status.expires_in = {
+                    let now = SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .unwrap();
+                    let expires_at = Duration::from_millis(proposal_value.expires_at_ms.into());
+                    Duration::from_secs(expires_at.saturating_sub(now).as_secs()).into()
+                };
+            }
         }
-
-        Ok(())
+        fold_proposals(proposals, stack, client)
     }
 }
 

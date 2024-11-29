@@ -311,9 +311,7 @@ pub mod query {
     //! Queries associated to triggers.
     use iroha_data_model::{
         query::{
-            error::QueryExecutionFail as Error,
-            predicate::{predicate_atoms::trigger::TriggerIdPredicateBox, CompoundPredicate},
-            trigger::FindTriggers,
+            dsl::CompoundPredicate, error::QueryExecutionFail as Error, trigger::FindTriggers,
         },
         trigger::{Trigger, TriggerId},
     };
@@ -330,7 +328,7 @@ pub mod query {
         #[metrics(+"find_active_triggers")]
         fn execute(
             self,
-            filter: CompoundPredicate<TriggerIdPredicateBox>,
+            filter: CompoundPredicate<TriggerId>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = TriggerId>, Error> {
             Ok(state_ro
@@ -346,7 +344,7 @@ pub mod query {
         #[metrics(+"find_triggers")]
         fn execute(
             self,
-            filter: CompoundPredicate<TriggerPredicateBox>,
+            filter: CompoundPredicate<Trigger>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = Self::Item>, Error> {
             let triggers = state_ro.world().triggers();

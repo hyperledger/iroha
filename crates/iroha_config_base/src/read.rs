@@ -68,6 +68,7 @@ impl Error {
     }
 }
 
+#[expect(clippy::too_long_first_doc_paragraph)]
 /// The reader, which provides an API to accumulate config sources,
 /// read parameters from them, override with environment variables, fallback to default values,
 /// and finally, construct an exhaustive error report with as many errors, accumulated along the

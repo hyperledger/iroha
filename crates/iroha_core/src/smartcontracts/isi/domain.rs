@@ -383,10 +383,7 @@ pub mod query {
     use eyre::Result;
     use iroha_data_model::{
         domain::Domain,
-        query::{
-            error::QueryExecutionFail as Error,
-            predicate::{predicate_atoms::domain::DomainPredicateBox, CompoundPredicate},
-        },
+        query::{dsl::CompoundPredicate, error::QueryExecutionFail},
     };
     use iroha_primitives::json::Json;
 
@@ -397,9 +394,9 @@ pub mod query {
         #[metrics(+"find_domains")]
         fn execute(
             self,
-            filter: CompoundPredicate<DomainPredicateBox>,
+            filter: CompoundPredicate<Domain>,
             state_ro: &impl StateReadOnly,
-        ) -> std::result::Result<impl Iterator<Item = Domain>, Error> {
+        ) -> std::result::Result<impl Iterator<Item = Domain>, QueryExecutionFail> {
             Ok(state_ro
                 .world()
                 .domains_iter()
@@ -410,7 +407,7 @@ pub mod query {
 
     impl ValidSingularQuery for FindDomainMetadata {
         #[metrics(+"find_domain_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, QueryExecutionFail> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);
@@ -424,7 +421,7 @@ pub mod query {
 
     impl ValidSingularQuery for FindAssetDefinitionMetadata {
         #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, Error> {
+        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, QueryExecutionFail> {
             let id = &self.id;
             let key = &self.key;
             iroha_logger::trace!(%id, %key);

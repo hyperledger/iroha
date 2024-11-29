@@ -103,6 +103,7 @@ strum = { version = "0.25.0", default-features = false }
 getset = "0.1.2"
 derive_builder = "0.20"
 hex-literal = "0.4.1"
+derive-where = "1.2.7"
 
 rand = { version = "0.8.5", default-features = false, features = ["getrandom", "alloc"] }
 axum = { version = "0.7.5", default-features = false }

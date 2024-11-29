@@ -32,9 +32,7 @@ static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
     // FIXME: Don't derive manually (https://github.com/hyperledger-iroha/iroha/issues/3834)
     visit_grant_role_permission,
-    visit_grant_role_permission,
     visit_revoke_role_permission,
-    visit_revoke_role_permission
 ))]
 struct Executor {
     host: Iroha,
