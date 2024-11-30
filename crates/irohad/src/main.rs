@@ -392,7 +392,7 @@ async fn start_telemetry(
 
     #[cfg(feature = "dev-telemetry")]
     {
-        if let Some(out_file) = &config.dev_telemetry.out_file {
+        if let Some(out_file) = config.dev_telemetry().out_file() {
             let receiver = logger
                 .subscribe_on_telemetry(iroha_logger::telemetry::Channel::Future)
                 .await
@@ -590,7 +590,7 @@ fn validate_config(config: &Config) -> Result<(), ConfigError> {
     }
 
     #[cfg(feature = "dev-telemetry")]
-    if let Some(path) = &config.dev_telemetry.out_file {
+    if let Some(path) = &config.dev_telemetry().out_file() {
         if path.value().parent().is_none() {
             emitter.emit(
                 Report::new(ConfigError::TelemetryOutFileIsRootOrEmpty)
