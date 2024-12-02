@@ -6,7 +6,7 @@ use iroha_core::{
     block::*,
     prelude::*,
     query::store::LiveQueryStore,
-    smartcontracts::{isi::Registrable as _, Execute},
+    smartcontracts::{isi::Registrable as _, wasm::cache::WasmCache, Execute},
     state::{State, World},
 };
 use iroha_data_model::{
@@ -165,12 +165,15 @@ fn validate_transaction(criterion: &mut Criterion) {
     .expect("Failed to accept transaction.");
     let mut success_count = 0;
     let mut failure_count = 0;
+    let mut wasm_cache = WasmCache::new();
     let mut state_block = state.block(unverified_block.header());
     let _ = criterion.bench_function("validate", |b| {
-        b.iter(|| match state_block.validate(transaction.clone()) {
-            Ok(_) => success_count += 1,
-            Err(_) => failure_count += 1,
-        });
+        b.iter(
+            || match state_block.validate(transaction.clone(), &mut wasm_cache) {
+                Ok(_) => success_count += 1,
+                Err(_) => failure_count += 1,
+            },
+        );
     });
     state_block.commit();
     println!("Success count: {success_count}, Failure count: {failure_count}");

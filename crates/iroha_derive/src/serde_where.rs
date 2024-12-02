@@ -20,7 +20,7 @@ impl syn::parse::Parse for SerdeWhereArguments {
 
 pub fn impl_serde_where(
     _emitter: &mut Emitter,
-    arguments: SerdeWhereArguments,
+    arguments: &SerdeWhereArguments,
     mut input: syn::DeriveInput,
 ) -> TokenStream {
     fn make_bound<F>(arguments: &SerdeWhereArguments, f: F) -> String
@@ -37,12 +37,12 @@ pub fn impl_serde_where(
         bound.to_string()
     }
 
-    let serialize_bound = make_bound(&arguments, |ty| {
+    let serialize_bound = make_bound(arguments, |ty| {
         parse_quote! {
             #ty: serde::Serialize
         }
     });
-    let deserialize_bound = make_bound(&arguments, |ty| {
+    let deserialize_bound = make_bound(arguments, |ty| {
         parse_quote! {
             #ty: serde::Deserialize<'de>
         }

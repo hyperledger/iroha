@@ -65,7 +65,7 @@ pub mod isi {
 
             let asset = state_transaction
                 .world
-                .asset_or_insert(asset_id.clone(), Metadata::default())?;
+                .asset_or_insert(&asset_id, Metadata::default())?;
 
             {
                 let AssetValue::Store(store) = &mut asset.value else {
@@ -153,7 +153,7 @@ pub mod isi {
                     AssetId::new(asset_id.definition.clone(), self.destination.clone());
                 let destination_store_asset = state_transaction
                     .world
-                    .asset_or_insert(destination_id.clone(), value)?;
+                    .asset_or_insert(&destination_id, value)?;
 
                 destination_store_asset.clone()
             };
@@ -185,7 +185,7 @@ pub mod isi {
             assert_can_mint(&asset_definition, state_transaction)?;
             let asset = state_transaction
                 .world
-                .asset_or_insert(asset_id.clone(), Numeric::ZERO)?;
+                .asset_or_insert(&asset_id, Numeric::ZERO)?;
             let AssetValue::Numeric(quantity) = &mut asset.value else {
                 return Err(Error::Conversion("Expected numeric asset type".to_owned()));
             };
@@ -312,7 +312,7 @@ pub mod isi {
 
             let destination_asset = state_transaction
                 .world
-                .asset_or_insert(destination_id.clone(), Numeric::ZERO)?;
+                .asset_or_insert(&destination_id, Numeric::ZERO)?;
             {
                 let AssetValue::Numeric(quantity) = &mut destination_asset.value else {
                     return Err(Error::Conversion("Expected numeric asset type".to_owned()));
@@ -425,13 +425,7 @@ pub mod query {
     use eyre::Result;
     use iroha_data_model::{
         asset::{Asset, AssetDefinition, AssetValue},
-        query::{
-            error::QueryExecutionFail as Error,
-            predicate::{
-                predicate_atoms::asset::{AssetDefinitionPredicateBox, AssetPredicateBox},
-                CompoundPredicate,
-            },
-        },
+        query::{dsl::CompoundPredicate, error::QueryExecutionFail as Error},
     };
     use iroha_primitives::json::Json;
 
@@ -442,7 +436,7 @@ pub mod query {
         #[metrics(+"find_assets")]
         fn execute(
             self,
-            filter: CompoundPredicate<AssetPredicateBox>,
+            filter: CompoundPredicate<Asset>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = Asset>, Error> {
             Ok(state_ro
@@ -456,7 +450,7 @@ pub mod query {
         #[metrics(+"find_asset_definitions")]
         fn execute(
             self,
-            filter: CompoundPredicate<AssetDefinitionPredicateBox>,
+            filter: CompoundPredicate<AssetDefinition>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = AssetDefinition>, Error> {
             Ok(state_ro

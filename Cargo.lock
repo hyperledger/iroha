@@ -1386,6 +1386,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive-where"
+version = "1.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62d671cc41a825ebabc75757b62d3d168c577f9149b2d49ece1dad1f72119d25"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.75",
+]
+
+[[package]]
 name = "derive_arbitrary"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3094,6 +3105,7 @@ version = "2.0.0-rc.1.0"
 dependencies = [
  "clap",
  "color-eyre",
+ "derive_more",
  "erased-serde",
  "error-stack",
  "eyre",
@@ -3104,6 +3116,7 @@ dependencies = [
  "json5",
  "serde",
  "serde_json",
+ "serde_with",
  "supports-color 2.1.0",
  "thiserror",
  "tokio",
@@ -3280,6 +3293,7 @@ version = "2.0.0-rc.1.0"
 dependencies = [
  "base64 0.22.1",
  "criterion",
+ "derive-where",
  "derive_more",
  "displaydoc",
  "getset",

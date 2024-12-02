@@ -107,7 +107,7 @@ impl FromStr for Peer {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.rsplit_once("@") {
+        match s.rsplit_once('@') {
             None => Err(ParseError {
                 reason: "Peer should have format `public_key@address`",
             }),

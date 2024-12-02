@@ -47,20 +47,38 @@ TRANSACTION_TTL="1y 6M 2w 3d 12h 30m 30s 500ms"
 
 # propose a multisig transaction
 INSTRUCTIONS="../scripts/tests/instructions.json"
-propose_stdout=($(cat $INSTRUCTIONS | ./iroha --config "client.1.toml" multisig propose --account $MULTISIG_ACCOUNT))
-INSTRUCTIONS_HASH=${propose_stdout[0]}
+cat $INSTRUCTIONS | ./iroha --config "client.1.toml" multisig propose --account $MULTISIG_ACCOUNT
 
-# check that 2nd signatory is involved
-./iroha --config "client.2.toml" multisig list all | grep $INSTRUCTIONS_HASH
+get_list_as_signatory() {
+    ./iroha --config "client.$1.toml" multisig list all
+}
+
+get_target_account() {
+    ./iroha account list filter '{"Atom": {"Id": {"Atom": {"Equals": "'$MULTISIG_ACCOUNT'"}}}}'
+}
+
+# check that the 2nd signatory is involved
+LIST_2_INIT=$(get_list_as_signatory 2)
+echo "$LIST_2_INIT" | jq '.[].instructions' | diff - <(cat $INSTRUCTIONS)
+
+# check that the multisig transaction has not yet executed
+TARGET_ACCOUNT_INIT=$(get_target_account)
+# NOTE: without ` || false` this line passes even if `success_marker` exists
+! echo "$TARGET_ACCOUNT_INIT" | jq -e '.[0].metadata.success_marker' || false
 
 # approve the multisig transaction
+INSTRUCTIONS_HASH=$(echo "$LIST_2_INIT" | jq -r 'keys[0]')
 for i in $(seq 2 $N_SIGNATORIES); do
     ./iroha --config "client.$i.toml" multisig approve --account $MULTISIG_ACCOUNT --instructions-hash $INSTRUCTIONS_HASH
 done
 
-# check that the multisig transaction is executed
-./iroha account list all | grep "congratulations"
-! ./iroha --config "client.2.toml" multisig list all | grep $INSTRUCTIONS_HASH
+# check that the transaction entry is deleted
+LIST_2_EXECUTED=$(get_list_as_signatory 2)
+! echo "$LIST_2_EXECUTED" | jq -e '.[].instructions' || false
+
+# check that the multisig transaction has executed
+TARGET_ACCOUNT_EXECUTED=$(get_target_account)
+echo "$TARGET_ACCOUNT_EXECUTED" | jq -e '.[0].metadata.success_marker'
 
 cd -
 scripts/test_env.py cleanup

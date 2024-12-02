@@ -18,7 +18,7 @@ use serde::{
 };
 
 use crate::{
-    smartcontracts::{wasm, Execute as _},
+    smartcontracts::{wasm, wasm::cache::WasmCache, Execute as _},
     state::{deserialize::WasmSeed, StateReadOnly, StateTransaction},
     WorldReadOnly as _,
 };
@@ -122,6 +122,7 @@ impl Executor {
         state_transaction: &mut StateTransaction<'_, '_>,
         authority: &AccountId,
         transaction: SignedTransaction,
+        wasm_cache: &mut WasmCache<'_, '_, '_>,
     ) -> Result<(), ValidationFail> {
         trace!("Running transaction execution");
 
@@ -140,18 +141,16 @@ impl Executor {
                 Ok(())
             }
             Self::UserProvided(loaded_executor) => {
-                let runtime =
-                    wasm::RuntimeBuilder::<wasm::state::executor::ExecuteTransaction>::new()
-                        .with_engine(state_transaction.engine.clone()) // Cloning engine is cheap, see [`wasmtime::Engine`] docs
-                        .with_config(state_transaction.world.parameters().executor)
-                        .build()?;
-
-                runtime.execute_executor_execute_transaction(
+                let wasm_cache = WasmCache::change_lifetime(wasm_cache);
+                let mut runtime = wasm_cache
+                    .take_or_create_cached_runtime(state_transaction, &loaded_executor.module)?;
+                let result = runtime.execute_executor_execute_transaction(
                     state_transaction,
                     authority,
-                    &loaded_executor.module,
                     transaction,
-                )?
+                )?;
+                wasm_cache.put_cached_runtime(runtime);
+                result
             }
         }
     }

@@ -412,7 +412,7 @@ fn cargo_command() -> Command {
             if value.contains(INSTRUMENT_COVERAGE_FLAG) {
                 eprintln!("WARNING: found `{INSTRUMENT_COVERAGE_FLAG}` rustc flag in `{var}` environment variable\n  \
                            This directly interferes with `-Z build-std` flag set by `iroha_wasm_builder`\n  \
-                           See https://github.com/rust-lang/wg-cargo-std-aware/issues/68\n  \
+                           See https://github.com/rust-lang/wg-cargo-std-aware/issues/68 \n  \
                            Further execution of `cargo` will most probably fail with `could not find profiler-builtins` error");
             }
         }

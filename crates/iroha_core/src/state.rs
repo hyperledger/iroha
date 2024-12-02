@@ -857,14 +857,14 @@ impl WorldTransaction<'_, '_> {
     #[allow(clippy::missing_panics_doc)]
     pub fn asset_or_insert(
         &mut self,
-        asset_id: AssetId,
+        asset_id: &AssetId,
         default_asset_value: impl Into<AssetValue>,
     ) -> Result<&mut Asset, Error> {
         self.domain(&asset_id.definition.domain)?;
         self.asset_definition(&asset_id.definition)?;
         self.account(&asset_id.account)?;
 
-        if self.assets.get(&asset_id).is_none() {
+        if self.assets.get(asset_id).is_none() {
             let asset = Asset::new(asset_id.clone(), default_asset_value.into());
 
             Self::emit_events_impl(
@@ -876,7 +876,7 @@ impl WorldTransaction<'_, '_> {
         }
         Ok(self
             .assets
-            .get_mut(&asset_id)
+            .get_mut(asset_id)
             .expect("Just inserted, cannot fail."))
     }
 
