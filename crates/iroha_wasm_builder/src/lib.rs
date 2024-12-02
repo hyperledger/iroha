@@ -187,6 +187,7 @@ mod internal {
         pub fn build(self) -> Result<Output> {
             let absolute_path = self.absolute_path.clone();
             let optimize = self.profile == OPTIMIZED_PROFILE;
+            let show_output = self.show_output;
             let output = self.build_smartcontract().wrap_err_with(|| {
                 format!(
                     "Failed to build the smartcontract at path: {}",
@@ -195,7 +196,7 @@ mod internal {
             })?;
 
             if optimize {
-                let sp = if std::env::var("CI").is_err() {
+                let sp = if show_output && std::env::var("CI").is_err() {
                     Some(spinoff::Spinner::new_with_stream(
                         spinoff::spinners::Binary,
                         "Optimizing the output",
