@@ -810,7 +810,7 @@ impl NetworkPeer {
             .parse()
             .expect("peer client config should be valid");
 
-        Client::new(config)
+        Client::new(&config)
     }
 
     /// Client for Alice. ([`Self::client_for`] + [`Signatory::Alice`])

@@ -28,23 +28,21 @@ const INTERNAL_CHANNEL_CAPACITY: usize = 10;
 /// # Errors
 /// Fails if unable to connect to the server
 pub async fn start(
-    Config {
-        name,
-        url,
-        max_retry_delay_exponent,
-        min_retry_period,
-    }: Config,
+    config: Config,
     telemetry: broadcast::Receiver<Telemetry>,
 ) -> Result<JoinHandle<()>> {
-    iroha_logger::info!(%url, "Starting telemetry");
-    let (ws, _) = tokio_tungstenite::connect_async(&url).await?;
+    iroha_logger::info!("Starting telemetry {}", config.url());
+    let (ws, _) = tokio_tungstenite::connect_async(config.url()).await?;
     let (write, _read) = ws.split();
     let (internal_sender, internal_receiver) = mpsc::channel(INTERNAL_CHANNEL_CAPACITY);
     let client = Client::new(
-        name,
+        config.name().clone(),
         write,
-        WebsocketSinkFactory::new(url),
-        RetryPeriod::new(min_retry_period, max_retry_delay_exponent),
+        WebsocketSinkFactory::new(config.url().clone()),
+        RetryPeriod::new(
+            *config.min_retry_period(),
+            *config.max_retry_delay_exponent(),
+        ),
         internal_sender,
     );
     let handle = tokio::task::spawn(async move {

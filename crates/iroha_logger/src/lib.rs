@@ -13,6 +13,7 @@ use std::{
 
 use actor::LoggerHandle;
 use color_eyre::{eyre::eyre, Report, Result};
+use iroha_config::parameters::actual::LoggerBuilder;
 pub use iroha_config::{
     logger::{Format, Level},
     parameters::actual::{DevTelemetry as DevTelemetryConfig, Logger as Config},
@@ -76,7 +77,7 @@ pub fn init_global(config: InitConfig) -> Result<LoggerHandle> {
         .with_ansi(config.terminal_colors)
         .with_test_writer();
 
-    match config.base.format {
+    match config.base.format() {
         Format::Full => step2(config, layer),
         Format::Compact => step2(config, layer.compact()),
         Format::Pretty => step2(config, layer.pretty()),
@@ -90,6 +91,7 @@ pub fn init_global(config: InitConfig) -> Result<LoggerHandle> {
 ///
 /// # Panics
 /// If [`init_global`] or [`disable_global`] were called first.
+/// If logger configuration is invalid.
 pub fn test_logger() -> LoggerHandle {
     static LOGGER: OnceLock<LoggerHandle> = OnceLock::new();
 
@@ -100,14 +102,17 @@ pub fn test_logger() -> LoggerHandle {
             // with ENV vars rather than by extending `test_logger` signature. This will both remain
             // `test_logger` simple and also will emphasise isolation which is necessary anyway in
             // case of singleton mocking (where the logger is the singleton).
-            let config = Config {
-                level: std::env::var("TEST_LOG_LEVEL")
-                    .ok()
-                    .and_then(|raw| raw.parse().ok())
-                    .unwrap_or(Level::DEBUG)
-                    .into(),
-                format: Format::Pretty,
-            };
+            let config = LoggerBuilder::default()
+                .level(
+                    std::env::var("TEST_LOG_LEVEL")
+                        .ok()
+                        .and_then(|raw| raw.parse().ok())
+                        .unwrap_or(Level::DEBUG)
+                        .into(),
+                )
+                .format(Format::Pretty)
+                .build()
+                .expect("Can't create logger");
 
             init_global(InitConfig::new(config, true)).expect(
                 "`init_global()` or `disable_global()` should not be called before `test_logger()`",
@@ -133,7 +138,7 @@ where
 {
     // NOTE: unfortunately constructing EnvFilter from vector of Directive is not part of public api
     let level_filter =
-        tracing_subscriber::filter::EnvFilter::try_new(config.base.level.to_string())
+        tracing_subscriber::filter::EnvFilter::try_new(config.base.level().to_string())
             .expect("INTERNAL BUG: Directives not valid");
     let (level_filter, level_filter_handle) = reload::Layer::new(level_filter);
     let subscriber = Registry::default()

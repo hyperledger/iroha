@@ -8,7 +8,7 @@ use std::{
 };
 
 use futures::{prelude::*, stream::FuturesUnordered, task::AtomicWaker};
-use iroha_config::parameters::actual::Network as Config;
+use iroha_config::parameters::actual::NetworkBuilder as ConfigBuilder;
 use iroha_config_base::WithOrigin;
 use iroha_crypto::KeyPair;
 use iroha_data_model::{prelude::Peer, Identifiable};
@@ -42,11 +42,13 @@ async fn network_create() {
     let key_pair = KeyPair::random();
     let public_key = key_pair.public_key().clone();
     let idle_timeout = Duration::from_secs(60);
-    let config = Config {
-        address: WithOrigin::inline(address.clone()),
-        public_address: WithOrigin::inline(address.clone()),
-        idle_timeout,
-    };
+    let config = ConfigBuilder::default()
+        .address(WithOrigin::inline(address.clone()))
+        .public_address(WithOrigin::inline(address.clone()))
+        .idle_timeout(idle_timeout)
+        .build()
+        .expect("Failed to build config");
+
     let (network, _) = NetworkHandle::start(key_pair, config, ShutdownSignal::new())
         .await
         .unwrap();
@@ -155,22 +157,26 @@ async fn two_networks() {
     let public_key2 = key_pair2.public_key().clone();
     info!("Starting first network...");
     let address1 = socket_addr!(127.0.0.1:12_005);
-    let config1 = Config {
-        address: WithOrigin::inline(address1.clone()),
-        public_address: WithOrigin::inline(address1.clone()),
-        idle_timeout,
-    };
+    let config1 = ConfigBuilder::default()
+        .address(WithOrigin::inline(address1.clone()))
+        .public_address(WithOrigin::inline(address1.clone()))
+        .idle_timeout(idle_timeout)
+        .build()
+        .expect("Failed to build config (1)");
+
     let (mut network1, _) = NetworkHandle::start(key_pair1, config1, ShutdownSignal::new())
         .await
         .unwrap();
 
     info!("Starting second network...");
     let address2 = socket_addr!(127.0.0.1:12_010);
-    let config2 = Config {
-        address: WithOrigin::inline(address2.clone()),
-        public_address: WithOrigin::inline(address2.clone()),
-        idle_timeout,
-    };
+    let config2 = ConfigBuilder::default()
+        .address(WithOrigin::inline(address2.clone()))
+        .public_address(WithOrigin::inline(address2.clone()))
+        .idle_timeout(idle_timeout)
+        .build()
+        .expect("Failed to build config (2)");
+
     let (network2, _) = NetworkHandle::start(key_pair2, config2, ShutdownSignal::new())
         .await
         .unwrap();
@@ -301,11 +307,13 @@ async fn start_network(
 
     let address = peer.address().clone();
     let idle_timeout = Duration::from_secs(60);
-    let config = Config {
-        address: WithOrigin::inline(address.clone()),
-        public_address: WithOrigin::inline(address.clone()),
-        idle_timeout,
-    };
+    let config = ConfigBuilder::default()
+        .address(WithOrigin::inline(address.clone()))
+        .public_address(WithOrigin::inline(address.clone()))
+        .idle_timeout(idle_timeout)
+        .build()
+        .expect("Failed to build config");
+
     let (mut network, _) = NetworkHandle::start(key_pair, config, shutdown_signal)
         .await
         .unwrap();

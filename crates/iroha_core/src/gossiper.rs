@@ -61,18 +61,15 @@ impl TransactionGossiper {
     /// Construct [`Self`] from configuration
     pub fn from_config(
         chain_id: ChainId,
-        Config {
-            gossip_period,
-            gossip_size,
-        }: Config,
+        config: Config,
         network: IrohaNetwork,
         queue: Arc<Queue>,
         state: Arc<State>,
     ) -> Self {
         Self {
             chain_id,
-            gossip_period,
-            gossip_size,
+            gossip_period: *config.gossip_period(),
+            gossip_size: *config.gossip_size(),
             network,
             queue,
             state,

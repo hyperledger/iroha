@@ -71,7 +71,7 @@ impl Torii {
     pub fn new(
         chain_id: ChainId,
         kiso: KisoHandle,
-        config: Config,
+        config: &Config,
         queue: Arc<Queue>,
         events: EventsSender,
         query_service: LiveQueryStoreHandle,
@@ -89,8 +89,8 @@ impl Torii {
             state,
             #[cfg(feature = "telemetry")]
             metrics_reporter,
-            address: config.address,
-            transaction_max_content_len: config.max_content_len,
+            address: config.address().clone(),
+            transaction_max_content_len: *config.max_content_len(),
         }
     }
 

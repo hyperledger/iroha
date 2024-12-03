@@ -68,12 +68,13 @@ pub struct PeersGossiper {
 impl PeersGossiper {
     /// Start actor.
     pub fn start(
-        trusted_peers: TrustedPeers,
+        trusted_peers: &TrustedPeers,
         network: IrohaNetwork,
         shutdown_signal: ShutdownSignal,
     ) -> (PeersGossiperHandle, Child) {
         let initial_peers = trusted_peers
-            .others
+            .others()
+            .clone()
             .into_iter()
             .map(|peer| (peer.id, peer.address))
             .collect();

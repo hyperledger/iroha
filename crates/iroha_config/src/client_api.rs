@@ -26,7 +26,7 @@ pub struct ConfigDTO {
 impl From<&'_ BaseConfig> for ConfigDTO {
     fn from(value: &'_ BaseConfig) -> Self {
         Self {
-            logger: (&value.logger).into(),
+            logger: value.logger().into(),
         }
     }
 }
@@ -41,7 +41,7 @@ pub struct Logger {
 impl From<&'_ BaseLogger> for Logger {
     fn from(value: &'_ BaseLogger) -> Self {
         Self {
-            level: value.level.clone(),
+            level: value.level().clone(),
         }
     }
 }

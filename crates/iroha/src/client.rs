@@ -143,7 +143,7 @@ pub struct Client {
 impl Client {
     /// Constructor for client from configuration
     #[inline]
-    pub fn new(configuration: Config) -> Self {
+    pub fn new(configuration: &Config) -> Self {
         Self::with_headers(configuration, HashMap::new())
     }
 
@@ -151,20 +151,8 @@ impl Client {
     ///
     /// *Authorization* header will be added if `basic_auth` is presented
     #[inline]
-    pub fn with_headers(
-        Config {
-            chain,
-            account,
-            torii_api_url,
-            key_pair,
-            basic_auth,
-            transaction_add_nonce,
-            transaction_ttl,
-            transaction_status_timeout,
-        }: Config,
-        mut headers: HashMap<String, String>,
-    ) -> Self {
-        if let Some(basic_auth) = basic_auth {
+    pub fn with_headers(config: &Config, mut headers: HashMap<String, String>) -> Self {
+        if let Some(basic_auth) = config.basic_auth().clone() {
             let credentials = format!(
                 "{}:{}",
                 basic_auth.web_login,
@@ -176,14 +164,14 @@ impl Client {
         }
 
         Self {
-            chain,
-            torii_url: torii_api_url,
-            key_pair,
-            transaction_ttl: Some(transaction_ttl),
-            transaction_status_timeout,
-            account,
+            chain: config.chain().clone(),
+            torii_url: config.torii_api_url().clone(),
+            key_pair: config.key_pair().clone(),
+            transaction_ttl: Some(*config.transaction_ttl()),
+            transaction_status_timeout: *config.transaction_status_timeout(),
+            account: config.account().clone(),
             headers,
-            add_transaction_nonce: transaction_add_nonce,
+            add_transaction_nonce: *config.transaction_add_nonce(),
         }
     }
 
@@ -982,7 +970,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        config::{BasicAuth, Config},
+        config::{BasicAuth, ConfigBuilder},
         secrecy::SecretString,
     };
 
@@ -991,26 +979,26 @@ mod tests {
     // `mad_hatter:ilovetea` encoded with base64
     const ENCRYPTED_CREDENTIALS: &str = "bWFkX2hhdHRlcjppbG92ZXRlYQ==";
 
-    fn config_factory() -> Config {
+    fn with_default_config(config_builder: &mut ConfigBuilder) -> &mut ConfigBuilder {
         let (account_id, key_pair) = gen_account_in("wonderland");
-        Config {
-            chain: ChainId::from("00000000-0000-0000-0000-000000000000"),
-            key_pair,
-            account: account_id,
-            torii_api_url: "http://127.0.0.1:8080".parse().unwrap(),
-            basic_auth: None,
-            transaction_add_nonce: false,
-            transaction_ttl: Duration::from_secs(5),
-            transaction_status_timeout: Duration::from_secs(10),
-        }
+        config_builder
+            .chain(ChainId::from("00000000-0000-0000-0000-000000000000"))
+            .key_pair(key_pair)
+            .account(account_id)
+            .torii_api_url("http://127.0.0.1:8080".parse().unwrap())
+            .transaction_ttl(Duration::from_secs(5))
+            .transaction_status_timeout(Duration::from_secs(10))
+            .transaction_add_nonce(false)
+            .basic_auth(None)
     }
 
     #[test]
     fn txs_same_except_for_nonce_have_different_hashes() {
-        let client = Client::new(Config {
-            transaction_add_nonce: true,
-            ..config_factory()
-        });
+        let config = with_default_config(&mut ConfigBuilder::default())
+            .transaction_add_nonce(true)
+            .build()
+            .expect("Can't build config");
+        let client = Client::new(&config);
 
         let build_transaction =
             || client.build_transaction(Vec::<InstructionBox>::new(), Metadata::default());
@@ -1038,13 +1026,14 @@ mod tests {
 
     #[test]
     fn authorization_header() {
-        let client = Client::new(Config {
-            basic_auth: Some(BasicAuth {
+        let config = with_default_config(&mut ConfigBuilder::default())
+            .basic_auth(Some(BasicAuth {
                 web_login: LOGIN.parse().expect("Failed to create valid `WebLogin`"),
                 password: SecretString::new(PASSWORD.to_owned()),
-            }),
-            ..config_factory()
-        });
+            }))
+            .build()
+            .expect("Can't build config");
+        let client = Client::new(&config);
 
         let value = client
             .headers

@@ -3,9 +3,11 @@
 use core::str::FromStr;
 use std::{path::Path, time::Duration};
 
+use derive_builder::Builder;
 use derive_more::Display;
 use error_stack::ResultExt;
 use eyre::Result;
+use getset::Getters;
 use iroha_config_base::{read::ConfigReader, toml::TomlSource};
 use iroha_primitives::small::SmallStr;
 use serde::{Deserialize, Serialize};
@@ -60,17 +62,27 @@ pub struct BasicAuth {
 }
 
 /// Complete client configuration
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Getters, Builder)]
+#[getset(get = "pub")]
+#[builder(pattern = "mutable")]
 #[allow(missing_docs)]
 pub struct Config {
-    pub chain: ChainId,
-    pub account: AccountId,
-    pub key_pair: KeyPair,
-    pub basic_auth: Option<BasicAuth>,
-    pub torii_api_url: Url,
-    pub transaction_ttl: Duration,
-    pub transaction_status_timeout: Duration,
-    pub transaction_add_nonce: bool,
+    /// Blockchain id
+    chain: ChainId,
+    /// Account id
+    account: AccountId,
+    /// Public and Private keys
+    key_pair: KeyPair,
+    /// Basic Authentication credentials
+    basic_auth: Option<BasicAuth>,
+    /// Torii url
+    torii_api_url: Url,
+    /// Transaction TTL
+    transaction_ttl: Duration,
+    /// Transaction status timeout
+    transaction_status_timeout: Duration,
+    /// Transaction add nonce
+    transaction_add_nonce: bool,
 }
 
 /// An error type for [`Config::load`]

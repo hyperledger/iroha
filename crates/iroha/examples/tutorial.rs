@@ -12,22 +12,20 @@ fn main() {
 
     // Your code goes here…
 
-    domain_registration_test(config.clone())
+    domain_registration_test(&config)
         .expect("Domain registration example is expected to work correctly");
     account_definition_test().expect("Account definition example is expected to work correctly");
-    account_registration_test(config.clone())
+    account_registration_test(&config)
         .expect("Account registration example is expected to work correctly");
-    asset_registration_test(config.clone())
+    asset_registration_test(&config)
         .expect("Asset registration example is expected to work correctly");
-    asset_minting_test(config.clone())
-        .expect("Asset minting example is expected to work correctly");
-    asset_burning_test(config.clone())
-        .expect("Asset burning example is expected to work correctly");
+    asset_minting_test(&config).expect("Asset minting example is expected to work correctly");
+    asset_burning_test(&config).expect("Asset burning example is expected to work correctly");
     // output_visualising_test(&config).expect(msg: "Visualising outputs example is expected to work correctly");
     println!("Success!");
 }
 
-fn domain_registration_test(config: Config) -> Result<(), Error> {
+fn domain_registration_test(config: &Config) -> Result<(), Error> {
     // #region domain_register_example_crates
     use iroha::{
         client::Client,
@@ -93,7 +91,7 @@ fn account_definition_test() -> Result<(), Error> {
     Ok(())
 }
 
-fn account_registration_test(config: Config) -> Result<(), Error> {
+fn account_registration_test(config: &Config) -> Result<(), Error> {
     // #region register_account_crates
     use iroha::{
         client::Client,
@@ -139,7 +137,7 @@ fn account_registration_test(config: Config) -> Result<(), Error> {
     Ok(())
 }
 
-fn asset_registration_test(config: Config) -> Result<(), Error> {
+fn asset_registration_test(config: &Config) -> Result<(), Error> {
     // #region register_asset_crates
     use iroha::{
         client::Client,
@@ -187,7 +185,7 @@ fn asset_registration_test(config: Config) -> Result<(), Error> {
     Ok(())
 }
 
-fn asset_minting_test(config: Config) -> Result<(), Error> {
+fn asset_minting_test(config: &Config) -> Result<(), Error> {
     // #region mint_asset_crates
     use iroha::{
         client::Client,
@@ -239,7 +237,7 @@ fn asset_minting_test(config: Config) -> Result<(), Error> {
     Ok(())
 }
 
-fn asset_burning_test(config: Config) -> Result<(), Error> {
+fn asset_burning_test(config: &Config) -> Result<(), Error> {
     // #region burn_asset_crates
     use iroha::{
         client::Client,

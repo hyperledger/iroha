@@ -106,12 +106,12 @@ impl SnapshotMaker {
     ///
     /// Might return [`None`] if the configuration is not suitable for _making_ snapshots.
     pub fn from_config(config: &Config, state: Arc<State>) -> Option<Self> {
-        if let Mode::ReadWrite = config.mode {
+        if let Mode::ReadWrite = config.mode() {
             let latest_block_hash = state.view().latest_block_hash();
             Some(Self {
                 state,
-                create_every: config.create_every_ms.get(),
-                store_dir: config.store_dir.resolve_relative_path(),
+                create_every: *config.create_every(),
+                store_dir: config.store_dir().resolve_relative_path(),
                 latest_block_hash,
             })
         } else {
