@@ -163,11 +163,7 @@ async fn two_networks() {
         .idle_timeout(idle_timeout)
         .build()
         .expect("Failed to build config (1)");
-    // let config1 = Config {
-    //     address: WithOrigin::inline(address1.clone()),
-    //     public_address: WithOrigin::inline(address1.clone()),
-    //     idle_timeout,
-    // };
+
     let (mut network1, _) = NetworkHandle::start(key_pair1, config1, ShutdownSignal::new())
         .await
         .unwrap();
@@ -180,11 +176,7 @@ async fn two_networks() {
         .idle_timeout(idle_timeout)
         .build()
         .expect("Failed to build config (2)");
-    // let config2 = Config {
-    //     address: WithOrigin::inline(address2.clone()),
-    //     public_address: WithOrigin::inline(address2.clone()),
-    //     idle_timeout,
-    // };
+
     let (network2, _) = NetworkHandle::start(key_pair2, config2, ShutdownSignal::new())
         .await
         .unwrap();
