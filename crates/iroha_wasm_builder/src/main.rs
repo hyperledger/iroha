@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser};
 use color_eyre::eyre::{eyre, Context};
-use iroha_wasm_builder::Builder;
+use iroha_wasm_builder::{Builder, Profile};
 use owo_colors::OwoColorize;
 
 #[derive(Parser, Debug)]
@@ -42,7 +42,8 @@ fn main() -> color_eyre::Result<()> {
             common: CommonArgs { path },
             profile,
         } => {
-            let builder = Builder::new(&path, &profile).show_output();
+            let profile: Profile = profile.parse().expect("Invalid profile provided");
+            let builder = Builder::new(&path, profile).show_output();
             builder.check()?;
         }
         Cli::Build {
@@ -50,14 +51,45 @@ fn main() -> color_eyre::Result<()> {
             out_file,
             profile,
         } => {
-            let builder = Builder::new(&path, &profile).show_output();
+            let profile: Profile = profile.parse().expect("Invalid profile provided");
+            let builder = Builder::new(&path, profile).show_output();
 
             let output = {
                 // not showing the spinner here, cargo does a progress bar for us
-                match builder.build() {
+                match builder.build_unoptimized() {
                     Ok(output) => output,
                     err => err?,
                 }
+            };
+
+            let output = if Profile::is_optimized(profile) {
+                let sp = if std::env::var("CI").is_err() {
+                    Some(spinoff::Spinner::new_with_stream(
+                        spinoff::spinners::Binary,
+                        "Optimizing the output",
+                        None,
+                        spinoff::Streams::Stderr,
+                    ))
+                } else {
+                    None
+                };
+
+                match output.optimize() {
+                    Ok(optimized) => {
+                        if let Some(mut sp) = sp {
+                            sp.success("Output is optimized");
+                        }
+                        optimized
+                    }
+                    err => {
+                        if let Some(mut sp) = sp {
+                            sp.fail("Optimization failed");
+                        }
+                        err?
+                    }
+                }
+            } else {
+                output
             };
 
             std::fs::copy(output.wasm_file_path(), &out_file).wrap_err_with(|| {

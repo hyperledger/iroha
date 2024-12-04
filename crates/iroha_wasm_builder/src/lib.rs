@@ -15,7 +15,24 @@ use path_absolutize::Absolutize;
 
 /// Current toolchain used to build smartcontracts
 const TOOLCHAIN: &str = "+nightly-2024-09-09";
-const OPTIMIZED_PROFILE: &str = "deploy";
+
+/// Build profile for smartcontracts
+#[derive(Debug, Copy, Clone, Eq, PartialEq, strum::Display, strum::EnumString, Default)]
+#[strum(serialize_all = "snake_case")]
+pub enum Profile {
+    /// Applies release optimization
+    #[default]
+    Release,
+    /// Applies release and size optimizations
+    Deploy,
+}
+
+impl Profile {
+    /// Checks whether profile uses optimizations from wasm-opt
+    pub fn is_optimized(profile: Self) -> bool {
+        return profile == Profile::Deploy;
+    }
+}
 
 /// WASM Builder for smartcontracts (e.g. triggers and executors).
 ///
@@ -46,14 +63,14 @@ pub struct Builder<'path, 'out_dir> {
     /// Flag controlling whether to show output of the build process
     show_output: bool,
     /// Build profile
-    profile: String,
+    profile: Profile,
 }
 
 impl<'path, 'out_dir> Builder<'path, 'out_dir> {
     /// Initialize [`Builder`] with path to smartcontract.
     ///
     /// `relative_path` should be relative to `CARGO_MANIFEST_DIR`.
-    pub fn new<P>(relative_path: &'path P, profile: &str) -> Self
+    pub fn new<P>(relative_path: &'path P, profile: Profile) -> Self
     where
         P: AsRef<Path> + ?Sized,
     {
@@ -61,7 +78,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
             path: relative_path.as_ref(),
             out_dir: None,
             show_output: false,
-            profile: profile.to_string(),
+            profile: profile,
         }
     }
 
@@ -103,6 +120,17 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
     ///
     /// Will also return error if ran on workspace and not on the concrete package.
     pub fn build(self) -> Result<Output> {
+        let optimize = Profile::is_optimized(self.profile);
+        let output = self.into_internal()?.build()?;
+        if optimize {
+            output.optimize()
+        } else {
+            Ok(output)
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn build_unoptimized(self) -> Result<Output> {
         self.into_internal()?.build()
     }
 
@@ -117,7 +145,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
                 |out_dir| Ok(Cow::Borrowed(out_dir)),
             )?,
             show_output: self.show_output,
-            profile: self.profile.clone(),
+            profile: self.profile,
         })
     }
 
@@ -171,7 +199,7 @@ mod internal {
         pub absolute_path: PathBuf,
         pub out_dir: Cow<'out_dir, Path>,
         pub show_output: bool,
-        pub profile: String,
+        pub profile: Profile,
     }
 
     impl Builder<'_> {
@@ -186,41 +214,16 @@ mod internal {
 
         pub fn build(self) -> Result<Output> {
             let absolute_path = self.absolute_path.clone();
-            let optimize = self.profile == OPTIMIZED_PROFILE;
-            let show_output = self.show_output;
+            let optimize = Profile::is_optimized(self.profile);
             let output = self.build_smartcontract().wrap_err_with(|| {
                 format!(
                     "Failed to build the smartcontract at path: {}",
                     absolute_path.display()
                 )
             })?;
-
+            
             if optimize {
-                let sp = if show_output && std::env::var("CI").is_err() {
-                    Some(spinoff::Spinner::new_with_stream(
-                        spinoff::spinners::Binary,
-                        "Optimizing the output",
-                        None,
-                        spinoff::Streams::Stderr,
-                    ))
-                } else {
-                    None
-                };
-
-                match output.optimize() {
-                    Ok(optimized) => {
-                        if let Some(mut sp) = sp {
-                            sp.success("Output is optimized");
-                        }
-                        Ok(optimized)
-                    }
-                    err => {
-                        if let Some(mut sp) = sp {
-                            sp.fail("Optimization failed");
-                        }
-                        err
-                    }
-                }
+                output.optimize()
             } else {
                 Ok(output)
             }
@@ -270,7 +273,7 @@ mod internal {
             let full_out_dir = self
                 .out_dir
                 .join("wasm32-unknown-unknown")
-                .join(self.profile.clone());
+                .join(self.profile.to_string());
             let wasm_file = full_out_dir.join(package_name).with_extension("wasm");
 
             let previous_hash = if wasm_file.exists() {
