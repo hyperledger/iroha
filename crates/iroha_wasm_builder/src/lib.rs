@@ -78,7 +78,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
             path: relative_path.as_ref(),
             out_dir: None,
             show_output: false,
-            profile: profile,
+            profile,
         }
     }
 
@@ -221,7 +221,7 @@ mod internal {
                     absolute_path.display()
                 )
             })?;
-            
+
             if optimize {
                 output.optimize()
             } else {
