@@ -236,28 +236,10 @@ impl ValidQueryRequest {
         match self.0 {
             QueryRequest::Singular(singular_query) => {
                 let output = match singular_query {
-                    SingularQueryBox::FindAssetQuantityById(q) => {
-                        SingularQueryOutputBox::from(q.execute(state)?)
-                    }
                     SingularQueryBox::FindExecutorDataModel(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
                     SingularQueryBox::FindParameters(q) => {
-                        SingularQueryOutputBox::from(q.execute(state)?)
-                    }
-                    SingularQueryBox::FindDomainMetadata(q) => {
-                        SingularQueryOutputBox::from(q.execute(state)?)
-                    }
-                    SingularQueryBox::FindAccountMetadata(q) => {
-                        SingularQueryOutputBox::from(q.execute(state)?)
-                    }
-                    SingularQueryBox::FindAssetMetadata(q) => {
-                        SingularQueryOutputBox::from(q.execute(state)?)
-                    }
-                    SingularQueryBox::FindAssetDefinitionMetadata(q) => {
-                        SingularQueryOutputBox::from(q.execute(state)?)
-                    }
-                    SingularQueryBox::FindTriggerMetadata(q) => {
                         SingularQueryOutputBox::from(q.execute(state)?)
                     }
                 };
@@ -359,7 +341,6 @@ impl ValidQueryRequest {
 mod tests {
     use iroha_crypto::{Hash, KeyPair};
     use iroha_data_model::{block::BlockHeader, query::dsl::CompoundPredicate};
-    use iroha_primitives::json::Json;
     use iroha_test_samples::{gen_account_in, ALICE_ID, ALICE_KEYPAIR};
     use nonzero_ext::nonzero;
     use tokio::test;
@@ -382,36 +363,6 @@ mod tests {
         let asset_definition_id = "rose#wonderland".parse().expect("Valid");
         let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
         World::with([domain], [account], [asset_definition])
-    }
-
-    fn world_with_test_asset_with_metadata() -> World {
-        let asset_definition_id = "rose#wonderland"
-            .parse::<AssetDefinitionId>()
-            .expect("Valid");
-        let domain = Domain::new("wonderland".parse().expect("Valid")).build(&ALICE_ID);
-        let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
-        let asset_definition =
-            AssetDefinition::numeric(asset_definition_id.clone()).build(&ALICE_ID);
-
-        let mut store = Metadata::default();
-        store.insert("Bytes".parse().expect("Valid"), vec![1_u32, 2_u32, 3_u32]);
-        let asset_id = AssetId::new(asset_definition_id, account.id().clone());
-        let asset = Asset::new(asset_id, AssetValue::Store(store));
-
-        World::with_assets([domain], [account], [asset_definition], [asset])
-    }
-
-    fn world_with_test_account_with_metadata() -> Result<World> {
-        let mut metadata = Metadata::default();
-        metadata.insert("Bytes".parse()?, vec![1_u32, 2_u32, 3_u32]);
-
-        let domain = Domain::new("wonderland".parse()?).build(&ALICE_ID);
-        let account = Account::new(ALICE_ID.clone())
-            .with_metadata(metadata)
-            .build(&ALICE_ID);
-        let asset_definition_id = "rose#wonderland".parse().expect("Valid");
-        let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
-        Ok(World::with([domain], [account], [asset_definition]))
     }
 
     fn state_with_test_blocks_and_transactions(
@@ -488,31 +439,6 @@ mod tests {
         }
 
         Ok(state)
-    }
-
-    #[test]
-    async fn asset_store() -> Result<()> {
-        let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::start_test();
-        let state = State::new(world_with_test_asset_with_metadata(), kura, query_handle);
-
-        let asset_definition_id = "rose#wonderland".parse()?;
-        let asset_id = AssetId::new(asset_definition_id, ALICE_ID.clone());
-        let bytes = FindAssetMetadata::new(asset_id, "Bytes".parse()?).execute(&state.view())?;
-        assert_eq!(Json::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
-        Ok(())
-    }
-
-    #[test]
-    async fn account_metadata() -> Result<()> {
-        let kura = Kura::blank_kura_for_testing();
-        let query_handle = LiveQueryStore::start_test();
-        let state = State::new(world_with_test_account_with_metadata()?, kura, query_handle);
-
-        let bytes =
-            FindAccountMetadata::new(ALICE_ID.clone(), "Bytes".parse()?).execute(&state.view())?;
-        assert_eq!(Json::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
-        Ok(())
     }
 
     #[test]
@@ -674,33 +600,6 @@ mod tests {
         if found_accepted.error.is_none() {
             assert_eq!(va_tx.as_ref().hash(), found_accepted.as_ref().hash())
         }
-        Ok(())
-    }
-
-    #[test]
-    async fn domain_metadata() -> Result<()> {
-        let kura = Kura::blank_kura_for_testing();
-        let state = {
-            let mut metadata = Metadata::default();
-            metadata.insert("Bytes".parse()?, vec![1_u32, 2_u32, 3_u32]);
-            let domain = Domain::new("wonderland".parse()?)
-                .with_metadata(metadata)
-                .build(&ALICE_ID);
-            let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
-            let asset_definition_id = "rose#wonderland".parse()?;
-            let asset_definition = AssetDefinition::numeric(asset_definition_id).build(&ALICE_ID);
-            let query_handle = LiveQueryStore::start_test();
-            State::new(
-                World::with([domain], [account], [asset_definition]),
-                kura,
-                query_handle,
-            )
-        };
-
-        let domain_id = "wonderland".parse()?;
-        let key = "Bytes".parse()?;
-        let bytes = FindDomainMetadata::new(domain_id, key).execute(&state.view())?;
-        assert_eq!(Json::from(vec![1_u32, 2_u32, 3_u32,]), bytes,);
         Ok(())
     }
 }

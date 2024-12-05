@@ -4,6 +4,7 @@
 use alloc::{format, string::String, vec::Vec};
 
 use iroha_crypto::{HashOf, PublicKey};
+use iroha_primitives::{json::Json, numeric::Numeric};
 
 use crate::{
     account::{Account, AccountId},
@@ -18,14 +19,15 @@ use crate::{
     query::{
         dsl::{
             type_descriptions::{
-                AccountIdPrototype, AccountPrototype, AssetDefinitionIdPrototype,
+                AccountIdPrototype, AccountPrototype, ActionPrototype, AssetDefinitionIdPrototype,
                 AssetDefinitionPrototype, AssetIdPrototype, AssetPrototype, AssetValuePrototype,
                 BlockHeaderHashPrototype, BlockHeaderPrototype, CommittedTransactionPrototype,
-                DomainIdPrototype, DomainPrototype, MetadataPrototype, NamePrototype,
-                ParameterPrototype, PeerIdPrototype, PermissionPrototype, PublicKeyPrototype,
-                RoleIdPrototype, RolePrototype, SignedBlockPrototype, SignedTransactionPrototype,
-                StringPrototype, TransactionErrorPrototype, TransactionHashPrototype,
-                TriggerIdPrototype, TriggerPrototype,
+                DomainIdPrototype, DomainPrototype, JsonPrototype, MetadataPrototype,
+                NamePrototype, NumericPrototype, ParameterPrototype, PeerIdPrototype,
+                PermissionPrototype, PublicKeyPrototype, RoleIdPrototype, RolePrototype,
+                SignedBlockPrototype, SignedTransactionPrototype, StringPrototype,
+                TransactionErrorPrototype, TransactionHashPrototype, TriggerIdPrototype,
+                TriggerPrototype,
             },
             CompoundPredicate, ObjectProjector, PredicateMarker,
         },
@@ -33,7 +35,7 @@ use crate::{
     },
     role::{Role, RoleId},
     transaction::{error::TransactionRejectionReason, SignedTransaction},
-    trigger::{Trigger, TriggerId},
+    trigger::{action, Trigger, TriggerId},
 };
 
 macro_rules! impl_predicate_atom {
@@ -96,7 +98,7 @@ macro_rules! impl_predicate_atom {
                 $(
                     $(#[$($variant_attrs)*])*
                     pub fn $constructor_name(self $(, $variant_pat: $variant_ty)?) -> CompoundPredicate<Projector::OutputType> {
-                        CompoundPredicate::Atom(Projector::wrap_atom(
+                        CompoundPredicate::Atom(self.projector.wrap_atom(
                             $atom_name::$variant_name$(($variant_pat))?
                         ))
                     }
@@ -162,45 +164,46 @@ impl super::EvaluatePredicate<Name> for StringPredicateAtom {
 }
 
 // It is unfortunate that we have to repeat the prototype methods on String and Name, but I don't think it's possible to remove this duplication
-impl<Projection> StringPrototype<PredicateMarker, Projection>
+impl<Projector> StringPrototype<PredicateMarker, Projector>
 where
-    Projection: ObjectProjector<PredicateMarker, InputType = String>,
+    Projector: ObjectProjector<PredicateMarker, InputType = String>,
 {
     /// Checks if the input is equal to the expected value.
-    pub fn eq(self, expected: impl Into<String>) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::Equals(
-            expected.into(),
-        )))
+    pub fn eq(self, expected: impl Into<String>) -> CompoundPredicate<Projector::OutputType> {
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::Equals(expected.into())),
+        )
     }
 
     /// Checks if the input contains an expected substring, like [`str::contains()`].
-    pub fn contains(
-        self,
-        expected: impl Into<String>,
-    ) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::Contains(
-            expected.into(),
-        )))
+    pub fn contains(self, expected: impl Into<String>) -> CompoundPredicate<Projector::OutputType> {
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::Contains(expected.into())),
+        )
     }
 
     /// Checks if the input starts with an expected substring, like [`str::starts_with()`].
     pub fn starts_with(
         self,
         expected: impl Into<String>,
-    ) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::StartsWith(
-            expected.into(),
-        )))
+    ) -> CompoundPredicate<Projector::OutputType> {
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::StartsWith(expected.into())),
+        )
     }
 
     /// Checks if the input ends with an expected substring, like [`str::ends_with()`].
     pub fn ends_with(
         self,
         expected: impl Into<String>,
-    ) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::EndsWith(
-            expected.into(),
-        )))
+    ) -> CompoundPredicate<Projector::OutputType> {
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::EndsWith(expected.into())),
+        )
     }
 }
 
@@ -210,9 +213,10 @@ where
 {
     /// Checks if the input is equal to the expected value.
     pub fn eq(self, expected: impl Into<String>) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::Equals(
-            expected.into(),
-        )))
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::Equals(expected.into())),
+        )
     }
 
     /// Checks if the input contains an expected substring, like [`str::contains()`].
@@ -220,9 +224,10 @@ where
         self,
         expected: impl Into<String>,
     ) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::Contains(
-            expected.into(),
-        )))
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::Contains(expected.into())),
+        )
     }
 
     /// Checks if the input starts with an expected substring, like [`str::starts_with()`].
@@ -230,9 +235,10 @@ where
         self,
         expected: impl Into<String>,
     ) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::StartsWith(
-            expected.into(),
-        )))
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::StartsWith(expected.into())),
+        )
     }
 
     /// Checks if the input ends with an expected substring, like [`str::ends_with()`].
@@ -240,9 +246,10 @@ where
         self,
         expected: impl Into<String>,
     ) -> CompoundPredicate<Projection::OutputType> {
-        CompoundPredicate::Atom(Projection::wrap_atom(StringPredicateAtom::EndsWith(
-            expected.into(),
-        )))
+        CompoundPredicate::Atom(
+            self.projector
+                .wrap_atom(StringPredicateAtom::EndsWith(expected.into())),
+        )
     }
 }
 
@@ -253,6 +260,13 @@ impl_predicate_atom! {
     PublicKeyPredicateAtom(input: PublicKey) [PublicKeyPrototype] {
         /// Checks if the input is equal to the expected value.
         Equals(expected: PublicKey) [eq] => input == expected,
+    }
+    JsonPredicateAtom(input: Json) [JsonPrototype] {
+        /// Checks if the input is equal to the expected value.
+        Equals(expected: Json) [eq] => input == expected,
+    }
+    NumericPredicateAtom(_input: Numeric) [NumericPrototype] {
+        // TODO: populate
     }
 
     // account
@@ -265,8 +279,11 @@ impl_predicate_atom! {
     // asset
     AssetDefinitionPredicateAtom(_input: AssetDefinition) [AssetDefinitionPrototype] {}
     AssetPredicateAtom(_input: Asset) [AssetPrototype] {}
-    AssetValuePredicateAtom(_input: AssetValue) [AssetValuePrototype] {
-        // TODO: populate
+    AssetValuePredicateAtom(input: AssetValue) [AssetValuePrototype] {
+        /// Checks if the asset value is numeric
+        IsNumeric [is_numeric] => matches!(input, AssetValue::Numeric(_)),
+        /// Checks if the asset value is a store
+        IsStore [is_store] => matches!(input, AssetValue::Store(_)),
     }
     AssetIdPredicateAtom(input: AssetId) [AssetIdPrototype] {
         /// Checks if the input is equal to the expected value.
@@ -324,19 +341,20 @@ impl_predicate_atom! {
         Equals(expected: TriggerId) [eq] => input == expected,
     }
     TriggerPredicateAtom(_input: Trigger) [TriggerPrototype] {}
+    ActionPredicateAtom(_input: action::Action) [ActionPrototype] {}
 }
 
 pub mod prelude {
     //! Re-export all predicate boxes for a glob import `(::*)`
     pub use super::{
-        AccountIdPredicateAtom, AccountPredicateAtom, AssetDefinitionIdPredicateAtom,
-        AssetDefinitionPredicateAtom, AssetIdPredicateAtom, AssetPredicateAtom,
-        AssetValuePredicateAtom, BlockHeaderHashPredicateAtom, BlockHeaderPredicateAtom,
-        CommittedTransactionPredicateAtom, DomainIdPredicateAtom, DomainPredicateAtom,
-        MetadataPredicateAtom, ParameterPredicateAtom, PeerIdPredicateAtom,
-        PermissionPredicateAtom, PublicKeyPredicateAtom, RoleIdPredicateAtom, RolePredicateAtom,
-        SignedBlockPredicateAtom, SignedTransactionPredicateAtom, StringPredicateAtom,
-        TransactionErrorPredicateAtom, TransactionHashPredicateAtom, TriggerIdPredicateAtom,
-        TriggerPredicateAtom,
+        AccountIdPredicateAtom, AccountPredicateAtom, ActionPredicateAtom,
+        AssetDefinitionIdPredicateAtom, AssetDefinitionPredicateAtom, AssetIdPredicateAtom,
+        AssetPredicateAtom, AssetValuePredicateAtom, BlockHeaderHashPredicateAtom,
+        BlockHeaderPredicateAtom, CommittedTransactionPredicateAtom, DomainIdPredicateAtom,
+        DomainPredicateAtom, JsonPredicateAtom, MetadataPredicateAtom, NumericPredicateAtom,
+        ParameterPredicateAtom, PeerIdPredicateAtom, PermissionPredicateAtom,
+        PublicKeyPredicateAtom, RoleIdPredicateAtom, RolePredicateAtom, SignedBlockPredicateAtom,
+        SignedTransactionPredicateAtom, StringPredicateAtom, TransactionErrorPredicateAtom,
+        TransactionHashPredicateAtom, TriggerIdPredicateAtom, TriggerPredicateAtom,
     };
 }

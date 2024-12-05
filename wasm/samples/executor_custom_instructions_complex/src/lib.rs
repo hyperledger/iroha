@@ -73,7 +73,16 @@ struct Context<'i> {
 impl executor_custom_data_model::complex_isi::Context for Context<'_> {
     fn query(&self, q: &NumericQuery) -> Result<Value, ValidationFail> {
         let result = match q.clone() {
-            NumericQuery::FindAssetQuantityById(q) => self.host.query_single(q),
+            NumericQuery::FindAssetQuantityById(asset_id) => self
+                .host
+                .query(FindAssets)
+                .filter_with(|asset| asset.id.eq(asset_id))
+                .select_with(|asset| asset.value.numeric)
+                .execute_single()
+                .map_err(|e| match e {
+                    SingleQueryError::QueryError(e) => e,
+                    _ => unreachable!(),
+                }),
             NumericQuery::FindTotalAssetQuantityByAssetDefinitionId(asset_definition_id) => {
                 let asset_definition = self
                     .host

@@ -264,6 +264,37 @@
       }
     ]
   },
+  "ActionPredicateAtom": {
+    "Enum": []
+  },
+  "ActionProjection<PredicateMarker>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "ActionPredicateAtom"
+      },
+      {
+        "tag": "Metadata",
+        "discriminant": 1,
+        "type": "MetadataProjection<PredicateMarker>"
+      }
+    ]
+  },
+  "ActionProjection<SelectorMarker>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "()"
+      },
+      {
+        "tag": "Metadata",
+        "discriminant": 1,
+        "type": "MetadataProjection<SelectorMarker>"
+      }
+    ]
+  },
   "Algorithm": {
     "Enum": [
       {
@@ -787,7 +818,16 @@
     ]
   },
   "AssetValuePredicateAtom": {
-    "Enum": []
+    "Enum": [
+      {
+        "tag": "IsNumeric",
+        "discriminant": 0
+      },
+      {
+        "tag": "IsStore",
+        "discriminant": 1
+      }
+    ]
   },
   "AssetValueProjection<PredicateMarker>": {
     "Enum": [
@@ -795,6 +835,16 @@
         "tag": "Atom",
         "discriminant": 0,
         "type": "AssetValuePredicateAtom"
+      },
+      {
+        "tag": "Numeric",
+        "discriminant": 1,
+        "type": "NumericProjection<PredicateMarker>"
+      },
+      {
+        "tag": "Store",
+        "discriminant": 2,
+        "type": "MetadataProjection<PredicateMarker>"
       }
     ]
   },
@@ -804,6 +854,16 @@
         "tag": "Atom",
         "discriminant": 0,
         "type": "()"
+      },
+      {
+        "tag": "Numeric",
+        "discriminant": 1,
+        "type": "NumericProjection<SelectorMarker>"
+      },
+      {
+        "tag": "Store",
+        "discriminant": 2,
+        "type": "MetadataProjection<SelectorMarker>"
       }
     ]
   },
@@ -2143,18 +2203,6 @@
       }
     ]
   },
-  "FindAccountMetadata": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "AccountId"
-      },
-      {
-        "name": "key",
-        "type": "Name"
-      }
-    ]
-  },
   "FindAccounts": null,
   "FindAccountsWithAsset": {
     "Struct": [
@@ -2165,54 +2213,10 @@
     ]
   },
   "FindActiveTriggerIds": null,
-  "FindAssetDefinitionMetadata": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "AssetDefinitionId"
-      },
-      {
-        "name": "key",
-        "type": "Name"
-      }
-    ]
-  },
-  "FindAssetMetadata": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "AssetId"
-      },
-      {
-        "name": "key",
-        "type": "Name"
-      }
-    ]
-  },
-  "FindAssetQuantityById": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "AssetId"
-      }
-    ]
-  },
   "FindAssets": null,
   "FindAssetsDefinitions": null,
   "FindBlockHeaders": null,
   "FindBlocks": null,
-  "FindDomainMetadata": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "DomainId"
-      },
-      {
-        "name": "key",
-        "type": "Name"
-      }
-    ]
-  },
   "FindDomains": null,
   "FindError": {
     "Enum": [
@@ -2300,18 +2304,6 @@
     ]
   },
   "FindTransactions": null,
-  "FindTriggerMetadata": {
-    "Struct": [
-      {
-        "name": "id",
-        "type": "TriggerId"
-      },
-      {
-        "name": "key",
-        "type": "Name"
-      }
-    ]
-  },
   "FindTriggers": null,
   "ForwardCursor": {
     "Struct": [
@@ -2697,6 +2689,33 @@
   "Ipv4Addr": "Array<u8, 4>",
   "Ipv6Addr": "Array<u16, 8>",
   "Json": "String",
+  "JsonPredicateAtom": {
+    "Enum": [
+      {
+        "tag": "Equals",
+        "discriminant": 0,
+        "type": "Json"
+      }
+    ]
+  },
+  "JsonProjection<PredicateMarker>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "JsonPredicateAtom"
+      }
+    ]
+  },
+  "JsonProjection<SelectorMarker>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "()"
+      }
+    ]
+  },
   "Level": {
     "Enum": [
       {
@@ -2850,6 +2869,30 @@
       }
     ]
   },
+  "MetadataKeyProjection<PredicateMarker>": {
+    "Struct": [
+      {
+        "name": "key",
+        "type": "Name"
+      },
+      {
+        "name": "projection",
+        "type": "JsonProjection<PredicateMarker>"
+      }
+    ]
+  },
+  "MetadataKeyProjection<SelectorMarker>": {
+    "Struct": [
+      {
+        "name": "key",
+        "type": "Name"
+      },
+      {
+        "name": "projection",
+        "type": "JsonProjection<SelectorMarker>"
+      }
+    ]
+  },
   "MetadataPredicateAtom": {
     "Enum": []
   },
@@ -2859,6 +2902,11 @@
         "tag": "Atom",
         "discriminant": 0,
         "type": "MetadataPredicateAtom"
+      },
+      {
+        "tag": "Key",
+        "discriminant": 1,
+        "type": "MetadataKeyProjection<PredicateMarker>"
       }
     ]
   },
@@ -2868,6 +2916,11 @@
         "tag": "Atom",
         "discriminant": 0,
         "type": "()"
+      },
+      {
+        "tag": "Key",
+        "discriminant": 1,
+        "type": "MetadataKeyProjection<SelectorMarker>"
       }
     ]
   },
@@ -3143,6 +3196,27 @@
       {
         "name": "scale",
         "type": "Compact<u32>"
+      }
+    ]
+  },
+  "NumericPredicateAtom": {
+    "Enum": []
+  },
+  "NumericProjection<PredicateMarker>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "NumericPredicateAtom"
+      }
+    ]
+  },
+  "NumericProjection<SelectorMarker>": {
+    "Enum": [
+      {
+        "tag": "Atom",
+        "discriminant": 0,
+        "type": "()"
       }
     ]
   },
@@ -3652,123 +3726,138 @@
         "type": "Vec<Metadata>"
       },
       {
-        "tag": "Name",
+        "tag": "Json",
         "discriminant": 3,
+        "type": "Vec<Json>"
+      },
+      {
+        "tag": "Numeric",
+        "discriminant": 4,
+        "type": "Vec<Numeric>"
+      },
+      {
+        "tag": "Name",
+        "discriminant": 5,
         "type": "Vec<Name>"
       },
       {
         "tag": "DomainId",
-        "discriminant": 4,
+        "discriminant": 6,
         "type": "Vec<DomainId>"
       },
       {
         "tag": "Domain",
-        "discriminant": 5,
+        "discriminant": 7,
         "type": "Vec<Domain>"
       },
       {
         "tag": "AccountId",
-        "discriminant": 6,
+        "discriminant": 8,
         "type": "Vec<AccountId>"
       },
       {
         "tag": "Account",
-        "discriminant": 7,
+        "discriminant": 9,
         "type": "Vec<Account>"
       },
       {
         "tag": "AssetId",
-        "discriminant": 8,
+        "discriminant": 10,
         "type": "Vec<AssetId>"
       },
       {
         "tag": "Asset",
-        "discriminant": 9,
+        "discriminant": 11,
         "type": "Vec<Asset>"
       },
       {
         "tag": "AssetValue",
-        "discriminant": 10,
+        "discriminant": 12,
         "type": "Vec<AssetValue>"
       },
       {
         "tag": "AssetDefinitionId",
-        "discriminant": 11,
+        "discriminant": 13,
         "type": "Vec<AssetDefinitionId>"
       },
       {
         "tag": "AssetDefinition",
-        "discriminant": 12,
+        "discriminant": 14,
         "type": "Vec<AssetDefinition>"
       },
       {
         "tag": "Role",
-        "discriminant": 13,
+        "discriminant": 15,
         "type": "Vec<Role>"
       },
       {
         "tag": "Parameter",
-        "discriminant": 14,
+        "discriminant": 16,
         "type": "Vec<Parameter>"
       },
       {
         "tag": "Permission",
-        "discriminant": 15,
+        "discriminant": 17,
         "type": "Vec<Permission>"
       },
       {
         "tag": "CommittedTransaction",
-        "discriminant": 16,
+        "discriminant": 18,
         "type": "Vec<CommittedTransaction>"
       },
       {
         "tag": "SignedTransaction",
-        "discriminant": 17,
+        "discriminant": 19,
         "type": "Vec<SignedTransaction>"
       },
       {
         "tag": "TransactionHash",
-        "discriminant": 18,
+        "discriminant": 20,
         "type": "Vec<HashOf<SignedTransaction>>"
       },
       {
         "tag": "TransactionRejectionReason",
-        "discriminant": 19,
+        "discriminant": 21,
         "type": "Vec<Option<TransactionRejectionReason>>"
       },
       {
         "tag": "Peer",
-        "discriminant": 20,
+        "discriminant": 22,
         "type": "Vec<PeerId>"
       },
       {
         "tag": "RoleId",
-        "discriminant": 21,
+        "discriminant": 23,
         "type": "Vec<RoleId>"
       },
       {
         "tag": "TriggerId",
-        "discriminant": 22,
+        "discriminant": 24,
         "type": "Vec<TriggerId>"
       },
       {
         "tag": "Trigger",
-        "discriminant": 23,
+        "discriminant": 25,
         "type": "Vec<Trigger>"
       },
       {
+        "tag": "Action",
+        "discriminant": 26,
+        "type": "Vec<Action>"
+      },
+      {
         "tag": "Block",
-        "discriminant": 24,
+        "discriminant": 27,
         "type": "Vec<SignedBlock>"
       },
       {
         "tag": "BlockHeader",
-        "discriminant": 25,
+        "discriminant": 28,
         "type": "Vec<BlockHeader>"
       },
       {
         "tag": "BlockHeaderHash",
-        "discriminant": 26,
+        "discriminant": 29,
         "type": "Vec<HashOf<BlockHeader>>"
       }
     ]
@@ -4838,83 +4927,28 @@
   "SingularQueryBox": {
     "Enum": [
       {
-        "tag": "FindAssetQuantityById",
-        "discriminant": 0,
-        "type": "FindAssetQuantityById"
-      },
-      {
         "tag": "FindExecutorDataModel",
-        "discriminant": 1,
+        "discriminant": 0,
         "type": "FindExecutorDataModel"
       },
       {
         "tag": "FindParameters",
-        "discriminant": 2,
+        "discriminant": 1,
         "type": "FindParameters"
-      },
-      {
-        "tag": "FindDomainMetadata",
-        "discriminant": 3,
-        "type": "FindDomainMetadata"
-      },
-      {
-        "tag": "FindAccountMetadata",
-        "discriminant": 4,
-        "type": "FindAccountMetadata"
-      },
-      {
-        "tag": "FindAssetMetadata",
-        "discriminant": 5,
-        "type": "FindAssetMetadata"
-      },
-      {
-        "tag": "FindAssetDefinitionMetadata",
-        "discriminant": 6,
-        "type": "FindAssetDefinitionMetadata"
-      },
-      {
-        "tag": "FindTriggerMetadata",
-        "discriminant": 7,
-        "type": "FindTriggerMetadata"
       }
     ]
   },
   "SingularQueryOutputBox": {
     "Enum": [
       {
-        "tag": "Numeric",
-        "discriminant": 0,
-        "type": "Numeric"
-      },
-      {
         "tag": "ExecutorDataModel",
-        "discriminant": 1,
+        "discriminant": 0,
         "type": "ExecutorDataModel"
       },
       {
-        "tag": "Json",
-        "discriminant": 2,
-        "type": "Json"
-      },
-      {
-        "tag": "Trigger",
-        "discriminant": 3,
-        "type": "Trigger"
-      },
-      {
         "tag": "Parameters",
-        "discriminant": 4,
+        "discriminant": 1,
         "type": "Parameters"
-      },
-      {
-        "tag": "Transaction",
-        "discriminant": 5,
-        "type": "CommittedTransaction"
-      },
-      {
-        "tag": "BlockHeader",
-        "discriminant": 6,
-        "type": "BlockHeader"
       }
     ]
   },
@@ -5615,6 +5649,11 @@
         "tag": "Id",
         "discriminant": 1,
         "type": "TriggerIdProjection<PredicateMarker>"
+      },
+      {
+        "tag": "Action",
+        "discriminant": 2,
+        "type": "ActionProjection<PredicateMarker>"
       }
     ]
   },
@@ -5629,6 +5668,11 @@
         "tag": "Id",
         "discriminant": 1,
         "type": "TriggerIdProjection<SelectorMarker>"
+      },
+      {
+        "tag": "Action",
+        "discriminant": 2,
+        "type": "ActionProjection<SelectorMarker>"
       }
     ]
   },
@@ -5785,6 +5829,9 @@
   "Vec<AccountProjection<SelectorMarker>>": {
     "Vec": "AccountProjection<SelectorMarker>"
   },
+  "Vec<Action>": {
+    "Vec": "Action"
+  },
   "Vec<Asset>": {
     "Vec": "Asset"
   },
@@ -5884,11 +5931,17 @@
   "Vec<InstructionBox>": {
     "Vec": "InstructionBox"
   },
+  "Vec<Json>": {
+    "Vec": "Json"
+  },
   "Vec<Metadata>": {
     "Vec": "Metadata"
   },
   "Vec<Name>": {
     "Vec": "Name"
+  },
+  "Vec<Numeric>": {
+    "Vec": "Numeric"
   },
   "Vec<Option<TransactionRejectionReason>>": {
     "Vec": "Option<TransactionRejectionReason>"

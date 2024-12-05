@@ -40,7 +40,11 @@ fn mint_asset_after_3_sec() -> Result<()> {
     let account_id = ALICE_ID.clone();
     let asset_id = AssetId::new(asset_definition_id.clone(), account_id.clone());
 
-    let init_quantity = test_client.query_single(FindAssetQuantityById::new(asset_id.clone()))?;
+    let init_quantity = test_client
+        .query(FindAssets)
+        .filter_with(|asset| asset.id.eq(asset_id.clone()))
+        .select_with(|asset| asset.value.numeric)
+        .execute_single()?;
 
     let start_time = curr_time();
     assert!(
@@ -62,16 +66,22 @@ fn mint_asset_after_3_sec() -> Result<()> {
 
     // Schedule start is in the future so trigger isn't executed after creating a new block
     test_client.submit_blocking(Log::new(Level::DEBUG, "Just to create block".to_string()))?;
-    let after_registration_quantity =
-        test_client.query_single(FindAssetQuantityById::new(asset_id.clone()))?;
+    let after_registration_quantity = test_client
+        .query(FindAssets)
+        .filter_with(|asset| asset.id.eq(asset_id.clone()))
+        .select_with(|asset| asset.value.numeric)
+        .execute_single()?;
     assert_eq!(init_quantity, after_registration_quantity);
 
     // Sleep long enough that trigger start is in the past
     std::thread::sleep(network.pipeline_time());
     test_client.submit_blocking(Log::new(Level::DEBUG, "Just to create block".to_string()))?;
 
-    let after_wait_quantity =
-        test_client.query_single(FindAssetQuantityById::new(asset_id.clone()))?;
+    let after_wait_quantity = test_client
+        .query(FindAssets)
+        .filter_with(|asset| asset.id.eq(asset_id.clone()))
+        .select_with(|asset| asset.value.numeric)
+        .execute_single()?;
     // Schedule is in the past now so trigger is executed
     assert_eq!(
         init_quantity.checked_add(1u32.into()).unwrap(),

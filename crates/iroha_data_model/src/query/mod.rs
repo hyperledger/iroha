@@ -3,7 +3,14 @@
 #![allow(clippy::missing_inline_in_public_items)]
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{
+    boxed::Box,
+    format,
+    string::String,
+    vec::{self, Vec},
+};
+#[cfg(feature = "std")]
+use std::vec;
 
 use derive_more::Constructor;
 use iroha_crypto::{PublicKey, SignatureOf};
@@ -66,6 +73,7 @@ mod model {
     use iroha_macro::serde_where;
 
     use super::*;
+    use crate::trigger::action;
 
     /// An iterable query bundled with a filter
     #[serde_where(Q, CompoundPredicate<Q::Item>, SelectorTuple<Q::Item>)]
@@ -125,6 +133,8 @@ mod model {
         PublicKey(Vec<PublicKey>),
         String(Vec<String>),
         Metadata(Vec<Metadata>),
+        Json(Vec<Json>),
+        Numeric(Vec<Numeric>),
         Name(Vec<Name>),
         DomainId(Vec<DomainId>),
         Domain(Vec<Domain>),
@@ -146,12 +156,15 @@ mod model {
         RoleId(Vec<RoleId>),
         TriggerId(Vec<TriggerId>),
         Trigger(Vec<Trigger>),
+        Action(Vec<action::Action>),
         Block(Vec<SignedBlock>),
         BlockHeader(Vec<BlockHeader>),
         BlockHeaderHash(Vec<HashOf<BlockHeader>>),
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema)]
+    #[derive(
+        Debug, Clone, PartialEq, Eq, Decode, Encode, Constructor, Deserialize, Serialize, IntoSchema,
+    )]
     pub struct QueryOutputBatchBoxTuple {
         pub tuple: Vec<QueryOutputBatchBox>,
     }
@@ -161,15 +174,8 @@ mod model {
         Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
     )]
     pub enum SingularQueryBox {
-        FindAssetQuantityById(FindAssetQuantityById),
         FindExecutorDataModel(FindExecutorDataModel),
         FindParameters(FindParameters),
-
-        FindDomainMetadata(FindDomainMetadata),
-        FindAccountMetadata(FindAccountMetadata),
-        FindAssetMetadata(FindAssetMetadata),
-        FindAssetDefinitionMetadata(FindAssetDefinitionMetadata),
-        FindTriggerMetadata(FindTriggerMetadata),
     }
 
     /// An enum of all possible singular query outputs
@@ -177,13 +183,8 @@ mod model {
         Debug, Clone, PartialEq, Eq, Decode, Encode, Deserialize, Serialize, IntoSchema, FromVariant,
     )]
     pub enum SingularQueryOutputBox {
-        Numeric(Numeric),
         ExecutorDataModel(crate::executor::ExecutorDataModel),
-        Json(Json),
-        Trigger(crate::trigger::Trigger),
         Parameters(Parameters),
-        Transaction(CommittedTransaction),
-        BlockHeader(BlockHeader),
     }
 
     /// The results of a single iterable query request.
@@ -292,6 +293,7 @@ impl QueryOutputBatchBox {
             (Self::PublicKey(v1), Self::PublicKey(v2)) => v1.extend(v2),
             (Self::String(v1), Self::String(v2)) => v1.extend(v2),
             (Self::Metadata(v1), Self::Metadata(v2)) => v1.extend(v2),
+            (Self::Numeric(v1), Self::Numeric(v2)) => v1.extend(v2),
             (Self::Name(v1), Self::Name(v2)) => v1.extend(v2),
             (Self::DomainId(v1), Self::DomainId(v2)) => v1.extend(v2),
             (Self::Domain(v1), Self::Domain(v2)) => v1.extend(v2),
@@ -315,6 +317,7 @@ impl QueryOutputBatchBox {
             (Self::RoleId(v1), Self::RoleId(v2)) => v1.extend(v2),
             (Self::TriggerId(v1), Self::TriggerId(v2)) => v1.extend(v2),
             (Self::Trigger(v1), Self::Trigger(v2)) => v1.extend(v2),
+            (Self::Action(v1), Self::Action(v2)) => v1.extend(v2),
             (Self::Block(v1), Self::Block(v2)) => v1.extend(v2),
             (Self::BlockHeader(v1), Self::BlockHeader(v2)) => v1.extend(v2),
             (Self::BlockHeaderHash(v1), Self::BlockHeaderHash(v2)) => v1.extend(v2),
@@ -329,6 +332,8 @@ impl QueryOutputBatchBox {
             Self::PublicKey(v) => v.len(),
             Self::String(v) => v.len(),
             Self::Metadata(v) => v.len(),
+            Self::Json(v) => v.len(),
+            Self::Numeric(v) => v.len(),
             Self::Name(v) => v.len(),
             Self::DomainId(v) => v.len(),
             Self::Domain(v) => v.len(),
@@ -350,6 +355,7 @@ impl QueryOutputBatchBox {
             Self::RoleId(v) => v.len(),
             Self::TriggerId(v) => v.len(),
             Self::Trigger(v) => v.len(),
+            Self::Action(v) => v.len(),
             Self::Block(v) => v.len(),
             Self::BlockHeader(v) => v.len(),
             Self::BlockHeaderHash(v) => v.len(),
@@ -364,13 +370,15 @@ impl QueryOutputBatchBoxTuple {
     ///
     /// Panics if the types or lengths of the two batche tuples do not match
     pub fn extend(&mut self, other: Self) {
-        if self.tuple.len() != other.tuple.len() {
-            panic!("Cannot extend QueryOutputBatchBoxTuple with different number of elements");
-        }
+        assert_eq!(
+            self.tuple.len(),
+            other.tuple.len(),
+            "Cannot extend QueryOutputBatchBoxTuple with different number of elements"
+        );
 
         self.tuple
             .iter_mut()
-            .zip(other.tuple.into_iter())
+            .zip(other)
             .for_each(|(self_batch, other_batch)| self_batch.extend(other_batch));
     }
 
@@ -380,14 +388,34 @@ impl QueryOutputBatchBoxTuple {
         self.tuple[0].len()
     }
 
+    /// Returns `true` if this batch tuple is empty
+    pub fn is_empty(&self) -> bool {
+        self.tuple[0].len() == 0
+    }
+
     /// Returns an iterator over the batches in this tuple
     pub fn iter(&self) -> impl Iterator<Item = &QueryOutputBatchBox> {
         self.tuple.iter()
     }
+}
 
-    /// Consumes this batch tuple and returns an iterator over the batches
-    pub fn into_iter(self) -> impl Iterator<Item = QueryOutputBatchBox> {
-        self.tuple.into_iter()
+impl IntoIterator for QueryOutputBatchBoxTuple {
+    type Item = QueryOutputBatchBox;
+    type IntoIter = QueryOutputBatchBoxIntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        QueryOutputBatchBoxIntoIter(self.tuple.into_iter())
+    }
+}
+
+/// An iterator over the batches in a [`QueryOutputBatchBoxTuple`]
+pub struct QueryOutputBatchBoxIntoIter(vec::IntoIter<QueryOutputBatchBox>);
+
+impl Iterator for QueryOutputBatchBoxIntoIter {
+    type Item = QueryOutputBatchBox;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
     }
 }
 
@@ -659,13 +687,7 @@ impl_iter_queries! {
 }
 
 impl_singular_queries! {
-    FindAccountMetadata => Json,
-    FindAssetQuantityById => Numeric,
-    FindAssetMetadata => Json,
-    FindAssetDefinitionMetadata => Json,
-    FindDomainMetadata => Json,
     FindParameters => crate::parameter::Parameters,
-    FindTriggerMetadata => Json,
     FindExecutorDataModel => crate::executor::ExecutorDataModel,
 }
 
@@ -785,18 +807,6 @@ pub mod account {
         #[ffi_type]
         pub struct FindAccounts;
 
-        /// [`FindAccountMetadata`] Iroha Query finds an [`MetadataValue`]
-        /// of the key-value metadata pair in the specified account.
-        #[derive(Display)]
-        #[display(fmt = "Find metadata value with `{key}` key in `{id}` account")]
-        #[ffi_type]
-        pub struct FindAccountMetadata {
-            /// `Id` of an account to find.
-            pub id: AccountId,
-            /// Key of the specific key-value in the Account's metadata.
-            pub key: Name,
-        }
-
         /// [`FindAccountsWithAsset`] Iroha Query gets [`AssetDefinition`]s id as input and
         /// finds all [`Account`]s storing [`Asset`] with such definition.
         #[derive(Display)]
@@ -812,7 +822,7 @@ pub mod account {
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindAccountMetadata, FindAccounts, FindAccountsWithAsset};
+        pub use super::{FindAccounts, FindAccountsWithAsset};
     }
 }
 
@@ -825,8 +835,6 @@ pub mod asset {
     use alloc::{format, string::String, vec::Vec};
 
     use derive_more::Display;
-
-    use crate::prelude::*;
 
     queries! {
         /// [`FindAssets`] Iroha Query finds all [`Asset`]s presented in Iroha Peer.
@@ -841,50 +849,10 @@ pub mod asset {
         #[display(fmt = "Find all asset definitions")]
         #[ffi_type]
         pub struct FindAssetsDefinitions;
-
-        /// [`FindAssetQuantityById`] Iroha Query gets [`AssetId`] as input and finds [`Asset::quantity`]
-        /// value if [`Asset`] is presented in Iroha Peer.
-        #[derive(Display)]
-        #[display(fmt = "Find quantity of the `{id}` asset")]
-        #[repr(transparent)]
-        // SAFETY: `FindAssetQuantityById` has no trap representation in `AssetId`
-        #[ffi_type(unsafe {robust})]
-        pub struct FindAssetQuantityById {
-            /// `Id` of an [`Asset`] to find quantity of.
-            pub id: AssetId,
-        }
-
-        /// [`FindAssetMetadata`] Iroha Query gets [`AssetId`] and key as input and finds [`MetadataValue`]
-        /// of the key-value pair stored in this asset.
-        #[derive(Display)]
-        #[display(fmt = "Find metadata value with `{key}` key in `{id}` asset")]
-        #[ffi_type]
-        pub struct FindAssetMetadata {
-            /// `Id` of an [`Asset`] acting as [`Store`](crate::asset::AssetValue::Store).
-            pub id: AssetId,
-            /// The key of the key-value pair stored in the asset.
-            pub key: Name,
-        }
-
-        /// [`FindAssetDefinitionMetadata`] Iroha Query gets [`AssetDefinitionId`] and key as input and finds [`MetadataValue`]
-        /// of the key-value pair stored in this asset definition.
-        #[derive(Display)]
-        #[display(fmt = "Find metadata value with `{key}` key in `{id}` asset definition")]
-        #[ffi_type]
-        pub struct FindAssetDefinitionMetadata {
-            /// `Id` of an [`Asset`] acting as [`Store`](crate::asset::AssetValue::Store)..
-            pub id: AssetDefinitionId,
-            /// The key of the key-value pair stored in the asset.
-            pub key: Name,
-        }
-
     }
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{
-            FindAssetDefinitionMetadata, FindAssetMetadata, FindAssetQuantityById, FindAssets,
-            FindAssetsDefinitions,
-        };
+        pub use super::{FindAssets, FindAssetsDefinitions};
     }
 }
 
@@ -898,31 +866,17 @@ pub mod domain {
 
     use derive_more::Display;
 
-    use crate::prelude::*;
-
     queries! {
         /// [`FindDomains`] Iroha Query finds all [`Domain`]s presented in Iroha [`Peer`].
         #[derive(Copy, Display)]
         #[display(fmt = "Find all domains")]
         #[ffi_type]
         pub struct FindDomains;
-
-        /// [`FindDomainMetadata`] Iroha Query finds a [`MetadataValue`] of the key-value metadata pair
-        /// in the specified domain.
-        #[derive(Display)]
-        #[display(fmt = "Find metadata value with key `{key}` in `{id}` domain")]
-        #[ffi_type]
-        pub struct FindDomainMetadata {
-            /// `Id` of an domain to find.
-            pub id: DomainId,
-            /// Key of the specific key-value in the domain's metadata.
-            pub key: Name,
-        }
     }
 
     /// The prelude re-exports most commonly used traits, structs and macros from this crate.
     pub mod prelude {
-        pub use super::{FindDomainMetadata, FindDomains};
+        pub use super::FindDomains;
     }
 }
 
@@ -983,8 +937,6 @@ pub mod trigger {
 
     use derive_more::Display;
 
-    use crate::{trigger::TriggerId, Name};
-
     queries! {
         /// Find all currently active (as in not disabled and/or expired)
         /// trigger IDs.
@@ -998,22 +950,11 @@ pub mod trigger {
         #[display(fmt = "Find all triggers")]
         #[ffi_type]
         pub struct FindTriggers;
-
-        /// Find Trigger's metadata key-value pairs.
-        #[derive(Display)]
-        #[display(fmt = "Find metadata value with `{key}` key in `{id}` trigger")]
-        #[ffi_type]
-        pub struct FindTriggerMetadata {
-            /// The Identification of the trigger to be found.
-            pub id: TriggerId,
-            /// The key inside the metadata dictionary to be returned.
-            pub key: Name,
-        }
     }
 
     pub mod prelude {
         //! Prelude Re-exports most commonly used traits, structs and macros from this crate.
-        pub use super::{FindActiveTriggerIds, FindTriggerMetadata, FindTriggers};
+        pub use super::{FindActiveTriggerIds, FindTriggers};
     }
 }
 

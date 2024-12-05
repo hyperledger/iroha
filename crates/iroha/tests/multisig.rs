@@ -249,10 +249,10 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
 
     // Check that the multisig transaction has not yet executed
     let _err = test_client
-        .query_single(FindAccountMetadata::new(
-            transaction_target.clone(),
-            key.clone(),
-        ))
+        .query(FindAccounts)
+        .filter_with(|account| account.id.eq(transaction_target.clone()))
+        .select_with(|account| account.metadata.key(key.clone()))
+        .execute_single()
         .expect_err("instructions shouldn't execute without enough approvals");
 
     // The last approve to proceed to validate and execute the instructions
@@ -268,7 +268,11 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
     }
 
     // Check if the multisig transaction has executed
-    let res = test_client.query_single(FindAccountMetadata::new(transaction_target, key.clone()));
+    let res = test_client
+        .query(FindAccounts)
+        .filter_with(|account| account.id.eq(transaction_target.clone()))
+        .select_with(|account| account.metadata.key(key.clone()))
+        .execute_single();
     match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
         (None, None) => {
             res.unwrap();
@@ -279,12 +283,17 @@ fn multisig_base(suite: TestSuite) -> Result<()> {
     }
 
     // Check if the transaction entry is deleted
-    let res = test_client.query_single(FindAccountMetadata::new(
-        multisig_account_id,
-        format!("multisig/proposals/{instructions_hash}")
-            .parse()
-            .unwrap(),
-    ));
+    let res = test_client
+        .query(FindAccounts)
+        .filter_with(|account| account.id.eq(multisig_account_id))
+        .select_with(|account| {
+            account.metadata.key(
+                format!("multisig/proposals/{instructions_hash}")
+                    .parse()
+                    .unwrap(),
+            )
+        })
+        .execute_single();
     match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
         (None, Some(_)) => {
             // In case failing validation, the entry can exit only by expiring
@@ -407,10 +416,14 @@ fn multisig_recursion_base(suite: TestSuite) -> Result<()> {
 
     let proposal_value_at = |msa: AccountId, mst_hash: HashOf<Vec<InstructionBox>>| {
         test_client
-            .query_single(FindAccountMetadata::new(
-                msa.clone(),
-                format!("multisig/proposals/{mst_hash}").parse().unwrap(),
-            ))
+            .query(FindAccounts)
+            .filter_with(|account| account.id.eq(msa.clone()))
+            .select_with(|account| {
+                account
+                    .metadata
+                    .key(format!("multisig/proposals/{mst_hash}").parse().unwrap())
+            })
+            .execute_single()
             .expect("should be initialized by the root proposal")
             .try_into_any::<MultisigProposalValue>()
             .unwrap()
@@ -457,10 +470,10 @@ fn multisig_recursion_base(suite: TestSuite) -> Result<()> {
 
     // Check that the multisig transaction has not yet executed
     let _err = test_client
-        .query_single(FindAccountMetadata::new(
-            transaction_target.clone(),
-            key.clone(),
-        ))
+        .query(FindAccounts)
+        .filter_with(|account| account.id.eq(transaction_target.clone()))
+        .select_with(|account| account.metadata.key(key.clone()))
+        .execute_single()
         .expect_err("instructions shouldn't execute without enough approvals");
 
     // The last approve to proceed to validate and execute the instructions
@@ -476,7 +489,11 @@ fn multisig_recursion_base(suite: TestSuite) -> Result<()> {
     }
 
     // Check if the multisig transaction has executed
-    let res = test_client.query_single(FindAccountMetadata::new(transaction_target, key.clone()));
+    let res = test_client
+        .query(FindAccounts)
+        .filter_with(|account| account.id.eq(transaction_target))
+        .select_with(|account| account.metadata.key(key.clone()))
+        .execute_single();
     match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
         (None, None) => {
             res.unwrap();
@@ -493,10 +510,15 @@ fn multisig_recursion_base(suite: TestSuite) -> Result<()> {
         (msa_12345, approval_hash_to_012345),
         (msa_012345, instructions_hash),
     ] {
-        let res = test_client.query_single(FindAccountMetadata::new(
-            msa,
-            format!("multisig/proposals/{mst_hash}").parse().unwrap(),
-        ));
+        let res = test_client
+            .query(FindAccounts)
+            .filter_with(|account| account.id.eq(msa))
+            .select_with(|account| {
+                account
+                    .metadata
+                    .key(format!("multisig/proposals/{mst_hash}").parse().unwrap())
+            })
+            .execute_single();
         match (&transaction_ttl_ms_opt, &unauthorized_target_opt) {
             (None, Some(_)) => {
                 // In case the root proposal is failing validation, the relevant entries can exit only by expiring

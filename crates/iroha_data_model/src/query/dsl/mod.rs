@@ -87,7 +87,7 @@ pub use self::{
     selector_traits::{IntoSelector, IntoSelectorTuple},
     selector_tuple::SelectorTuple,
 };
-use crate::query::QueryOutputBatchBox;
+use crate::query::{error::QueryExecutionFail, QueryOutputBatchBox};
 
 /// Trait implemented on all evaluable predicates for type `T`.
 pub trait EvaluatePredicate<T: ?Sized> {
@@ -104,10 +104,24 @@ pub trait HasPredicateAtom {
 /// Trait implemented on all evaluable selectors for type `T`.
 pub trait EvaluateSelector<T: 'static> {
     /// Select the field from each of the elements in the input and type-erase the result. Cloning version.
-    #[expect(single_use_lifetimes)] // FP, this the suggested change is not allowed on stable
-    fn project_clone<'a>(&self, batch: impl Iterator<Item = &'a T>) -> QueryOutputBatchBox;
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the projection fails.
+    #[expect(single_use_lifetimes)] // FP, the suggested change is not allowed on stable
+    fn project_clone<'a>(
+        &self,
+        batch: impl Iterator<Item = &'a T>,
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail>;
     /// Select the field from each of the elements in the input and type-erase the result.
-    fn project(&self, batch: impl Iterator<Item = T>) -> QueryOutputBatchBox;
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the projection fails.
+    fn project(
+        &self,
+        batch: impl Iterator<Item = T>,
+    ) -> Result<QueryOutputBatchBox, QueryExecutionFail>;
 }
 // The IntoSchema derive is only needed for `PredicateMarker` to have `type_name`
 // the actual value of these types is never encoded
@@ -147,7 +161,7 @@ pub trait HasProjection<Marker>: Projectable<Marker> {
 /// A trait allowing to get the prototype for the type.
 pub trait HasPrototype {
     /// The prototype type for this type.
-    type Prototype<Marker, Projector>: Default + Copy;
+    type Prototype<Marker, Projector>;
 }
 
 /// Describes how to convert a projection on `InputType` to a projection on `OutputType` by wrapping it in a projection.
@@ -159,19 +173,22 @@ pub trait ObjectProjector<Marker> {
 
     /// Convert the projection on [`Self::InputType`] to a projection on [`Self::OutputType`].
     fn project(
+        &self,
         projection: <Self::InputType as HasProjection<Marker>>::Projection,
     ) -> <Self::OutputType as HasProjection<Marker>>::Projection;
 
     /// Construct a projection from an atom and convert it to a projection on [`Self::OutputType`].
     fn wrap_atom(
+        &self,
         atom: <Self::InputType as Projectable<Marker>>::AtomType,
     ) -> <Self::OutputType as HasProjection<Marker>>::Projection {
         let input_projection = <Self::InputType as HasProjection<Marker>>::atom(atom);
-        Self::project(input_projection)
+        self.project(input_projection)
     }
 }
 
 /// An [`ObjectProjector`] that does not change the type, serving as a base case for the recursion.
+#[derive_where::derive_where(Default, Copy, Clone)]
 pub struct BaseProjector<Marker, T>(PhantomData<(Marker, T)>);
 
 impl<Marker, T> ObjectProjector<Marker> for BaseProjector<Marker, T>
@@ -181,7 +198,7 @@ where
     type InputType = T;
     type OutputType = T;
 
-    fn project(projection: T::Projection) -> T::Projection {
+    fn project(&self, projection: T::Projection) -> T::Projection {
         projection
     }
 }

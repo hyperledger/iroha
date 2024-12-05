@@ -1059,10 +1059,13 @@ mod asset {
         fn run(self, context: &mut dyn RunContext) -> Result<()> {
             let Self { id: asset_id, key } = self;
             let client = context.client_from_config();
-            let find_key_value = FindAssetMetadata::new(asset_id, key);
             let asset = client
-                .query_single(find_key_value)
+                .query(FindAssets)
+                .filter_with(|asset| asset.id.eq(asset_id))
+                .select_with(|asset| asset.value.store.key(key))
+                .execute_single()
                 .wrap_err("Failed to get key-value")?;
+
             context.print_data(&asset)?;
             Ok(())
         }
@@ -1228,7 +1231,7 @@ mod json {
                             // for efficiency reasons iroha encodes query results in a columnar format,
                             // so we need to transpose the batch to get the format that is more natural for humans
                             let mut batches = vec![Vec::new(); accumulated_batch.len()];
-                            for batch in accumulated_batch.into_iter() {
+                            for batch in accumulated_batch {
                                 // downcast to json and extract the actual array
                                 // dynamic typing is just easier to use here than introducing a bunch of new types only for iroha_cli
                                 let batch = serde_json::to_value(batch)?;
