@@ -74,7 +74,10 @@ impl Metadata {
     pub fn insert(&mut self, key: Name, value: impl Into<Json>) -> Option<Json> {
         self.0.insert(key, value.into())
     }
+}
 
+#[cfg(feature = "transparent_api")]
+impl Metadata {
     /// Removes a key from the map, returning the owned
     /// `Some(value)` at the key if the key was previously in the
     /// map, else `None`.

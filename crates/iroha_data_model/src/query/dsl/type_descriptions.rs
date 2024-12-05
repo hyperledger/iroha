@@ -736,9 +736,9 @@ impl EvaluateSelector<Metadata> for MetadataProjection<SelectorMarker> {
             MetadataProjection::Atom(_) => Ok(batch.collect::<Vec<_>>().into()),
             MetadataProjection::Key(proj) => fallible_selector::map(
                 batch,
-                |mut item| {
+                |item| {
                     // using remove here to get a value, not a reference
-                    item.remove(&proj.key).ok_or_else(|| {
+                    item.get(&proj.key).cloned().ok_or_else(|| {
                         QueryExecutionFail::Find(FindError::MetadataKey(proj.key.clone()))
                     })
                 },
