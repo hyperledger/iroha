@@ -65,7 +65,7 @@ macro_rules! type_descriptions {
         }
 
         impl EvaluateSelector<$ty> for $projection_name<SelectorMarker> {
-                #[expect(single_use_lifetimes)] // FP, this the suggested change is not allowed on stable
+                #[expect(single_use_lifetimes)] // FP, the suggested change is not allowed on stable
                 fn project_clone<'a>(&self, batch: impl Iterator<Item = &'a $ty>) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
                     match self {
                         $projection_name::Atom(_) => Ok(batch.cloned().collect::<Vec<_>>().into()),
@@ -364,7 +364,7 @@ mod fallible_selector {
 
     trait Collector<TOut> {
         fn collect(
-            &self,
+            self,
             iter: impl Iterator<Item = TOut>,
         ) -> Result<QueryOutputBatchBox, QueryExecutionFail>;
     }
@@ -377,7 +377,7 @@ mod fallible_selector {
         T::Projection: EvaluateSelector<T>,
     {
         fn collect(
-            &self,
+            self,
             iter: impl Iterator<Item = &'a T>,
         ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
             self.0.project_clone(iter)
@@ -392,7 +392,7 @@ mod fallible_selector {
         T::Projection: EvaluateSelector<T>,
     {
         fn collect(
-            &self,
+            self,
             iter: impl Iterator<Item = T>,
         ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
             self.0.project(iter)
@@ -476,14 +476,14 @@ impl EvaluatePredicate<BlockHeader> for BlockHeaderProjection<PredicateMarker> {
 }
 
 impl EvaluateSelector<BlockHeader> for BlockHeaderProjection<SelectorMarker> {
-    #[expect(single_use_lifetimes)] // FP, this the suggested change is not allowed on stable
+    #[expect(single_use_lifetimes)] // FP, the suggested change is not allowed on stable
     fn project_clone<'a>(
         &self,
         batch: impl Iterator<Item = &'a BlockHeader>,
     ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            BlockHeaderProjection::Atom(_) => Ok(batch.cloned().collect::<Vec<_>>().into()),
-            BlockHeaderProjection::Hash(hash) => hash.project(batch.map(|item| item.hash())),
+            BlockHeaderProjection::Atom(()) => Ok(batch.copied().collect::<Vec<_>>().into()),
+            BlockHeaderProjection::Hash(hash) => hash.project(batch.map(BlockHeader::hash)),
         }
     }
 
@@ -492,7 +492,7 @@ impl EvaluateSelector<BlockHeader> for BlockHeaderProjection<SelectorMarker> {
         batch: impl Iterator<Item = BlockHeader>,
     ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            BlockHeaderProjection::Atom(_) => Ok(batch.collect::<Vec<_>>().into()),
+            BlockHeaderProjection::Atom(()) => Ok(batch.collect::<Vec<_>>().into()),
             BlockHeaderProjection::Hash(hash) => hash.project(batch.map(|item| item.hash())),
         }
     }
@@ -508,16 +508,14 @@ impl EvaluatePredicate<SignedBlock> for SignedBlockProjection<PredicateMarker> {
 }
 
 impl EvaluateSelector<SignedBlock> for SignedBlockProjection<SelectorMarker> {
-    #[expect(single_use_lifetimes)] // FP, this the suggested change is not allowed on stable
+    #[expect(single_use_lifetimes)] // FP, the suggested change is not allowed on stable
     fn project_clone<'a>(
         &self,
         batch: impl Iterator<Item = &'a SignedBlock>,
     ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            SignedBlockProjection::Atom(_) => Ok(batch.cloned().collect::<Vec<_>>().into()),
-            SignedBlockProjection::Header(header) => {
-                header.project(batch.map(|item| item.header()))
-            }
+            SignedBlockProjection::Atom(()) => Ok(batch.cloned().collect::<Vec<_>>().into()),
+            SignedBlockProjection::Header(header) => header.project(batch.map(SignedBlock::header)),
         }
     }
 
@@ -526,7 +524,7 @@ impl EvaluateSelector<SignedBlock> for SignedBlockProjection<SelectorMarker> {
         batch: impl Iterator<Item = SignedBlock>,
     ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            SignedBlockProjection::Atom(_) => Ok(batch.collect::<Vec<_>>().into()),
+            SignedBlockProjection::Atom(()) => Ok(batch.collect::<Vec<_>>().into()),
             SignedBlockProjection::Header(header) => {
                 header.project(batch.map(|item| item.header()))
             }
@@ -540,23 +538,25 @@ impl EvaluatePredicate<SignedTransaction> for SignedTransactionProjection<Predic
             SignedTransactionProjection::Atom(atom) => atom.applies(input),
             SignedTransactionProjection::Hash(hash) => hash.applies(&input.hash()),
             SignedTransactionProjection::Authority(authority) => {
-                authority.applies(&input.authority())
+                authority.applies(input.authority())
             }
         }
     }
 }
 
 impl EvaluateSelector<SignedTransaction> for SignedTransactionProjection<SelectorMarker> {
-    #[expect(single_use_lifetimes)] // FP, this the suggested change is not allowed on stable
+    #[expect(single_use_lifetimes)] // FP, the suggested change is not allowed on stable
     fn project_clone<'a>(
         &self,
         batch: impl Iterator<Item = &'a SignedTransaction>,
     ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            SignedTransactionProjection::Atom(_) => Ok(batch.cloned().collect::<Vec<_>>().into()),
-            SignedTransactionProjection::Hash(hash) => hash.project(batch.map(|item| item.hash())),
+            SignedTransactionProjection::Atom(()) => Ok(batch.cloned().collect::<Vec<_>>().into()),
+            SignedTransactionProjection::Hash(hash) => {
+                hash.project(batch.map(SignedTransaction::hash))
+            }
             SignedTransactionProjection::Authority(authority) => {
-                authority.project_clone(batch.map(|item| item.authority()))
+                authority.project_clone(batch.map(SignedTransaction::authority))
             }
         }
     }
@@ -566,7 +566,7 @@ impl EvaluateSelector<SignedTransaction> for SignedTransactionProjection<Selecto
         batch: impl Iterator<Item = SignedTransaction>,
     ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            SignedTransactionProjection::Atom(_) => Ok(batch.collect::<Vec<_>>().into()),
+            SignedTransactionProjection::Atom(()) => Ok(batch.collect::<Vec<_>>().into()),
             SignedTransactionProjection::Hash(hash) => hash.project(batch.map(|item| item.hash())),
             SignedTransactionProjection::Authority(authority) => {
                 authority.project(batch.map(|item| item.authority().clone()))
@@ -598,7 +598,7 @@ impl EvaluateSelector<AssetValue> for AssetValueProjection<SelectorMarker> {
         batch: impl Iterator<Item = &'a AssetValue>,
     ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            AssetValueProjection::Atom(_) => Ok(batch.cloned().collect::<Vec<_>>().into()),
+            AssetValueProjection::Atom(()) => Ok(batch.cloned().collect::<Vec<_>>().into()),
             AssetValueProjection::Numeric(proj) => fallible_selector::map_clone(
                 batch,
                 |item| match item {
@@ -627,7 +627,7 @@ impl EvaluateSelector<AssetValue> for AssetValueProjection<SelectorMarker> {
         batch: impl Iterator<Item = AssetValue>,
     ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            AssetValueProjection::Atom(_) => Ok(batch.collect::<Vec<_>>().into()),
+            AssetValueProjection::Atom(()) => Ok(batch.collect::<Vec<_>>().into()),
             AssetValueProjection::Numeric(proj) => fallible_selector::map(
                 batch,
                 |item| match item {
@@ -716,7 +716,7 @@ impl EvaluateSelector<Metadata> for MetadataProjection<SelectorMarker> {
         batch: impl Iterator<Item = &'a Metadata>,
     ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            MetadataProjection::Atom(_) => Ok(batch.cloned().collect::<Vec<_>>().into()),
+            MetadataProjection::Atom(()) => Ok(batch.cloned().collect::<Vec<_>>().into()),
             MetadataProjection::Key(proj) => fallible_selector::map_clone(
                 batch,
                 |item| {
@@ -733,7 +733,7 @@ impl EvaluateSelector<Metadata> for MetadataProjection<SelectorMarker> {
         batch: impl Iterator<Item = Metadata>,
     ) -> Result<QueryOutputBatchBox, QueryExecutionFail> {
         match self {
-            MetadataProjection::Atom(_) => Ok(batch.collect::<Vec<_>>().into()),
+            MetadataProjection::Atom(()) => Ok(batch.collect::<Vec<_>>().into()),
             MetadataProjection::Key(proj) => fallible_selector::map(
                 batch,
                 |item| {

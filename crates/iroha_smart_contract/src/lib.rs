@@ -325,8 +325,7 @@ mod tests {
         assert_eq!(remaining_items, 0);
         assert!(
             next_cursor.is_none(),
-            "Expected no cursor, but got {:?}",
-            next_cursor
+            "Expected no cursor, but got {next_cursor:?}",
         );
     }
 }

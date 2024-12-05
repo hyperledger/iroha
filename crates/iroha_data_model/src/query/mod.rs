@@ -3,7 +3,14 @@
 #![allow(clippy::missing_inline_in_public_items)]
 
 #[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
+use alloc::{
+    boxed::Box,
+    format,
+    string::String,
+    vec::{self, Vec},
+};
+#[cfg(feature = "std")]
+use std::vec;
 
 use derive_more::Constructor;
 use iroha_crypto::{PublicKey, SignatureOf};
@@ -363,13 +370,15 @@ impl QueryOutputBatchBoxTuple {
     ///
     /// Panics if the types or lengths of the two batche tuples do not match
     pub fn extend(&mut self, other: Self) {
-        if self.tuple.len() != other.tuple.len() {
-            panic!("Cannot extend QueryOutputBatchBoxTuple with different number of elements");
-        }
+        assert_eq!(
+            self.tuple.len(),
+            other.tuple.len(),
+            "Cannot extend QueryOutputBatchBoxTuple with different number of elements"
+        );
 
         self.tuple
             .iter_mut()
-            .zip(other.tuple.into_iter())
+            .zip(other)
             .for_each(|(self_batch, other_batch)| self_batch.extend(other_batch));
     }
 
@@ -379,14 +388,34 @@ impl QueryOutputBatchBoxTuple {
         self.tuple[0].len()
     }
 
+    /// Returns `true` if this batch tuple is empty
+    pub fn is_empty(&self) -> bool {
+        self.tuple[0].len() == 0
+    }
+
     /// Returns an iterator over the batches in this tuple
     pub fn iter(&self) -> impl Iterator<Item = &QueryOutputBatchBox> {
         self.tuple.iter()
     }
+}
 
-    /// Consumes this batch tuple and returns an iterator over the batches
-    pub fn into_iter(self) -> impl Iterator<Item = QueryOutputBatchBox> {
-        self.tuple.into_iter()
+impl IntoIterator for QueryOutputBatchBoxTuple {
+    type Item = QueryOutputBatchBox;
+    type IntoIter = QueryOutputBatchBoxIntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        QueryOutputBatchBoxIntoIter(self.tuple.into_iter())
+    }
+}
+
+/// An iterator over the batches in a [`QueryOutputBatchBoxTuple`]
+pub struct QueryOutputBatchBoxIntoIter(vec::IntoIter<QueryOutputBatchBox>);
+
+impl Iterator for QueryOutputBatchBoxIntoIter {
+    type Item = QueryOutputBatchBox;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next()
     }
 }
 

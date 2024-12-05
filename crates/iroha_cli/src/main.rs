@@ -1231,7 +1231,7 @@ mod json {
                             // for efficiency reasons iroha encodes query results in a columnar format,
                             // so we need to transpose the batch to get the format that is more natural for humans
                             let mut batches = vec![Vec::new(); accumulated_batch.len()];
-                            for batch in accumulated_batch.into_iter() {
+                            for batch in accumulated_batch {
                                 // downcast to json and extract the actual array
                                 // dynamic typing is just easier to use here than introducing a bunch of new types only for iroha_cli
                                 let batch = serde_json::to_value(batch)?;

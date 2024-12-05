@@ -63,10 +63,7 @@ fn find_accounts_with_asset() {
         QueryExecutionFail::Find(FindError::MetadataKey(returned_key)),
     ))) = alice_no_key_err
     else {
-        panic!(
-            "Got unexpected query error on missing metadata key {:?}",
-            alice_no_key_err
-        );
+        panic!("Got unexpected query error on missing metadata key {alice_no_key_err:?}",);
     };
     assert_eq!(returned_key, another_key);
 

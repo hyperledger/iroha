@@ -35,6 +35,7 @@ impl<T: HasProjection<PredicateMarker>> CompoundPredicate<T> {
     // aliases for logical operations
     /// Negate the predicate.
     #[must_use]
+    #[expect(clippy::should_implement_trait)] // we do implement the `Not` trait, this is just a shorthand to avoid requiring importing it
     pub fn not(self) -> Self {
         !self
     }

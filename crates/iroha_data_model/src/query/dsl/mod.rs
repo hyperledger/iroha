@@ -104,12 +104,20 @@ pub trait HasPredicateAtom {
 /// Trait implemented on all evaluable selectors for type `T`.
 pub trait EvaluateSelector<T: 'static> {
     /// Select the field from each of the elements in the input and type-erase the result. Cloning version.
-    #[expect(single_use_lifetimes)] // FP, this the suggested change is not allowed on stable
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the projection fails.
+    #[expect(single_use_lifetimes)] // FP, the suggested change is not allowed on stable
     fn project_clone<'a>(
         &self,
         batch: impl Iterator<Item = &'a T>,
     ) -> Result<QueryOutputBatchBox, QueryExecutionFail>;
     /// Select the field from each of the elements in the input and type-erase the result.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the projection fails.
     fn project(
         &self,
         batch: impl Iterator<Item = T>,
