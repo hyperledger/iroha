@@ -1,4 +1,4 @@
-use executor_custom_data_model::permissions::CanControlDomainLives;
+use executor_custom_data_model::{complex_isi::NumericQuery, permissions::CanControlDomainLives};
 use eyre::Result;
 use futures_util::TryStreamExt as _;
 use iroha::{
@@ -216,7 +216,11 @@ fn executor_custom_instructions_simple() -> Result<()> {
 
     // Check that bob has 1 rose
     assert_eq!(
-        client.query_single(FindAssetQuantityById::new(bob_rose.clone()))?,
+        client
+            .query(FindAssets)
+            .filter_with(|asset| asset.id.eq(bob_rose.clone()))
+            .select_with(|asset| asset.value.numeric)
+            .execute_single()?,
         Numeric::from(1u32)
     );
 
@@ -229,7 +233,11 @@ fn executor_custom_instructions_simple() -> Result<()> {
 
     // Check that bob has 2 roses
     assert_eq!(
-        client.query_single(FindAssetQuantityById::new(bob_rose.clone()))?,
+        client
+            .query(FindAssets)
+            .filter_with(|asset| asset.id.eq(bob_rose))
+            .select_with(|asset| asset.value.numeric)
+            .execute_single()?,
         Numeric::from(2u32)
     );
 
@@ -258,16 +266,20 @@ fn executor_custom_instructions_complex() -> Result<()> {
 
     // Check that bob has 6 roses
     assert_eq!(
-        client.query_single(FindAssetQuantityById::new(bob_rose.clone()))?,
+        client
+            .query(FindAssets)
+            .filter_with(|asset| asset.id.eq(bob_rose.clone()))
+            .select_with(|asset| asset.value.numeric)
+            .execute_single()?,
         Numeric::from(6u32)
     );
 
     // If bob has more then 5 roses, then burn 1 rose
     let burn_bob_rose_if_more_then_5 = || -> Result<()> {
         let condition = Greater::new(
-            EvaluatesTo::new_unchecked(Expression::Query(
-                FindAssetQuantityById::new(bob_rose.clone()).into(),
-            )),
+            EvaluatesTo::new_unchecked(Expression::Query(NumericQuery::FindAssetQuantityById(
+                bob_rose.clone(),
+            ))),
             Numeric::from(5u32),
         );
         let then = Burn::asset_numeric(Numeric::from(1u32), bob_rose.clone());
@@ -281,7 +293,11 @@ fn executor_custom_instructions_complex() -> Result<()> {
 
     // Check that bob has 5 roses
     assert_eq!(
-        client.query_single(FindAssetQuantityById::new(bob_rose.clone()))?,
+        client
+            .query(FindAssets)
+            .filter_with(|asset| asset.id.eq(bob_rose.clone()))
+            .select_with(|asset| asset.value.numeric)
+            .execute_single()?,
         Numeric::from(5u32)
     );
 
@@ -289,7 +305,11 @@ fn executor_custom_instructions_complex() -> Result<()> {
 
     // Check that bob has 5 roses
     assert_eq!(
-        client.query_single(FindAssetQuantityById::new(bob_rose.clone()))?,
+        client
+            .query(FindAssets)
+            .filter_with(|asset| asset.id.eq(bob_rose.clone()))
+            .select_with(|asset| asset.value.numeric)
+            .execute_single()?,
         Numeric::from(5u32)
     );
 

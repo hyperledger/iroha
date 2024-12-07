@@ -24,7 +24,10 @@ fn main(host: Iroha, context: Context) {
         .try_into_any::<MintRoseArgs>()
         .map_or_else(
             |_| {
-                host.query_single(FindTriggerMetadata::new(context.id, "VAL".parse().unwrap()))
+                host.query(FindTriggers)
+                    .filter_with(|trigger| trigger.id.eq(context.id))
+                    .select_with(|trigger| trigger.action.metadata.key("VAL".parse().unwrap()))
+                    .execute_single()
                     .dbg_unwrap()
                     .try_into_any::<u32>()
             },

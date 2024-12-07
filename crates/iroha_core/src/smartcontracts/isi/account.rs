@@ -5,7 +5,6 @@ use iroha_data_model::{prelude::*, query::error::FindError};
 use iroha_telemetry::metrics;
 
 use super::prelude::*;
-use crate::ValidSingularQuery;
 
 impl Registrable for iroha_data_model::account::NewAccount {
     type Target = Account;
@@ -444,7 +443,6 @@ pub mod query {
         permission::Permission,
         query::{dsl::CompoundPredicate, error::QueryExecutionFail as Error},
     };
-    use iroha_primitives::json::Json;
 
     use super::*;
     use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
@@ -494,20 +492,6 @@ pub mod query {
                 .accounts_iter()
                 .filter(move |&account| filter.applies(account))
                 .cloned())
-        }
-    }
-
-    impl ValidSingularQuery for FindAccountMetadata {
-        #[metrics(+"find_account_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, Error> {
-            let id = &self.id;
-            let key = &self.key;
-            iroha_logger::trace!(%id, %key);
-            state_ro
-                .world()
-                .map_account(id, |account| account.metadata.get(key).cloned())?
-                .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
-                .map(Into::into)
         }
     }
 

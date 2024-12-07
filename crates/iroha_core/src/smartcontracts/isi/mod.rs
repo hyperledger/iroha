@@ -20,7 +20,6 @@ use mv::storage::StorageReadOnly;
 
 use super::Execute;
 use crate::{
-    prelude::*,
     smartcontracts::triggers::set::SetReadOnly,
     state::{StateReadOnly, StateTransaction, WorldReadOnly},
 };
@@ -228,6 +227,7 @@ pub mod prelude {
 mod tests {
     use std::sync::Arc;
 
+    use iroha_crypto::KeyPair;
     use iroha_test_samples::{
         gen_account_in, ALICE_ID, SAMPLE_GENESIS_ACCOUNT_ID, SAMPLE_GENESIS_ACCOUNT_KEYPAIR,
     };
@@ -239,7 +239,7 @@ mod tests {
         kura::Kura,
         query::store::LiveQueryStore,
         state::{State, World},
-        tx::AcceptTransactionFail,
+        tx::{AcceptTransactionFail, AcceptedTransaction},
     };
 
     fn state_with_test_domains(kura: &Arc<Kura>) -> Result<State> {

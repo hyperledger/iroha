@@ -327,7 +327,7 @@ impl Sumeragi {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            panic!("Genesis contains invalid transactions:\n{}", errors);
+            panic!("Genesis contains invalid transactions:\n{errors}");
         }
 
         // NOTE: By this time genesis block is executed and list of trusted peers is updated

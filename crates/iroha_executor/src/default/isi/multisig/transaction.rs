@@ -6,7 +6,10 @@ use core::num::NonZeroU64;
 use iroha_smart_contract::data_model::query::error::QueryExecutionFail;
 
 use super::*;
-use crate::data_model::Level;
+use crate::data_model::{
+    query::{builder::SingleQueryError, error::FindError},
+    Level,
+};
 
 impl VisitExecute for MultisigPropose {
     fn visit<V: Execute + Visit + ?Sized>(&self, executor: &mut V) {
@@ -41,10 +44,10 @@ impl VisitExecute for MultisigPropose {
         };
 
         if host
-            .query_single(FindAccountMetadata::new(
-                multisig_account,
-                proposal_key(&instructions_hash),
-            ))
+            .query(FindAccounts)
+            .filter_with(|account| account.id.eq(multisig_account))
+            .select_with(|account| account.metadata.key(proposal_key(&instructions_hash)))
+            .execute_single()
             .is_ok()
         {
             deny!(executor, "multisig proposal duplicates")
@@ -145,7 +148,19 @@ fn multisig_spec<V: Execute + Visit + ?Sized>(
 ) -> Result<MultisigSpec, ValidationFail> {
     executor
         .host()
-        .query_single(FindAccountMetadata::new(multisig_account, spec_key()))?
+        .query(FindAccounts)
+        .filter_with(|account| account.id.eq(multisig_account.clone()))
+        .select_with(|account| account.metadata.key(spec_key()))
+        .execute_single()
+        .map_err(|e| match e {
+            SingleQueryError::QueryError(e) => e,
+            SingleQueryError::ExpectedOneGotNone => ValidationFail::QueryFailed(
+                QueryExecutionFail::Find(FindError::Account(multisig_account)),
+            ),
+            SingleQueryError::ExpectedOneGotMany | SingleQueryError::ExpectedOneOrZeroGotMany => {
+                unreachable!()
+            }
+        })?
         .try_into_any()
         .map_err(metadata_conversion_error)
 }
@@ -157,10 +172,19 @@ fn proposal_value<V: Execute + Visit + ?Sized>(
 ) -> Result<MultisigProposalValue, ValidationFail> {
     executor
         .host()
-        .query_single(FindAccountMetadata::new(
-            multisig_account,
-            proposal_key(&instructions_hash),
-        ))?
+        .query(FindAccounts)
+        .filter_with(|account| account.id.eq(multisig_account.clone()))
+        .select_with(|account| account.metadata.key(proposal_key(&instructions_hash)))
+        .execute_single()
+        .map_err(|e| match e {
+            SingleQueryError::QueryError(e) => e,
+            SingleQueryError::ExpectedOneGotNone => ValidationFail::QueryFailed(
+                QueryExecutionFail::Find(FindError::Account(multisig_account)),
+            ),
+            SingleQueryError::ExpectedOneGotMany | SingleQueryError::ExpectedOneOrZeroGotMany => {
+                unreachable!()
+            }
+        })?
         .try_into_any()
         .map_err(metadata_conversion_error)
 }

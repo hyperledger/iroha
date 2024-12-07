@@ -315,7 +315,6 @@ pub mod query {
         },
         trigger::{Trigger, TriggerId},
     };
-    use iroha_primitives::json::Json;
 
     use super::*;
     use crate::{
@@ -361,27 +360,6 @@ pub mod query {
                        Trigger::new(id.clone(), action)
                    })
                    .filter(move |trigger| filter.applies(trigger)))
-        }
-    }
-
-    impl ValidSingularQuery for FindTriggerMetadata {
-        #[metrics(+"find_trigger_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, Error> {
-            let id = &self.id;
-            let key = &self.key;
-            iroha_logger::trace!(%id, %key);
-            state_ro
-                .world()
-                .triggers()
-                .inspect_by_id(id, |action| {
-                    action
-                        .metadata()
-                        .get(key)
-                        .cloned()
-                        .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
-                })
-                .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))?
-                .map(Into::into)
         }
     }
 }
