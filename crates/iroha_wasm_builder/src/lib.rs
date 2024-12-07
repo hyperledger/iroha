@@ -30,7 +30,7 @@ pub enum Profile {
 impl Profile {
     /// Checks whether profile uses optimizations from wasm-opt
     pub fn is_optimized(self) -> bool {
-        return self == Profile::Deploy;
+        self == Profile::Deploy
     }
 }
 
@@ -40,7 +40,7 @@ impl Profile {
 ///
 /// ```no_run
 /// use eyre::Result;
-/// use iroha_wasm_builder::Builder;
+/// use iroha_wasm_builder::{Builder, Profile};
 ///
 /// fn main() -> Result<()> {
 ///     let bytes = Builder::new("relative/path/to/smartcontract/", Profile::Deploy)
@@ -223,7 +223,7 @@ mod internal {
         }
 
         fn build_profile(&self) -> String {
-            return format!("--profile={}", self.profile.clone());
+            format!("--profile={}", self.profile.clone())
         }
 
         fn build_options() -> impl Iterator<Item = &'static str> {

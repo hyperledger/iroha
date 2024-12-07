@@ -12,7 +12,7 @@ use crate::{
 
 /// Executor related things (linker initialization, module instantiation, memory free)
 /// takes significant amount of time in case of single peer transactions handling.
-/// (https://github.com/hyperledger/iroha/issues/3716#issuecomment-2348417005).
+/// (https://github.com/hyperledger-iroha/iroha/issues/3716#issuecomment-2348417005).
 /// So this cache is used to share `Store` and `Instance` for different transaction validation.
 #[derive(Default)]
 pub struct WasmCache<'world, 'block, 'state> {
