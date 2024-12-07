@@ -262,13 +262,17 @@ impl Sumeragi {
                         }
                     };
 
-                    if let Some(error) = block.as_ref().errors().next() {
-                        error!(
-                            peer_id=%self.peer,
-                            role=%self.role(),
-                            ?error
-                        );
+                    let mut errors = block.as_ref().errors().peekable();
+                    if errors.peek().is_some() {
+                        error!("Genesis contains invalid transactions");
 
+                        for error in block.as_ref().errors() {
+                            error!(
+                                peer_id=%self.peer,
+                                role=%self.role(),
+                                ?error
+                            );
+                        }
                         continue;
                     }
 

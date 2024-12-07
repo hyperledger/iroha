@@ -43,7 +43,7 @@ impl Profile {
 /// use iroha_wasm_builder::Builder;
 ///
 /// fn main() -> Result<()> {
-///     let bytes = Builder::new("relative/path/to/smartcontract/", "deploy")
+///     let bytes = Builder::new("relative/path/to/smartcontract/", Profile::Deploy)
 ///         .out_dir("path/to/out/dir") // Optional: Set output directory
 ///         .build()? // Run build
 ///         .into_bytes()?; // Get resulting WASM bytes
@@ -214,19 +214,12 @@ mod internal {
 
         pub fn build(self) -> Result<Output> {
             let absolute_path = self.absolute_path.clone();
-            let optimize = Profile::is_optimized(self.profile);
-            let output = self.build_smartcontract().wrap_err_with(|| {
+            self.build_smartcontract().wrap_err_with(|| {
                 format!(
                     "Failed to build the smartcontract at path: {}",
                     absolute_path.display()
                 )
-            })?;
-
-            if optimize {
-                output.optimize()
-            } else {
-                Ok(output)
-            }
+            })
         }
 
         fn build_profile(&self) -> String {

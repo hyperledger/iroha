@@ -15,7 +15,7 @@ enum Cli {
         #[command(flatten)]
         common: CommonArgs,
         #[arg(long, default_value = "release")]
-        profile: String,
+        profile: Profile,
     },
     /// Build the smartcontract
     Build {
@@ -23,7 +23,7 @@ enum Cli {
         common: CommonArgs,
         /// Build profile
         #[arg(long, default_value = "release")]
-        profile: String,
+        profile: Profile,
         /// Where to store the output WASM. If the file exists, it will be overwritten.
         #[arg(long)]
         out_file: PathBuf,
@@ -42,7 +42,6 @@ fn main() -> color_eyre::Result<()> {
             common: CommonArgs { path },
             profile,
         } => {
-            let profile: Profile = profile.parse().expect("Invalid profile provided");
             let builder = Builder::new(&path, profile).show_output();
             builder.check()?;
         }
@@ -51,7 +50,6 @@ fn main() -> color_eyre::Result<()> {
             out_file,
             profile,
         } => {
-            let profile: Profile = profile.parse().expect("Invalid profile provided");
             let builder = Builder::new(&path, profile).show_output();
 
             let output = {
