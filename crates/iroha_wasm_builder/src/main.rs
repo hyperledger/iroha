@@ -60,7 +60,7 @@ fn main() -> color_eyre::Result<()> {
                 }
             };
 
-            let output = if Profile::is_optimized(profile) {
+            let output = if profile.is_optimized() {
                 let sp = if std::env::var("CI").is_err() {
                     Some(spinoff::Spinner::new_with_stream(
                         spinoff::spinners::Binary,

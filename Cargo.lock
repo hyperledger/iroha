@@ -3771,7 +3771,9 @@ version = "2.0.0-rc.1.0"
 dependencies = [
  "iroha_crypto",
  "iroha_data_model",
+ "iroha_wasm_builder",
  "serde",
+ "toml",
 ]
 
 [[package]]

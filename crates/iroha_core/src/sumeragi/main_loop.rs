@@ -262,8 +262,7 @@ impl Sumeragi {
                         }
                     };
 
-                    let mut errors = block.as_ref().errors().peekable();
-                    if errors.peek().is_some() {
+                    if block.as_ref().errors().next().is_some() {
                         error!("Genesis contains invalid transactions");
 
                         for error in block.as_ref().errors() {

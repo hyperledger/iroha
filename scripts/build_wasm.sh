@@ -72,6 +72,9 @@ build() {
         out_file="$TARGET_DIR/$1/$name.wasm"
         cargo run --bin iroha_wasm_builder -- build "$CARGO_DIR/$1/$name" --profile=$PROFILE --out-file "$out_file"
     done
+
+    echo "profile = \"${PROFILE}\"" > "$TARGET_DIR/build_config.toml"
+
     echo "info: WASM $1 build complete"
     echo "artifacts written to $TARGET_DIR/$1/"
 }

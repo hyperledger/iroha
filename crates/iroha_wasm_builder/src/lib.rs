@@ -29,8 +29,8 @@ pub enum Profile {
 
 impl Profile {
     /// Checks whether profile uses optimizations from wasm-opt
-    pub fn is_optimized(profile: Self) -> bool {
-        return profile == Profile::Deploy;
+    pub fn is_optimized(self) -> bool {
+        return self == Profile::Deploy;
     }
 }
 
@@ -120,7 +120,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
     ///
     /// Will also return error if ran on workspace and not on the concrete package.
     pub fn build(self) -> Result<Output> {
-        let optimize = Profile::is_optimized(self.profile);
+        let optimize = self.profile.is_optimized();
         let output = self.into_internal()?.build()?;
         if optimize {
             output.optimize()
