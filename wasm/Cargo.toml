@@ -13,12 +13,19 @@ members = [
     "samples/*",
 ]
 
+[profile.release]
+panic = "abort"
+overflow-checks = true
+debug-assertions = true
+
 [profile.dev]
 panic = "abort"
 
-[profile.release]
+[profile.deploy]
+inherits = "release"
+overflow-checks = false
+debug-assertions = false
 strip = "debuginfo" # Remove debugging info from the binary
-panic = "abort"     # Panics are transcribed to Traps when compiling for wasm anyways
 lto = true          # Link-time-optimization produces notable decrease in binary size
 opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorization)
 codegen-units = 1   # Further reduces binary size but increases compilation time

@@ -10,7 +10,7 @@ use iroha::{
 };
 use iroha_executor_data_model::permission::{domain::CanUnregisterDomain, Permission as _};
 use iroha_test_network::*;
-use iroha_test_samples::{load_sample_wasm, ALICE_ID, BOB_ID};
+use iroha_test_samples::{load_sample_wasm, load_wasm_build_profile, ALICE_ID, BOB_ID};
 use nonzero_ext::nonzero;
 
 const ADMIN_PUBLIC_KEY_MULTIHASH: &str =
@@ -409,6 +409,16 @@ fn define_custom_parameter() -> Result<()> {
 
 fn upgrade_executor(client: &Client, executor: impl AsRef<str>) -> Result<()> {
     let upgrade_executor = Upgrade::new(Executor::new(load_sample_wasm(executor)));
+    let profile = load_wasm_build_profile();
+
+    if !profile.is_optimized() {
+        client.submit_all_blocking::<InstructionBox>([InstructionBox::SetParameter(
+            SetParameter::new(Parameter::Executor(SmartContractParameter::Fuel(
+                std::num::NonZeroU64::new(80_000_000_u64).expect("Fuel must be positive."),
+            ))),
+        )])?;
+    }
+
     client.submit_blocking(upgrade_executor)?;
 
     Ok(())
