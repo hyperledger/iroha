@@ -1,11 +1,16 @@
 name: I2::Custom::Publish
 
 on:
-  push:
-    tags:
-      - 'v2*'
   workflow_dispatch:
     inputs:
+      BUILD_PROFILER_IMAGE:
+        description: "Select \"true\" to build and push the \"glibc\" image with profiling"
+        type: choice
+        required: true
+        default: 'false'
+        options:
+          - true
+          - false
       BUILD_GLIBC_IMAGE:
         description: "Select \"true\" to build and push the standard \"glibc\" image"
         type: choice
@@ -27,7 +32,7 @@ on:
         required: true
         default: main
       PROFILER_NAME:
-        description: "Profiler value (glibc/alpine) as the image tag part"
+        description: "Profiler value (profiling/glibc/alpine) as the image tag part"
         required: true
         default: glibc
 
@@ -60,7 +65,7 @@ jobs:
           retention-days: 1
 
   registry-profiling-image:
-    if: ${{ inputs.BUILD_GLIBC_IMAGE == 'false' }} and ${{ inputs.BUILD_ALPINE_IMAGE == 'false' }}
+    if: ${{ inputs.BUILD_PROFILER_IMAGE == 'true' }} and ${{ inputs.BUILD_GLIBC_IMAGE == 'false' }} and ${{ inputs.BUILD_ALPINE_IMAGE == 'false' }}
     runs-on: [self-hosted, Linux, iroha2]
     needs: build_wasm_libs
     container:
@@ -104,8 +109,8 @@ jobs:
         with:
           push: true
           tags: |
-            hyperledger/iroha:${{ env.TAG }}-${{ env.IROHA2_PROFILE }}
-            docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}-${{ env.IROHA2_PROFILE }}
+            hyperledger/iroha:${{ env.TAG }}-${{ inputs.PROFILER_NAME }}
+            docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}-${{ inputs.PROFILER_NAME }}-${{ github.sha }}
           labels: commit=${{ github.sha }}
           build-args: |
             "PROFILE=${{ env.IROHA2_PROFILE }}"
@@ -116,7 +121,7 @@ jobs:
           context: .
 
   registry-glibc-image:
-    if: ${{ inputs.BUILD_GLIBC_IMAGE == 'true' }} and ${{ inputs.BUILD_ALPINE_IMAGE == 'false' }}
+    if: ${{ inputs.BUILD_PROFILER_IMAGE == 'false' }} and ${{ inputs.BUILD_GLIBC_IMAGE == 'true' }} and ${{ inputs.BUILD_ALPINE_IMAGE == 'false' }}
     runs-on: [self-hosted, Linux, iroha2]
     needs: build_wasm_libs
     container:
@@ -155,7 +160,7 @@ jobs:
           context: .
 
   registry-alpine-image:
-    if: ${{ inputs.BUILD_GLIBC_IMAGE == 'false' }} and ${{ inputs.BUILD_ALPINE_IMAGE == 'true' }}
+    if: ${{ inputs.BUILD_PROFILER_IMAGE == 'false' }} and ${{ inputs.BUILD_GLIBC_IMAGE == 'false' }} and ${{ inputs.BUILD_ALPINE_IMAGE == 'true' }}
     runs-on: [self-hosted, Linux, iroha2]
     needs: build_wasm_libs
     container:
