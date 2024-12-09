@@ -35,7 +35,7 @@ jobs:
             -Dcommunity.rust.lcov.reportPaths=lints/lcov.info
       - name: DefectDojo
         id: defectdojo
-        uses: C4tWithShell/defectdojo-action@1.0.5
+        uses: C4tWithShell/defectdojo-action@1.0.6
         with:
           token: ${{ secrets.DEFECTOJO_TOKEN }}
           defectdojo_url: ${{ secrets.DEFECTOJO_URL }}
