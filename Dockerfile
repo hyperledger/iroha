@@ -42,7 +42,7 @@ RUN cargo build \
     --target x86_64-unknown-linux-musl \
     --profile deploy
 
-FROM alpine:3.20
+FROM alpine:3.21
 
 ARG STORAGE=/storage
 ARG TARGET_DIR=/iroha/target/x86_64-unknown-linux-musl/deploy
