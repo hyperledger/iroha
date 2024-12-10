@@ -4,7 +4,7 @@ use std::fmt;
 use derive_more::Constructor;
 use serde::{Deserialize, Serialize, Serializer};
 
-/// SecretString epresents a sensitive secret string.
+/// String sensitive to printing and serialization
 #[derive(Clone, Deserialize, Constructor)]
 pub struct SecretString(String);
 
