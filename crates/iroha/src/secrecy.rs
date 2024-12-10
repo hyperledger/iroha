@@ -1,12 +1,15 @@
+//! Types for representing securely printable secrets.
 use std::fmt;
 
 use derive_more::Constructor;
 use serde::{Deserialize, Serialize, Serializer};
 
+/// SecretString epresents a sensitive secret string.
 #[derive(Clone, Deserialize, Constructor)]
 pub struct SecretString(String);
 
 impl SecretString {
+    /// Returns underlying secret string
     pub fn expose_secret(&self) -> &str {
         &self.0
     }
