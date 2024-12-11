@@ -9,7 +9,6 @@ env:
   CARGO_TERM_COLOR: always
   DEFAULTS_DIR: defaults
   WASM_TARGET_DIR: wasm/target/prebuilt
-  IROHA2_DOCKERFILE: Dockerfile.glibc
   IROHA2_PROFILE: profiling
   IROHA2_RUSTFLAGS: -C force-frame-pointers=on
   IROHA2_FEATURES: profiling
@@ -61,7 +60,6 @@ jobs:
         with:
           context: .
           load: true
-          file: ${{env.IROHA2_DOCKERFILE }}
           tags: |
             hyperledger/iroha:${{ env.TAG }}
             docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}
@@ -150,5 +148,4 @@ jobs:
             "RUSTFLAGS=${{ env.IROHA2_RUSTFLAGS }}"
             "FEATURES=${{ env.IROHA2_FEATURES }}"
             "CARGOFLAGS=${{ env.IROHA2_CARGOFLAGS }}"
-          file: ${{env.IROHA2_DOCKERFILE }}
           context: .

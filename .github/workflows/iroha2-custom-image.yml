@@ -15,7 +15,6 @@ on:
         default: main
 
 env:
-  IROHA2_DOCKERFILE: Dockerfile.glibc
   IROHA2_PROFILE: profiling
   IROHA2_RUSTFLAGS: -C force-frame-pointers=on
   IROHA2_FEATURES: profiling
@@ -93,7 +92,6 @@ jobs:
             "RUSTFLAGS=${{ env.IROHA2_RUSTFLAGS }}"
             "FEATURES=${{ env.IROHA2_FEATURES }}"
             "CARGOFLAGS=${{ env.IROHA2_CARGOFLAGS }}"
-          file: ${{env.IROHA2_DOCKERFILE }}
           context: .
 
   registry-glibc-image:
@@ -132,7 +130,6 @@ jobs:
           push: true
           tags: docker.soramitsu.co.jp/iroha2/iroha:${{ inputs.PROFILER_NAME }}-${{ github.sha }}
           labels: commit=${{ github.sha }}
-          file: ${{env.IROHA2_DOCKERFILE }}
           context: .
 
   registry-alpine-image:

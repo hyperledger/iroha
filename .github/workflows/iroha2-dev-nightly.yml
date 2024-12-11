@@ -48,6 +48,5 @@ jobs:
           tags: hyperledger/iroha:dev-nightly-${{ github.sha }}
           labels: commit=${{ github.sha }}
           build-args: TAG=dev
-          file: Dockerfile.glibc
           # This context specification is required
           context: .
