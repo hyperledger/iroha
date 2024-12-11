@@ -11,7 +11,7 @@ license.workspace = true
 crate-type = ['cdylib']
 
 [dependencies]
-mint_rose_trigger_data_model = { version = "=2.0.0-rc.1.0", path = "../../../data_model/samples/mint_rose_trigger_data_model" }
+mint_rose_trigger_data_model = { path = "../../../data_model/samples/mint_rose_trigger_data_model" }
 iroha_trigger.workspace = true
 
 panic-halt.workspace = true
