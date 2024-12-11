@@ -3,38 +3,16 @@ name: I2::Custom::Publish
 on:
   workflow_dispatch:
     inputs:
-      BUILD_PROFILER_IMAGE:
-        description: "Select \"true\" to build and push the \"glibc\" image with profiling"
-        type: choice
-        required: true
-        default: 'false'
-        options:
-          - true
-          - false
-      BUILD_GLIBC_IMAGE:
-        description: "Select \"true\" to build and push the standard \"glibc\" image"
-        type: choice
-        required: true
-        default: 'false'
-        options:
-          - true
-          - false
-      BUILD_ALPINE_IMAGE:
-        description: "Select \"true\" to build and push the alpine image from specific commit SHA"
-        type: choice
-        required: true
-        default: 'false'
-        options:
-          - true
-          - false
-      CHECKOUT_REF:
-        description: "The branch, tag or SHA to checkout"
-        required: true
-        default: main
       PROFILER_NAME:
         description: "Profiler value (profiling/glibc/alpine) as the image tag part"
         required: true
+        type: string
         default: glibc
+      CHECKOUT_REF:
+        description: "The branch, tag or SHA to checkout"
+        required: true
+        type: string
+        default: main
 
 env:
   IROHA2_DOCKERFILE: Dockerfile.glibc
@@ -65,7 +43,7 @@ jobs:
           retention-days: 1
 
   registry-profiling-image:
-    if: ${{ inputs.BUILD_PROFILER_IMAGE == 'true' }} and ${{ inputs.BUILD_GLIBC_IMAGE == 'false' }} and ${{ inputs.BUILD_ALPINE_IMAGE == 'false' }}
+    if: ${{ inputs.PROFILER_NAME == 'profiling' }}
     runs-on: [self-hosted, Linux, iroha2]
     needs: build_wasm_libs
     container:
@@ -108,9 +86,7 @@ jobs:
         if: always()
         with:
           push: true
-          tags: |
-            hyperledger/iroha:${{ env.TAG }}-${{ inputs.PROFILER_NAME }}
-            docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}-${{ inputs.PROFILER_NAME }}-${{ github.sha }}
+          tags: docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}-${{ inputs.PROFILER_NAME }}-${{ github.sha }}
           labels: commit=${{ github.sha }}
           build-args: |
             "PROFILE=${{ env.IROHA2_PROFILE }}"
@@ -121,7 +97,7 @@ jobs:
           context: .
 
   registry-glibc-image:
-    if: ${{ inputs.BUILD_PROFILER_IMAGE == 'false' }} and ${{ inputs.BUILD_GLIBC_IMAGE == 'true' }} and ${{ inputs.BUILD_ALPINE_IMAGE == 'false' }}
+    if: ${{ inputs.PROFILER_NAME == 'glibc' }}
     runs-on: [self-hosted, Linux, iroha2]
     needs: build_wasm_libs
     container:
@@ -160,7 +136,7 @@ jobs:
           context: .
 
   registry-alpine-image:
-    if: ${{ inputs.BUILD_PROFILER_IMAGE == 'false' }} and ${{ inputs.BUILD_GLIBC_IMAGE == 'false' }} and ${{ inputs.BUILD_ALPINE_IMAGE == 'true' }}
+    if: ${{ inputs.PROFILER_NAME == 'alpine' }}
     runs-on: [self-hosted, Linux, iroha2]
     needs: build_wasm_libs
     container:
@@ -195,5 +171,5 @@ jobs:
           push: true
           tags: docker.soramitsu.co.jp/iroha2/iroha:${{ inputs.PROFILER_NAME }}-${{ github.sha }}
           labels: commit=${{ github.sha }}
-          file: Dockerfile
+          file: Dockerfile.musl
           context: .
