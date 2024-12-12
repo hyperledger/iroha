@@ -1,66 +1,47 @@
-FROM --platform=linux/amd64 archlinux:base-devel AS builder
+# base stage
+FROM debian:bookworm-slim AS builder
 
-ARG NIGHTLY_VERSION=2024-09-09
+# install required packages
+RUN apt-get update -y && \
+     apt-get install -y curl build-essential mold pkg-config libssl-dev
 
-RUN <<EOT
-  set -eux
-  # Force-sync packages, install archlinux-keyring, repopulate keys
-  pacman -Syy
-  pacman -S archlinux-keyring --noconfirm --disable-download-timeout
-  rm -rf /etc/pacman.d/gnupg/* && pacman-key --init && pacman-key --populate archlinux
-  # Install updates
-  pacman -Syu --noconfirm --disable-download-timeout
-  # Set up Rust toolchain
-  pacman -S rustup wget --noconfirm --disable-download-timeout
-  # Install musl C++ toolchain to build wasm-opt
-  wget -c https://musl.cc/x86_64-linux-musl-native.tgz -O - | tar -xz
-  ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-g++ /x86_64-linux-musl-native/bin/musl-g++
-  ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc-ar /x86_64-linux-musl-native/bin/musl-ar
-  ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc-ar /x86_64-linux-musl-native/bin/x86_64-linux-musl-ar
-  ln -s /x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc-ranlib /x86_64-linux-musl-native/bin/musl-ranlib
-EOT
+# set up Rust toolchain
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN rustup toolchain install nightly-2024-09-09
+RUN rustup default nightly-2024-09-09
+RUN rustup target add wasm32-unknown-unknown
+RUN rustup component add rust-src
 
-RUN <<EOT
-  set -eux
-  rustup toolchain install nightly-$NIGHTLY_VERSION \
-    --profile minimal \
-    --component rust-src
-  rustup default nightly-$NIGHTLY_VERSION
-  rustup target add x86_64-unknown-linux-musl wasm32-unknown-unknown
-EOT
-
-ENV PATH="$PATH:/x86_64-linux-musl-native/bin"
-ENV RUSTFLAGS="-C link-arg=-static"
-ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=/x86_64-linux-musl-native/bin/x86_64-linux-musl-gcc
-
+# builder stage
 WORKDIR /iroha
 COPY . .
-RUN cargo build \
-    --bin irohad \
-    --bin iroha \
-    --bin kagami \
-    --target x86_64-unknown-linux-musl \
-    --profile deploy
+ARG PROFILE="deploy"
+ARG RUSTFLAGS=""
+ARG FEATURES=""
+ARG CARGOFLAGS=""
+RUN RUSTFLAGS="${RUSTFLAGS}" mold --run cargo ${CARGOFLAGS} build --target x86_64-unknown-linux-gnu --profile "${PROFILE}" --features "${FEATURES}"
 
-FROM alpine:3.20
+# final image
+FROM debian:bookworm-slim
 
-ARG STORAGE=/storage
-ARG TARGET_DIR=/iroha/target/x86_64-unknown-linux-musl/deploy
-ENV BIN_PATH=/usr/local/bin/
-ENV CONFIG_DIR=/config
-
-ENV KURA_STORE_DIR=$STORAGE
-ENV SNAPSHOT_STORE_DIR=$STORAGE/snapshot
-
-ENV WASM_DIRECTORY=/app/.cache/wasmtime
-ENV USER=iroha
-ENV UID=1001
-ENV GID=1001
+ARG PROFILE="deploy"
+ARG  STORAGE=/storage
+ARG  TARGET_DIR=/iroha/target/x86_64-unknown-linux-gnu/${PROFILE}
+ENV  BIN_PATH=/usr/local/bin/
+ENV  CONFIG_DIR=/config
+ENV  KURA_STORE_DIR=$STORAGE
+ENV  SNAPSHOT_STORE_DIR=$STORAGE/snapshot
+ENV  WASM_DIRECTORY=/app/.cache/wasmtime
+ENV  USER=iroha
+ENV  UID=1001
+ENV  GID=1001
 
 RUN <<EOT
-  set -eux
-  apk add --no-cache curl ca-certificates jq
-  addgroup -g $GID $USER
+  set -ex
+  apt-get update -y && \
+    apt-get install -y curl ca-certificates jq
+  addgroup --gid $GID $USER &&
   adduser \
     --disabled-password \
     --gecos "" \
