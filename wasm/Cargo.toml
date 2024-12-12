@@ -1,6 +1,6 @@
 [workspace.package]
 edition = "2021"
-version = "2.0.0-rc.1.0"
+version = "2.0.0-rc.2.0"
 # TODO: teams are being deprecated update the authors URL
 authors = ["Iroha 2 team <https://github.com/orgs/soramitsu/teams/iroha2>"]
 
@@ -24,13 +24,13 @@ opt-level = "z"     # Optimize for size vs speed with "s"/"z"(removes vectorizat
 codegen-units = 1   # Further reduces binary size but increases compilation time
 
 [workspace.dependencies]
-iroha_smart_contract = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_smart_contract", features = ["debug"] }
-iroha_trigger = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_trigger", features = ["debug"] }
-iroha_executor = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_executor", features = ["debug"] }
-iroha_schema = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_schema" }
+iroha_smart_contract = { version = "=2.0.0-rc.2.0", path = "../crates/iroha_smart_contract", features = ["debug"] }
+iroha_trigger = { version = "=2.0.0-rc.2.0", path = "../crates/iroha_trigger", features = ["debug"] }
+iroha_executor = { version = "=2.0.0-rc.2.0", path = "../crates/iroha_executor", features = ["debug"] }
+iroha_schema = { version = "=2.0.0-rc.2.0", path = "../crates/iroha_schema" }
 
-iroha_data_model = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_data_model", default-features = false }
-iroha_executor_data_model = { version = "=2.0.0-rc.1.0", path = "../crates/iroha_executor_data_model" }
+iroha_data_model = { version = "=2.0.0-rc.2.0", path = "../crates/iroha_data_model", default-features = false }
+iroha_executor_data_model = { version = "=2.0.0-rc.2.0", path = "../crates/iroha_executor_data_model" }
 mint_rose_trigger_data_model = { path = "../data_model/samples/mint_rose_trigger_data_model" }
 executor_custom_data_model = { path = "../data_model/samples/executor_custom_data_model" }
 
