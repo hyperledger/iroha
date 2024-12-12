@@ -6,7 +6,11 @@ on:
       PROFILER_NAME:
         description: "Profiler value (profiling/glibc/alpine) as the image tag part"
         required: true
-        type: string
+        type: choice
+        options:
+          - profiling
+          - glibc
+          - alpine
         default: glibc
       CHECKOUT_REF:
         description: "The branch, tag or SHA to checkout"
