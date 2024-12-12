@@ -12,12 +12,24 @@ use std::{
 
 use eyre::{bail, eyre, Context as _, Result};
 use path_absolutize::Absolutize;
+use serde::{Deserialize, Serialize};
 
 /// Current toolchain used to build smartcontracts
 const TOOLCHAIN: &str = "+nightly-2024-09-09";
 
 /// Build profile for smartcontracts
-#[derive(Debug, Copy, Clone, Eq, PartialEq, strum::Display, strum::EnumString, Default)]
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    strum::Display,
+    strum::EnumString,
+    Default,
+    Serialize,
+    Deserialize,
+)]
 #[strum(serialize_all = "snake_case")]
 pub enum Profile {
     /// Applies release optimization

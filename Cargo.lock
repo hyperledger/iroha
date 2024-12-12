@@ -3879,6 +3879,7 @@ dependencies = [
  "eyre",
  "owo-colors 4.1.0",
  "path-absolutize",
+ "serde",
  "serde_json",
  "sha256",
  "spinoff",

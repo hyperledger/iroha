@@ -10,6 +10,7 @@ use std::{
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::{AccountId, WasmSmartContract};
 use iroha_wasm_builder::Profile;
+use serde::Deserialize;
 
 /// Generate [`AccountId`](iroha_data_model::account::AccountId) in the given `domain`.
 ///
@@ -130,6 +131,11 @@ pub fn load_sample_wasm(name: impl AsRef<str>) -> WasmSmartContract {
     }
 }
 
+#[derive(Deserialize)]
+struct WasmBuildConfiguration {
+    profile: Profile,
+}
+
 /// Load WASM smart contract build profile
 ///
 /// WASMs must be pre-built with the `build_wasm.sh` script
@@ -150,15 +156,9 @@ pub fn load_wasm_build_profile() -> Profile {
             panic!("could not read WASM build profile");
         }
         Ok(content) => {
-            let parsed: toml::Value =
-                toml::from_str(content.as_str()).expect("must parse config file");
-            let profile_str = parsed
-                .get("profile")
-                .and_then(toml::Value::as_str)
-                .expect("profile must be present in config");
-            profile_str
-                .parse()
-                .unwrap_or_else(|_| panic!("unrecognized profile {profile_str}"))
+            let WasmBuildConfiguration { profile } = toml::from_str(content.as_str())
+                .expect("a valid config must be written by `build_wasm.sh`");
+            profile
         }
     }
 }
