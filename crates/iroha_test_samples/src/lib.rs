@@ -1,6 +1,7 @@
 //! Utility crate for standardized and random signatories.
 
 use std::{
+    fs,
     io::Read,
     path::{Path, PathBuf},
     sync::LazyLock,
@@ -8,6 +9,8 @@ use std::{
 
 use iroha_crypto::KeyPair;
 use iroha_data_model::prelude::{AccountId, WasmSmartContract};
+use iroha_wasm_builder::Profile;
+use serde::Deserialize;
 
 /// Generate [`AccountId`](iroha_data_model::account::AccountId) in the given `domain`.
 ///
@@ -96,6 +99,7 @@ fn read_file(path: impl AsRef<Path>) -> std::io::Result<Vec<u8>> {
 }
 
 const WASM_SAMPLES_PREBUILT_DIR: &str = "wasm/target/prebuilt/samples";
+const WASM_BUILD_CONFIG_PATH: &str = "wasm/target/prebuilt/build_config.toml";
 
 /// Load WASM smart contract from `wasm/samples` by the name of smart contract,
 /// e.g. `default_executor`.
@@ -124,5 +128,37 @@ pub fn load_sample_wasm(name: impl AsRef<str>) -> WasmSmartContract {
             panic!("could not build WASM, see the message above");
         }
         Ok(blob) => WasmSmartContract::from_compiled(blob),
+    }
+}
+
+#[derive(Deserialize)]
+struct WasmBuildConfiguration {
+    profile: Profile,
+}
+
+/// Load WASM smart contract build profile
+///
+/// WASMs must be pre-built with the `build_wasm.sh` script
+pub fn load_wasm_build_profile() -> Profile {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../")
+        .canonicalize()
+        .expect("invoking from crates/iroha_test_samples, should be fine")
+        .join(WASM_BUILD_CONFIG_PATH);
+
+    match fs::read_to_string(&path) {
+        Err(err) => {
+            eprintln!(
+                "ERROR: Could not load WASM build configuration file from `{}`: {err}\n\
+                Make sure to run `build_wasm.sh` first.",
+                path.display(),
+            );
+            panic!("could not read WASM build profile");
+        }
+        Ok(content) => {
+            let WasmBuildConfiguration { profile } = toml::from_str(content.as_str())
+                .expect("a valid config must be written by `build_wasm.sh`");
+            profile
+        }
     }
 }

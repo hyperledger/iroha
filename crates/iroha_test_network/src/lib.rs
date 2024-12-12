@@ -349,7 +349,8 @@ impl NetworkBuilder {
                 ))),
             ]
             .into_iter()
-            .chain(self.extra_isi),
+            .chain(self.extra_isi)
+            .chain(extra_isi),
             topology,
         );
 
