@@ -30,6 +30,7 @@ const TOOLCHAIN: &str = "+nightly-2024-09-09";
     Serialize,
     Deserialize,
 )]
+#[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum Profile {
     /// Applies release optimization
