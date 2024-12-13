@@ -9,6 +9,10 @@ env:
   CARGO_TERM_COLOR: always
   DEFAULTS_DIR: defaults
   WASM_TARGET_DIR: wasm/target/prebuilt
+  IROHA2_PROFILE: profiling
+  IROHA2_RUSTFLAGS: -C force-frame-pointers=on
+  IROHA2_FEATURES: profiling
+  IROHA2_CARGOFLAGS: -Z build-std
 
 jobs:
   build_wasm_libs:
@@ -27,8 +31,8 @@ jobs:
           path: ${{ env.WASM_TARGET_DIR }}/libs
           retention-days: 1
 
-  registry:
-    runs-on: ubuntu-latest
+  registry-no-profiling:
+    runs-on: [self-hosted, Linux, iroha2]
     needs: build_wasm_libs
     steps:
       - uses: actions/checkout@v4
@@ -56,7 +60,6 @@ jobs:
         with:
           context: .
           load: true
-          file: Dockerfile.glibc
           tags: |
             hyperledger/iroha:${{ env.TAG }}
             docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}
@@ -102,3 +105,55 @@ jobs:
             hyperledger/iroha:${{ env.TAG }}
             docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}
           labels: commit=${{ github.sha }}
+
+  registry-with-profiling:
+    runs-on: [self-hosted, Linux, iroha2]
+    needs: build_wasm_libs
+    container:
+      image: hyperledger/iroha2-ci:nightly-2024-09-09
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download wasm libs
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-libs
+          path: ${{ env.DEFAULTS_DIR }}/libs
+      - name: Move the default executor
+        run: mv ${{ env.DEFAULTS_DIR }}/libs/default_executor.wasm ${{ env.DEFAULTS_DIR }}/executor.wasm
+      - name: Get the release tag
+        run: |
+          RELEASE_VERSION=${{ github.ref_name }}
+          PREFIX='v'
+          TAG=${RELEASE_VERSION#$PREFIX}
+          echo "TAG=$TAG" >>$GITHUB_ENV
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Login to Soramitsu Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: docker.soramitsu.co.jp
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_TOKEN }}
+      - name: Set up Docker Buildx
+        id: buildx
+        if: always()
+        uses: docker/setup-buildx-action@v3
+        with:
+          install: true
+      - name: Build and push iroha2-profiling image
+        uses: docker/build-push-action@v6
+        if: always()
+        with:
+          push: true
+          tags: |
+            hyperledger/iroha:${{ env.TAG }}-${{ env.IROHA2_PROFILE }}
+            docker.soramitsu.co.jp/iroha2/iroha:${{ env.TAG }}-${{ env.IROHA2_PROFILE }}
+          labels: commit=${{ github.sha }}
+          build-args: |
+            "PROFILE=${{ env.IROHA2_PROFILE }}"
+            "RUSTFLAGS=${{ env.IROHA2_RUSTFLAGS }}"
+            "FEATURES=${{ env.IROHA2_FEATURES }}"
+            "CARGOFLAGS=${{ env.IROHA2_CARGOFLAGS }}"
+          context: .
