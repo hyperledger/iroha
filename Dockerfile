@@ -1,33 +1,29 @@
-# base stage
-FROM debian:bookworm-slim AS builder
+# builder stage
+FROM rust:slim-bookworm AS builder
+
+WORKDIR /app
 
 # install required packages
 RUN apt-get update -y && \
-     apt-get install -y curl build-essential mold pkg-config libssl-dev
+    apt-get install -y build-essential mold
 
-# set up Rust toolchain
-RUN curl https://sh.rustup.rs -sSf | bash -s -- -y
-ENV PATH="/root/.cargo/bin:${PATH}"
 RUN rustup toolchain install nightly-2024-09-09
-RUN rustup default nightly-2024-09-09
 RUN rustup target add wasm32-unknown-unknown
-RUN rustup component add rust-src
+RUN rustup default nightly-2024-09-09
 
-# builder stage
-WORKDIR /iroha
 COPY . .
 ARG PROFILE="deploy"
 ARG RUSTFLAGS=""
 ARG FEATURES=""
 ARG CARGOFLAGS=""
-RUN RUSTFLAGS="${RUSTFLAGS}" mold --run cargo ${CARGOFLAGS} build --target x86_64-unknown-linux-gnu --profile "${PROFILE}" --features "${FEATURES}"
+RUN RUSTFLAGS="${RUSTFLAGS}" mold --run cargo ${CARGOFLAGS} build --profile "${PROFILE}" --features "${FEATURES}"
 
 # final image
 FROM debian:bookworm-slim
 
 ARG PROFILE="deploy"
 ARG  STORAGE=/storage
-ARG  TARGET_DIR=/iroha/target/x86_64-unknown-linux-gnu/${PROFILE}
+ARG  TARGET_DIR=/app/target/${PROFILE}
 ENV  BIN_PATH=/usr/local/bin/
 ENV  CONFIG_DIR=/config
 ENV  KURA_STORE_DIR=$STORAGE
@@ -63,7 +59,6 @@ COPY --from=builder $TARGET_DIR/iroha $BIN_PATH
 COPY --from=builder $TARGET_DIR/kagami $BIN_PATH
 COPY defaults/genesis.json $CONFIG_DIR
 COPY defaults/executor.wasm $CONFIG_DIR
-COPY defaults/libs $CONFIG_DIR/libs/
 COPY defaults/client.toml $CONFIG_DIR
 USER $USER
 CMD ["irohad"]
