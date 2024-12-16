@@ -7,7 +7,7 @@ use crate::{
     isi::Log,
     prelude::*,
     query::{
-        trigger::FindTriggers, AnyQueryBox, QueryWithFilterFor, QueryWithParams, SingularQueryBox,
+        trigger::FindTriggers, AnyQueryBox, QueryWithFilter, QueryWithParams, SingularQueryBox,
     },
 };
 
@@ -49,34 +49,28 @@ pub trait Visit {
         visit_execute_trigger(&ExecuteTrigger),
         visit_set_parameter(&SetParameter),
         visit_log(&Log),
-        visit_custom(&CustomInstruction),
+        visit_custom_instruction(&CustomInstruction),
 
         // Visit SingularQueryBox
-        visit_find_asset_quantity_by_id(&FindAssetQuantityById),
         visit_find_executor_data_model(&FindExecutorDataModel),
         visit_find_parameters(&FindParameters),
-        visit_find_domain_metadata(&FindDomainMetadata),
-        visit_find_account_metadata(&FindAccountMetadata),
-        visit_find_asset_metadata(&FindAssetMetadata),
-        visit_find_asset_definition_metadata(&FindAssetDefinitionMetadata),
-        visit_find_trigger_metadata(&FindTriggerMetadata),
 
         // Visit IterableQueryBox
-        visit_find_domains(&QueryWithFilterFor<FindDomains>),
-        visit_find_accounts(&QueryWithFilterFor<FindAccounts>),
-        visit_find_assets(&QueryWithFilterFor<FindAssets>),
-        visit_find_assets_definitions(&QueryWithFilterFor<FindAssetsDefinitions>),
-        visit_find_roles(&QueryWithFilterFor<FindRoles>),
-        visit_find_role_ids(&QueryWithFilterFor<FindRoleIds>),
-        visit_find_permissions_by_account_id(&QueryWithFilterFor<FindPermissionsByAccountId>),
-        visit_find_roles_by_account_id(&QueryWithFilterFor<FindRolesByAccountId>),
-        visit_find_accounts_with_asset(&QueryWithFilterFor<FindAccountsWithAsset>),
-        visit_find_peers(&QueryWithFilterFor<FindPeers>),
-        visit_find_active_trigger_ids(&QueryWithFilterFor<FindActiveTriggerIds>),
-        visit_find_triggers(&QueryWithFilterFor<FindTriggers>),
-        visit_find_transactions(&QueryWithFilterFor<FindTransactions>),
-        visit_find_blocks(&QueryWithFilterFor<FindBlocks>),
-        visit_find_block_headers(&QueryWithFilterFor<FindBlockHeaders>),
+        visit_find_domains(&QueryWithFilter<FindDomains>),
+        visit_find_accounts(&QueryWithFilter<FindAccounts>),
+        visit_find_assets(&QueryWithFilter<FindAssets>),
+        visit_find_assets_definitions(&QueryWithFilter<FindAssetsDefinitions>),
+        visit_find_roles(&QueryWithFilter<FindRoles>),
+        visit_find_role_ids(&QueryWithFilter<FindRoleIds>),
+        visit_find_permissions_by_account_id(&QueryWithFilter<FindPermissionsByAccountId>),
+        visit_find_roles_by_account_id(&QueryWithFilter<FindRolesByAccountId>),
+        visit_find_accounts_with_asset(&QueryWithFilter<FindAccountsWithAsset>),
+        visit_find_peers(&QueryWithFilter<FindPeers>),
+        visit_find_active_trigger_ids(&QueryWithFilter<FindActiveTriggerIds>),
+        visit_find_triggers(&QueryWithFilter<FindTriggers>),
+        visit_find_transactions(&QueryWithFilter<FindTransactions>),
+        visit_find_blocks(&QueryWithFilter<FindBlocks>),
+        visit_find_block_headers(&QueryWithFilter<FindBlockHeaders>),
 
         // Visit RegisterBox
         visit_register_peer(&Register<Peer>),
@@ -158,14 +152,8 @@ pub fn visit_singular_query<V: Visit + ?Sized>(visitor: &mut V, query: &Singular
     }
 
     singular_query_visitors! {
-        visit_find_asset_quantity_by_id(FindAssetQuantityById),
         visit_find_executor_data_model(FindExecutorDataModel),
         visit_find_parameters(FindParameters),
-        visit_find_domain_metadata(FindDomainMetadata),
-        visit_find_account_metadata(FindAccountMetadata),
-        visit_find_asset_metadata(FindAssetMetadata),
-        visit_find_asset_definition_metadata(FindAssetDefinitionMetadata),
-        visit_find_trigger_metadata(FindTriggerMetadata),
     }
 }
 
@@ -230,7 +218,7 @@ pub fn visit_instruction<V: Visit + ?Sized>(visitor: &mut V, isi: &InstructionBo
         InstructionBox::Transfer(variant_value) => visitor.visit_transfer(variant_value),
         InstructionBox::Unregister(variant_value) => visitor.visit_unregister(variant_value),
         InstructionBox::Upgrade(variant_value) => visitor.visit_upgrade(variant_value),
-        InstructionBox::Custom(custom) => visitor.visit_custom(custom),
+        InstructionBox::Custom(custom) => visitor.visit_custom_instruction(custom),
     }
 }
 
@@ -373,32 +361,26 @@ leaf_visitors! {
     visit_set_parameter(&SetParameter),
     visit_execute_trigger(&ExecuteTrigger),
     visit_log(&Log),
-    visit_custom(&CustomInstruction),
+    visit_custom_instruction(&CustomInstruction),
 
-    // Singular Quert visitors
-    visit_find_asset_quantity_by_id(&FindAssetQuantityById),
+    // Singular Query visitors
     visit_find_executor_data_model(&FindExecutorDataModel),
     visit_find_parameters(&FindParameters),
-    visit_find_domain_metadata(&FindDomainMetadata),
-    visit_find_account_metadata(&FindAccountMetadata),
-    visit_find_asset_metadata(&FindAssetMetadata),
-    visit_find_asset_definition_metadata(&FindAssetDefinitionMetadata),
-    visit_find_trigger_metadata(&FindTriggerMetadata),
 
     // Iterable Query visitors
-    visit_find_domains(&QueryWithFilterFor<FindDomains>),
-    visit_find_accounts(&QueryWithFilterFor<FindAccounts>),
-    visit_find_assets(&QueryWithFilterFor<FindAssets>),
-    visit_find_assets_definitions(&QueryWithFilterFor<FindAssetsDefinitions>),
-    visit_find_roles(&QueryWithFilterFor<FindRoles>),
-    visit_find_role_ids(&QueryWithFilterFor<FindRoleIds>),
-    visit_find_permissions_by_account_id(&QueryWithFilterFor<FindPermissionsByAccountId>),
-    visit_find_roles_by_account_id(&QueryWithFilterFor<FindRolesByAccountId>),
-    visit_find_accounts_with_asset(&QueryWithFilterFor<FindAccountsWithAsset>),
-    visit_find_peers(&QueryWithFilterFor<FindPeers>),
-    visit_find_active_trigger_ids(&QueryWithFilterFor<FindActiveTriggerIds>),
-    visit_find_triggers(&QueryWithFilterFor<FindTriggers>),
-    visit_find_transactions(&QueryWithFilterFor<FindTransactions>),
-    visit_find_blocks(&QueryWithFilterFor<FindBlocks>),
-    visit_find_block_headers(&QueryWithFilterFor<FindBlockHeaders>),
+    visit_find_domains(&QueryWithFilter<FindDomains>),
+    visit_find_accounts(&QueryWithFilter<FindAccounts>),
+    visit_find_assets(&QueryWithFilter<FindAssets>),
+    visit_find_assets_definitions(&QueryWithFilter<FindAssetsDefinitions>),
+    visit_find_roles(&QueryWithFilter<FindRoles>),
+    visit_find_role_ids(&QueryWithFilter<FindRoleIds>),
+    visit_find_permissions_by_account_id(&QueryWithFilter<FindPermissionsByAccountId>),
+    visit_find_roles_by_account_id(&QueryWithFilter<FindRolesByAccountId>),
+    visit_find_accounts_with_asset(&QueryWithFilter<FindAccountsWithAsset>),
+    visit_find_peers(&QueryWithFilter<FindPeers>),
+    visit_find_active_trigger_ids(&QueryWithFilter<FindActiveTriggerIds>),
+    visit_find_triggers(&QueryWithFilter<FindTriggers>),
+    visit_find_transactions(&QueryWithFilter<FindTransactions>),
+    visit_find_blocks(&QueryWithFilter<FindBlocks>),
+    visit_find_block_headers(&QueryWithFilter<FindBlockHeaders>),
 }

@@ -105,6 +105,13 @@ impl Torii {
                     let kiso = self.kiso.clone();
                     move || routing::handle_get_configuration(kiso)
                 }),
+            )
+            .route(
+                uri::API_VERSION,
+                get({
+                    let state = self.state.clone();
+                    move || routing::handle_version(state)
+                }),
             );
 
         #[cfg(feature = "telemetry")]
@@ -123,6 +130,13 @@ impl Torii {
                 }),
             )
             .route(
+                uri::PEERS,
+                get({
+                    let metrics_reporter = self.metrics_reporter.clone();
+                    move || core::future::ready(routing::handle_peers(&metrics_reporter))
+                }),
+            )
+            .route(
                 uri::STATUS,
                 get({
                     let metrics_reporter = self.metrics_reporter.clone();
@@ -136,13 +150,6 @@ impl Torii {
                 get({
                     let metrics_reporter = self.metrics_reporter.clone();
                     move || core::future::ready(routing::handle_metrics(&metrics_reporter))
-                }),
-            )
-            .route(
-                uri::API_VERSION,
-                get({
-                    let state = self.state.clone();
-                    move || routing::handle_version(state)
                 }),
             );
 

@@ -12,30 +12,12 @@ use derive_more::Constructor;
 use eyre::{eyre, Result, WrapErr};
 use iroha_crypto::KeyPair;
 use iroha_data_model::{block::SignedBlock, parameter::Parameter, prelude::*};
-use iroha_executor_data_model::permission::trigger::{
-    CanRegisterAnyTrigger, CanUnregisterAnyTrigger,
-};
 use iroha_schema::IntoSchema;
 use parity_scale_codec::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
 /// Domain of the genesis account, technically required for the pre-genesis state
 pub static GENESIS_DOMAIN_ID: LazyLock<DomainId> = LazyLock::new(|| "genesis".parse().unwrap());
-
-/// Domain of the system account, implicitly registered in the genesis
-pub static SYSTEM_DOMAIN_ID: LazyLock<DomainId> = LazyLock::new(|| "system".parse().unwrap());
-
-/// The root authority for internal operations, implicitly registered in the genesis
-// FIXME #5022 deny external access
-// kagami crypto --seed "system"
-pub static SYSTEM_ACCOUNT_ID: LazyLock<AccountId> = LazyLock::new(|| {
-    AccountId::new(
-        SYSTEM_DOMAIN_ID.clone(),
-        "ed0120D8B64D62FD8E09B9F29FE04D9C63E312EFB1CB29F1BF6AF00EBC263007AE75F7"
-            .parse()
-            .unwrap(),
-    )
-});
 
 /// Genesis block.
 ///
@@ -246,37 +228,6 @@ impl GenesisBuilder {
             wasm_dir: wasm_dir.into(),
             wasm_triggers: Vec::new(),
             topology: Vec::new(),
-        }
-    }
-
-    /// Entry system entities to serve standard functionality.
-    pub fn install_libs(self) -> Self {
-        // Register a trigger that reacts to domain creation (or owner changes) and registers (or replaces) a multisig accounts registry for the domain
-        let multisig_domains_initializer = GenesisWasmTrigger::new(
-            "multisig_domains".parse().unwrap(),
-            GenesisWasmAction::new(
-                "multisig_domains.wasm",
-                Repeats::Indefinitely,
-                SYSTEM_ACCOUNT_ID.clone(),
-                DomainEventFilter::new()
-                    .for_events(DomainEventSet::Created | DomainEventSet::OwnerChanged),
-            ),
-        );
-        let instructions = vec![
-            Register::domain(Domain::new(SYSTEM_DOMAIN_ID.clone())).into(),
-            Register::account(Account::new(SYSTEM_ACCOUNT_ID.clone())).into(),
-            Grant::account_permission(CanRegisterAnyTrigger, SYSTEM_ACCOUNT_ID.clone()).into(),
-            Grant::account_permission(CanUnregisterAnyTrigger, SYSTEM_ACCOUNT_ID.clone()).into(),
-        ];
-
-        Self {
-            chain: self.chain,
-            executor: self.executor,
-            parameters: self.parameters,
-            instructions,
-            wasm_dir: self.wasm_dir,
-            wasm_triggers: vec![multisig_domains_initializer],
-            topology: self.topology,
         }
     }
 

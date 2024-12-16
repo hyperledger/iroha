@@ -5,7 +5,6 @@ use iroha_data_model::{prelude::*, query::error::FindError};
 use iroha_telemetry::metrics;
 
 use super::prelude::*;
-use crate::ValidSingularQuery;
 
 impl Registrable for iroha_data_model::account::NewAccount {
     type Target = Account;
@@ -57,7 +56,7 @@ pub mod isi {
                         )?;
                         let asset = state_transaction
                             .world
-                            .asset_or_insert(asset_id.clone(), self.object.value)
+                            .asset_or_insert(&asset_id, self.object.value)
                             .expect("Account exists");
 
                         match asset.value {
@@ -442,18 +441,8 @@ pub mod query {
     use iroha_data_model::{
         account::Account,
         permission::Permission,
-        query::{
-            error::QueryExecutionFail as Error,
-            predicate::{
-                predicate_atoms::{
-                    account::AccountPredicateBox, permission::PermissionPredicateBox,
-                    role::RoleIdPredicateBox,
-                },
-                CompoundPredicate,
-            },
-        },
+        query::{dsl::CompoundPredicate, error::QueryExecutionFail as Error},
     };
-    use iroha_primitives::json::Json;
 
     use super::*;
     use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
@@ -462,7 +451,7 @@ pub mod query {
         #[metrics(+"find_roles_by_account_id")]
         fn execute(
             self,
-            filter: CompoundPredicate<RoleIdPredicateBox>,
+            filter: CompoundPredicate<RoleId>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = RoleId>, Error> {
             let account_id = &self.id;
@@ -479,7 +468,7 @@ pub mod query {
         #[metrics(+"find_permissions_by_account_id")]
         fn execute(
             self,
-            filter: CompoundPredicate<PermissionPredicateBox>,
+            filter: CompoundPredicate<Permission>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = Permission>, Error> {
             let account_id = &self.id;
@@ -495,7 +484,7 @@ pub mod query {
         #[metrics(+"find_accounts")]
         fn execute(
             self,
-            filter: CompoundPredicate<AccountPredicateBox>,
+            filter: CompoundPredicate<Account>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = Account>, Error> {
             Ok(state_ro
@@ -506,25 +495,11 @@ pub mod query {
         }
     }
 
-    impl ValidSingularQuery for FindAccountMetadata {
-        #[metrics(+"find_account_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, Error> {
-            let id = &self.id;
-            let key = &self.key;
-            iroha_logger::trace!(%id, %key);
-            state_ro
-                .world()
-                .map_account(id, |account| account.metadata.get(key).cloned())?
-                .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
-                .map(Into::into)
-        }
-    }
-
     impl ValidQuery for FindAccountsWithAsset {
         #[metrics(+"find_accounts_with_asset")]
         fn execute(
             self,
-            filter: CompoundPredicate<AccountPredicateBox>,
+            filter: CompoundPredicate<Account>,
             state_ro: &impl StateReadOnly,
         ) -> std::result::Result<impl Iterator<Item = Account>, Error> {
             let asset_definition_id = self.asset_definition.clone();

@@ -273,7 +273,7 @@ impl Sumeragi {
                     }
 
                     // NOTE: By this time genesis block is executed and list of trusted peers is updated
-                    self.topology = Topology::new(state_block.world.trusted_peers_ids.clone());
+                    self.topology = Topology::new(state_block.world.peers.clone());
                     self.commit_block(block, state_block);
                     return Ok(());
                 }
@@ -312,13 +312,23 @@ impl Sumeragi {
         .unpack(|e| self.send_event(e))
         .expect("Genesis invalid");
 
-        assert!(
-            genesis.as_ref().errors().next().is_none(),
-            "Genesis contains invalid transactions"
-        );
+        if genesis.as_ref().errors().next().is_some() {
+            let errors = genesis
+                .as_ref()
+                .errors()
+                .map(|(&transaction_index, rejection_reason)| {
+                    format!(
+                        "===\nTx {transaction_index}:\n{:?}",
+                        eyre::Error::new(rejection_reason.clone())
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            panic!("Genesis contains invalid transactions:\n{errors}");
+        }
 
         // NOTE: By this time genesis block is executed and list of trusted peers is updated
-        self.topology = Topology::new(state_block.world.trusted_peers_ids.clone());
+        self.topology = Topology::new(state_block.world.peers.clone());
 
         let genesis = genesis
             .commit(&self.topology)
@@ -343,7 +353,7 @@ impl Sumeragi {
         let prev_role = self.role();
 
         self.topology
-            .block_committed(state_block.world.peers().cloned());
+            .block_committed(state_block.world.peers().clone());
 
         let state_events =
             state_block.apply_without_execution(&block, self.topology.as_ref().to_owned());

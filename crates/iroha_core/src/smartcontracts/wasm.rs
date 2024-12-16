@@ -40,6 +40,9 @@ use crate::{
     state::{StateReadOnly, StateTransaction, WorldReadOnly},
 };
 
+/// Cache for WASM Runtime
+pub mod cache;
+
 /// Name of the exported memory
 const WASM_MEMORY: &str = "memory";
 const WASM_MODULE: &str = "iroha";
@@ -106,11 +109,6 @@ pub mod error {
     pub enum Error {
         /// Runtime initialization failure
         Initialization(#[source] WasmtimeError),
-        /// Runtime finalization failure.
-        ///
-        /// Currently only [`crate::query::store::Error`] might fail in this case.
-        /// [`From`] is not implemented to force users to explicitly wrap this error.
-        Finalization(#[source] crate::query::store::Error),
         /// Failed to load module
         ModuleLoading(#[source] WasmtimeError),
         /// Module could not be instantiated
@@ -527,7 +525,9 @@ pub mod state {
         use super::*;
 
         /// State for executing `execute_transaction()` entrypoint
-        pub type ExecuteTransaction<'wrld, 'block, 'state> = CommonState<
+        pub type ExecuteTransaction<'wrld, 'block, 'state> =
+            Option<ExecuteTransactionInner<'wrld, 'block, 'state>>;
+        type ExecuteTransactionInner<'wrld, 'block, 'state> = CommonState<
             chain_state::WithMut<'wrld, 'block, 'state>,
             specific::executor::ExecuteTransaction,
         >;
@@ -561,7 +561,7 @@ pub mod state {
         }
 
         impl_blank_validate_operations!(
-            ExecuteTransaction<'_, '_, '_>,
+            ExecuteTransactionInner<'_, '_, '_>,
             ExecuteInstruction<'_, '_, '_>,
             Migrate<'_, '_, '_>,
         );
@@ -583,6 +583,14 @@ pub struct Runtime<S> {
     engine: Engine,
     linker: Linker<S>,
     config: Config,
+}
+
+/// `Runtime` with instantiated module.
+/// Needed to reuse `instance` for multiple transactions during validation.
+pub struct RuntimeFull<S> {
+    runtime: Runtime<S>,
+    store: Store<S>,
+    instance: Instance,
 }
 
 impl<S> Runtime<S> {
@@ -754,6 +762,17 @@ impl<W, S> Runtime<state::CommonState<W, S>> {
     }
 }
 
+impl<W, S> Runtime<Option<CommonState<W, S>>> {
+    #[codec::wrap]
+    fn log(
+        (log_level, msg): (u8, String),
+        state: &Option<CommonState<W, S>>,
+    ) -> Result<(), WasmtimeError> {
+        let state = state.as_ref().unwrap();
+        Runtime::<CommonState<W, S>>::__log_inner((log_level, msg), state)
+    }
+}
+
 impl<W: state::chain_state::ConstState, T: Clone> Runtime<state::CommonState<W, Validate<T>>>
 where
     payloads::Validate<T>: Encode,
@@ -764,49 +783,105 @@ where
         state: state::CommonState<W, Validate<T>>,
         validate_fn_name: &'static str,
     ) -> Result<executor::Result> {
+        let context = create_validate_context(&state);
         let mut store = self.create_store(state);
         let instance = self.instantiate_module(module, &mut store)?;
 
-        let validate_fn = Self::get_typed_func(&instance, &mut store, validate_fn_name)?;
-        let context = Self::get_validate_context(&instance, &mut store);
-
-        // NOTE: This function takes ownership of the pointer
-        let offset = validate_fn
-            .call(&mut store, context)
-            .map_err(ExportFnCallError::from)?;
-
-        let memory =
-            Self::get_memory(&mut (&instance, &mut store)).expect("Checked at instantiation step");
-        let dealloc_fn =
-            Self::get_typed_func(&instance, &mut store, import::SMART_CONTRACT_DEALLOC)
-                .expect("Checked at instantiation step");
         let validation_res =
-            codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut store, offset)
-                .map_err(Error::Decode)?;
+            execute_executor_validate_part1(&mut store, &instance, context, validate_fn_name)?;
 
-        let mut state = store.into_data();
-        let executed_queries = state.take_executed_queries();
-        forget_all_executed_queries(
-            state.state.state().borrow().query_handle(),
-            executed_queries,
-        );
+        let state = store.into_data();
+        execute_executor_validate_part2(state);
+
+        Ok(validation_res)
+    }
+}
+
+impl<W: state::chain_state::ConstState, T: Clone> RuntimeFull<Option<CommonState<W, Validate<T>>>>
+where
+    payloads::Validate<T>: Encode,
+{
+    fn execute_executor_execute_internal(
+        &mut self,
+        state: CommonState<W, Validate<T>>,
+        validate_fn_name: &'static str,
+    ) -> Result<executor::Result> {
+        let context = create_validate_context(&state);
+        self.set_store_state(state);
+
+        let validation_res = execute_executor_validate_part1(
+            &mut self.store,
+            &self.instance,
+            context,
+            validate_fn_name,
+        )?;
+
+        let state =
+            self.store.data_mut().take().expect(
+                "Store data was set at the beginning of execute_executor_validate_internal",
+            );
+        execute_executor_validate_part2(state);
 
         Ok(validation_res)
     }
 
-    fn get_validate_context(
-        instance: &Instance,
-        store: &mut Store<CommonState<W, Validate<T>>>,
-    ) -> WasmUsize {
-        let state = store.data();
-        let context = payloads::Validate {
-            context: payloads::ExecutorContext {
-                authority: state.authority.clone(),
-                curr_block: state.specific_state.curr_block,
-            },
-            target: state.specific_state.to_validate.clone(),
-        };
-        Self::encode_payload(instance, store, context)
+    fn set_store_state(&mut self, state: CommonState<W, Validate<T>>) {
+        *self.store.data_mut() = Some(state);
+
+        self.store
+            .limiter(|s| &mut s.as_mut().unwrap().store_limits);
+
+        // Need to set fuel again for each transaction since store is shared across transactions
+        self.store
+            .set_fuel(self.runtime.config.fuel.get())
+            .expect("Fuel consumption is enabled");
+    }
+}
+
+fn execute_executor_validate_part1<S, T>(
+    store: &mut Store<S>,
+    instance: &Instance,
+    context: payloads::Validate<T>,
+    validate_fn_name: &'static str,
+) -> Result<executor::Result>
+where
+    payloads::Validate<T>: Encode,
+{
+    let validate_fn = Runtime::get_typed_func(instance, &mut *store, validate_fn_name)?;
+    let context = Runtime::encode_payload(instance, &mut *store, context);
+
+    // NOTE: This function takes ownership of the pointer
+    let offset = validate_fn
+        .call(&mut *store, context)
+        .map_err(ExportFnCallError::from)?;
+
+    let memory = Runtime::<S>::get_memory(&mut (instance, &mut *store))
+        .expect("Checked at instantiation step");
+    let dealloc_fn = Runtime::get_typed_func(instance, &mut *store, import::SMART_CONTRACT_DEALLOC)
+        .expect("Checked at instantiation step");
+    codec::decode_with_length_prefix_from_memory(&memory, &dealloc_fn, &mut *store, offset)
+        .map_err(Error::Decode)
+}
+
+fn execute_executor_validate_part2<W: state::chain_state::ConstState, S>(
+    mut state: CommonState<W, S>,
+) {
+    let executed_queries = state.take_executed_queries();
+    forget_all_executed_queries(
+        state.state.state().borrow().query_handle(),
+        executed_queries,
+    );
+}
+
+fn create_validate_context<W: state::chain_state::ConstState, T: Clone>(
+    state: &CommonState<W, Validate<T>>,
+) -> payloads::Validate<T> {
+    payloads::Validate {
+        context: payloads::ExecutorContext {
+            authority: state.authority.clone(),
+            curr_block: state.specific_state.curr_block,
+        },
+        target: state.specific_state.to_validate.clone(),
     }
 }
 
@@ -1110,6 +1185,37 @@ where
     }
 }
 
+impl<'wrld, 'block, 'state, R, S>
+    import::traits::ExecuteOperations<Option<CommonState<WithMut<'wrld, 'block, 'state>, S>>> for R
+where
+    R: ExecuteOperationsAsExecutorMut<Option<CommonState<WithMut<'wrld, 'block, 'state>, S>>>,
+    CommonState<WithMut<'wrld, 'block, 'state>, S>: state::ValidateQueryOperation,
+{
+    #[codec::wrap]
+    fn execute_query(
+        query_request: QueryRequest,
+        state: &mut Option<CommonState<WithMut<'wrld, 'block, 'state>, S>>,
+    ) -> Result<QueryResponse, ValidationFail> {
+        debug!(?query_request, "Executing as executor");
+
+        let state = state.as_mut().unwrap();
+        Runtime::default_execute_query(query_request, state)
+    }
+
+    #[codec::wrap]
+    fn execute_instruction(
+        instruction: InstructionBox,
+        state: &mut Option<CommonState<WithMut<'wrld, 'block, 'state>, S>>,
+    ) -> Result<(), ValidationFail> {
+        debug!(%instruction, "Executing as executor");
+
+        let state = state.as_mut().unwrap();
+        instruction
+            .execute(&state.authority.clone(), state.state.0)
+            .map_err(Into::into)
+    }
+}
+
 /// Marker trait to auto-implement [`import_traits::SetExecutorDataModel`] for a concrete [`Runtime`].
 ///
 /// Useful because *Executor* exposes more entrypoints than just `migrate()` which is the
@@ -1132,7 +1238,9 @@ where
     }
 }
 
-impl<'wrld, 'block, 'state> Runtime<state::executor::ExecuteTransaction<'wrld, 'block, 'state>> {
+impl<'wrld, 'block, 'state>
+    RuntimeFull<state::executor::ExecuteTransaction<'wrld, 'block, 'state>>
+{
     /// Execute `execute_transaction()` entrypoint of the given module of runtime executor
     ///
     /// # Errors
@@ -1142,24 +1250,23 @@ impl<'wrld, 'block, 'state> Runtime<state::executor::ExecuteTransaction<'wrld, '
     /// - if the execution of the smartcontract fails
     /// - if unable to decode [`executor::Result`]
     pub fn execute_executor_execute_transaction(
-        &self,
+        &mut self,
         state_transaction: &'wrld mut StateTransaction<'block, 'state>,
         authority: &AccountId,
-        module: &wasmtime::Module,
         transaction: SignedTransaction,
     ) -> Result<executor::Result> {
         let span = wasm_log_span!("Running `execute_transaction()`");
         let curr_block = state_transaction.curr_block;
 
-        let state = state::executor::ExecuteTransaction::new(
+        let state = CommonState::new(
             authority.clone(),
-            self.config,
+            self.runtime.config,
             span,
             state::chain_state::WithMut(state_transaction),
             state::specific::executor::ExecuteTransaction::new(transaction, curr_block),
         );
 
-        self.execute_executor_execute_internal(module, state, import::EXECUTOR_EXECUTE_TRANSACTION)
+        self.execute_executor_execute_internal(state, import::EXECUTOR_EXECUTE_TRANSACTION)
     }
 }
 
@@ -1410,7 +1517,7 @@ macro_rules! create_imports {
         $linker.func_wrap(
                 WASM_MODULE,
                 export::LOG,
-                |caller: ::wasmtime::Caller<$ty>, offset, len| Runtime::log(caller, offset, len),
+                |caller: ::wasmtime::Caller<$ty>, offset, len| Runtime::<$ty>::log(caller, offset, len),
             )
             .and_then(|l| {
                 l.func_wrap(

@@ -41,6 +41,7 @@ impl Serialize for WithContext<'_, '_, ArrayMeta> {
     }
 }
 impl PartialEq for WithContext<'_, '_, ArrayMeta> {
+    #[expect(clippy::suspicious_operation_groupings)]
     fn eq(&self, other: &Self) -> bool {
         self.type_name(self.data.ty) == other.type_name(other.data.ty)
             && self.data.len == other.data.len
@@ -67,6 +68,7 @@ impl Serialize for WithContext<'_, '_, Declaration> {
     }
 }
 impl PartialEq for WithContext<'_, '_, Declaration> {
+    #[expect(clippy::suspicious_operation_groupings)]
     fn eq(&self, other: &Self) -> bool {
         self.data.name == other.data.name
             && self.type_name(self.data.ty) == other.type_name(other.data.ty)
@@ -208,6 +210,7 @@ impl Serialize for WithContext<'_, '_, FixedMeta> {
     }
 }
 impl PartialEq for WithContext<'_, '_, FixedMeta> {
+    #[expect(clippy::suspicious_operation_groupings)]
     fn eq(&self, other: &Self) -> bool {
         self.data.decimal_places == other.data.decimal_places
             && self.type_name(self.data.base) == other.type_name(other.data.base)
@@ -226,6 +229,7 @@ impl Serialize for WithContext<'_, '_, BitmapMeta> {
     }
 }
 impl PartialEq for WithContext<'_, '_, BitmapMeta> {
+    #[expect(clippy::suspicious_operation_groupings)]
     fn eq(&self, other: &Self) -> bool {
         self.type_name(self.data.repr) == other.type_name(other.data.repr)
             && self.data.masks == other.data.masks

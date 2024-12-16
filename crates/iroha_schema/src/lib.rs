@@ -16,7 +16,7 @@ use alloc::{
     vec::Vec,
 };
 use core::{
-    num::{NonZeroU32, NonZeroU64},
+    num::{NonZeroU16, NonZeroU32, NonZeroU64},
     ops::RangeInclusive,
 };
 
@@ -280,6 +280,22 @@ pub struct BitmapMask {
 #[derive(Debug, Clone, Serialize)]
 pub struct Compact<T>(T);
 
+impl TypeId for () {
+    fn id() -> String {
+        "()".to_owned()
+    }
+}
+impl IntoSchema for () {
+    fn type_name() -> String {
+        "()".to_owned()
+    }
+    fn update_schema_map(map: &mut MetaMap) {
+        if !map.contains_key::<Self>() {
+            map.insert::<Self>(Metadata::Tuple(UnnamedFieldsMeta { types: vec![] }));
+        }
+    }
+}
+
 macro_rules! impl_schema_int {
     ($($t:ty),*) => {$(
         impl TypeId for $t {
@@ -342,7 +358,7 @@ macro_rules! impl_schema_non_zero_int {
     )*};
 }
 
-impl_schema_non_zero_int!(NonZeroU64 => u64, NonZeroU32 => u32);
+impl_schema_non_zero_int!(NonZeroU64 => u64, NonZeroU32 => u32, NonZeroU16 => u16);
 
 impl TypeId for String {
     fn id() -> String {

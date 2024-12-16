@@ -56,7 +56,7 @@ use crate::{
         },
         wasm, Execute,
     },
-    PeersIds,
+    Peers,
 };
 
 /// The global entity consisting of `domains`, `triggers` and etc.
@@ -65,8 +65,8 @@ use crate::{
 pub struct World {
     /// Iroha on-chain parameters.
     pub(crate) parameters: Cell<Parameters>,
-    /// Identifications of discovered trusted peers.
-    pub(crate) trusted_peers_ids: Cell<PeersIds>,
+    /// Identifications of discovered peers.
+    pub(crate) peers: Cell<Peers>,
     /// Registered domains.
     pub(crate) domains: Storage<DomainId, Domain>,
     /// Registered accounts.
@@ -93,8 +93,8 @@ pub struct World {
 pub struct WorldBlock<'world> {
     /// Iroha on-chain parameters.
     pub parameters: CellBlock<'world, Parameters>,
-    /// Identifications of discovered trusted peers.
-    pub(crate) trusted_peers_ids: CellBlock<'world, PeersIds>,
+    /// Identifications of discovered peers.
+    pub(crate) peers: CellBlock<'world, Peers>,
     /// Registered domains.
     pub(crate) domains: StorageBlock<'world, DomainId, Domain>,
     /// Registered accounts.
@@ -123,8 +123,8 @@ pub struct WorldBlock<'world> {
 pub struct WorldTransaction<'block, 'world> {
     /// Iroha on-chain parameters.
     pub(crate) parameters: CellTransaction<'block, 'world, Parameters>,
-    /// Identifications of discovered trusted peers.
-    pub(crate) trusted_peers_ids: CellTransaction<'block, 'world, PeersIds>,
+    /// Identifications of discovered peers.
+    pub(crate) peers: CellTransaction<'block, 'world, Peers>,
     /// Registered domains.
     pub(crate) domains: StorageTransaction<'block, 'world, DomainId, Domain>,
     /// Registered accounts.
@@ -162,8 +162,8 @@ struct TransactionEventBuffer<'block> {
 pub struct WorldView<'world> {
     /// Iroha on-chain parameters.
     pub(crate) parameters: CellView<'world, Parameters>,
-    /// Identifications of discovered trusted peers.
-    pub(crate) trusted_peers_ids: CellView<'world, PeersIds>,
+    /// Identifications of discovered peers.
+    pub(crate) peers: CellView<'world, Peers>,
     /// Registered domains.
     pub(crate) domains: StorageView<'world, DomainId, Domain>,
     /// Registered accounts.
@@ -303,7 +303,7 @@ impl World {
         Self::default()
     }
 
-    /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
+    /// Creates a [`World`] with these [`Domain`]s and [`Peer`]s.
     pub fn with<D, A, Ad>(domains: D, accounts: A, asset_definitions: Ad) -> Self
     where
         D: IntoIterator<Item = Domain>,
@@ -313,7 +313,7 @@ impl World {
         Self::with_assets(domains, accounts, asset_definitions, [])
     }
 
-    /// Creates a [`World`] with these [`Domain`]s and trusted [`PeerId`]s.
+    /// Creates a [`World`] with these [`Domain`]s and [`Peer`]s.
     pub fn with_assets<D, A, Ad, As>(
         domains: D,
         accounts: A,
@@ -352,7 +352,7 @@ impl World {
     pub fn block(&self) -> WorldBlock {
         WorldBlock {
             parameters: self.parameters.block(),
-            trusted_peers_ids: self.trusted_peers_ids.block(),
+            peers: self.peers.block(),
             domains: self.domains.block(),
             accounts: self.accounts.block(),
             asset_definitions: self.asset_definitions.block(),
@@ -371,7 +371,7 @@ impl World {
     pub fn block_and_revert(&self) -> WorldBlock {
         WorldBlock {
             parameters: self.parameters.block_and_revert(),
-            trusted_peers_ids: self.trusted_peers_ids.block_and_revert(),
+            peers: self.peers.block_and_revert(),
             domains: self.domains.block_and_revert(),
             accounts: self.accounts.block_and_revert(),
             asset_definitions: self.asset_definitions.block_and_revert(),
@@ -390,7 +390,7 @@ impl World {
     pub fn view(&self) -> WorldView {
         WorldView {
             parameters: self.parameters.view(),
-            trusted_peers_ids: self.trusted_peers_ids.view(),
+            peers: self.peers.view(),
             domains: self.domains.view(),
             accounts: self.accounts.view(),
             asset_definitions: self.asset_definitions.view(),
@@ -409,7 +409,7 @@ impl World {
 #[allow(missing_docs)]
 pub trait WorldReadOnly {
     fn parameters(&self) -> &Parameters;
-    fn trusted_peers_ids(&self) -> &PeersIds;
+    fn peers(&self) -> &Peers;
     fn domains(&self) -> &impl StorageReadOnly<DomainId, Domain>;
     fn accounts(&self) -> &impl StorageReadOnly<AccountId, Account>;
     fn asset_definitions(&self) -> &impl StorageReadOnly<AssetDefinitionId, AssetDefinition>;
@@ -635,17 +635,6 @@ pub trait WorldReadOnly {
     fn asset_total_amount(&self, definition_id: &AssetDefinitionId) -> Result<Numeric, FindError> {
         Ok(self.asset_definition(definition_id)?.total_quantity)
     }
-
-    /// Get an immutable iterator over the [`PeerId`]s.
-    fn peers(&self) -> impl ExactSizeIterator<Item = &PeerId> {
-        self.trusted_peers_ids().iter()
-    }
-
-    /// Returns reference for trusted peer ids
-    #[inline]
-    fn peers_ids(&self) -> &PeersIds {
-        self.trusted_peers_ids()
-    }
 }
 
 macro_rules! impl_world_ro {
@@ -654,8 +643,8 @@ macro_rules! impl_world_ro {
             fn parameters(&self) -> &Parameters {
                 &self.parameters
             }
-            fn trusted_peers_ids(&self) -> &PeersIds {
-                &self.trusted_peers_ids
+            fn peers(&self) -> &Peers {
+                &self.peers
             }
             fn domains(&self) -> &impl StorageReadOnly<DomainId, Domain> {
                 &self.domains
@@ -700,7 +689,7 @@ impl<'world> WorldBlock<'world> {
     pub fn trasaction(&mut self) -> WorldTransaction<'_, 'world> {
         WorldTransaction {
             parameters: self.parameters.transaction(),
-            trusted_peers_ids: self.trusted_peers_ids.transaction(),
+            peers: self.peers.transaction(),
             domains: self.domains.transaction(),
             accounts: self.accounts.transaction(),
             asset_definitions: self.asset_definitions.transaction(),
@@ -723,7 +712,7 @@ impl<'world> WorldBlock<'world> {
         // NOTE: intentionally destruct self not to forget commit some fields
         let Self {
             parameters,
-            trusted_peers_ids,
+            peers,
             domains,
             accounts,
             asset_definitions,
@@ -747,7 +736,7 @@ impl<'world> WorldBlock<'world> {
         asset_definitions.commit();
         accounts.commit();
         domains.commit();
-        trusted_peers_ids.commit();
+        peers.commit();
         parameters.commit();
     }
 }
@@ -758,7 +747,7 @@ impl WorldTransaction<'_, '_> {
         // NOTE: intentionally destruct self not to forget commit some fields
         let Self {
             parameters,
-            trusted_peers_ids,
+            peers,
             domains,
             accounts,
             asset_definitions,
@@ -781,7 +770,7 @@ impl WorldTransaction<'_, '_> {
         asset_definitions.apply();
         accounts.apply();
         domains.apply();
-        trusted_peers_ids.apply();
+        peers.apply();
         parameters.apply();
         events_buffer.events_created_in_transaction = 0;
     }
@@ -868,14 +857,14 @@ impl WorldTransaction<'_, '_> {
     #[allow(clippy::missing_panics_doc)]
     pub fn asset_or_insert(
         &mut self,
-        asset_id: AssetId,
+        asset_id: &AssetId,
         default_asset_value: impl Into<AssetValue>,
     ) -> Result<&mut Asset, Error> {
         self.domain(&asset_id.definition.domain)?;
         self.asset_definition(&asset_id.definition)?;
         self.account(&asset_id.account)?;
 
-        if self.assets.get(&asset_id).is_none() {
+        if self.assets.get(asset_id).is_none() {
             let asset = Asset::new(asset_id.clone(), default_asset_value.into());
 
             Self::emit_events_impl(
@@ -887,7 +876,7 @@ impl WorldTransaction<'_, '_> {
         }
         Ok(self
             .assets
-            .get_mut(&asset_id)
+            .get_mut(asset_id)
             .expect("Just inserted, cannot fail."))
     }
 
@@ -1864,7 +1853,7 @@ pub(crate) mod deserialize {
                     M: MapAccess<'de>,
                 {
                     let mut parameters = None;
-                    let mut trusted_peers_ids = None;
+                    let mut peers = None;
                     let mut domains = None;
                     let mut accounts = None;
                     let mut asset_definitions = None;
@@ -1881,8 +1870,8 @@ pub(crate) mod deserialize {
                             "parameters" => {
                                 parameters = Some(map.next_value()?);
                             }
-                            "trusted_peers_ids" => {
-                                trusted_peers_ids = Some(map.next_value()?);
+                            "peers" => {
+                                peers = Some(map.next_value()?);
                             }
                             "domains" => {
                                 domains = Some(map.next_value()?);
@@ -1925,8 +1914,7 @@ pub(crate) mod deserialize {
                     Ok(World {
                         parameters: parameters
                             .ok_or_else(|| serde::de::Error::missing_field("parameters"))?,
-                        trusted_peers_ids: trusted_peers_ids
-                            .ok_or_else(|| serde::de::Error::missing_field("trusted_peers_ids"))?,
+                        peers: peers.ok_or_else(|| serde::de::Error::missing_field("peers"))?,
                         domains: domains
                             .ok_or_else(|| serde::de::Error::missing_field("domains"))?,
                         accounts: accounts
@@ -1955,7 +1943,7 @@ pub(crate) mod deserialize {
                 "World",
                 &[
                     "parameters",
-                    "trusted_peers_ids",
+                    "peers",
                     "domains",
                     "roles",
                     "account_permissions",

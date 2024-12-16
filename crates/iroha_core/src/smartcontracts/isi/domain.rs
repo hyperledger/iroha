@@ -380,15 +380,10 @@ pub mod isi {
 
 /// Query module provides [`Query`] Domain related implementations.
 pub mod query {
-    use eyre::Result;
     use iroha_data_model::{
         domain::Domain,
-        query::{
-            error::QueryExecutionFail as Error,
-            predicate::{predicate_atoms::domain::DomainPredicateBox, CompoundPredicate},
-        },
+        query::{dsl::CompoundPredicate, error::QueryExecutionFail},
     };
-    use iroha_primitives::json::Json;
 
     use super::*;
     use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
@@ -397,45 +392,14 @@ pub mod query {
         #[metrics(+"find_domains")]
         fn execute(
             self,
-            filter: CompoundPredicate<DomainPredicateBox>,
+            filter: CompoundPredicate<Domain>,
             state_ro: &impl StateReadOnly,
-        ) -> std::result::Result<impl Iterator<Item = Domain>, Error> {
+        ) -> std::result::Result<impl Iterator<Item = Domain>, QueryExecutionFail> {
             Ok(state_ro
                 .world()
                 .domains_iter()
                 .filter(move |&v| filter.applies(v))
                 .cloned())
-        }
-    }
-
-    impl ValidSingularQuery for FindDomainMetadata {
-        #[metrics(+"find_domain_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, Error> {
-            let id = &self.id;
-            let key = &self.key;
-            iroha_logger::trace!(%id, %key);
-            state_ro
-                .world()
-                .map_domain(id, |domain| domain.metadata.get(key).cloned())?
-                .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
-                .map(Into::into)
-        }
-    }
-
-    impl ValidSingularQuery for FindAssetDefinitionMetadata {
-        #[metrics(+"find_asset_definition_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, Error> {
-            let id = &self.id;
-            let key = &self.key;
-            iroha_logger::trace!(%id, %key);
-            Ok(state_ro
-                .world()
-                .asset_definition(id)?
-                .metadata
-                .get(key)
-                .ok_or(FindError::MetadataKey(key.clone()))
-                .cloned()
-                .map(Into::into)?)
         }
     }
 }

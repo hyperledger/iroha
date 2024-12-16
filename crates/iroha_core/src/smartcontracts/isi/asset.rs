@@ -65,7 +65,7 @@ pub mod isi {
 
             let asset = state_transaction
                 .world
-                .asset_or_insert(asset_id.clone(), Metadata::default())?;
+                .asset_or_insert(&asset_id, Metadata::default())?;
 
             {
                 let AssetValue::Store(store) = &mut asset.value else {
@@ -153,7 +153,7 @@ pub mod isi {
                     AssetId::new(asset_id.definition.clone(), self.destination.clone());
                 let destination_store_asset = state_transaction
                     .world
-                    .asset_or_insert(destination_id.clone(), value)?;
+                    .asset_or_insert(&destination_id, value)?;
 
                 destination_store_asset.clone()
             };
@@ -185,7 +185,7 @@ pub mod isi {
             assert_can_mint(&asset_definition, state_transaction)?;
             let asset = state_transaction
                 .world
-                .asset_or_insert(asset_id.clone(), Numeric::ZERO)?;
+                .asset_or_insert(&asset_id, Numeric::ZERO)?;
             let AssetValue::Numeric(quantity) = &mut asset.value else {
                 return Err(Error::Conversion("Expected numeric asset type".to_owned()));
             };
@@ -312,7 +312,7 @@ pub mod isi {
 
             let destination_asset = state_transaction
                 .world
-                .asset_or_insert(destination_id.clone(), Numeric::ZERO)?;
+                .asset_or_insert(&destination_id, Numeric::ZERO)?;
             {
                 let AssetValue::Numeric(quantity) = &mut destination_asset.value else {
                     return Err(Error::Conversion("Expected numeric asset type".to_owned()));
@@ -424,16 +424,9 @@ pub mod isi {
 pub mod query {
     use eyre::Result;
     use iroha_data_model::{
-        asset::{Asset, AssetDefinition, AssetValue},
-        query::{
-            error::QueryExecutionFail as Error,
-            predicate::{
-                predicate_atoms::asset::{AssetDefinitionPredicateBox, AssetPredicateBox},
-                CompoundPredicate,
-            },
-        },
+        asset::{Asset, AssetDefinition},
+        query::{dsl::CompoundPredicate, error::QueryExecutionFail as Error},
     };
-    use iroha_primitives::json::Json;
 
     use super::*;
     use crate::{smartcontracts::ValidQuery, state::StateReadOnly};
@@ -442,7 +435,7 @@ pub mod query {
         #[metrics(+"find_assets")]
         fn execute(
             self,
-            filter: CompoundPredicate<AssetPredicateBox>,
+            filter: CompoundPredicate<Asset>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = Asset>, Error> {
             Ok(state_ro
@@ -456,7 +449,7 @@ pub mod query {
         #[metrics(+"find_asset_definitions")]
         fn execute(
             self,
-            filter: CompoundPredicate<AssetDefinitionPredicateBox>,
+            filter: CompoundPredicate<AssetDefinition>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = AssetDefinition>, Error> {
             Ok(state_ro
@@ -464,57 +457,6 @@ pub mod query {
                 .asset_definitions_iter()
                 .filter(move |&asset_definition| filter.applies(asset_definition))
                 .cloned())
-        }
-    }
-
-    impl ValidSingularQuery for FindAssetQuantityById {
-        #[metrics(+"find_asset_quantity_by_id")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Numeric, Error> {
-            let id = &self.id;
-            iroha_logger::trace!(%id);
-            let value = state_ro
-                .world()
-                .asset(id)
-                .map_err(|asset_err| {
-                    if let Err(definition_err) = state_ro.world().asset_definition(&id.definition) {
-                        Error::Find(definition_err)
-                    } else {
-                        asset_err
-                    }
-                })?
-                .value;
-
-            match value {
-                AssetValue::Store(_) => Err(Error::Conversion(
-                    "Can't get quantity for strore asset".to_string(),
-                )),
-                AssetValue::Numeric(numeric) => Ok(numeric),
-            }
-        }
-    }
-
-    impl ValidSingularQuery for FindAssetMetadata {
-        #[metrics(+"find_asset_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, Error> {
-            let id = &self.id;
-            let key = &self.key;
-            let asset = state_ro.world().asset(id).map_err(|asset_err| {
-                if let Err(definition_err) = state_ro.world().asset_definition(&id.definition) {
-                    Error::Find(definition_err)
-                } else {
-                    asset_err
-                }
-            })?;
-            iroha_logger::trace!(%id, %key);
-            let AssetValue::Store(store) = &asset.value else {
-                return Err(Error::Conversion("expected store, found other".to_owned()));
-            };
-
-            store
-                .get(key)
-                .ok_or_else(|| Error::Find(FindError::MetadataKey(key.clone())))
-                .cloned()
-                .map(Into::into)
         }
     }
 }

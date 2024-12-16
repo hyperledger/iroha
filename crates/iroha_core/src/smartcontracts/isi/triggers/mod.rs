@@ -311,13 +311,10 @@ pub mod query {
     //! Queries associated to triggers.
     use iroha_data_model::{
         query::{
-            error::QueryExecutionFail as Error,
-            predicate::{predicate_atoms::trigger::TriggerIdPredicateBox, CompoundPredicate},
-            trigger::FindTriggers,
+            dsl::CompoundPredicate, error::QueryExecutionFail as Error, trigger::FindTriggers,
         },
         trigger::{Trigger, TriggerId},
     };
-    use iroha_primitives::json::Json;
 
     use super::*;
     use crate::{
@@ -330,7 +327,7 @@ pub mod query {
         #[metrics(+"find_active_triggers")]
         fn execute(
             self,
-            filter: CompoundPredicate<TriggerIdPredicateBox>,
+            filter: CompoundPredicate<TriggerId>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = TriggerId>, Error> {
             Ok(state_ro
@@ -346,7 +343,7 @@ pub mod query {
         #[metrics(+"find_triggers")]
         fn execute(
             self,
-            filter: CompoundPredicate<TriggerPredicateBox>,
+            filter: CompoundPredicate<Trigger>,
             state_ro: &impl StateReadOnly,
         ) -> Result<impl Iterator<Item = Self::Item>, Error> {
             let triggers = state_ro.world().triggers();
@@ -363,27 +360,6 @@ pub mod query {
                        Trigger::new(id.clone(), action)
                    })
                    .filter(move |trigger| filter.applies(trigger)))
-        }
-    }
-
-    impl ValidSingularQuery for FindTriggerMetadata {
-        #[metrics(+"find_trigger_key_value_by_id_and_key")]
-        fn execute(&self, state_ro: &impl StateReadOnly) -> Result<Json, Error> {
-            let id = &self.id;
-            let key = &self.key;
-            iroha_logger::trace!(%id, %key);
-            state_ro
-                .world()
-                .triggers()
-                .inspect_by_id(id, |action| {
-                    action
-                        .metadata()
-                        .get(key)
-                        .cloned()
-                        .ok_or_else(|| FindError::MetadataKey(key.clone()).into())
-                })
-                .ok_or_else(|| Error::Find(FindError::Trigger(id.clone())))?
-                .map(Into::into)
         }
     }
 }

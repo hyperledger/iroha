@@ -246,7 +246,6 @@ pub mod event {
 }
 
 #[iroha_futures::telemetry_future]
-#[cfg(feature = "telemetry")]
 pub async fn handle_version(state: Arc<State>) -> String {
     use iroha_version::Version;
 
@@ -272,6 +271,13 @@ pub fn handle_metrics(metrics_reporter: &MetricsReporter) -> Result<String> {
         .metrics()
         .try_to_string()
         .map_err(Error::Prometheus)
+}
+
+#[cfg(feature = "telemetry")]
+pub fn handle_peers(metrics_reporter: &MetricsReporter) -> Response {
+    update_metrics_gracefully(metrics_reporter);
+    let peers = metrics_reporter.online_peers();
+    axum::Json(peers).into_response()
 }
 
 #[cfg(feature = "telemetry")]

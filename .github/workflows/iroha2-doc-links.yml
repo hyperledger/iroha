@@ -1,0 +1,30 @@
+name: I2::Doc::Links
+
+# Verify all links in text files and generated documentation
+# from source files are valid (return 200-like http code).
+# https://github.com/lycheeverse/lychee
+
+on:
+  pull_request:
+    branches: [main, stable, lts]
+    paths:
+      - '**/*.md'
+      - '**/*.txt'
+      - '**/*.html'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  link_checker:
+    runs-on: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Link Checker
+        id: lychee
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: "'**/*.rs' ." # Check rust source and default text files
+          fail: true

@@ -23,19 +23,19 @@ use iroha_executor::{
 static ALLOC: GlobalDlmalloc = GlobalDlmalloc;
 
 #[derive(Visit, Execute, Entrypoints)]
-#[visit(custom(visit_custom))]
+#[visit(custom(visit_custom_instruction))]
 struct Executor {
     host: Iroha,
     context: iroha_executor::prelude::Context,
     verdict: Result,
 }
 
-fn visit_custom(executor: &mut Executor, isi: &CustomInstruction) {
+fn visit_custom_instruction(executor: &mut Executor, isi: &CustomInstruction) {
     let Ok(isi) = CustomInstructionExpr::try_from(isi.payload()) else {
         deny!(executor, "Failed to parse custom instruction");
     };
     match execute_custom_instruction(isi, executor.host()) {
-        Ok(()) => return,
+        Ok(()) => (),
         Err(err) => {
             deny!(executor, err);
         }
@@ -73,7 +73,16 @@ struct Context<'i> {
 impl executor_custom_data_model::complex_isi::Context for Context<'_> {
     fn query(&self, q: &NumericQuery) -> Result<Value, ValidationFail> {
         let result = match q.clone() {
-            NumericQuery::FindAssetQuantityById(q) => self.host.query_single(q),
+            NumericQuery::FindAssetQuantityById(asset_id) => self
+                .host
+                .query(FindAssets)
+                .filter_with(|asset| asset.id.eq(asset_id))
+                .select_with(|asset| asset.value.numeric)
+                .execute_single()
+                .map_err(|e| match e {
+                    SingleQueryError::QueryError(e) => e,
+                    _ => unreachable!(),
+                }),
             NumericQuery::FindTotalAssetQuantityByAssetDefinitionId(asset_definition_id) => {
                 let asset_definition = self
                     .host

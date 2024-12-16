@@ -17,8 +17,7 @@ use data_model::{
 pub use iroha_data_model as data_model;
 use iroha_data_model::query::{
     builder::{QueryBuilder, QueryExecutor},
-    predicate::HasPredicateBox,
-    QueryOutputBatchBox, QueryRequest, QueryResponse, QueryWithParams, SingularQuery,
+    QueryOutputBatchBoxTuple, QueryRequest, QueryResponse, QueryWithParams, SingularQuery,
     SingularQueryBox, SingularQueryOutputBox,
 };
 pub use iroha_smart_contract_derive::main;
@@ -100,10 +99,7 @@ impl Iroha {
     }
 
     /// Build an iterable query for execution in a smart contract.
-    pub fn query<Q>(
-        &self,
-        query: Q,
-    ) -> QueryBuilder<Self, Q, <<Q as Query>::Item as HasPredicateBox>::PredicateBoxType>
+    pub fn query<Q>(&self, query: Q) -> QueryBuilder<Self, Q, Q::Item>
     where
         Q: Query,
     {
@@ -164,7 +160,7 @@ impl QueryExecutor for Iroha {
     fn start_query(
         &self,
         query: QueryWithParams,
-    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
+    ) -> Result<(QueryOutputBatchBoxTuple, u64, Option<Self::Cursor>), Self::Error> {
         let QueryResponse::Iterable(output) = Self::execute_query(&QueryRequest::Start(query))?
         else {
             dbg_panic!("BUG: iroha returned unexpected type in iterable query");
@@ -181,7 +177,7 @@ impl QueryExecutor for Iroha {
 
     fn continue_query(
         cursor: Self::Cursor,
-    ) -> Result<(QueryOutputBatchBox, u64, Option<Self::Cursor>), Self::Error> {
+    ) -> Result<(QueryOutputBatchBoxTuple, u64, Option<Self::Cursor>), Self::Error> {
         let QueryResponse::Iterable(output) =
             Self::execute_query(&QueryRequest::Continue(cursor.cursor))?
         else {
@@ -250,15 +246,18 @@ pub mod prelude {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
     use core::{mem::ManuallyDrop, slice};
 
+    use iroha_data_model::query::{
+        parameters::QueryParams, QueryOutput, QueryOutputBatchBox, QueryWithFilter,
+    };
     use iroha_smart_contract_utils::encode_with_length_prefix;
     use parity_scale_codec::DecodeAll;
     use webassembly_test::webassembly_test;
 
     use super::*;
 
-    const QUERY_RESULT: Result<Numeric, ValidationFail> = Ok(numeric!(1234));
     const ISI_RESULT: Result<(), ValidationFail> = Ok(());
 
     fn get_test_instruction() -> InstructionBox {
@@ -266,9 +265,20 @@ mod tests {
         Register::asset(Asset::new(new_asset_id, 1_u32)).into()
     }
 
-    fn get_test_query() -> FindAssetQuantityById {
+    fn get_test_query() -> QueryWithParams {
         let asset_id: AssetId = "rose##ed0120CE7FA46C9DCE7EA4B125E2E36BDB63EA33073E7590AC92816AE1E861B7048B03@wonderland".parse().unwrap();
-        FindAssetQuantityById::new(asset_id)
+
+        QueryWithParams::new(
+            QueryBox::FindAssets(QueryWithFilter::new(
+                FindAssets,
+                CompoundPredicate::<Asset>::build(|asset| asset.id.eq(asset_id)),
+                SelectorTuple::<Asset>::build(|asset| asset.value.numeric),
+            )),
+            QueryParams::default(),
+        )
+    }
+    fn get_query_result() -> QueryOutputBatchBoxTuple {
+        QueryOutputBatchBoxTuple::new(vec![QueryOutputBatchBox::Numeric(vec![numeric!(1234)])])
     }
 
     #[no_mangle]
@@ -290,14 +300,14 @@ mod tests {
     ) -> *const u8 {
         let bytes = slice::from_raw_parts(ptr, len);
         let query_request = QueryRequest::decode_all(&mut &*bytes).unwrap();
-        let QueryRequest::Singular(query) = query_request else {
-            panic!("Expected a singular query")
+        let QueryRequest::Start(query_with_params) = query_request else {
+            panic!("Expected Start query, but got {:?}", query_request);
         };
-        let query: FindAssetQuantityById = query.try_into().expect("Unexpected query type");
-        assert_eq!(query, get_test_query());
+        assert_eq!(query_with_params, get_test_query());
 
-        let response: Result<QueryResponse, ValidationFail> =
-            Ok(QueryResponse::Singular(QUERY_RESULT.unwrap().into()));
+        let response: Result<QueryResponse, ValidationFail> = Ok(QueryResponse::Iterable(
+            QueryOutput::new(get_query_result(), 0, None),
+        ));
         ManuallyDrop::new(encode_with_length_prefix(&response)).as_ptr()
     }
 
@@ -310,6 +320,12 @@ mod tests {
     #[webassembly_test]
     fn execute_query() {
         let host = Iroha;
-        assert_eq!(host.query_single(get_test_query()), QUERY_RESULT);
+        let (output, remaining_items, next_cursor) = host.start_query(get_test_query()).unwrap();
+        assert_eq!(output, get_query_result());
+        assert_eq!(remaining_items, 0);
+        assert!(
+            next_cursor.is_none(),
+            "Expected no cursor, but got {next_cursor:?}",
+        );
     }
 }

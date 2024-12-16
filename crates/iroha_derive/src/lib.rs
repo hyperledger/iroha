@@ -97,7 +97,7 @@ pub fn serde_where(arguments: TokenStream, item: TokenStream) -> TokenStream {
         return emitter.finish_token_stream_with(derive_input.into_token_stream());
     };
 
-    let result = serde_where::impl_serde_where(&mut emitter, arguments, derive_input);
+    let result = serde_where::impl_serde_where(&mut emitter, &arguments, derive_input);
 
     emitter.finish_token_stream_with(result)
 }

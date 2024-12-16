@@ -168,7 +168,6 @@ jobs:
           tags: docker.soramitsu.co.jp/iroha2/iroha2:dev-${{ github.event.pull_request.head.sha }}
           labels: commit=${{ github.sha }}
           build-args: TAG=dev
-          file: Dockerfile.glibc
           # This context specification is required
           context: .
 
@@ -211,7 +210,6 @@ jobs:
         with:
           context: .
           load: true
-          file: Dockerfile.glibc
           tags: |
             hyperledger/iroha:local
             hyperledger/iroha:dev

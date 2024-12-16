@@ -13,60 +13,16 @@ use iroha_data_model::{
     query::{
         error::QueryExecutionFail,
         parameters::{ForwardCursor, QueryId},
-        QueryOutput, QueryOutputBatchBox,
+        QueryOutput, QueryOutputBatchBoxTuple,
     },
 };
 use iroha_futures::supervisor::{Child, OnShutdown, ShutdownSignal};
 use iroha_logger::{trace, warn};
-use parity_scale_codec::{Decode, Encode};
-use serde::{Deserialize, Serialize};
 use tokio::task::JoinHandle;
 
-use super::cursor::{Error as CursorError, QueryBatchedErasedIterator};
+use super::cursor::ErasedQueryIterator;
 
-/// Query service error.
-#[derive(
-    Debug,
-    thiserror::Error,
-    displaydoc::Display,
-    Copy,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-)]
-pub enum Error {
-    /// Query not found in the live query store.
-    NotFound,
-    /// Cursor error.
-    #[error(transparent)]
-    Cursor(#[from] CursorError),
-    /// Fetch size is too big.
-    FetchSizeTooBig,
-    /// Reached the limit of parallel queries. Either wait for previous queries to complete, or increase the limit in the config.
-    CapacityLimit,
-}
-
-#[allow(clippy::fallible_impl_from)]
-impl From<Error> for QueryExecutionFail {
-    fn from(error: Error) -> Self {
-        match error {
-            Error::NotFound => QueryExecutionFail::NotFound,
-            Error::Cursor(error) => match error {
-                CursorError::Mismatch => QueryExecutionFail::CursorMismatch,
-                CursorError::Done => QueryExecutionFail::CursorDone,
-            },
-            Error::FetchSizeTooBig => QueryExecutionFail::FetchSizeTooBig,
-            Error::CapacityLimit => QueryExecutionFail::CapacityLimit,
-        }
-    }
-}
-
-/// Result type for [`LiveQueryStore`] methods.
-pub type Result<T, E = Error> = std::result::Result<T, E>;
-
-type LiveQuery = QueryBatchedErasedIterator;
+type LiveQuery = ErasedQueryIterator;
 
 /// Service which stores queries which might be non fully consumed by a client.
 ///
@@ -156,12 +112,7 @@ impl LiveQueryStore {
         })
     }
 
-    fn insert(
-        &self,
-        query_id: QueryId,
-        live_query: QueryBatchedErasedIterator,
-        authority: AccountId,
-    ) {
+    fn insert(&self, query_id: QueryId, live_query: ErasedQueryIterator, authority: AccountId) {
         *self.queries_per_user.entry(authority.clone()).or_insert(0) += 1;
         let query_info = QueryInfo {
             live_query,
@@ -189,9 +140,9 @@ impl LiveQueryStore {
     fn insert_new_query(
         &self,
         query_id: QueryId,
-        live_query: QueryBatchedErasedIterator,
+        live_query: ErasedQueryIterator,
         authority: AccountId,
-    ) -> Result<()> {
+    ) -> Result<(), QueryExecutionFail> {
         trace!(%query_id, "Inserting new query");
         self.check_capacity(&authority)?;
         self.insert(query_id, live_query, authority);
@@ -204,13 +155,13 @@ impl LiveQueryStore {
         &self,
         query_id: QueryId,
         cursor: NonZeroU64,
-    ) -> Result<(QueryOutputBatchBox, u64, Option<NonZeroU64>)> {
+    ) -> Result<(QueryOutputBatchBoxTuple, u64, Option<NonZeroU64>), QueryExecutionFail> {
         trace!(%query_id, "Advancing existing query");
         let QueryInfo {
             mut live_query,
             authority,
             ..
-        } = self.remove(&query_id).ok_or(Error::NotFound)?;
+        } = self.remove(&query_id).ok_or(QueryExecutionFail::NotFound)?;
         let (next_batch, next_cursor) = live_query.next_batch(cursor.get())?;
         let remaining = live_query.remaining();
         if next_cursor.is_some() {
@@ -219,13 +170,13 @@ impl LiveQueryStore {
         Ok((next_batch, remaining, next_cursor))
     }
 
-    fn check_capacity(&self, authority: &AccountId) -> Result<()> {
+    fn check_capacity(&self, authority: &AccountId) -> Result<(), QueryExecutionFail> {
         if self.queries.len() >= self.capacity.get() {
             warn!(
                 max_queries = self.capacity,
                 "Reached maximum allowed number of queries in LiveQueryStore"
             );
-            return Err(Error::CapacityLimit);
+            return Err(QueryExecutionFail::CapacityLimit);
         }
         if let Some(value) = self.queries_per_user.get(authority) {
             if *value >= self.capacity_per_user.get() {
@@ -234,7 +185,7 @@ impl LiveQueryStore {
                     %authority,
                     "Account reached maximum allowed number of queries in LiveQueryStore"
                 );
-                return Err(Error::CapacityLimit);
+                return Err(QueryExecutionFail::CapacityLimit);
             }
         }
         Ok(())
@@ -256,9 +207,9 @@ impl LiveQueryStoreHandle {
     /// - Otherwise throws up query output handling errors.
     pub fn handle_iter_start(
         &self,
-        mut live_query: QueryBatchedErasedIterator,
+        mut live_query: ErasedQueryIterator,
         authority: &AccountId,
-    ) -> Result<QueryOutput> {
+    ) -> Result<QueryOutput, QueryExecutionFail> {
         let query_id = uuid::Uuid::new_v4().to_string();
 
         let curr_cursor = 0;
@@ -289,7 +240,7 @@ impl LiveQueryStoreHandle {
     pub fn handle_iter_continue(
         &self,
         ForwardCursor { query, cursor }: ForwardCursor,
-    ) -> Result<QueryOutput> {
+    ) -> Result<QueryOutput, QueryExecutionFail> {
         let (batch, remaining, next_cursor) =
             self.store.get_query_next_batch(query.clone(), cursor)?;
 
@@ -307,7 +258,7 @@ impl LiveQueryStoreHandle {
     }
 
     fn construct_query_response(
-        batch: QueryOutputBatchBox,
+        batch: QueryOutputBatchBoxTuple,
         remaining_items: u64,
         query_id: QueryId,
         cursor: Option<NonZeroU64>,
@@ -327,6 +278,7 @@ impl LiveQueryStoreHandle {
 mod tests {
     use iroha_data_model::{
         permission::Permission,
+        prelude::SelectorTuple,
         query::parameters::{FetchSize, Pagination, QueryParams, Sorting},
     };
     use iroha_primitives::json::Json;
@@ -358,6 +310,7 @@ mod tests {
                 (0..100).map(|_| Permission::new(String::default(), Json::from(false)));
             let query_output = crate::smartcontracts::query::apply_query_postprocessing(
                 query_output,
+                SelectorTuple::default(),
                 &query_params,
             )
             .unwrap();

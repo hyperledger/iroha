@@ -10,6 +10,7 @@ use crate::{
         data_model::{executor::Result, permission::Permission as PermissionObject, prelude::*},
         prelude::*,
     },
+    Execute,
 };
 
 /// Declare permission types of current module. Use it with a full path to the permission.
@@ -116,8 +117,6 @@ declare_permissions! {
     iroha_executor_data_model::permission::parameter::{CanSetParameters},
     iroha_executor_data_model::permission::role::{CanManageRoles},
 
-    iroha_executor_data_model::permission::trigger::{CanRegisterAnyTrigger},
-    iroha_executor_data_model::permission::trigger::{CanUnregisterAnyTrigger},
     iroha_executor_data_model::permission::trigger::{CanRegisterTrigger},
     iroha_executor_data_model::permission::trigger::{CanUnregisterTrigger},
     iroha_executor_data_model::permission::trigger::{CanModifyTrigger},
@@ -152,7 +151,7 @@ pub trait ExecutorPermission: Permission + PartialEq {
             .expect("INTERNAL BUG: `FindRolesByAccountId` must never fail")
             .map(|role_id| role_id.dbg_expect("Failed to get role from cursor"))
             .fold(CompoundPredicate::Or(Vec::new()), |predicate, role_id| {
-                predicate.or(RolePredicateBox::build(|role| role.id.eq(role_id)))
+                predicate.or(CompoundPredicate::<Role>::build(|role| role.id.eq(role_id)))
             });
 
         // check if any of the roles have the permission we need
@@ -755,8 +754,8 @@ pub mod account {
 pub mod trigger {
     //! Module with pass conditions for trigger related tokens
     use iroha_executor_data_model::permission::trigger::{
-        CanExecuteTrigger, CanModifyTrigger, CanModifyTriggerMetadata, CanRegisterAnyTrigger,
-        CanRegisterTrigger, CanUnregisterAnyTrigger, CanUnregisterTrigger,
+        CanExecuteTrigger, CanModifyTrigger, CanModifyTriggerMetadata, CanRegisterTrigger,
+        CanUnregisterTrigger,
     };
 
     use super::*;
@@ -817,34 +816,6 @@ pub mod trigger {
             Err(ValidationFail::NotPermitted(
                 "Can't give permission to access trigger owned by another account".to_owned(),
             ))
-        }
-    }
-
-    impl ValidateGrantRevoke for CanRegisterAnyTrigger {
-        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
-            OnlyGenesis::from(self).validate(authority, host, context)
-        }
-        fn validate_revoke(
-            &self,
-            authority: &AccountId,
-            context: &Context,
-            host: &Iroha,
-        ) -> Result {
-            OnlyGenesis::from(self).validate(authority, host, context)
-        }
-    }
-
-    impl ValidateGrantRevoke for CanUnregisterAnyTrigger {
-        fn validate_grant(&self, authority: &AccountId, context: &Context, host: &Iroha) -> Result {
-            OnlyGenesis::from(self).validate(authority, host, context)
-        }
-        fn validate_revoke(
-            &self,
-            authority: &AccountId,
-            context: &Context,
-            host: &Iroha,
-        ) -> Result {
-            OnlyGenesis::from(self).validate(authority, host, context)
         }
     }
 
@@ -1113,4 +1084,30 @@ pub(crate) fn roles_permissions(host: &Iroha) -> impl Iterator<Item = (RoleId, P
                 .into_iter()
                 .map(move |permission| (role.id().clone(), permission))
         })
+}
+
+/// Revoked all permissions satisfied given [condition].
+///
+/// Note: you must manually call `deny!` if this function returns error.
+pub(crate) fn revoke_permissions<V: Execute + ?Sized>(
+    executor: &mut V,
+    condition: impl Fn(&PermissionObject) -> bool,
+) -> Result<(), ValidationFail> {
+    for (owner_id, permission) in accounts_permissions(executor.host()) {
+        if condition(&permission) {
+            let isi = Revoke::account_permission(permission, owner_id.clone());
+
+            executor.host().submit(&isi)?;
+        }
+    }
+
+    for (role_id, permission) in roles_permissions(executor.host()) {
+        if condition(&permission) {
+            let isi = Revoke::role_permission(permission, role_id.clone());
+
+            executor.host().submit(&isi)?;
+        }
+    }
+
+    Ok(())
 }

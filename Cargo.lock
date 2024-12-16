@@ -1386,6 +1386,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive-where"
+version = "1.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62d671cc41a825ebabc75757b62d3d168c577f9149b2d49ece1dad1f72119d25"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.75",
+]
+
+[[package]]
 name = "derive_arbitrary"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2919,7 +2930,6 @@ dependencies = [
  "iroha_executor_data_model",
  "iroha_genesis",
  "iroha_logger",
- "iroha_multisig_data_model",
  "iroha_primitives",
  "iroha_telemetry",
  "iroha_test_network",
@@ -2950,17 +2960,21 @@ version = "2.0.0-rc.1.0"
 dependencies = [
  "clap",
  "color-eyre",
+ "derive_more",
  "erased-serde",
  "error-stack",
  "eyre",
+ "futures",
  "humantime",
  "iroha",
  "iroha_primitives",
  "json5",
  "serde",
  "serde_json",
+ "serde_with",
  "supports-color 2.1.0",
  "thiserror",
+ "tokio",
  "vergen",
 ]
 
@@ -3134,6 +3148,7 @@ version = "2.0.0-rc.1.0"
 dependencies = [
  "base64 0.22.1",
  "criterion",
+ "derive-where",
  "derive_more",
  "displaydoc",
  "getset",
@@ -3206,6 +3221,7 @@ dependencies = [
 name = "iroha_executor_data_model"
 version = "2.0.0-rc.1.0"
 dependencies = [
+ "derive_more",
  "iroha_data_model",
  "iroha_executor_data_model_derive",
  "iroha_schema",
@@ -3365,17 +3381,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iroha_multisig_data_model"
-version = "2.0.0-rc.1.0"
-dependencies = [
- "iroha_data_model",
- "iroha_schema",
- "parity-scale-codec",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "iroha_numeric"
 version = "2.0.0-rc.1.0"
 dependencies = [
@@ -3480,7 +3485,6 @@ dependencies = [
  "iroha_data_model",
  "iroha_executor_data_model",
  "iroha_genesis",
- "iroha_multisig_data_model",
  "iroha_primitives",
  "iroha_schema",
 ]
