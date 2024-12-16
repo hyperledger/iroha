@@ -22,7 +22,7 @@ black = "*"
 flake8 = "*"
 
 [tool.poetry.group.dev.dependencies]
-pylint = "^3.3.1"
+pylint = "^3.3.2"
 isort = "^5.13.2"
 
 [build-system]
