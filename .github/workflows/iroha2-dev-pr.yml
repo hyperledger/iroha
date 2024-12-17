@@ -217,11 +217,19 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Test docker-compose.single.yml
         run: |
-          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml up --wait || exit 1
+          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml up --wait || {
+            echo "docker-compose failed. Logs:";
+            docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml logs --tail="all";
+            exit 1;
+          }
           docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml down
       - name: Test docker-compose.local.yml
         run: |
-          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml up --wait || exit 1
+          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml up --wait || {
+            echo "docker-compose failed. Logs:";
+            docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml logs --tail="all";
+            exit 1;
+          }
           docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml down
       - name: Run docker-compose.yml containers
         run: docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.yml up --wait || exit 1

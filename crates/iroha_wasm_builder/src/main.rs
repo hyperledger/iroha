@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser};
 use color_eyre::eyre::{eyre, Context};
-use iroha_wasm_builder::Builder;
+use iroha_wasm_builder::{Builder, Profile};
 use owo_colors::OwoColorize;
 
 #[derive(Parser, Debug)]
@@ -14,14 +14,16 @@ enum Cli {
     Check {
         #[command(flatten)]
         common: CommonArgs,
+        #[arg(long, default_value = "release")]
+        profile: Profile,
     },
     /// Build the smartcontract
     Build {
         #[command(flatten)]
         common: CommonArgs,
-        /// Optimize WASM output.
-        #[arg(long)]
-        optimize: bool,
+        /// Build profile
+        #[arg(long, default_value = "release")]
+        profile: Profile,
         /// Where to store the output WASM. If the file exists, it will be overwritten.
         #[arg(long)]
         out_file: PathBuf,
@@ -38,27 +40,27 @@ fn main() -> color_eyre::Result<()> {
     match Cli::parse() {
         Cli::Check {
             common: CommonArgs { path },
+            profile,
         } => {
-            let builder = Builder::new(&path).show_output();
+            let builder = Builder::new(&path, profile).show_output();
             builder.check()?;
         }
         Cli::Build {
             common: CommonArgs { path },
-            optimize,
             out_file,
+            profile,
         } => {
-            let builder = Builder::new(&path).show_output();
+            let builder = Builder::new(&path, profile).show_output();
 
             let output = {
                 // not showing the spinner here, cargo does a progress bar for us
-
-                match builder.build() {
+                match builder.build_unoptimized() {
                     Ok(output) => output,
                     err => err?,
                 }
             };
 
-            let output = if optimize {
+            let output = if profile.is_optimized() {
                 let sp = if std::env::var("CI").is_err() {
                     Some(spinoff::Spinner::new_with_stream(
                         spinoff::spinners::Binary,

@@ -14,8 +14,10 @@ workspace = true
 [dependencies]
 eyre = { workspace = true }
 serde_json = { workspace = true, features = ["std"] }
+serde = { workspace = true, features = ["std"] }
 sha256 = "1.5.0"
 path-absolutize = { workspace = true }
+strum = { workspace = true, features = ["derive", "std"] }
 wasm-opt = "0.116.1"
 
 clap = { workspace = true, features = ["derive"] }

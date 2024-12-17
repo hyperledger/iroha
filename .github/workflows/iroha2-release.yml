@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build wasm libs
-        run: ./scripts/build_wasm.sh libs
+        run: ./scripts/build_wasm.sh --profile=deploy libs
       - name: Upload wasm libs to reuse in other jobs
         uses: actions/upload-artifact@v4
         with:
@@ -67,11 +67,19 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Test docker-compose.single.yml before pushing
         run: |
-          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml up --wait || exit 1
+          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml up --wait || {
+            echo "docker-compose failed. Logs:";
+            docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml logs --tail="all";
+            exit 1;
+          }
           docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.single.yml down
       - name: Test docker-compose.local.yml before pushing
         run: |
-          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml up --wait || exit 1
+          docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml up --wait || {
+            echo "docker-compose failed. Logs:";
+            docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml logs --tail="all";
+            exit 1;
+          }
           docker compose -f ${{ env.DEFAULTS_DIR }}/docker-compose.local.yml down
       - name: Test docker-compose.yml before pushing
         run: |

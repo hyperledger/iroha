@@ -12,9 +12,40 @@ use std::{
 
 use eyre::{bail, eyre, Context as _, Result};
 use path_absolutize::Absolutize;
+use serde::{Deserialize, Serialize};
 
 /// Current toolchain used to build smartcontracts
 const TOOLCHAIN: &str = "+nightly-2024-09-09";
+
+/// Build profile for smartcontracts
+#[derive(
+    Debug,
+    Copy,
+    Clone,
+    Eq,
+    PartialEq,
+    strum::Display,
+    strum::EnumString,
+    Default,
+    Serialize,
+    Deserialize,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum Profile {
+    /// Applies release optimization
+    #[default]
+    Release,
+    /// Applies release and size optimizations
+    Deploy,
+}
+
+impl Profile {
+    /// Checks whether profile uses optimizations from wasm-opt
+    pub fn is_optimized(self) -> bool {
+        self == Profile::Deploy
+    }
+}
 
 /// WASM Builder for smartcontracts (e.g. triggers and executors).
 ///
@@ -22,13 +53,12 @@ const TOOLCHAIN: &str = "+nightly-2024-09-09";
 ///
 /// ```no_run
 /// use eyre::Result;
-/// use iroha_wasm_builder::Builder;
+/// use iroha_wasm_builder::{Builder, Profile};
 ///
 /// fn main() -> Result<()> {
-///     let bytes = Builder::new("relative/path/to/smartcontract/")
+///     let bytes = Builder::new("relative/path/to/smartcontract/", Profile::Deploy)
 ///         .out_dir("path/to/out/dir") // Optional: Set output directory
 ///         .build()? // Run build
-///         .optimize()? // Optimize WASM output
 ///         .into_bytes()?; // Get resulting WASM bytes
 ///
 ///     // ...
@@ -45,13 +75,15 @@ pub struct Builder<'path, 'out_dir> {
     out_dir: Option<&'out_dir Path>,
     /// Flag controlling whether to show output of the build process
     show_output: bool,
+    /// Build profile
+    profile: Profile,
 }
 
 impl<'path, 'out_dir> Builder<'path, 'out_dir> {
     /// Initialize [`Builder`] with path to smartcontract.
     ///
     /// `relative_path` should be relative to `CARGO_MANIFEST_DIR`.
-    pub fn new<P>(relative_path: &'path P) -> Self
+    pub fn new<P>(relative_path: &'path P, profile: Profile) -> Self
     where
         P: AsRef<Path> + ?Sized,
     {
@@ -59,6 +91,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
             path: relative_path.as_ref(),
             out_dir: None,
             show_output: false,
+            profile,
         }
     }
 
@@ -100,6 +133,17 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
     ///
     /// Will also return error if ran on workspace and not on the concrete package.
     pub fn build(self) -> Result<Output> {
+        let optimize = self.profile.is_optimized();
+        let output = self.into_internal()?.build()?;
+        if optimize {
+            output.optimize()
+        } else {
+            Ok(output)
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn build_unoptimized(self) -> Result<Output> {
         self.into_internal()?.build()
     }
 
@@ -114,6 +158,7 @@ impl<'path, 'out_dir> Builder<'path, 'out_dir> {
                 |out_dir| Ok(Cow::Borrowed(out_dir)),
             )?,
             show_output: self.show_output,
+            profile: self.profile,
         })
     }
 
@@ -167,6 +212,7 @@ mod internal {
         pub absolute_path: PathBuf,
         pub out_dir: Cow<'out_dir, Path>,
         pub show_output: bool,
+        pub profile: Profile,
     }
 
     impl Builder<'_> {
@@ -189,9 +235,12 @@ mod internal {
             })
         }
 
+        fn build_profile(&self) -> String {
+            format!("--profile={}", self.profile.clone())
+        }
+
         fn build_options() -> impl Iterator<Item = &'static str> {
             [
-                "--release",
                 "-Z",
                 "build-std",
                 "-Z",
@@ -210,6 +259,7 @@ mod internal {
                 .current_dir(&self.absolute_path)
                 .stderr(Stdio::inherit())
                 .arg(cmd)
+                .arg(self.build_profile())
                 .args(Self::build_options());
 
             command
@@ -226,7 +276,10 @@ mod internal {
                 .retrieve_package_name()
                 .wrap_err("Failed to retrieve package name")?;
 
-            let full_out_dir = self.out_dir.join("wasm32-unknown-unknown/release/");
+            let full_out_dir = self
+                .out_dir
+                .join("wasm32-unknown-unknown")
+                .join(self.profile.to_string());
             let wasm_file = full_out_dir.join(package_name).with_extension("wasm");
 
             let previous_hash = if wasm_file.exists() {
