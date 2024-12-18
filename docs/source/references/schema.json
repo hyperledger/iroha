@@ -3255,9 +3255,6 @@
   "Option<IpfsPath>": {
     "Option": "IpfsPath"
   },
-  "Option<Name>": {
-    "Option": "Name"
-  },
   "Option<NonZero<u32>>": {
     "Option": "NonZero<u32>"
   },
@@ -3875,10 +3872,6 @@
       {
         "name": "pagination",
         "type": "Pagination"
-      },
-      {
-        "name": "sorting",
-        "type": "Sorting"
       },
       {
         "name": "fetch_size",
@@ -5065,14 +5058,6 @@
   },
   "SortedVec<String>": {
     "Vec": "String"
-  },
-  "Sorting": {
-    "Struct": [
-      {
-        "name": "sort_by_metadata_key",
-        "type": "Option<Name>"
-      }
-    ]
   },
   "String": "String",
   "StringPredicateAtom": {

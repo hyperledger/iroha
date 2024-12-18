@@ -18,7 +18,7 @@ use crate::query::{
         BaseProjector, CompoundPredicate, HasPrototype, IntoSelectorTuple, PredicateMarker,
         SelectorMarker, SelectorTuple,
     },
-    parameters::{FetchSize, Pagination, QueryParams, Sorting},
+    parameters::{FetchSize, Pagination, QueryParams},
     Query, QueryBox, QueryOutputBatchBoxTuple, QueryWithFilter, QueryWithParams, SingularQueryBox,
     SingularQueryOutputBox,
 };
@@ -108,7 +108,6 @@ where
     filter: CompoundPredicate<Q::Item>,
     selector: SelectorTuple<Q::Item>,
     pagination: Pagination,
-    sorting: Sorting,
     fetch_size: FetchSize,
     // NOTE: T is a phantom type used to denote the selected tuple in `selector`
     phantom: PhantomData<T>,
@@ -126,7 +125,6 @@ where
             filter: CompoundPredicate::PASS,
             selector: SelectorTuple::default(),
             pagination: Pagination::default(),
-            sorting: Sorting::default(),
             fetch_size: FetchSize::default(),
             phantom: PhantomData,
         }
@@ -196,16 +194,9 @@ where
             filter: self.filter,
             selector: new_selector,
             pagination: self.pagination,
-            sorting: self.sorting,
             fetch_size: self.fetch_size,
             phantom: PhantomData,
         }
-    }
-
-    /// Sort the results according to the specified sorting.
-    #[must_use]
-    pub fn with_sorting(self, sorting: Sorting) -> Self {
-        Self { sorting, ..self }
     }
 
     /// Only return part of the results specified by the pagination.
@@ -243,7 +234,6 @@ where
             query: boxed,
             params: QueryParams {
                 pagination: self.pagination,
-                sorting: self.sorting,
                 fetch_size: self.fetch_size,
             },
         };

@@ -12,8 +12,6 @@ use iroha_version::{Decode, Encode};
 use nonzero_ext::nonzero;
 use serde::{Deserialize, Serialize};
 
-use crate::name::Name;
-
 /// Default value for `fetch_size` parameter in queries.
 pub const DEFAULT_FETCH_SIZE: NonZeroU64 = nonzero!(100_u64);
 /// Max value for `fetch_size` parameter in queries.
@@ -69,25 +67,6 @@ mod model {
         pub offset: u64,
     }
 
-    /// Struct for sorting requests
-    #[derive(
-        Debug,
-        Clone,
-        Default,
-        PartialEq,
-        Eq,
-        Decode,
-        Encode,
-        Deserialize,
-        Serialize,
-        IntoSchema,
-        Constructor,
-    )]
-    pub struct Sorting {
-        /// Sort query result using [`Name`] of the key in [`Asset`]'s metadata.
-        pub sort_by_metadata_key: Option<Name>,
-    }
-
     /// Structure for query fetch size parameter encoding/decoding
     #[derive(
         Debug,
@@ -126,21 +105,11 @@ mod model {
     )]
     pub struct QueryParams {
         pub pagination: Pagination,
-        pub sorting: Sorting,
         pub fetch_size: FetchSize,
-    }
-}
-
-impl Sorting {
-    /// Creates a sorting by [`Name`] of the key.
-    pub fn by_metadata_key(key: Name) -> Self {
-        Self {
-            sort_by_metadata_key: Some(key),
-        }
     }
 }
 
 pub mod prelude {
     //! Prelude: re-export most commonly used traits, structs and macros from this module.
-    pub use super::{FetchSize, Pagination, Sorting};
+    pub use super::{FetchSize, Pagination};
 }

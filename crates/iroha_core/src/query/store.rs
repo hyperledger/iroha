@@ -279,7 +279,7 @@ mod tests {
     use iroha_data_model::{
         permission::Permission,
         prelude::SelectorTuple,
-        query::parameters::{FetchSize, Pagination, QueryParams, Sorting},
+        query::parameters::{FetchSize, Pagination, QueryParams},
     };
     use iroha_primitives::json::Json;
     use iroha_test_samples::ALICE_ID;
@@ -297,11 +297,9 @@ mod tests {
             let fetch_size = FetchSize {
                 fetch_size: Some(nonzero!(1_u64)),
             };
-            let sorting = Sorting::default();
 
             let query_params = QueryParams {
                 pagination,
-                sorting,
                 fetch_size,
             };
 

@@ -51,7 +51,7 @@ fn fetch_size_should_work() -> Result<()> {
     // use the lower-level API to inspect the batch size
     use iroha::data_model::query::{
         builder::QueryExecutor as _,
-        parameters::{FetchSize, QueryParams, Sorting},
+        parameters::{FetchSize, QueryParams},
         QueryWithFilter, QueryWithParams,
     };
 
@@ -69,7 +69,6 @@ fn fetch_size_should_work() -> Result<()> {
         .into(),
         QueryParams::new(
             Pagination::new(Some(nonzero!(7_u64)), 1),
-            Sorting::default(),
             FetchSize::new(Some(nonzero!(3_u64))),
         ),
     );
