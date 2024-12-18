@@ -38,10 +38,7 @@ fn main(host: Iroha, context: Context) {
                 SelectorTuple::default(),
             )
             .into(),
-            QueryParams::new(
-                Default::default(),
-                FetchSize::new(Some(nonzero!(1_u64))),
-            ),
+            QueryParams::new(Default::default(), FetchSize::new(Some(nonzero!(1_u64)))),
         ))
         .dbg_unwrap();
 
