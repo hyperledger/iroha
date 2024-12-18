@@ -1,6 +1,5 @@
 //! Query functionality. The common error type is also defined here,
 //! alongside functions for converting them into HTTP responses.
-use std::cmp::Ordering;
 
 use eyre::Result;
 use iroha_data_model::{
@@ -9,8 +8,8 @@ use iroha_data_model::{
         dsl::{EvaluateSelector, HasProjection, SelectorMarker},
         error::QueryExecutionFail as Error,
         parameters::QueryParams,
-        CommittedTransaction, QueryBox, QueryOutputBatchBox, QueryRequest,
-        QueryRequestWithAuthority, QueryResponse, SingularQueryBox, SingularQueryOutputBox,
+        QueryBox, QueryOutputBatchBox, QueryRequest, QueryRequestWithAuthority, QueryResponse,
+        SingularQueryBox, SingularQueryOutputBox,
     },
 };
 
@@ -21,96 +20,7 @@ use crate::{
     state::{StateReadOnly, WorldReadOnly},
 };
 
-/// Allows to generalize retrieving the metadata key for all the query output types
-pub trait SortableQueryOutput {
-    /// Get the sorting key for the output, from metadata
-    ///
-    /// If the type doesn't have metadata or metadata key doesn't exist - return None
-    fn get_metadata_sorting_key(&self, key: &Name) -> Option<Json>;
-}
-
-impl SortableQueryOutput for Account {
-    fn get_metadata_sorting_key(&self, key: &Name) -> Option<Json> {
-        self.metadata.get(key).cloned()
-    }
-}
-
-impl SortableQueryOutput for Domain {
-    fn get_metadata_sorting_key(&self, key: &Name) -> Option<Json> {
-        self.metadata.get(key).cloned()
-    }
-}
-
-impl SortableQueryOutput for AssetDefinition {
-    fn get_metadata_sorting_key(&self, key: &Name) -> Option<Json> {
-        self.metadata.get(key).cloned()
-    }
-}
-
-impl SortableQueryOutput for Asset {
-    fn get_metadata_sorting_key(&self, key: &Name) -> Option<Json> {
-        match &self.value {
-            AssetValue::Numeric(_) => None,
-            AssetValue::Store(metadata) => metadata.get(key).cloned(),
-        }
-    }
-}
-
-impl SortableQueryOutput for Role {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
-        None
-    }
-}
-
-impl SortableQueryOutput for RoleId {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
-        None
-    }
-}
-
-impl SortableQueryOutput for CommittedTransaction {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
-        None
-    }
-}
-
-impl SortableQueryOutput for PeerId {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
-        None
-    }
-}
-
-impl SortableQueryOutput for Permission {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
-        None
-    }
-}
-
-impl SortableQueryOutput for Trigger {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
-        None
-    }
-}
-
-impl SortableQueryOutput for TriggerId {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
-        None
-    }
-}
-
-impl SortableQueryOutput for iroha_data_model::block::SignedBlock {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
-        None
-    }
-}
-
-impl SortableQueryOutput for iroha_data_model::block::BlockHeader {
-    fn get_metadata_sorting_key(&self, _key: &Name) -> Option<Json> {
-        None
-    }
-}
-
-/// Applies sorting and pagination to the query output and wraps it into a type-erasing batching iterator.
+/// Applies pagination to the query output and wraps it into a type-erasing batching iterator.
 ///
 /// # Errors
 ///
@@ -120,12 +30,11 @@ pub fn apply_query_postprocessing<I>(
     selector: SelectorTuple<I::Item>,
     &QueryParams {
         pagination,
-        ref sorting,
         fetch_size,
     }: &QueryParams,
 ) -> Result<ErasedQueryIterator, Error>
 where
-    I: Iterator<Item: SortableQueryOutput + Send + Sync + 'static>,
+    I: Iterator<Item: Send + Sync + 'static>,
     I::Item: HasProjection<SelectorMarker, AtomType = ()> + 'static,
     <I::Item as HasProjection<SelectorMarker>>::Projection: EvaluateSelector<I::Item> + Send + Sync,
     QueryOutputBatchBox: From<Vec<I::Item>>,
@@ -138,43 +47,18 @@ where
         return Err(Error::FetchSizeTooBig);
     }
 
-    // sort & paginate, erase the iterator with QueryBatchedErasedIterator
-    let output = if let Some(key) = &sorting.sort_by_metadata_key {
-        // if sorting was requested, we need to retrieve all the results first
-        let mut pairs: Vec<(Option<Json>, I::Item)> = iter
-            .map(|value| {
-                let key = value.get_metadata_sorting_key(key);
-                (key, value)
-            })
-            .collect();
-        pairs.sort_by(
-            |(left_key, _), (right_key, _)| match (left_key, right_key) {
-                (Some(l), Some(r)) => l.cmp(r),
-                (Some(_), None) => Ordering::Less,
-                (None, Some(_)) => Ordering::Greater,
-                (None, None) => Ordering::Equal,
-            },
-        );
+    // FP: this collect is very deliberate
+    #[allow(clippy::needless_collect)]
+    let output = iter
+        .paginate(pagination)
+        // it should theoretically be possible to not collect the results into a vec and build the response lazily
+        // but:
+        // - the iterator is bound to the 'state lifetime and this lifetime should somehow be erased
+        // - for small queries this might not be efficient
+        // TODO: investigate this
+        .collect::<Vec<_>>();
 
-        ErasedQueryIterator::new(
-            pairs.into_iter().map(|(_, val)| val).paginate(pagination),
-            selector,
-            fetch_size,
-        )
-    } else {
-        // FP: this collect is very deliberate
-        #[allow(clippy::needless_collect)]
-        let output = iter
-            .paginate(pagination)
-            // it should theoretically be possible to not collect the results into a vec and build the response lazily
-            // but:
-            // - the iterator is bound to the 'state lifetime and this lifetime should somehow be erased
-            // - for small queries this might not be efficient
-            // TODO: investigate this
-            .collect::<Vec<_>>();
-
-        ErasedQueryIterator::new(output.into_iter(), selector, fetch_size)
-    };
+    let output = ErasedQueryIterator::new(output.into_iter(), selector, fetch_size);
 
     Ok(output)
 }

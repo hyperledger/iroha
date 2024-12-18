@@ -40,7 +40,6 @@ fn main(host: Iroha, context: Context) {
             .into(),
             QueryParams::new(
                 Default::default(),
-                Default::default(),
                 FetchSize::new(Some(nonzero!(1_u64))),
             ),
         ))
