@@ -110,10 +110,7 @@ async fn stark_governance_paths() -> Result<()> {
     let tally_circuit_id = "vote-tally";
     let builder = NetworkBuilder::new()
         .with_peers(4)
-        .with_auto_populated_trusted_peers()
-        .with_config_layer(|layer| {
-            layer.write(["zk", "stark", "enabled"], true);
-        });
+        .with_auto_populated_trusted_peers();
     let Some(network) =
         sandbox::start_network_async_or_skip(builder, stringify!(stark_governance_paths)).await?
     else {

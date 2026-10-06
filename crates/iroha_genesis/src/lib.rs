@@ -3127,7 +3127,7 @@ mod tests {
     };
     use iroha_primitives::json::Json;
     use iroha_test_samples::{ALICE_KEYPAIR, BOB_KEYPAIR};
-    use iroha_version::codec::{DecodeVersioned, EncodeVersioned};
+    use iroha_version::codec::EncodeVersioned;
     use tempfile::TempDir;
 
     impl GenesisBuilder {
@@ -4417,8 +4417,13 @@ mod tests {
         let block = builder
             .set_topology(deterministic_test_genesis_topology_entries())
             .build_and_sign(&genesis_key_pair)?;
-        let encoded = block.0.encode_versioned();
-        let decoded = SignedBlock::decode_all_versioned(&encoded)?;
+        let wire = block
+            .0
+            .canonical_wire()
+            .map_err(|error| eyre!("encode canonical genesis wire: {error}"))?;
+        assert_eq!(wire.payload(), &block.0.encode_versioned()[1..]);
+        let decoded = iroha_data_model::block::decode_framed_signed_block(wire.as_framed())
+            .map_err(|error| eyre!("decode canonical genesis wire: {error}"))?;
         assert_eq!(
             decoded.external_transactions().count(),
             block.0.external_transactions().count()

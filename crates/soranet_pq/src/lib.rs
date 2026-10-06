@@ -11,6 +11,8 @@ mod hkdf;
 mod mldsa;
 #[cfg(feature = "pqc")]
 mod mlkem;
+#[cfg(all(test, feature = "pqc"))]
+mod nistkat_sha256;
 mod rng;
 #[cfg(not(feature = "pqc"))]
 mod wire;

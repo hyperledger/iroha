@@ -83,8 +83,12 @@ fn verify_then_vendor_submit_ballot_applies() {
     // Governance and ISI verification consult the node `Zk` config guardrails, so ensure
     // halo2 verification is enabled here (in addition to the host-local halo2 config used by
     // the syscall verifier).
-    state.zk.halo2.enabled = true;
-    state.zk.verify_timeout = Duration::ZERO;
+    state
+        .edit_zk_for_testing(|zk| zk.halo2.enabled = true)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.verify_timeout = Duration::ZERO)
+        .expect("fixture ZK settings install");
     let mut gov_cfg = state.gov.clone();
     gov_cfg.citizenship_bond_amount = 0_u64.into();
     state.set_gov(gov_cfg);

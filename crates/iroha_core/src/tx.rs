@@ -9386,7 +9386,7 @@ pub mod tests {
         let chain: ChainId = "chain".parse().unwrap();
         let mut state = State::new_with_chain(world, kura, query_handle, chain.clone());
         // Configure pipeline gas allowlist
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.gas.accepted_assets = vec![
             AssetDefinitionId::derive_from_components(
                 DomainId::try_new("domain", "universal").unwrap(),
@@ -10129,7 +10129,7 @@ pub mod tests {
     fn validate_ivm_max_cycles_exceeds_fuel_rejected() {
         let mut fixture = IvmAdmissionFixture::new();
         // Raise pipeline upper bound above fuel limit so the fuel check triggers first.
-        let mut pipeline = fixture.state.pipeline.clone();
+        let mut pipeline = fixture.state.installed_pipeline().clone();
         let fuel_limit = fixture
             .state
             .world
@@ -10158,7 +10158,7 @@ pub mod tests {
     #[test]
     fn validate_ivm_max_cycles_equal_to_fuel_is_admitted() {
         let mut fixture = IvmAdmissionFixture::new();
-        let mut pipeline = fixture.state.pipeline.clone();
+        let mut pipeline = fixture.state.installed_pipeline().clone();
         let fuel_limit = fixture
             .state
             .world
@@ -10180,7 +10180,7 @@ pub mod tests {
     #[test]
     fn validate_ivm_instruction_limit_enforced() {
         let mut fixture = IvmAdmissionFixture::new();
-        let mut pipeline = fixture.state.pipeline.clone();
+        let mut pipeline = fixture.state.installed_pipeline().clone();
         pipeline.ivm_max_decoded_instructions = 2;
         pipeline.ivm_max_decoded_bytes =
             iroha_config::parameters::defaults::pipeline::IVM_MAX_DECODED_BYTES;
@@ -10204,7 +10204,7 @@ pub mod tests {
         let baseline = ivm::ivm_cache::cache_limits();
         let _cache_limits = ivm::ivm_cache::CacheLimitsGuard::new(baseline);
         let mut fixture = IvmAdmissionFixture::new();
-        let mut pipeline = fixture.state.pipeline.clone();
+        let mut pipeline = fixture.state.installed_pipeline().clone();
         pipeline.ivm_cache_max_decoded_ops = 1;
         pipeline.ivm_max_decoded_instructions = 4;
         pipeline.ivm_max_decoded_bytes =
@@ -10221,7 +10221,7 @@ pub mod tests {
     #[test]
     fn validate_ivm_decoded_byte_limit_enforced() {
         let mut fixture = IvmAdmissionFixture::new();
-        let mut pipeline = fixture.state.pipeline.clone();
+        let mut pipeline = fixture.state.installed_pipeline().clone();
         pipeline.ivm_max_decoded_instructions = 0;
         pipeline.ivm_max_decoded_bytes = 8; // allow only two 4-byte instructions
         fixture.state.set_pipeline(pipeline);
@@ -11366,7 +11366,7 @@ pub mod tests {
         use iroha_model_base::name::Name;
         use iroha_primitives::json::Json;
         let mut fixture = IvmAdmissionFixture::new();
-        let mut pipeline = fixture.state.pipeline.clone();
+        let mut pipeline = fixture.state.installed_pipeline().clone();
         pipeline.ivm_max_cycles_upper_bound =
             std::num::NonZeroU64::new(1_000).expect("test ceiling is non-zero");
         fixture.state.set_pipeline(pipeline);
@@ -11411,7 +11411,7 @@ pub mod tests {
         let kura = crate::kura::Kura::blank_kura_for_testing();
         let query_handle = crate::query::store::LiveQueryStore::start_test();
         let mut state = State::new(world, kura, query_handle);
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.ivm_max_cycles_upper_bound =
             std::num::NonZeroU64::new(4_000).expect("test ceiling is non-zero");
         state.set_pipeline(pipeline);
@@ -12710,7 +12710,7 @@ pub mod tests {
         let nexus = state.nexus_snapshot();
         let crypto = state.crypto();
         let zk = state.zk_snapshot();
-        let pipeline = state.pipeline.clone();
+        let pipeline = state.installed_pipeline().clone();
         let fraud_monitoring = state.fraud_monitoring.clone();
         let governance = state.gov.clone();
         #[cfg(feature = "telemetry")]
@@ -13322,7 +13322,7 @@ pub mod tests {
             Kura::blank_kura_for_testing(),
             LiveQueryStore::start_test(),
         );
-        let mut zk = state.zk.clone();
+        let mut zk = state.installed_zk().clone();
         zk.max_confidential_ops_per_block = 1;
         zk.max_verify_calls_per_block = 1;
         zk.max_verify_calls_per_tx = 2;

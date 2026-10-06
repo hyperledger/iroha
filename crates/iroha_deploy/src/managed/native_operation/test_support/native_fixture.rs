@@ -356,6 +356,7 @@ fn native_quote(state: &State, payload: &TransactionPayload) -> FeeQuoteResponse
         view.world(),
         view.nexus(),
         view.pipeline(),
+        &view.zk().gas,
         payload,
         header.creation_time_ms,
         header.height().get() + 1,

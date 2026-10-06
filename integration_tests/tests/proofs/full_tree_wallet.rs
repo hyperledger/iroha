@@ -172,9 +172,6 @@ async fn four_validator_full_tree_wallet_proof_records_reject_corruption_and_rel
         .with_genesis_instruction(verifying_keys::RegisterVerifyingKey {
             id: transfer_id.clone(),
             record: transfer_record.clone(),
-        })
-        .with_config_layer(|layer| {
-            layer.write(["zk", "halo2", "enabled"], true);
         });
     let network = sandbox::start_network_async_or_skip(builder, "full_tree_wallet_proof_records")
         .await?

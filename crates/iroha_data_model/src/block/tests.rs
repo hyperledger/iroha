@@ -3,7 +3,7 @@
 use super::*;
 use crate::consensus::NposConsensusEffects;
 use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair, Signature};
-use iroha_version::codec::{DecodeVersioned, EncodeVersioned};
+use iroha_version::codec::EncodeVersioned;
 use norito::codec::{DecodeAll as _, Encode};
 use std::num::NonZeroU64;
 // Bring commonly used types referenced in transparent API tests.
@@ -44,6 +44,17 @@ fn test_network_id() -> crate::NetworkId {
     crate::NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(
         Hash::prehashed([0x15; Hash::LENGTH]),
     ))
+}
+/// Frame an arbitrary block payload under the canonical V1 header.
+///
+/// `SignedBlock::canonical_wire` is the only production framer and takes a block. Tests use this
+/// to assemble a frame independently of it, or around a payload it never produces.
+fn frame_block_payload(version: u8, payload: &[u8]) -> Vec<u8> {
+    let mut framed = Vec::with_capacity(1 + norito::core::Header::SIZE + payload.len());
+    framed.push(version);
+    write_signed_block_header(payload, &mut framed).expect("canonical V1 block header");
+    framed.extend_from_slice(payload);
+    framed
 }
 fn split_default_norito_fields(bytes: &[u8], count: usize) -> Vec<Vec<u8>> {
     let flags = norito::core::default_encode_flags();
@@ -476,8 +487,8 @@ fn signed_block_wire_roundtrips_canonical_external_entrypoints() {
             .expect("explicit transaction reference"),
         stored_tx
     ));
-    let encoded = block.encode_versioned();
-    let decoded = SignedBlock::decode_all_versioned(&encoded).expect("decode versioned block");
+    let wire = block.canonical_wire().expect("canonical block wire");
+    let decoded = decode_framed_signed_block(wire.as_framed()).expect("decode framed block");
     assert_eq!(decoded, block);
     assert!(decoded.is_resultless_proposal());
     assert_eq!(
@@ -914,8 +925,9 @@ fn encode_versioned_prefixes_norito_payload() {
     let versioned = block.encode_versioned();
     assert!(!versioned.is_empty());
     assert_eq!(versioned[0], block.version());
-    let framed = frame_versioned_signed_block_bytes(&versioned).expect("frame versioned block");
-    let deframed = deframe_versioned_signed_block_bytes(&framed).expect("deframe framed block");
+    let wire = block.canonical_wire().expect("canonical block wire");
+    let deframed =
+        deframe_versioned_signed_block_bytes(wire.as_framed()).expect("deframe framed block");
     assert_eq!(deframed.bare_versioned.as_ref(), versioned.as_slice());
     assert!(deframed.bytes.as_ref()[1..].starts_with(MAGIC.as_slice()));
 }
@@ -964,25 +976,20 @@ fn versioned_block_roundtrip_preserves_instruction_order() {
         result: None,
         commit_certificate: None,
     };
-    let versioned = block.encode_versioned();
-    let decoded_versioned =
-        SignedBlock::decode_all_versioned(&versioned).expect("decode versioned block");
-    let framed = frame_versioned_signed_block_bytes(&versioned).expect("frame versioned block");
-    let decoded_framed = decode_framed_signed_block(&framed).expect("decode framed block");
-    for decoded in [&decoded_versioned, &decoded_framed] {
-        let tx = decoded
-            .external_transactions()
-            .next()
-            .expect("block must contain one transaction");
-        let Executable::Instructions(actual) = tx.instructions() else {
-            panic!("expected instruction executable after block roundtrip");
-        };
-        let actual = actual.iter().cloned().collect::<Vec<_>>();
-        assert_eq!(
-            actual, ordered,
-            "instruction order must survive signed block roundtrip"
-        );
-    }
+    let wire = block.canonical_wire().expect("canonical block wire");
+    let decoded = decode_framed_signed_block(wire.as_framed()).expect("decode framed block");
+    let tx = decoded
+        .external_transactions()
+        .next()
+        .expect("block must contain one transaction");
+    let Executable::Instructions(actual) = tx.instructions() else {
+        panic!("expected instruction executable after block roundtrip");
+    };
+    let actual = actual.iter().cloned().collect::<Vec<_>>();
+    assert_eq!(
+        actual, ordered,
+        "instruction order must survive signed block roundtrip"
+    );
 }
 #[test]
 fn deframe_rejects_payload_exceeding_max_len() {
@@ -1004,9 +1011,10 @@ fn deframe_rejects_payload_exceeding_max_len() {
         result: None,
         commit_certificate: None,
     };
-    let versioned = block.encode_versioned();
-    let mut framed =
-        frame_versioned_signed_block_bytes(&versioned).expect("frame versioned payload");
+    let mut framed = block
+        .canonical_wire()
+        .expect("canonical block wire")
+        .into_vec();
     let limit = norito::core::max_archive_len();
     let oversized_len = limit
         .checked_add(1)
@@ -1028,7 +1036,7 @@ fn deframe_rejects_payload_exceeding_max_len() {
     }
 }
 #[test]
-fn decode_versioned_signed_block_rejects_trailing_bytes() {
+fn framed_signed_block_decode_rejects_trailing_bytes() {
     use nonzero_ext::nonzero;
     let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
     let block = SignedBlock {
@@ -1046,25 +1054,20 @@ fn decode_versioned_signed_block_rejects_trailing_bytes() {
         result: None,
         commit_certificate: None,
     };
-    let mut versioned = block.encode_versioned();
-    versioned.push(0_u8);
-    let err = SignedBlock::decode_all_versioned(versioned.as_slice())
-        .expect_err("decode must report trailing bytes");
-    match err {
-        iroha_version::error::Error::ExtraBytesLeft(remaining) => {
-            assert_eq!(remaining, 1);
-        }
-        iroha_version::error::Error::NoritoCodec(reason) => {
-            assert!(
-                reason.contains("length mismatch"),
-                "unexpected norito error: {reason}"
-            );
-        }
-        other => panic!("unexpected error: {other}"),
-    }
+    let mut framed = block
+        .canonical_wire()
+        .expect("canonical block wire")
+        .into_vec();
+    framed.push(0_u8);
+    let err = decode_framed_signed_block(&framed).expect_err("decode must report trailing bytes");
+    assert_eq!(err.kind(), norito::core::DecodeAttemptErrorKind::Invalid);
+    assert!(
+        matches!(err.into_error(), NoritoFrameError::LengthMismatch),
+        "a byte after the declared payload is a length mismatch"
+    );
 }
 #[test]
-fn frame_deframe_versioned_bytes_roundtrip() {
+fn canonical_wire_deframe_roundtrip() {
     use nonzero_ext::nonzero;
     let header = BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
     let block = SignedBlock {
@@ -1083,17 +1086,15 @@ fn frame_deframe_versioned_bytes_roundtrip() {
         commit_certificate: None,
     };
     let versioned = block.encode_versioned();
-    let framed = frame_versioned_signed_block_bytes(&versioned).expect("frame versioned block");
-    assert!(framed.len() > versioned.len());
+    let wire = block.canonical_wire().expect("canonical block wire");
+    let framed = wire.as_framed();
+    assert_eq!(framed.len(), versioned.len() + norito::core::Header::SIZE);
     assert!(framed[1..].starts_with(MAGIC.as_slice()));
-    let deframed = deframe_versioned_signed_block_bytes(&framed).expect("deframe framed block");
-    assert_eq!(deframed.bytes.as_ref(), framed.as_slice());
+    let deframed = deframe_versioned_signed_block_bytes(framed).expect("deframe framed block");
+    assert_eq!(deframed.bytes.as_ref(), framed);
     assert_eq!(deframed.bare_versioned.as_ref(), versioned.as_slice());
-    let decoded_framed = decode_framed_signed_block(&framed).expect("decode framed block");
+    let decoded_framed = decode_framed_signed_block(framed).expect("decode framed block");
     assert_eq!(decoded_framed, block);
-    let decoded_versioned =
-        SignedBlock::decode_all_versioned(versioned.as_ref()).expect("decode versioned block");
-    assert_eq!(decoded_versioned, block);
 }
 #[test]
 fn framed_decode_borrows_payload_from_original_wire() {
@@ -1127,7 +1128,7 @@ fn canonical_wire_matches_framed_payload() {
     };
     let versioned = block.encode_versioned();
     let canonical = block.canonical_wire().expect("canonical wire");
-    let framed = frame_versioned_signed_block_bytes(&versioned).expect("frame versioned block");
+    let framed = frame_block_payload(versioned[0], &versioned[1..]);
     assert_eq!(canonical.version(), block.version());
     assert_eq!(canonical.version(), versioned[0]);
     assert_eq!(canonical.as_framed(), framed.as_slice());
@@ -1194,15 +1195,7 @@ fn signed_block_decoders_reject_nested_instruction_type_name_alias() {
         iroha_version::error::Error::NoritoCodec(reason)
             if reason == "unknown instruction wire identifier"
     ));
-    let bare_error = SignedBlock::decode_all_versioned(&alternate_block)
-        .expect_err("bare V1 blocks must reject nested instruction aliases");
-    assert!(matches!(
-        bare_error,
-        iroha_version::error::Error::NoritoCodec(reason)
-            if reason == "unknown instruction wire identifier"
-    ));
-    let framed = frame_versioned_signed_block_bytes(&alternate_block)
-        .expect("frame alternate versioned block");
+    let framed = frame_block_payload(alternate_block[0], &alternate_block[1..]);
     let framed_error = decode_framed_signed_block(&framed)
         .expect_err("framed V1 blocks must reject nested instruction aliases");
     assert!(matches!(
@@ -1210,6 +1203,153 @@ fn signed_block_decoders_reject_nested_instruction_type_name_alias() {
         NoritoFrameError::Message(reason)
             if reason == "unknown instruction wire identifier"
     ));
+}
+/// Rebuild a canonical block payload with the selected confidential-digest hashes
+/// written as thirty-two packed bytes instead of the emitted array child.
+///
+/// `packed` selects by digest field index: 0 is `vk_set_hash`, 4 is `zk_policy_hash`.
+fn block_payload_with_packed_digest_hashes(canonical_payload: &[u8], packed: &[usize]) -> Vec<u8> {
+    // signatures, payload, result, commit_certificate
+    let mut block = split_default_norito_fields(canonical_payload, 4);
+    // header, external_entrypoints, da_commitments, da_proof_policies,
+    // da_pin_intents, npos_consensus_effects, global_beacon_pulse,
+    // execution_context
+    let mut payload = split_default_norito_fields(&block[1], 8);
+    // height .. confidential_features (9), execution_context_hash,
+    // global_beacon_pulse_hash
+    let mut header = split_default_norito_fields(&payload[0], 12);
+    assert_eq!(header[9][0], 1, "present confidential digest");
+    let digest = split_default_norito_fields(&header[9][1..], 1);
+    // vk_set_hash, poseidon_params_id, pedersen_params_id, conf_rules_version,
+    // zk_policy_hash
+    let mut digest = split_default_norito_fields(&digest[0], 5);
+    for &index in packed {
+        assert_eq!(digest[index][0], 1, "present digest hash");
+        let array = split_default_norito_fields(&digest[index][1..], 1);
+        // The emitted child: thirty-two one-byte elements, each behind its one-byte
+        // compact length prefix.
+        assert_eq!(array[0].len(), 32 * (1 + 1));
+        let elements = split_default_norito_fields(&array[0], 32);
+        let bytes = elements
+            .iter()
+            .map(|element| {
+                assert_eq!(element.len(), 1, "one byte per array element");
+                element[0]
+            })
+            .collect::<Vec<_>>();
+        assert_ne!(bytes, array[0], "the emitted array child is not packed");
+        let mut option = vec![1];
+        option.extend_from_slice(&encode_default_norito_fields(&[bytes]));
+        digest[index] = option;
+    }
+    let mut option = vec![1];
+    option.extend_from_slice(&encode_default_norito_fields(&[
+        encode_default_norito_fields(&digest),
+    ]));
+    header[9] = option;
+    payload[0] = encode_default_norito_fields(&header);
+    block[1] = encode_default_norito_fields(&payload);
+    encode_default_norito_fields(&block)
+}
+#[test]
+fn framed_block_rejects_packed_confidential_digest_hash_arrays() {
+    use iroha_allocation::{AllocationBudget, ChargedBuffer};
+    use norito::core::{DecodeAttemptErrorKind, PreparedDecodeError, SequenceSpan};
+
+    let vk_set_hash = [0x17; 32];
+    let zk_policy_hash = [0x25; 32];
+    let mut header = BlockHeader::new(NonZeroU64::new(1).unwrap(), None, None, 0, 0);
+    header.set_confidential_features(Some(crate::confidential::ConfidentialFeatureDigest::new(
+        Some(vk_set_hash),
+        Some(23),
+        Some(29),
+        Some(31),
+        Some(zk_policy_hash),
+    )));
+    let block = SignedBlock {
+        signatures: crate::block::BlockSignatures::default(),
+        payload: BlockPayload {
+            header,
+            external_entrypoints: Vec::new(),
+            execution_context: None,
+            da_commitments: None,
+            da_proof_policies: None,
+            da_pin_intents: None,
+            npos_consensus_effects: None,
+            global_beacon_pulse: None,
+        },
+        result: None,
+        commit_certificate: None,
+    };
+    let canonical = block.canonical_wire().expect("canonical wire");
+    let canonical_payload = canonical.payload();
+    // Rebuilding with nothing packed reproduces the canonical frame, so the surgery
+    // below changes the digest hashes and nothing else.
+    assert_eq!(
+        frame_block_payload(
+            canonical.version(),
+            &block_payload_with_packed_digest_hashes(canonical_payload, &[])
+        ),
+        canonical.as_framed()
+    );
+    assert_eq!(
+        decode_framed_signed_block(canonical.as_framed()).expect("canonical frame decodes"),
+        block
+    );
+
+    let pool = AllocationBudget::new(1 << 20);
+    for packed in [&[0][..], &[4][..], &[0, 4][..]] {
+        let alternate = block_payload_with_packed_digest_hashes(canonical_payload, packed);
+        // Each packed hash drops its thirty-two one-byte element prefixes; an enclosing
+        // compact length prefix may shrink with it.
+        assert!(canonical_payload.len() - alternate.len() >= 32 * packed.len());
+        for hash in [vk_set_hash, zk_policy_hash] {
+            assert!(
+                alternate.windows(hash.len()).any(|window| window == hash)
+                    == packed.contains(&if hash == vk_set_hash { 0 } else { 4 }),
+                "only the selected hashes are packed"
+            );
+        }
+        let framed = frame_block_payload(canonical.version(), &alternate);
+        assert_ne!(framed, canonical.as_framed());
+
+        // The ordinary frame decoder authenticates the source against the block's
+        // sole canonical encoding.
+        let ordinary = decode_framed_signed_block(&framed)
+            .expect_err("a packed digest hash is not the canonical block wire");
+        assert_eq!(ordinary.kind(), DecodeAttemptErrorKind::Invalid);
+        assert!(matches!(
+            ordinary.into_error(),
+            NoritoFrameError::NonCanonicalEncoding
+        ));
+
+        // The prepared decoder streams the same comparison over its filled fields.
+        let mut source = ChargedBuffer::new(framed.len(), &pool).expect("funded source");
+        source.append(&framed).expect("complete source");
+        let mut decoder = PreparedSignedBlockSignaturesDecode::new(&pool).expect("controls");
+        let prepared = decoder
+            .decode(
+                &source,
+                SequenceSpan {
+                    start: 0,
+                    end: framed.len(),
+                },
+                norito::canonical_decode_limits(framed.len()),
+            )
+            .expect_err("a packed digest hash is not the canonical block wire");
+        let PreparedSignatureBlockError::Decode(PreparedDecodeError::Codec(prepared)) = prepared
+        else {
+            panic!("a non-canonical source is a codec refusal, not custody: {prepared}");
+        };
+        assert_eq!(prepared.kind(), DecodeAttemptErrorKind::Invalid);
+        assert!(matches!(
+            prepared.into_error(),
+            NoritoFrameError::NonCanonicalEncoding
+        ));
+        drop(decoder);
+        drop(source);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
 }
 #[test]
 fn canonical_wire_roundtrips_genesis_block() {
@@ -1333,8 +1473,10 @@ fn decode_versioned_signed_block_handles_genesis_like_payload() {
         manual_versioned, versioned,
         "canonical encode must be stable"
     );
-    let decoded = SignedBlock::decode_all_versioned(&versioned)
-        .expect("versioned genesis payload must roundtrip");
+    let wire = block.canonical_wire().expect("canonical genesis wire");
+    assert_eq!(wire.payload(), manual_payload.as_slice());
+    let decoded = decode_framed_signed_block(wire.as_framed())
+        .expect("framed genesis payload must roundtrip");
     assert_eq!(decoded, block);
 }
 #[test]
@@ -1357,9 +1499,9 @@ fn decode_versioned_signed_block_accepts_framed_payload() {
         commit_certificate: None,
     };
     let versioned = block.encode_versioned();
-    let framed = frame_versioned_signed_block_bytes(&versioned).expect("frame versioned payload");
-    let decoded_from_framed =
-        decode_framed_signed_block(&framed).expect("decode framed payload via versioned API");
+    let wire = block.canonical_wire().expect("canonical block wire");
+    let decoded_from_framed = decode_framed_signed_block(wire.as_framed())
+        .expect("decode framed payload via versioned API");
     assert_eq!(decoded_from_framed, block);
     let err =
         decode_framed_signed_block(&versioned).expect_err("headerless payloads must be rejected");
@@ -1512,9 +1654,11 @@ fn commit_certificate_wire_json_and_versioned_round_trip() {
         let canonical = block.canonical_wire().expect("canonical wire");
         assert_eq!(canonical.as_framed(), wire.as_slice());
         let versioned = block.encode_versioned();
-        assert_eq!(
-            SignedBlock::decode_all_versioned(&versioned).expect("decode versioned"),
-            block
+        assert_eq!(versioned[0], canonical.version());
+        assert_eq!(&versioned[1..], canonical.payload());
+        assert!(
+            decode_framed_signed_block(&versioned).is_err(),
+            "the headerless payload is not a block wire"
         );
         let json = norito::json::to_json(&block).expect("json");
         let parsed: SignedBlock = norito::json::from_str(&json).expect("json de");
@@ -1565,8 +1709,8 @@ fn framed_signed_block_uses_v1_layout_flags() {
         result: None,
         commit_certificate: None,
     };
-    let versioned = block.encode_versioned();
-    let framed = frame_versioned_signed_block_bytes(&versioned).expect("frame payload");
+    let wire = block.canonical_wire().expect("canonical block wire");
+    let framed = wire.as_framed();
     let header_size = norito::core::Header::SIZE;
     let flags = framed[1 + header_size - 1];
     assert_eq!(flags, norito::core::default_encode_flags());
@@ -1595,8 +1739,8 @@ fn signed_block_da_commitments_roundtrip() {
     block.set_da_commitments(Some(bundle.clone()));
     assert_eq!(block.da_commitments().unwrap(), &bundle);
     assert!(block.header().da_commitments_hash().is_some());
-    let encoded = block.encode_versioned();
-    let decoded = SignedBlock::decode_all_versioned(&encoded).expect("decode versioned block");
+    let wire = block.canonical_wire().expect("canonical block wire");
+    let decoded = decode_framed_signed_block(wire.as_framed()).expect("decode framed block");
     assert_eq!(decoded.da_commitments().unwrap(), &bundle);
     block.set_da_commitments(None);
     assert!(block.da_commitments().is_none());
@@ -2273,12 +2417,13 @@ fn framing_derives_flags_instead_of_reusing_tls_state() {
     let versioned = block.encode_versioned();
     let header_index = 1 + norito::core::Header::SIZE - 1;
     let expected_flags = norito::core::default_encode_flags();
-    let framed = frame_versioned_signed_block_bytes(&versioned).expect("frame versioned payload");
+    let wire = block.canonical_wire().expect("canonical block wire");
+    let framed = wire.as_framed();
     assert_eq!(
         framed[header_index], expected_flags,
         "Framing must use the canonical fixed layout flags",
     );
-    let deframed = deframe_versioned_signed_block_bytes(&framed).expect("deframe framed payload");
+    let deframed = deframe_versioned_signed_block_bytes(framed).expect("deframe framed payload");
     assert_eq!(deframed.bare_versioned.as_ref(), versioned.as_slice());
 }
 #[test]

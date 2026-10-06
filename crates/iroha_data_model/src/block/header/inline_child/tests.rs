@@ -165,6 +165,17 @@ struct RawDigest {
     conf_rules_version: Option<u32>,
     zk_policy_hash: Option<RawBytes>,
 }
+/// The original child bytes of one present digest hash under the active layout flags.
+///
+/// The record encoder writes an optional `[u8; 32]` through the sole generic array
+/// serializer: thirty-two one-byte elements, each behind its own length prefix. A
+/// faithful source producer therefore carries exactly those bytes. Thirty-two packed
+/// bytes are a different source that the encoder never emits; the complete-frame
+/// decoders refuse a block carrying it. The block test
+/// `framed_block_rejects_packed_confidential_digest_hash_arrays` shows that.
+fn original_hash_child(bytes: [u8; 32]) -> RawBytes {
+    RawBytes(bare(&bytes))
+}
 #[derive(norito::codec::Encode)]
 struct RawHeader {
     height: RawBytes,
@@ -194,11 +205,11 @@ fn raw(value: BlockHeader) -> RawHeader {
         creation_time_ms: value.creation_time_ms,
         view_change_index: value.view_change_index,
         confidential_features: value.confidential_features.map(|d| RawDigest {
-            vk_set_hash: d.vk_set_hash.map(|bytes| RawBytes(bytes.to_vec())),
+            vk_set_hash: d.vk_set_hash.map(original_hash_child),
             poseidon_params_id: d.poseidon_params_id,
             pedersen_params_id: d.pedersen_params_id,
             conf_rules_version: d.conf_rules_version,
-            zk_policy_hash: d.zk_policy_hash.map(|bytes| RawBytes(bytes.to_vec())),
+            zk_policy_hash: d.zk_policy_hash.map(original_hash_child),
         }),
         execution_context_hash: value.execution_context_hash,
         global_beacon_pulse_hash: value.global_beacon_pulse_hash,
@@ -268,6 +279,19 @@ fn inline_actual_header_preserves_nonzero_child_before_trailer_and_original_pref
         let _flags = DecodeFlagsGuard::enter(flags);
         let bytes = bare(&value);
         assert_eq!(bytes, bare(&raw(value)));
+        // The producer's present digest hashes are the emitted array children: one
+        // length prefix per byte (eight bytes fixed, one byte compact), never the
+        // thirty-two packed bytes.
+        let child = original_hash_child([7; 32]).0;
+        assert_eq!(
+            child.len(),
+            if flags == 0 {
+                32 * (8 + 1)
+            } else {
+                32 * (1 + 1)
+            }
+        );
+        assert_ne!(child, [7; 32]);
         for end in 0..bytes.len() {
             compare_original_error(&bytes[..end], limits);
         }

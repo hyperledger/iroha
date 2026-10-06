@@ -2,15 +2,22 @@ seiyaku PrivateNestedLoops {
     fn accumulate(int _ bound) -> int {
         var total = 0;
         for inner in range(6) {
-            if inner >= bound { continue; }
-            if inner % 2 == 0 { continue; }
+            if inner >= bound {
+                continue;
+            }
+            if inner % 2 == 0 {
+                continue;
+            }
             total = total + inner;
         }
         return total;
     }
+
     view fn main() -> int {
         var total = 0;
-        for outer in range(4) { total = total + accumulate(outer + 2); }
+        for outer in range(4) {
+            total = total + accumulate(outer + 2);
+        }
         return total;
     }
 }

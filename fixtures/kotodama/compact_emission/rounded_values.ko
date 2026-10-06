@@ -4,21 +4,40 @@ seiyaku CompactRoundedValues {
         let decimal divisor = 8.0;
         let decimal multiplier = 3.0;
         let quantity ratio_divisor = 8;
-        let decimal negative = -1.0;
-        let seed = decimal::to_int_round(value.ratio_round(divisor: value, scale: 0, mode: Rounding::floor), mode: Rounding::floor);
-        return (
-            value.div_round(divisor: divisor, scale: 2, mode: Rounding::toward_zero),
-            value.div_round(divisor: divisor, scale: 2, mode: Rounding::away_from_zero),
-            value.div_round(divisor: divisor, scale: 2, mode: Rounding::floor),
-            value.div_round(divisor: divisor, scale: 2, mode: Rounding::ceil),
-            value.div_round(divisor: divisor, scale: 2, mode: Rounding::nearest_even),
-            value.div_round(divisor: divisor, scale: 2, mode: Rounding::nearest_away),
-            value.div_round(divisor: divisor, scale: 2, mode: Rounding::nearest_toward_zero),
-            value.ratio_round(divisor: ratio_divisor, scale: 2, mode: Rounding::nearest_away),
-            value.mul_div_round(multiplier: multiplier, divisor: divisor, scale: 2, mode: Rounding::ceil),
-            negative.div_round(divisor: divisor, scale: 2, mode: Rounding::floor),
-            negative.mul_div_round(multiplier: multiplier, divisor: divisor, scale: 2, mode: Rounding::toward_zero),
-            math::abs(seed * -81), math::isqrt(seed * 81), math::min(left: seed * 91, right: seed * 37), math::gcd(left: seed * 54, right: seed * 24)
+        let decimal negative =-1.0;
+        let seed = decimal::to_int_round(
+            value.ratio_round(divisor: value, scale: 0, mode: Rounding::floor),
+            mode: Rounding::floor,
         );
+        return (value.div_round(divisor: divisor, scale: 2, mode: Rounding::toward_zero), value.div_round(
+            divisor: divisor,
+            scale: 2,
+            mode: Rounding::away_from_zero,
+        ), value.div_round(divisor: divisor, scale: 2, mode: Rounding::floor), value.div_round(
+            divisor: divisor,
+            scale: 2,
+            mode: Rounding::ceil,
+        ), value.div_round(divisor: divisor, scale: 2, mode: Rounding::nearest_even), value.div_round(
+            divisor: divisor,
+            scale: 2,
+            mode: Rounding::nearest_away,
+        ), value.div_round(divisor: divisor, scale: 2, mode: Rounding::nearest_toward_zero), value.ratio_round(
+            divisor: ratio_divisor,
+            scale: 2,
+            mode: Rounding::nearest_away,
+        ), value.mul_div_round(
+            multiplier: multiplier,
+            divisor: divisor,
+            scale: 2,
+            mode: Rounding::ceil,
+        ), negative.div_round(divisor: divisor, scale: 2, mode: Rounding::floor), negative.mul_div_round(
+            multiplier: multiplier,
+            divisor: divisor,
+            scale: 2,
+            mode: Rounding::toward_zero,
+        ), math::abs(seed *-81), math::isqrt(seed * 81), math::min(
+            left: seed * 91,
+            right: seed * 37,
+        ), math::gcd(left: seed * 54, right: seed * 24));
     }
 }

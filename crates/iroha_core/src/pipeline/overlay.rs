@@ -7132,7 +7132,9 @@ seiyaku ProtectedProved {
             world,
             ChainId::from("protected-proved-overlay"),
         );
-        state.zk.halo2.enabled = true;
+        state
+            .edit_zk_for_testing(|zk| zk.halo2.enabled = true)
+            .expect("fixture ZK settings install");
         let mut metadata = Metadata::default();
         metadata.insert(
             "contract_entrypoint".parse().expect("metadata key"),
@@ -7486,7 +7488,9 @@ seiyaku AliasBoundArguments {
             .account_permissions_mut_for_testing()
             .insert(authority.clone(), permissions);
         let mut state = test_support::state_after_genesis(world);
-        state.zk.halo2.enabled = true;
+        state
+            .edit_zk_for_testing(|zk| zk.halo2.enabled = true)
+            .expect("fixture ZK settings install");
         let summary = IvmCache::new()
             .summarize_program(bytecode.as_ref())
             .expect("program summary");

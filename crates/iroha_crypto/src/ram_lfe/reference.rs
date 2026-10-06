@@ -395,6 +395,8 @@ impl Machine<'_> {
     }
 }
 
+// TODO(R.3, R.12): only tests call this oracle. No execution relation (R.3) and no
+// encrypted evaluator (R.12) is compared with it yet.
 /// Execute a hidden program on plaintext with explicit initialized lanes.
 ///
 /// The program must be a member of `class`. Registers start at zero and the

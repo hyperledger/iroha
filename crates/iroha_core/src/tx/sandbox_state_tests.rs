@@ -373,10 +373,12 @@ impl Sandbox {
         };
         // Force deterministic single-threaded pipeline evaluation in tests to avoid
         // parallel scheduling reordering transactions that rely on chained data triggers.
-        sandbox.state.pipeline.dynamic_prepass = false;
-        sandbox.state.pipeline.parallel_overlay = false;
-        sandbox.state.pipeline.parallel_apply = false;
-        sandbox.state.pipeline.workers = 1;
+        sandbox.state.edit_pipeline_for_testing(|pipeline| {
+            pipeline.dynamic_prepass = false;
+            pipeline.parallel_overlay = false;
+            pipeline.parallel_apply = false;
+            pipeline.workers = 1;
+        });
         sandbox.with_max_execution_depth(INIT_EXECUTION_DEPTH)
     }
 }

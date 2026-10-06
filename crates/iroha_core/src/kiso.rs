@@ -42,8 +42,9 @@ impl KisoHandle {
         let (network_acl_update, _) = watch::channel(initial_acl);
         let initial_handshake = state.network.soranet_handshake.clone();
         let (soranet_handshake_update, _) = watch::channel(initial_handshake);
-        let initial_confidential_gas = state.confidential.gas;
-        crate::gas::configure_confidential_gas(initial_confidential_gas.into());
+        // The verification gas schedule is consensus policy: the committed ZK validity
+        // policy or the protocol default installs it (`State::install_node_zk` and block
+        // construction). A node configuration holds no schedule.
         let mut actor = Actor {
             handle: actor_receiver,
             state,
@@ -160,7 +161,6 @@ impl KisoHandle {
         let logger = state.logger.clone();
         let network_acl = Actor::snapshot_network_acl(state);
         let soranet_handshake = state.network.soranet_handshake.clone();
-        crate::gas::configure_confidential_gas(state.confidential.gas.into());
         let mock_actor =
             run_mock_actor(actor_receiver, logger, network_acl, soranet_handshake, dto);
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -1852,53 +1852,7 @@ mod tests {
                 assume_valid: iroha_config::parameters::defaults::confidential::ASSUME_VALID,
                 verifier_backend: iroha_config::parameters::defaults::confidential::VERIFIER_BACKEND
                     .to_string(),
-                max_proof_size_bytes:
-                    iroha_config::parameters::defaults::confidential::MAX_PROOF_SIZE_BYTES,
-                max_nullifiers_per_tx:
-                    iroha_config::parameters::defaults::confidential::MAX_NULLIFIERS_PER_TX,
-                max_commitments_per_tx:
-                    iroha_config::parameters::defaults::confidential::MAX_COMMITMENTS_PER_TX,
-                max_confidential_ops_per_block: iroha_config::parameters::defaults::confidential::MAX_CONFIDENTIAL_OPS_PER_BLOCK,
                 verify_timeout: iroha_config::parameters::defaults::confidential::VERIFY_TIMEOUT,
-                max_anchor_age_blocks:
-                    iroha_config::parameters::defaults::confidential::MAX_ANCHOR_AGE_BLOCKS,
-                max_proof_bytes_block:
-                    iroha_config::parameters::defaults::confidential::MAX_PROOF_BYTES_BLOCK,
-                max_verify_calls_per_tx:
-                    iroha_config::parameters::defaults::confidential::MAX_VERIFY_CALLS_PER_TX,
-                max_verify_calls_per_block:
-                    iroha_config::parameters::defaults::confidential::MAX_VERIFY_CALLS_PER_BLOCK,
-                max_public_inputs:
-                    iroha_config::parameters::defaults::confidential::MAX_PUBLIC_INPUTS,
-                reorg_depth_bound:
-                    iroha_config::parameters::defaults::confidential::REORG_DEPTH_BOUND,
-                policy_transition_delay_blocks:
-                    iroha_config::parameters::defaults::confidential::POLICY_TRANSITION_DELAY_BLOCKS,
-                policy_transition_window_blocks:
-                    iroha_config::parameters::defaults::confidential::POLICY_TRANSITION_WINDOW_BLOCKS,
-                policy_transition_max_per_height:
-                    iroha_config::parameters::defaults::confidential::POLICY_TRANSITION_MAX_PER_HEIGHT,
-                tree_roots_history_len:
-                    iroha_config::parameters::defaults::confidential::TREE_ROOTS_HISTORY_LEN,
-                tree_frontier_checkpoint_interval:
-                    iroha_config::parameters::defaults::confidential::TREE_FRONTIER_CHECKPOINT_INTERVAL,
-                registry_max_vk_entries:
-                    iroha_config::parameters::defaults::confidential::REGISTRY_MAX_VK_ENTRIES,
-                registry_max_params_entries:
-                    iroha_config::parameters::defaults::confidential::REGISTRY_MAX_PARAMS_ENTRIES,
-                registry_max_delta_per_block:
-                    iroha_config::parameters::defaults::confidential::REGISTRY_MAX_DELTA_PER_BLOCK,
-                gas: iroha_config::parameters::actual::ConfidentialGas {
-                    proof_base: iroha_config::parameters::defaults::confidential::gas::PROOF_BASE,
-                    per_public_input:
-                        iroha_config::parameters::defaults::confidential::gas::PER_PUBLIC_INPUT,
-                    per_proof_byte:
-                        iroha_config::parameters::defaults::confidential::gas::PER_PROOF_BYTE,
-                    per_nullifier:
-                        iroha_config::parameters::defaults::confidential::gas::PER_NULLIFIER,
-                    per_commitment:
-                        iroha_config::parameters::defaults::confidential::gas::PER_COMMITMENT,
-                },
             },
             crypto: iroha_config::parameters::actual::Crypto::default(),
             settlement: Settlement::default(),
@@ -1953,24 +1907,15 @@ mod tests {
         assert_eq!(format!("{}", value.filter.unwrap()), "trace,trace,trace");
     }
     #[tokio::test]
-    async fn confidential_gas_snapshot_is_unchanged_by_runtime_updates() {
-        struct ResetConfidentialGas;
-        impl Drop for ResetConfidentialGas {
-            fn drop(&mut self) {
-                crate::gas::configure_confidential_gas(
-                    crate::gas::ConfidentialGasSchedule::default(),
-                );
-            }
-        }
-        let _reset = ResetConfidentialGas;
-        let mut config = test_config();
-        config.confidential.gas.proof_base = 321_000;
-        config.confidential.gas.per_public_input = 9_999;
-        config.confidential.gas.per_proof_byte = 77;
-        config.confidential.gas.per_nullifier = 55;
-        config.confidential.gas.per_commitment = 44;
-        let expected_gas = config.confidential.gas;
-        let (kiso, _) = KisoHandle::start(config);
+    async fn configuration_dto_carries_the_protocol_default_gas_until_state_replaces_it() {
+        // The node configuration has no verification gas schedule: the DTO the
+        // configuration authority builds holds the protocol default, runtime
+        // updates leave it alone, and starting the authority installs nothing
+        // into the schedule State charges (no process-wide schedule exists; each
+        // block meters with its frozen ZK settings). Torii replaces the DTO field
+        // with the committed schedule before it serves the record.
+        let default = crate::state::default_zk_config().gas;
+        let (kiso, _) = KisoHandle::start(test_config());
         kiso.update_with_dto(ConfigurationUpdate {
             logger: LoggerDTO {
                 level: iroha_logger::Level::DEBUG,
@@ -1985,23 +1930,15 @@ mod tests {
         .await
         .expect("update should succeed");
         let dto = kiso.get_dto().await.expect("fetch updated dto");
-        assert_eq!(dto.confidential_gas.proof_base, expected_gas.proof_base);
+        assert_eq!(dto.confidential_gas.proof_base, default.proof_base);
         assert_eq!(
             dto.confidential_gas.per_public_input,
-            expected_gas.per_public_input
+            default.per_public_input
         );
-        assert_eq!(
-            dto.confidential_gas.per_proof_byte,
-            expected_gas.per_proof_byte
-        );
-        assert_eq!(
-            dto.confidential_gas.per_nullifier,
-            expected_gas.per_nullifier
-        );
-        assert_eq!(
-            dto.confidential_gas.per_commitment,
-            expected_gas.per_commitment
-        );
+        assert_eq!(dto.confidential_gas.per_proof_byte, default.per_proof_byte);
+        assert_eq!(dto.confidential_gas.per_nullifier, default.per_nullifier);
+        assert_eq!(dto.confidential_gas.per_commitment, default.per_commitment);
+        assert_eq!(default.proof_base, crate::gas::DEFAULT_ZK_GAS.proof_base);
     }
     #[tokio::test]
     async fn network_acl_updates_are_canonical_and_allow_clearing() {

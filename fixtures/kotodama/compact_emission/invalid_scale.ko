@@ -1,7 +1,13 @@
 seiyaku CompactInvalidScale {
-    error enum Failure { Low = 3, High = 9 }
+    error enum Failure {
+        Low = 3, High = 9
+    }
+
     state int trace;
-    hajimari() { trace = 0; }
+    hajimari() {
+        trace = 0;
+    }
+
     kotoage fn main() -> quantity authorize("WriteState") {
         trace = 43;
         require(true, Failure::Low);

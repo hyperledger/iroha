@@ -168,6 +168,8 @@ hex-literal = "1.1.0"
 
 rand = { version = "0.9.3", default-features = false, features = ["alloc", "os_rng", "small_rng", "std", "std_rng", "thread_rng"] }
 rand_core_06 = { package = "rand_core", version = "0.6.4", default-features = false, features = ["std"] }
+# Operating-system entropy for the seeds of `iroha_fhe::bgv`.
+getrandom = "0.3.4"
 axum = { version = "0.8.6", default-features = false }
 
 # Libraries never force tracing->log forwarding; binaries or SDK consumers that

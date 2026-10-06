@@ -1115,11 +1115,12 @@ The compiler rejects inputs exceeding any V1 hard limit:
 | Typed module graph | 512 sources / 16 MiB total |
 | Default artifact cycle ceiling | 1,000,000 |
 
-The node's configured admission ceiling is authoritative. The
-`pipeline.ivm_max_cycles_upper_bound` setting is a mandatory positive integer
-(default `1_000_000`); it is accepted only from the node configuration file,
-configuration loading rejects zero, and neither environment variables nor
-consensus custom parameters can override or disable it. The selected positive
+The chain's committed admission ceiling is authoritative. The
+`ivm_max_cycles_upper_bound` field of the committed
+`pipeline_validity_policy_v1` parameter is a mandatory positive integer
+(default `1_000_000`); an authorized `SetParameter` changes it from the next
+block, a zero value is rejected, and neither a node configuration file nor an
+environment variable can set or disable it. The selected positive
 cycle ceiling is embedded in the execution header and therefore covered by the
 canonical artifact hash.
 

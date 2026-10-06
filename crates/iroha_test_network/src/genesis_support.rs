@@ -131,7 +131,7 @@ impl ManagedNodeConfig {
             genesis_manifest_path,
             da_proof_policies: iroha_core::da::proof_policy_bundle(&config.nexus.lane_config),
             genesis_confidential_policy_hash:
-                iroha_core::state::compute_genesis_confidential_policy_hash(&config.zk),
+                iroha_core::state::default_genesis_confidential_policy_hash(),
             managed_paths,
         })
     }
@@ -517,9 +517,7 @@ mod tests {
         let da = Some(iroha_core::da::proof_policy_bundle(
             &config.nexus.lane_config,
         ));
-        let confidential = Some(iroha_core::state::compute_genesis_confidential_policy_hash(
-            &config.zk,
-        ));
+        let confidential = Some(iroha_core::state::default_genesis_confidential_policy_hash());
         let proposal = manifest
             .clone()
             .build_and_sign_with_da_proof_policies_and_confidential_policy_hash(
@@ -841,7 +839,7 @@ revocation_store_path = "managed/soranet/revocations.norito"
         );
         assert_eq!(
             projected.genesis_confidential_policy_hash,
-            iroha_core::state::compute_genesis_confidential_policy_hash(&parsed.zk)
+            iroha_core::state::default_genesis_confidential_policy_hash()
         );
     }
     #[test]
@@ -867,8 +865,7 @@ revocation_store_path = "managed/soranet/revocations.norito"
             load_node_config(&config_path, true).expect("parse sentinel config");
         assert!(replaced);
         let expected_da = iroha_core::da::proof_policy_bundle(&parsed.nexus.lane_config);
-        let expected_confidential =
-            iroha_core::state::compute_genesis_confidential_policy_hash(&parsed.zk);
+        let expected_confidential = iroha_core::state::default_genesis_confidential_policy_hash();
         let error = sign_prepared_genesis_from_config(
             &manifest_path,
             &config_path,

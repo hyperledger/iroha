@@ -254,6 +254,7 @@ fn with_native_state_sources<T>(
                     view.world(),
                     view.nexus(),
                     view.pipeline(),
+                    &view.zk().gas,
                     draft.payload(),
                     u64::try_from(draft.creation_time().as_millis()).unwrap(),
                     header.height().get(),

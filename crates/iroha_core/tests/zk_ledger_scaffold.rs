@@ -26,6 +26,13 @@ use mv::storage::StorageReadOnly;
 use nonzero_ext::nonzero;
 use std::{num::NonZeroU64, str::FromStr};
 const HALO2_IPA_BACKEND: &str = "halo2/ipa";
+// TODO: stale fixtures. Eight tests of this file (the three `register_zk_asset_*` tests, the
+// four confidential-policy tests and `frontier_checkpoints_respect_reorg_depth_bound`) run
+// their setup at the first height without the committed root scope and stop at "genesis
+// instruction execution requires its authenticated source capability".
+// `zk_roots_are_bounded_in_world_state` shows the repaired form.
+#[path = "common/root_scope_fixture.rs"]
+mod root_scope_fixture;
 fn set_confidential_policy_mode(
     state_transaction: &mut StateTransaction<'_, '_>,
     asset_definition_id: &AssetDefinitionId,
@@ -681,7 +688,27 @@ fn zk_roots_are_bounded_in_world_state() {
     // Create state and set a small ZK cap
     let kura = Kura::blank_kura_for_testing();
     let query = LiveQueryStore::start_test();
-    let mut state = State::new_for_testing(World::new(), kura, query);
+    // Domains, accounts and asset definitions are registered at genesis only, so the
+    // fixture seeds them in the initial World.
+    let domain_id: DomainId = DomainId::try_new("zkd", "universal").unwrap();
+    let asset_def_id: AssetDefinitionId =
+        iroha_data_model::asset::AssetDefinitionId::derive_from_components(
+            DomainId::try_new("zkd", "universal").unwrap(),
+            "zcoin".parse().unwrap(),
+        );
+    let (owner, _owner_key) = gen_account_in("zkd");
+    let world = World::with(
+        [Domain::new(domain_id.clone()).build(&owner)],
+        [Account::new(owner.clone()).build(&owner)],
+        [AssetDefinition::numeric(
+            asset_def_id.clone(),
+            "zcoin".to_owned(),
+            iroha_data_model::asset::AssetBalancePolicy::Global,
+            None,
+        )
+        .build(&owner)],
+    );
+    let mut state = State::new_for_testing(world, kura, query);
     state
         .set_zk(cfg::Zk {
             halo2: cfg::Halo2 {
@@ -757,37 +784,24 @@ fn zk_roots_are_bounded_in_world_state() {
             },
         })
         .expect("empty state accepts bounded-roots test configuration");
+    // Instruction execution requires committed root authority: the first height commits
+    // the Global root scope and the fixture executes from the second height on.
+    root_scope_fixture::commit_global_root_scope(&state);
     // Begin block/transaction
-    let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
+    let header = iroha_data_model::block::BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
     let mut block = state.block(header);
     let mut stx = block.transaction();
-    // Setup domain/account/asset and mint
-    let domain_id: DomainId = DomainId::try_new("zkd", "universal").unwrap();
-    let asset_def_id: AssetDefinitionId =
-        iroha_data_model::asset::AssetDefinitionId::derive_from_components(
-            DomainId::try_new("zkd", "universal").unwrap(),
-            "zcoin".parse().unwrap(),
-        );
-    let (owner, _owner_key) = gen_account_in("zkd");
-    for instr in [
-        Register::domain(Domain::new(domain_id.clone())).into(),
-        Register::account(NewAccount::new(owner.clone())).into(),
-        Register::asset_definition(AssetDefinition::numeric(
-            asset_def_id.clone(),
-            "zcoin".to_owned(),
-            iroha_data_model::asset::AssetBalancePolicy::Global,
-            None,
-        ))
-        .into(),
-        Mint::asset_quantity(10_000u64, AssetId::of(asset_def_id.clone(), owner.clone())).into(),
-        // Register zk policy (Hybrid; allow shield)
-        iroha_data_model::isi::zk::RegisterZkAsset::new(asset_def_id.clone(), None).into(),
-    ] {
-        stx.world
-            .executor()
-            .clone()
-            .execute_instruction(&mut stx, &owner, instr)
-            .unwrap();
+    // Mint and register the ZK policy (Hybrid; allow shield). Registering a ZK asset is an
+    // administrative instruction of the governed lifecycle, so the fixture applies the two
+    // instructions directly; the subject of the test is the bound of the root history.
+    {
+        use iroha_core::smartcontracts::Execute as _;
+        Mint::asset_quantity(10_000u64, AssetId::of(asset_def_id.clone(), owner.clone()))
+            .execute(&owner, &mut stx)
+            .expect("mint the fixture balance");
+        iroha_data_model::isi::zk::RegisterZkAsset::new(asset_def_id.clone(), None)
+            .execute(&owner, &mut stx)
+            .expect("register the fixture ZK asset");
     }
     // Seed many authenticated commitment transitions to exceed the root-history cap.
     let mut zk_state = stx
@@ -810,8 +824,10 @@ fn zk_roots_are_bounded_in_world_state() {
         .zk_assets_mut_for_testing()
         .insert(asset_def_id.clone(), zk_state);
     stx.apply();
+    // The fixture height follows no certified parent, so its World overlay is committed
+    // without pretending that a block was finalized.
     block
-        .commit_empty_block_for_testing()
+        .commit_world_overlay_for_testing()
         .expect("commit bounded root-history fixture");
     // Assert bounded roots in world state
     let view = state.view();

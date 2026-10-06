@@ -94,7 +94,9 @@ fn forced_vendor_latch_cannot_admit_development_ballot() {
     let query = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(world, kura, query);
     state.gov.citizenship_bond_amount = 0_u64.into();
-    state.zk.halo2.enabled = true;
+    state
+        .edit_zk_for_testing(|zk| zk.halo2.enabled = true)
+        .expect("fixture ZK settings install");
     let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
     let mut block = state.block(header);
     let mut stx = block.transaction();

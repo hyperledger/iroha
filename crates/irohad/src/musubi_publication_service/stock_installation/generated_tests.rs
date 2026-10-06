@@ -200,6 +200,7 @@ impl Generated {
             view.world(),
             view.nexus(),
             view.pipeline(),
+            &view.zk().gas,
             draft.payload(),
             header.creation_time_ms,
             header.height().get() + 1,

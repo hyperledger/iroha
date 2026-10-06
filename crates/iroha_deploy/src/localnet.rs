@@ -1436,8 +1436,9 @@ fn generate_localnet_runtime<T: Write>(
     };
     let config = parse_localnet_peer_config(&bootstrap_config, None)?;
     let da_proof_policies = Some(resolve_localnet_da_proof_policies(&config));
-    let confidential_policy_hash =
-        iroha_core::state::compute_genesis_confidential_policy_hash(&config.zk);
+    // The genesis block runs under the protocol-default ZK validity policy;
+    // a chain sets other values with `zk_validity_policy_v1` in its manifest.
+    let confidential_policy_hash = iroha_core::state::default_genesis_confidential_policy_hash();
     let genesis = genesis
         .with_consensus_mode(opts.consensus_mode)
         .with_consensus_meta()?;
@@ -2894,11 +2895,6 @@ fn render_peer_config(
     confidential.insert("enabled".into(), Value::Boolean(true));
     confidential.insert("assume_valid".into(), Value::Boolean(false));
     root.insert("confidential".into(), Value::Table(confidential));
-    let mut halo2 = Table::new();
-    halo2.insert("enabled".into(), Value::Boolean(true));
-    let mut zk = Table::new();
-    zk.insert("halo2".into(), Value::Table(halo2));
-    root.insert("zk".into(), Value::Table(zk));
     let mut genesis = Table::new();
     genesis.insert(
         "file".into(),
@@ -4973,7 +4969,6 @@ fn generated_config_parameter_name(id: &iroha_config::base::ParameterId) -> Opti
         ),
         (&["gov", "sorafs_telemetry"], &["submitters"]),
         (&["confidential"], &["enabled", "assume_valid"]),
-        (&["zk", "halo2"], &["enabled"]),
         (
             &["genesis"],
             &["file", "public_key", "expected_hash", "expected_hash_file"],

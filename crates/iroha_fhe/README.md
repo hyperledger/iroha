@@ -6,8 +6,9 @@ the protocol layers; `specs/fhe_ownership_inventory.json` records which
 function owns each primitive and `scripts/check_fhe_ownership_map.py` checks
 that record against the source.
 
-It holds arithmetic only. Schemes, parameter sets, key and ciphertext formats,
-wire codecs, noise accounting and proofs stay with their protocols:
+For the consumers below it holds arithmetic only. Their schemes, parameter
+sets, key and ciphertext formats, wire codecs, noise accounting and proofs stay
+with their protocols:
 
 | Consumer | Location | What it keeps |
 | --- | --- | --- |
@@ -19,8 +20,13 @@ wire codecs, noise accounting and proofs stay with their protocols:
 Consumers call the kernels by their own names: a renamed import of a function
 or type hides call sites from the ownership inventory, and its tests reject one.
 
-The crate depends on `zeroize` and `thiserror` only, so nothing above it can be
-pulled in and the dependency graph stays acyclic.
+The crate also owns `bgv`, the exact modular RNS-BGV scheme that RAM-LFE and
+SoraCloud are to share (see [RNS-BGV](#rns-bgv)). Nothing consumes it yet.
+
+Production dependencies are `zeroize`, `thiserror`, `blake3` (coin expansion and
+profile identities) and `getrandom` (operating-system entropy); a test fails
+when that list changes. No policy, node or SDK crate can be reached from here,
+so the dependency graph stays acyclic.
 
 ## Modules
 
@@ -35,6 +41,64 @@ pulled in and the dependency graph stays acyclic.
 | `key_switch` | digit decomposition and the digit/key inner product |
 | `automorphism` | the signed coefficient permutation of `X -> X^k` |
 | `accel` | accelerated slice kernels, their dispatch and scalar references |
+| `natural` | arbitrary-precision non-negative integers for public quantities |
+| `rns_chain` | exact mixed-radix basis conversion and congruence-preserving scale-down over chains of any length |
+| `ntt_plan` | precomputed constant-time negacyclic transform of one prime below `2^62` |
+| `bgv` | the RNS-BGV scheme: profiles, keys, encryption, leveled operations, canonical encodings, noise bounds and shape planning, slot encodings, cost model |
+
+## RNS-BGV
+
+`bgv` is the scheme of Brakerski, Gentry and Vaikuntanathan with the plaintext
+in the low bits: `c0 + c1*s = m + t*e (mod Q_l)`, `gcd(Q_l, t) = 1`. It is not
+BFV scaling and not the exact-lift construction of `iroha_crypto`. It is a
+starting candidate: no profile has a reviewed security estimate, and circuit
+privacy, client well-formedness proofs, verifiable opening, threshold
+decryption and refresh belong to later tasks.
+
+- **Chain.** Any number of main primes and special primes below `2^62`, all
+  `1 mod 2*N*t`. Basis extension is exact (mixed radix, centered): no `u128`
+  reconstruction, no approximate conversion, no floating point.
+- **Rounding.** A modulus switch and the division by the special modulus use
+  `c' = (c - t*w) / D` with `w` the centered representative of `c * t^-1`
+  modulo the odd `D`. No tie exists; the plaintext is unchanged because
+  `D = 1 mod t`.
+- **Key switching.** Hybrid RNS: digits of consecutive main primes, exact
+  centered extension, congruence-preserving division by the special modulus.
+- **Coins.** 64 bytes of operating-system entropy per operation, expanded by
+  BLAKE3 `derive_key` with the profile identity and a purpose tag. Uniform
+  ternary secrets and masks, centered binomial errors with `eta = 21`
+  (support `[-21, 21]`, variance 10.5), uniform residues by rejection. The
+  seed, the hash state that absorbs it and the buffered stream live in one
+  heap block that is overwritten whole before it is released.
+- **Noise.** Every ciphertext carries an exact public upper bound of its
+  noise, computed from profile constants and the operation history only. An
+  operation whose bound would exceed `(Q_l - 1) / 2` is refused. The bound is
+  worst case; with the bounded error sampler an admitted sequence over honest
+  coins never fails to decrypt.
+- **Planning.** `bgv::plan` applies the same rules to the public shape of a
+  ciphertext (level, components, bound). Every operation takes the shape of
+  its result from there, so a sequence can be planned without a key or a
+  ciphertext and is admitted on ciphertexts exactly when its plan is.
+- **Canonical encodings.** Parameter sets, ciphertexts, public keys, switching
+  keys and evaluation keys encode to canonical words and fixed byte frames
+  and decode from them, rejecting another profile, any other length and a
+  non-canonical residue. The secret key has a custody frame of two bits per
+  coefficient in a clearing buffer. A decoded object is well formed as an
+  encoding only; authentication, proofs of well-formedness, Norito wire types
+  and bounded admission belong to the consumers.
+- **Encodings.** `SlotEncoding` gives the scalar slots a plaintext modulus
+  admits in the ring: 128 sparse slots for `t = 257` at any `N >= 128`, or `N`
+  slots for a fully splitting modulus.
+- **Candidates.** `BgvCandidate` pins three parameter sets over `t = 257`.
+  `specs/fhe_bgv_cost_summary.json` holds their sizes, work units, the plan of
+  every maximum-shape tape family, host measurements, projections of
+  sanitization headroom and proof work, and a core-SVP sanity calculation.
+  `make check-fhe-bgv-cost` checks it with `scripts/fhe_bgv_cost_model.py`,
+  and `tests/bgv_cost_model_vectors.rs` recomputes its sizes, work units,
+  instruction costs, tape plans and contract inputs with this crate. `scripts/fhe_bgv_lattice_estimator.sage` pins the estimator run
+  that has not been made. No candidate holds the maximum shape of its class
+  when a tape is lowered instruction by instruction; the summary says what
+  each holds.
 
 ## Rounding rules
 
@@ -90,7 +154,26 @@ caller. `constant_time` is branch-free in operand values; `modular` is not.
 ```sh
 cargo test -p iroha_fhe                         # accelerated kernels and scalar references
 cargo test -p iroha_fhe --no-default-features   # scalar-only build
+make check-fhe-bgv-cost                         # cost summary, its view and the known answers are current
 ```
+
+The BGV tests use two references that share no code with the crate:
+`tests/vectors/bgv_reference.py` (Python integers, its own BLAKE3) generates
+`tests/vectors/bgv_kat_v1.txt` from master seeds, and `tests/support/oracle.rs`
+recomputes every pipeline at run time with `num-bigint`. `tests/bgv_vectors.rs`
+and `tests/rns_chain_vectors.rs` require the crate to reproduce every pinned
+word; `tests/bgv_noise.rs` compares the public noise bound with the exact
+noise the oracle computes; `tests/bgv_clearing.rs` observes released memory,
+the block that holds the seed and the stream state included;
+`tests/bgv_surface.rs` checks that seeded entry points stay behind the
+`bgv-test-fixtures` feature.
+
+`tests/support/machine.rs` is the costing harness: one lowering of the eleven
+V1 tape instructions that runs over public shapes and over ciphertexts.
+`tests/bgv_tape_plan.rs` checks that the two runs agree instruction by
+instruction and that the encrypted run computes the tape;
+`tests/bgv_cost_model_vectors.rs` holds the tracked cost summary to the Rust
+model; `tests/bgv_cost_measurement.rs` holds the measured workloads.
 
 `tests/canonical_vectors.rs` pins known-answer vectors for every primitive.
 The answers were derived with Python integers, and the test re-derives each one

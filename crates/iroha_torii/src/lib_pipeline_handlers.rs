@@ -76,7 +76,10 @@ async fn handler_post_transactions_batch(
         move || {
             let prechecks = precheck_transaction_batch_ed25519(
                 &transactions,
-                worker_app.state.pipeline.signature_batch_max_ed25519,
+                worker_app
+                    .state
+                    .installed_pipeline()
+                    .signature_batch_max_ed25519,
             );
             let mut prepared = Vec::with_capacity(transactions.len());
             // Authenticate the entire batch before any route selection or mutation.

@@ -180,6 +180,13 @@ jobs:
           cache-on-failure: "true"
       - name: FASTPQ prove and verify under the shared phase and resource recorder
         run: cargo test --locked -p iroha_core_privacy --features fastpq-replay-measurement --test fastpq_phase_tree_measurement
+      # The State commitment candidates of task G.2 are development-only: their
+      # conformance adapters and their measurement target compile only under
+      # opt-in features that no default lane sets.
+      - name: State commitment candidates satisfy the keyed State contract
+        run: cargo test --locked -p iroha_core --lib --features state-commitment-prototypes -- keyed_commitment::candidates_tests
+      - name: State commitment candidate measurement target (smoke run)
+        run: cargo test --locked -p iroha_core_privacy --features fastpq-replay-measurement --test state_commitment_candidates_measurement
 
   norito_rpc_verify:
     runs-on: ubuntu-latest
@@ -306,8 +313,14 @@ jobs:
             scripts/tests/check_nexus_provisioning_templates_test.py \
             scripts/tests/check_zk_delivery_plan_test.py \
             scripts/tests/check_fhe_ownership_map_test.py \
+            scripts/tests/fhe_bgv_cost_model_test.py \
             scripts/tests/check_zk_x509_presentation_interval_test.py \
             scripts/tests/check_zk_resource_contract_test.py \
+            scripts/tests/check_zk_runtime_validity_test.py \
+            scripts/tests/check_zk_feature_parity_test.py \
+            scripts/tests/check_zk_operation_inventory_test.py \
+            scripts/tests/check_zk_primitive_workloads_test.py \
+            scripts/tests/check_state_commitment_candidates_test.py \
             scripts/tests/zk_resource_harness_test.py \
             pytests/scripts/iso_xsd_fixture_verify_test.py \
             pytests/scripts/iso_xsd_profile_catalog_include_test.py
@@ -341,7 +354,13 @@ jobs:
           python3 -I -S scripts/check_zk_delivery_plan.py
           python3 -I -S scripts/check_zk_x509_presentation_interval.py
           python3 -I -S scripts/check_zk_resource_contract.py
+          python3 -I -S scripts/check_zk_runtime_validity.py
+          python3 -I -S scripts/check_zk_operation_inventory.py
+          python3 -I -S scripts/check_zk_primitive_workloads.py
+          python3 -I -S scripts/check_state_commitment_candidates.py
           python3 -I -S scripts/check_fhe_ownership_map.py
+          python3 -I -S scripts/fhe_bgv_cost_model.py
+          python3 -I -S crates/iroha_fhe/tests/vectors/bgv_reference.py --check
       - name: Classify the PR reverse-dependency closure
         id: classify
         env:

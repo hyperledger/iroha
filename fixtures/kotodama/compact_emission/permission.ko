@@ -1,8 +1,14 @@
 seiyaku CompactPermission {
-    error enum Failure { Low = 3, High = 9 }
+    error enum Failure {
+        Low = 3, High = 9
+    }
+
     kotoage fn main() authorize("ManageRoles") {
         require(true, Failure::Low);
         require(true, Failure::High);
-        ledger::role::create(role: Name::parse("compact"), permissions: Json::parse("{\"perms\":[]}"));
+        ledger::role::create(
+            role: Name::parse("compact"),
+            permissions: Json::parse("{\"perms\":[]}"),
+        );
     }
 }

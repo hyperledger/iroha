@@ -29,7 +29,7 @@ ledger paths:
   The wire carries only a `(version, curve, n)` selector; the verifier derives
   the deterministic V1 generators and callers cannot submit another parameter
   set. The complete derived parameter fingerprint is absorbed into the opening
-  transcript. The route fails closed unless `zk.halo2.enabled` is true and
+  transcript. The route fails closed unless `halo2.enabled` of the committed ZK validity policy is true and
   admits work through Torii's general and heavy-query limits before moving
   decoding and verification to a blocking worker; owned permits remain with
   that physical worker if the HTTP request is cancelled. Requests must declare
@@ -148,7 +148,7 @@ Verification rules:
 - `vk_ref` is resolved via the WSV verifying‑key registry. When a registry entry omits inline key bytes, Torii loads the key bytes from `torii.zk_prover_keys_dir` (see storage layout below).
 - `vk_commitment` is validated against the computed VK hash when present.
 - Backends and circuits are allowlisted via `torii.zk_prover_allowed_backends` and `torii.zk_prover_allowed_circuits` (prefix match).
-- Supported backends currently include `halo2/ipa` and other `halo2/…` variants built into the node. The `stark/fri` family is supported when built with feature `zk-stark` and enabled via config (`zk.stark.enabled=true`). `groth16/…` remains unsupported.
+- Supported backends currently include `halo2/ipa` and other `halo2/…` variants built into the node. The `stark/fri` family is supported when built with feature `zk-stark` and `stark.enabled` of the committed `zk_validity_policy_v1` parameter is true (the protocol default). `groth16/…` remains unsupported.
 
 Background reports are bounded node-local worker diagnostics. Torii does not
 mount a report HTTP API, and first-release clients do not expose report

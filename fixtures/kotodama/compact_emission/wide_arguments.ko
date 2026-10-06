@@ -1,10 +1,35 @@
 seiyaku CompactWideArguments {
-    error enum Failure { Low = 3, High = 9 }
-    fn sum(int _ a1, int _ a2, int _ a3, int _ a4, int _ a5, int _ a6, int _ a7, int _ a8, int _ a9, int _ a10, int _ a11, int _ a12, int _ a13, int _ a14, int _ a15, int _ a16, int _ a17, int _ a18, int _ a19, int _ a20) -> int {
+    error enum Failure {
+        Low = 3, High = 9
+    }
+
+    fn sum(
+        int _ a1,
+        int _ a2,
+        int _ a3,
+        int _ a4,
+        int _ a5,
+        int _ a6,
+        int _ a7,
+        int _ a8,
+        int _ a9,
+        int _ a10,
+        int _ a11,
+        int _ a12,
+        int _ a13,
+        int _ a14,
+        int _ a15,
+        int _ a16,
+        int _ a17,
+        int _ a18,
+        int _ a19,
+        int _ a20,
+    ) -> int {
         require(a1 >= 0, Failure::Low);
         require(a20 <= 20, Failure::High);
         return a1 + a2 + a3 + a4 + a5 + a6 + a7 + a8 + a9 + a10 + a11 + a12 + a13 + a14 + a15 + a16 + a17 + a18 + a19 + a20;
     }
+
     view fn main() -> int {
         let left = sum(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20);
         let right = sum(20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1);

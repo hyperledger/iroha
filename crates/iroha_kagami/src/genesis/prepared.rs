@@ -925,7 +925,7 @@ mod tests {
             &configs[0].nexus.lane_config,
         ));
         let confidential_policy_hash =
-            iroha_core::state::compute_genesis_confidential_policy_hash(&configs[0].zk);
+            iroha_core::state::default_genesis_confidential_policy_hash();
         let (manifest, sealed_genesis) = super::super::bind_and_sign_staged_sumeragi_context(
             signer_prepared,
             &signer,
@@ -1167,13 +1167,18 @@ mod tests {
             let mut drifted_config = original_config
                 .parse::<toml::Table>()
                 .expect("parse peer config");
-            drifted_config.insert(
-                "pipeline".to_owned(),
-                toml::Value::Table(toml::Table::from_iter([(
-                    "amx_group_budget_ms".to_owned(),
-                    toml::Value::Integer(99_999),
-                )])),
-            );
+            // A node-local policy value the signed context binds. The pipeline
+            // execution limits are committed chain policy and are not keys of
+            // a peer configuration.
+            let mut rotation = &mut drifted_config;
+            for section in ["nexus", "da", "rotation"] {
+                rotation = rotation
+                    .entry(section)
+                    .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+                    .as_table_mut()
+                    .expect("peer config Nexus DA rotation table");
+            }
+            rotation.insert("window_slots".to_owned(), toml::Value::Integer(65));
             std::fs::write(
                 config_path,
                 toml::to_string_pretty(&drifted_config).expect("render drifted peer config"),

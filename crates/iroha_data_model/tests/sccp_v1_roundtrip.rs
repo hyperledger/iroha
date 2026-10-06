@@ -808,7 +808,7 @@ fn constants_match_the_spec() {
     assert_eq!(SCCP_ROSTER_MAX_MEMBERS_V1, 31);
     assert_eq!(SCCP_HISTORY_MAX_SIZE_V1, 1_u64 << 32);
     assert_eq!(SCCP_FIRST_CONTROL_NONCE_V1, 1);
-    // The proof bound equals the `[zk.sccp]` default per-proof byte limit (8 MiB).
+    // The proof bound equals the protocol-default per-proof byte limit of the committed ZK validity policy (8 MiB).
     assert_eq!(SCCP_SOURCE_PROOF_MAX_BYTES_V1, 8 * 1024 * 1024);
     assert_eq!(SCCP_LC_ADVANCE_MAX_BYTES_V1, 1024 * 1024);
     assert_eq!(SCCP_LC_EVIDENCE_MAX_BYTES_V1, 1024 * 1024);

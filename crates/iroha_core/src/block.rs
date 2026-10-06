@@ -9314,7 +9314,7 @@ pub(crate) mod tests {
         let crypto = state.crypto();
         let zk = state.zk_snapshot();
         let chain_id = state.chain_id_ref().clone();
-        let pipeline = state.pipeline.clone();
+        let pipeline = state.installed_pipeline().clone();
         let fraud = state.fraud_monitoring.clone();
         let governance = state.gov.clone();
         #[cfg(feature = "telemetry")]
@@ -9381,11 +9381,11 @@ pub(crate) mod tests {
         .expect("load proof-verification executor policy");
         state.world.executor =
             mv::cell::Cell::new(crate::executor::Executor::UserProvided(executor));
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.parallel_overlay = true;
         pipeline.workers = 2;
         state.set_pipeline(pipeline);
-        let mut zk = state.zk.clone();
+        let mut zk = state.installed_zk().clone();
         zk.max_confidential_ops_per_block = 1;
         zk.max_verify_calls_per_block = 1;
         zk.max_verify_calls_per_tx = 2;
@@ -9411,7 +9411,8 @@ pub(crate) mod tests {
             ),
         )
         .into();
-        let expected_confidential_gas = crate::gas::confidential_gas_cost(&instruction);
+        let expected_confidential_gas =
+            crate::gas::confidential_gas_cost(&instruction, &crate::gas::DEFAULT_ZK_GAS);
         let transaction = TransactionBuilder::new(
             state.network_id,
             authority,
@@ -9494,7 +9495,7 @@ pub(crate) mod tests {
                     .expect("canonical test chain id");
             let (authority, keypair) = gen_account_in("wonderland");
             let mut state = state_with_transaction_policy(&chain_id, &authority, false, false);
-            let mut pipeline = state.pipeline.clone();
+            let mut pipeline = state.installed_pipeline().clone();
             pipeline.parallel_apply = parallel_apply;
             pipeline.parallel_overlay = true;
             pipeline.workers = 2;
@@ -9503,7 +9504,10 @@ pub(crate) mod tests {
             let state = native_chain.state();
             let instruction =
                 InstructionBox::from(Log::new(Level::INFO, "meter ordinary overlay".into()));
-            let expected_gas = crate::gas::meter_instructions(core::slice::from_ref(&instruction));
+            let expected_gas = crate::gas::meter_instructions(
+                core::slice::from_ref(&instruction),
+                &crate::gas::DEFAULT_ZK_GAS,
+            );
             assert!(expected_gas > 0, "the fixture must consume gas");
             let accepted = [0_u64, 1_u64, 2_u64]
                 .into_iter()
@@ -9588,7 +9592,7 @@ pub(crate) mod tests {
         let (authority, keypair) = gen_account_in("wonderland");
         let (missing_account, _) = gen_account_in("missing");
         let mut state = state_with_transaction_policy(&chain_id, &authority, false, false);
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.parallel_overlay = true;
         pipeline.workers = 2;
         state.set_pipeline(pipeline);
@@ -9599,7 +9603,10 @@ pub(crate) mod tests {
             "rejected_overlay_marker".parse().expect("metadata key"),
             Json::new("must roll back"),
         ));
-        let expected_gas = crate::gas::meter_instructions(core::slice::from_ref(&instruction));
+        let expected_gas = crate::gas::meter_instructions(
+            core::slice::from_ref(&instruction),
+            &crate::gas::DEFAULT_ZK_GAS,
+        );
         assert!(expected_gas > 0, "the fixture must consume gas");
         let transaction = TransactionBuilder::new(
             state.network_id,
@@ -9913,8 +9920,7 @@ pub(crate) mod tests {
     }
     #[test]
     fn block_overlay_rejects_protected_contract_call_without_persisting_state() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let chain_id = ChainId::from("protected-contract-overlay");
         let (authority, keypair) = gen_account_in("wonderland");
         let domain =
@@ -9951,9 +9957,16 @@ seiyaku GuardedOverlay {
         let artifact_id = ContractArtifactId::for_address(&contract_address, code_hash)
             .expect("contract address retains its exact artifact dataspace");
         world.contract_code.insert(artifact_id, program);
-        world
-            .contract_manifests
-            .insert(artifact_id, manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &keypair).expect("sign bounded fixture manifest"));
+        world.contract_manifests.insert(
+            artifact_id,
+            manifest
+                .try_signed(
+                    manifest_signing.context(),
+                    manifest_signing.max_frame_bytes(),
+                    &keypair,
+                )
+                .expect("sign bounded fixture manifest"),
+        );
         world
             .contract_instances
             .insert(contract_address.clone(), code_hash);
@@ -10074,8 +10087,7 @@ seiyaku GuardedOverlay {
     }
     #[test]
     fn block_validation_reprepares_stale_contract_state_read_modify_write() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let chain_id = ChainId::from("durable-state-read-validation");
         let (alice, alice_keypair) = gen_account_in("wonderland");
         let (bob, bob_keypair) = gen_account_in("wonderland");
@@ -10135,9 +10147,16 @@ seiyaku DynamicAccessCounter {
         let artifact_id = ContractArtifactId::for_address(&contract_address, code_hash)
             .expect("contract address retains its exact artifact dataspace");
         world.contract_code.insert(artifact_id, program);
-        world
-            .contract_manifests
-            .insert(artifact_id, manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &alice_keypair).expect("sign bounded fixture manifest"));
+        world.contract_manifests.insert(
+            artifact_id,
+            manifest
+                .try_signed(
+                    manifest_signing.context(),
+                    manifest_signing.max_frame_bytes(),
+                    &alice_keypair,
+                )
+                .expect("sign bounded fixture manifest"),
+        );
         world
             .contract_instances
             .insert(contract_address.clone(), code_hash);
@@ -10162,7 +10181,7 @@ seiyaku DynamicAccessCounter {
         let kura = Kura::blank_kura_for_testing();
         let query = LiveQueryStore::start_test();
         let mut state = State::new_with_chain_for_testing(world, kura, query, chain_id.clone());
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.dynamic_prepass = true;
         pipeline.parallel_overlay = true;
         pipeline.parallel_apply = true;
@@ -10269,8 +10288,7 @@ seiyaku DynamicAccessCounter {
     }
     #[test]
     fn block_validation_serializes_a_dynamic_target_that_changes_during_reprepare() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let chain_id = ChainId::from("dynamic-target-live-reprepare");
         let (alice, alice_keypair) = gen_account_in("wonderland");
         let (bob, bob_keypair) = gen_account_in("wonderland");
@@ -10345,9 +10363,16 @@ seiyaku DynamicTarget {
         let artifact_id = ContractArtifactId::for_address(&contract_address, code_hash)
             .expect("contract address retains its exact artifact dataspace");
         world.contract_code.insert(artifact_id, program);
-        world
-            .contract_manifests
-            .insert(artifact_id, manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &alice_keypair).expect("sign bounded fixture manifest"));
+        world.contract_manifests.insert(
+            artifact_id,
+            manifest
+                .try_signed(
+                    manifest_signing.context(),
+                    manifest_signing.max_frame_bytes(),
+                    &alice_keypair,
+                )
+                .expect("sign bounded fixture manifest"),
+        );
         world
             .contract_instances
             .insert(contract_address.clone(), code_hash);
@@ -10372,7 +10397,7 @@ seiyaku DynamicTarget {
         let kura = Kura::blank_kura_for_testing();
         let query = LiveQueryStore::start_test();
         let mut state = State::new_with_chain_for_testing(world, kura, query, chain_id.clone());
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.dynamic_prepass = true;
         pipeline.parallel_overlay = true;
         pipeline.parallel_apply = true;

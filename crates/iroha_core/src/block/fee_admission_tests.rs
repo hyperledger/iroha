@@ -627,7 +627,7 @@ fn same_block_data_trigger_registration_is_atomic_with_rejected_transfer() {
         LiveQueryStore::start_test(),
         chain_id,
     );
-    let mut pipeline = state.pipeline.clone();
+    let mut pipeline = state.installed_pipeline().clone();
     pipeline.parallel_apply = true;
     pipeline.parallel_overlay = true;
     pipeline.workers = 2;
@@ -785,7 +785,7 @@ fn prepared_execute_trigger_retains_nested_gas_on_success_and_rejection() {
             LiveQueryStore::start_test(),
             chain_id,
         );
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.parallel_apply = true;
         pipeline.parallel_overlay = true;
         pipeline.workers = 2;
@@ -809,7 +809,8 @@ fn prepared_execute_trigger_retains_nested_gas_on_success_and_rejection() {
                     .expect("missing domain id"),
             )));
         }
-        let expected_nested_gas = crate::gas::meter_instructions(&nested_instructions);
+        let expected_nested_gas =
+            crate::gas::meter_instructions(&nested_instructions, &crate::gas::DEFAULT_ZK_GAS);
         let trigger = Trigger::new(
             trigger_id.clone(),
             Action::new(
@@ -832,8 +833,10 @@ fn prepared_execute_trigger_retains_nested_gas_on_success_and_rejection() {
             .expect("original genesis");
 
         let execute_instruction = InstructionBox::from(ExecuteTrigger::new(trigger_id));
-        let expected_base_gas =
-            crate::gas::meter_instructions(core::slice::from_ref(&execute_instruction));
+        let expected_base_gas = crate::gas::meter_instructions(
+            core::slice::from_ref(&execute_instruction),
+            &crate::gas::DEFAULT_ZK_GAS,
+        );
         let (max_clock_drift, tx_limits) = {
             let state_view = state.world.view();
             let params = state_view.parameters();

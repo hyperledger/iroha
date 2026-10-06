@@ -1,15 +1,17 @@
-//! Node-configuration adapters for zk verification guardrails.
+//! Adapters from the State-owned ZK settings to zk verification guardrails.
 //!
 //! The verifier in [`crate::zk`] only consumes scalar [`ZkVerifyGuardrails`];
-//! this module maps the node's `[zk]` configuration onto those caps so the
-//! verifier stays independent of `iroha_config`.
+//! this module maps the ZK settings a block or view froze onto those caps.
+//! Their validity values are the committed `zk_validity_policy_v1` parameter
+//! or the protocol default ([`crate::zk_validity_policy`]), never a node's own
+//! configuration.
 
 use iroha_config::parameters::actual::Zk;
 use iroha_data_model::proof::{ProofBox, VerifyingKeyBox};
 
 use crate::zk::{VerifyReport, ZkVerifyGuardrails, verify_backend_with_timing_guardrails};
 
-/// Build verification guardrails from node configuration.
+/// Build verification guardrails from the ZK settings a block or view froze.
 #[inline]
 #[must_use]
 pub fn guardrails_from_config(cfg: &Zk) -> ZkVerifyGuardrails {
@@ -23,7 +25,7 @@ pub fn guardrails_from_config(cfg: &Zk) -> ZkVerifyGuardrails {
     }
 }
 
-/// Verify a backend under node configuration guardrails (enabled flags + payload size caps).
+/// Verify a backend under the frozen policy guardrails (enabled flags + payload size caps).
 ///
 /// This helper exists to prevent accidentally accepting proofs for a backend that is
 /// compiled in but disabled at runtime.

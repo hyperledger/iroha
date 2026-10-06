@@ -380,14 +380,6 @@ fn bench_signed_block(c: &mut Criterion) {
             )
         })
     });
-    c.bench_function("chain_wire/signed_block/versioned_decode", |b| {
-        b.iter(|| {
-            black_box(
-                SignedBlock::decode_all_versioned(black_box(&versioned))
-                    .expect("decode versioned signed block"),
-            )
-        })
-    });
     c.bench_function("chain_wire/signed_block/wire_decode", |b| {
         b.iter(|| {
             black_box(
@@ -413,14 +405,6 @@ fn bench_signed_block_mixed(c: &mut Criterion) {
             black_box(
                 norito::codec::decode_exact_from_slice::<SignedBlock>(black_box(&bare))
                     .expect("decode signed block"),
-            )
-        })
-    });
-    c.bench_function("chain_wire/signed_block_mixed/versioned_decode", |b| {
-        b.iter(|| {
-            black_box(
-                SignedBlock::decode_all_versioned(black_box(&versioned))
-                    .expect("decode versioned signed block"),
             )
         })
     });

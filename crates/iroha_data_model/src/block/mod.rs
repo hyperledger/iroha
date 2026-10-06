@@ -1124,11 +1124,6 @@ impl iroha_version::codec::EncodeVersioned for SignedBlock {
         bytes
     }
 }
-impl iroha_version::codec::DecodeVersioned for SignedBlock {
-    fn decode_all_versioned(input: &[u8]) -> iroha_version::error::Result<Self> {
-        decode_bare_versioned_signed_block_inner(input, input)
-    }
-}
 #[cfg(feature = "http")]
 pub mod stream {
     //! Blocks for streaming API.
@@ -1441,38 +1436,6 @@ impl fmt::Display for error::BlockRejectionReason {
         }
     }
 }
-/// Prefix versioned [`SignedBlock`] bytes with a Norito header using the fixed
-/// default V1 layout flags.
-/// The returned buffer contains the original version byte followed by the
-/// framed payload.
-///
-/// # Errors
-///
-/// Returns [`NoritoFrameError::LengthMismatch`] if `versioned` is empty. Propagates
-/// header validation and synthesis failures from the internal
-/// `validate_signed_block_header` and `write_signed_block_header` helpers.
-// TODO: only tests, one bench and one integration test frame a headerless block. Make this
-// helper and the headerless `DecodeVersioned` implementation test-only once the block tests
-// build their frames from `SignedBlock::canonical_wire` and the lib-test target builds again
-// (`specs/first_release_history_cutover.json`, T1-A15). Until then
-// `scripts/check_first_release_history.py` refuses any production reference to either.
-pub fn frame_versioned_signed_block_bytes(versioned: &[u8]) -> Result<Vec<u8>, NoritoFrameError> {
-    if versioned.is_empty() {
-        return Err(NoritoFrameError::LengthMismatch);
-    }
-    let version = versioned[0];
-    let payload = &versioned[1..];
-    enforce_payload_len_limit(payload.len())?;
-    if payload.starts_with(MAGIC.as_slice()) {
-        validate_signed_block_header(payload)?;
-        return Ok(versioned.to_vec());
-    }
-    let mut out = Vec::with_capacity(1 + norito::core::Header::SIZE + payload.len());
-    out.push(version);
-    write_signed_block_header(payload, &mut out)?;
-    out.extend_from_slice(payload);
-    Ok(out)
-}
 /// Canonical wire representation of a [`SignedBlock`], owning only its framed bytes.
 #[derive(Clone)]
 pub struct SignedBlockWire {
@@ -1687,24 +1650,6 @@ fn borrow_framed_signed_block_payload(bytes: &[u8]) -> Result<(u8, &[u8]), Norit
 fn encode_signed_block_payload<T: norito::core::SerializePayload>(block: &T) -> Vec<u8> {
     norito::core::reset_decode_state();
     norito::codec::encode_adaptive(block)
-}
-fn decode_bare_versioned_signed_block_inner(
-    bare_versioned: &[u8],
-    raw_for_error: &[u8],
-) -> Result<SignedBlock, iroha_version::error::Error> {
-    let block: SignedBlock =
-        iroha_version::codec::decode_exact_versioned_with_raw(bare_versioned, raw_for_error)?;
-    let canonical = block
-        .canonical_wire()
-        .map_err(|error| iroha_version::error::Error::NoritoCodec(error.to_string()))?;
-    if bare_versioned.first().copied() != Some(canonical.version())
-        || bare_versioned.get(1..) != Some(canonical.payload())
-    {
-        return Err(iroha_version::error::Error::from(
-            norito::core::Error::NonCanonicalEncoding,
-        ));
-    }
-    Ok(block)
 }
 fn decode_framed_versioned_signed_block_inner(
     version: u8,

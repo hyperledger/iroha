@@ -5,6 +5,7 @@ seiyaku LocalMapUnderflow {
         let quantity zero = 0;
         Total = zero;
     }
+
     fn move_amount(Name source, Name destination, quantity amount) {
         let quantity zero = 0;
         let available = Balances.get(source).unwrap_or(zero);
@@ -13,6 +14,7 @@ seiyaku LocalMapUnderflow {
         Balances[source] = remainder;
         Balances[destination] = received + amount;
     }
+
     kotoage fn main() -> (quantity, quantity, quantity) authorize("WriteState") {
         let left = Name::parse("left");
         let right = Name::parse("right");

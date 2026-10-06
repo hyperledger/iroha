@@ -134,8 +134,9 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Precondition,
-        reason: "Expected-value hashes of one State value that a transaction or a State record names (lane catalog, lane incarnations, runtime catalog, dataspace catalog, fee-sponsor vault snapshot): execution recomputes and compares them, and the value itself is an entry of the keyed State root",
+        reason: "Expected-value hashes of one State value that a transaction or a State record names (lane catalog, lane incarnations, runtime catalog, dataspace catalog, fee-sponsor vault snapshot, the contract manifest that a native compilation receipt names): execution recomputes and compares them, and the value itself is an entry of the keyed State root",
         literals: &[
+            r"iroha.contract.native-source-manifest.v1\0",
             r"iroha.nexus.fee-sponsor-vault.allocation-claim.v1",
             r"iroha.nexus.fee-sponsor-vault.source-state.v1",
             r"iroha:nexus:dataspace-catalog:v1\0",
@@ -284,7 +285,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha:state:fraud_monitoring:v1",
             r"iroha:state:governance-vk-ref:v1",
             r"iroha:state:governance:v1",
-            r"iroha:state:kagemusha-registry-transition-token:certificate:v1",
             r"iroha:state:lane-manifest-bound-catalog-row:v1",
             r"iroha:state:lane-manifest-privacy-commitment:v1",
             r"iroha:state:lane-manifest-rules:v1",
@@ -481,6 +481,7 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"ivm-v1",
             r"kaigi-authorization-v1",
             r"kaigi-roster-v1",
+            r"kaigi-usage-v1",
             r"ml-kem-1024-xchacha20-poly1305-v1",
             r"ml-kem-768-xchacha20-poly1305-v1",
             r"monero-fcmp-plus-plus-v1",
@@ -571,8 +572,9 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Record,
-        reason: "Identifiers, content hashes, intent digests and signing preimages of one application record, transaction plan or message (settlement and repo intents, NFT and game custody, Hijiri risk records, staking records, retail fee receipts, alias attestations, jurisdiction attestations, contract artifacts, RAM-LFE receipts, IVM statements)",
+        reason: "Identifiers, content hashes, intent digests and signing preimages of one application record, transaction plan or message (settlement and repo intents, NFT and game custody, Hijiri risk records, staking records, retail fee receipts, alias attestations, jurisdiction attestations, contract artifacts, the source inventory of a native contract compilation record, RAM-LFE receipts, IVM statements)",
         literals: &[
+            r"iroha.contract.native-source-inventory.v1\0",
             r"iroha.ivm-proved.transaction-intent-digest.v1",
             r"iroha.ivm.execution-statement.v1",
             r"iroha.ram_lfe.v1.opening",
@@ -676,10 +678,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha.governance.proposal.contract_lifecycle.v1",
             r"iroha.governance.proposal.deploy_contract.v1",
             r"iroha.governance.proposal.global_data_trigger_permission.v1",
-            r"iroha.governance.proposal.kagemusha_verifier_policy_install.v1",
-            r"iroha.governance.proposal.kagemusha_verifier_release_activate.v1",
-            r"iroha.governance.proposal.kagemusha_verifier_release_install.v1",
-            r"iroha.governance.proposal.kagemusha_verifier_release_retire.v1",
             r"iroha.governance.proposal.musubi_registry_governance.v1",
             r"iroha.governance.proposal.runtime_upgrade.v1",
             r"iroha.governance.proposal.sccp_route_governance.v1",

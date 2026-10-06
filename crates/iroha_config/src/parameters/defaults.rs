@@ -4063,9 +4063,10 @@ pub mod accel {
     pub const ARTIFACT_BYTES: usize = RESOURCE_LIMITS.artifact_bytes;
 }
 /// Zero-knowledge subsystem defaults used by Torii and the host runtime.
-// TODO(F.4): the proof-size, circuit-size and SCCP limits below decide validity but are read
-// from node configuration and bound into State only as a hash. Move their source into
-// committed State (`specs/zk_resource_contract.json`, bounds `proof.config_*`).
+// The proof-size, circuit-size and SCCP limits below are the protocol default of the committed
+// `zk_validity_policy_v1` parameter (`iroha_data_model::zk_validity_policy`): a chain that
+// commits no policy runs under them, and the node configuration schema has no key for them
+// (`specs/zk_resource_contract.json`, bounds `proof.config_*`).
 pub mod zk {
     /// SCCP proof-admission and deterministic verifier-work defaults.
     pub mod sccp {

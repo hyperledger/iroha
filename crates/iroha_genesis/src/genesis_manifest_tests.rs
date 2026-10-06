@@ -5,7 +5,6 @@ use iroha_crypto::Algorithm;
 use iroha_data_model::{
     block::consensus::ConsensusGenesisParams, isi::SetParameter, parameter::system::BlockParameter,
 };
-use iroha_version::codec::DecodeVersioned;
 use std::{convert::TryInto, num::NonZeroU64, path::PathBuf};
 fn manifest_chain_discriminant_value() -> norito::json::Value {
     norito::json::value::to_value(&iroha_data_model::account::address::chain_discriminant())
@@ -764,22 +763,18 @@ fn genesis_canonical_wire_roundtrip_preserves_digest() {
     let genesis = manifest.build_and_sign(&keypair).expect("sign genesis");
     let wire = genesis.0.canonical_wire().expect("canonical wire encoding");
     let framed = wire.as_framed().to_vec();
-    let versioned = iroha_version::codec::EncodeVersioned::encode_versioned(&genesis.0);
-    let decoded =
-        SignedBlock::decode_all_versioned(&versioned).expect("decode versioned signed block");
+    let decoded = iroha_data_model::block::decode_framed_signed_block(framed.as_slice())
+        .expect("decode canonical framed signed block");
     assert_eq!(
         decoded.header().confidential_features(),
         genesis.0.header().confidential_features()
     );
-    // Ensure framed payload also decodes through the deframed helper for completeness.
+    // The frame carries exactly the versioned payload; that payload alone is not a block wire.
+    let versioned = iroha_version::codec::EncodeVersioned::encode_versioned(&genesis.0);
     let deframed = iroha_data_model::block::deframe_versioned_signed_block_bytes(framed.as_slice())
         .expect("deframe canonical block");
-    let decoded_framed = SignedBlock::decode_all_versioned(deframed.bare_versioned.as_ref())
-        .expect("decode deframed signed block");
-    assert_eq!(
-        decoded_framed.header().confidential_features(),
-        genesis.0.header().confidential_features()
-    );
+    assert_eq!(deframed.bare_versioned.as_ref(), versioned.as_slice());
+    assert!(iroha_data_model::block::decode_framed_signed_block(&versioned).is_err());
 }
 #[test]
 fn programmatic_raw_genesis_rejects_explicit_set_parameter_instructions() {

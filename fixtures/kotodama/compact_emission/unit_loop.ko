@@ -1,17 +1,29 @@
 seiyaku CompactUnitLoop {
-    error enum Failure { Low = 3, High = 9 }
+    error enum Failure {
+        Low = 3, High = 9
+    }
+
     state int trace;
-    hajimari() { trace = 0; }
+    hajimari() {
+        trace = 0;
+    }
+
     fn guarded(int _ flag) {
         require(flag >= 0, Failure::Low);
         require(flag <= 3, Failure::High);
-        if flag == 0 { trace = trace + 1; return; }
+        if flag == 0 {
+            trace = trace + 1;
+            return;
+        }
         trace = trace + 2;
         return;
     }
+
     kotoage fn main() -> ((), (), int) authorize("WriteState") {
         let first = guarded(0);
-        for count in range(3) { guarded(count); }
+        for count in range(3) {
+            guarded(count);
+        }
         let second = guarded(1);
         return (first, second, trace);
     }

@@ -90,9 +90,8 @@ async fn zk_verify_batch_honors_halo2_gate_before_compute_admission() {
     let app_mut = Arc::get_mut(&mut app).expect("unique Torii app fixture");
     Arc::get_mut(&mut app_mut.state)
         .expect("unique core state fixture")
-        .zk
-        .halo2
-        .enabled = false;
+        .edit_zk_for_testing(|zk| zk.halo2.enabled = false)
+        .expect("fixture ZK settings install");
     app_mut.query_heavy_inflight = Arc::new(tokio::sync::Semaphore::new(0));
     app_mut.query_queue_timeout = Duration::ZERO;
     let mut headers = HeaderMap::new();
@@ -114,7 +113,7 @@ async fn zk_verify_batch_honors_halo2_gate_before_compute_admission() {
     assert!(matches!(
         error,
         Error::Query(ValidationFail::NotPermitted(message))
-            if message == "halo2 verification is disabled in node configuration"
+            if message == "halo2 verification is disabled by the committed ZK validity policy"
     ));
 }
 #[cfg(feature = "zk-verify-batch")]
@@ -124,9 +123,8 @@ async fn enabled_zk_verify_batch_requires_heavy_compute_admission() {
     let app_mut = Arc::get_mut(&mut app).expect("unique Torii app fixture");
     Arc::get_mut(&mut app_mut.state)
         .expect("unique core state fixture")
-        .zk
-        .halo2
-        .enabled = true;
+        .edit_zk_for_testing(|zk| zk.halo2.enabled = true)
+        .expect("fixture ZK settings install");
     app_mut.query_heavy_inflight = Arc::new(tokio::sync::Semaphore::new(0));
     app_mut.query_queue_timeout = Duration::ZERO;
     let mut headers = HeaderMap::new();

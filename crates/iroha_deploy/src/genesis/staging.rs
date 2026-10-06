@@ -773,17 +773,26 @@ fn configure_staged_genesis_state(
     // the views taken while configuring and reconciling the pre-genesis lane catalog.
     install_staged_nexus_policies(state, genesis, &nexus)?;
     if let Some(config) = config {
-        state.set_pipeline(staged_genesis_pipeline(config.pipeline.clone()));
+        // Execution limits are committed chain policy too: a genesis that needs
+        // non-default ones carries the `pipeline_validity_policy_v1` parameter.
+        state
+            .install_node_pipeline(staged_genesis_pipeline(config.pipeline.clone()))
+            .map_err(|error| eyre!("invalid pipeline config for staged genesis: {error}"))?;
         state.set_oracle(config.oracle.clone());
         state.set_fraud_monitoring(config.fraud_monitoring.clone());
         state.set_gov(config.gov.clone());
         state.content = config.content.clone();
         state.set_settlement(config.settlement.clone());
+        // ZK validity values are committed chain policy: a genesis that needs
+        // non-default ones carries the `zk_validity_policy_v1` parameter. The
+        // staging configuration supplies local resource settings only.
         state
-            .set_zk(config.zk.clone())
+            .install_node_zk(config.zk.clone())
             .map_err(|error| eyre!("invalid ZK config for staged genesis: {error}"))?;
     } else {
-        state.set_pipeline(staged_default_pipeline(genesis)?);
+        state
+            .install_node_pipeline(staged_default_pipeline(genesis)?)
+            .map_err(|error| eyre!("invalid pipeline config for staged genesis: {error}"))?;
     }
     state
         .prepare_configured_primary_geometry_anchor(&nexus.configured_lane_catalog)

@@ -191,7 +191,8 @@ publication-boundary recovery case. Anchored delivery precedes obsolete-driver d
 
 Deliver confidential inputs and a hidden committed function under explicit
 owner/evaluator/encryption-key/opener/validator roles and collusion assumptions.
-Use concrete circuit-private evaluation/sanitization, fixed public padded shapes,
+Use concrete circuit-private evaluation/sanitization, a mandatory proved normalizing
+lowering with one fixed public schedule per class profile padded to the class maximum,
 client ciphertext/key well-formedness proofs from the first slice, and a bounded
 output/oracle leakage contract. Ordinary FHE alone does not establish hidden-program
 privacy; ZK does not erase leakage in ciphertexts, outputs, access patterns or timing.
@@ -202,6 +203,11 @@ identity survives encryption-key rotation. Current state lanes initialize within
 each execution; persistent cross-request mutable state is not silently introduced.
 Keep the identifier PRF key outside evaluator custody and test enumeration and
 unauthorized queries.
+
+Logical rank bounds ciphertext multiplication depth, not physical noise.
+Instruction-by-instruction evaluation of the existing candidates does not hold the
+maximum shape; acceptance requires semantic equivalence of the normalizing lowering
+and maximum-shape physical noise, work and leakage evidence.
 
 All three program classes remain mandatory:
 
@@ -573,7 +579,7 @@ Acceptance: Keep the dependency graph acyclic and manifests/lockfile coherent. S
 
 Deliverable: Implement and cost the genuine exact modular RNS-BGV starting candidate, secure key/encrypt/decrypt, relinearization, modulus switching and automorphisms; derive distributions, estimator assumptions and explicit rounding/noise failure bounds. Use secure randomness and bounded clearing owners for every secret buffer.
 
-Acceptance: Compare F257 sparse-slot representation with a measured alternative/batching modulus, including equality exponentiation, broadcasts/key switching, scalar-subalgebra input proof, masking and unused-output zeroing. Use independent arithmetic/decryption vectors. No depth-16/+10 heuristic, exact-lift BFV, plaintext fallback or unmeasured flooding constants establish security. Verify secret erasure on success, error and unwind.
+Acceptance: Compare F257 sparse-slot representation with a measured alternative/batching modulus, including equality exponentiation, broadcasts/key switching, scalar-subalgebra input proof, masking and unused-output zeroing. Use independent arithmetic/decryption vectors. No depth-16/+10 heuristic, exact-lift BFV, plaintext fallback or unmeasured flooding constants establish security. Verify secret erasure on success, error and unwind. Derive and measure physical noise/work bounds for the proved normalizing lowering under one fixed public schedule per class profile padded to the class maximum; logical rank bounds ciphertext multiplication depth, not physical noise, and instruction-by-instruction evaluation of the existing candidates does not hold the maximum shape.
 
 ### C.4 Threshold key and share protocol
 
@@ -613,9 +619,9 @@ Acceptance: Wrong beneficiary/network/policy/key, forged/revoked/expired credent
 
 ### R.3 Program-hiding affine execution relation
 
-Deliverable: Implement affine.v1 with LoadInput, LoadState, StoreState, LoadConst, Add, AddPlain, SubPlain, MulPlain and Output; prove hidden tape, initialization, all transitions, encodings, bounds and ordered outputs under the full authoritative policy.
+Deliverable: Implement affine.v1 with LoadInput, LoadState, StoreState, LoadConst, Add, AddPlain, SubPlain, MulPlain and Output; prove hidden tape, initialization, all transitions, encodings, bounds and ordered outputs under the full authoritative policy. Implement and prove the normalizing lowering preserves these semantics.
 
-Acceptance: No ciphertext multiplication/refresh enters this class. Fixed public padded shapes conceal the committed program within the specified leakage bound. Test class/policy/key/context substitutions, private-witness mutations and actual equality-free affine workloads; a binding-only receipt is not execution.
+Acceptance: No ciphertext multiplication/refresh enters this class. One fixed public schedule per class profile padded to the class maximum conceals the committed program within the specified leakage bound. Test class/policy/key/context substitutions, private-witness mutations and actual equality-free affine workloads; a binding-only receipt is not execution. Verify maximum-shape normalization, semantic equivalence and physical noise bounds independently of logical rank.
 
 ### R.4 Phone claim lifecycle and direct replacement
 
@@ -877,15 +883,15 @@ Acceptance: One million programs EACH for scalar/control, memory, calls, faults 
 
 ### R.0 RAM-LFE roles leakage classes and policy
 
-Deliverable: Specify program owner/evaluator, encryption-key owner, authorized opener and validators/collusion; exact plaintext/class semantics, function/initializer commitments, canonical V1 policy/receipt/opening and cleartext reference.
+Deliverable: Specify program owner/evaluator, encryption-key owner, authorized opener and validators/collusion; exact plaintext/class semantics, function/initializer commitments, canonical V1 policy/receipt/opening and cleartext reference. Require a proved normalizing lowering with one fixed public schedule per class profile padded to the class maximum.
 
-Acceptance: Bind full authoritative policy, function identity independent of key rotation, keys/profile/class/semantic relation, network/beneficiary, initialized memory, ciphertexts, receipt, expiry and replay. State resets within each execution; persistent cross-request mutation needs its own authenticated prior/next-state order and is outside this contract.
+Acceptance: Bind full authoritative policy, function identity independent of key rotation, keys/profile/class/semantic relation, network/beneficiary, initialized memory, ciphertexts, receipt, expiry and replay. State resets within each execution; persistent cross-request mutation needs its own authenticated prior/next-state order and is outside this contract. Logical rank bounds ciphertext multiplication depth, not physical noise; instruction-by-instruction evaluation of the existing candidates does not hold the maximum shape. Specify semantic equivalence and fixed-schedule leakage obligations for the normalizing lowering.
 
 ### R.11 Circuit privacy and client well-formedness
 
-Deliverable: Implement a concrete circuit-private evaluation/sanitization construction with fixed padded public shapes and client proofs of admitted ciphertext/key well-formedness and input constraints from the first usable slice.
+Deliverable: Implement a concrete circuit-private evaluation/sanitization construction with one fixed public schedule per class profile padded to the class maximum and client proofs of admitted ciphertext/key well-formedness and input constraints from the first usable slice.
 
-Acceptance: Separate encryption secrecy, hidden-function privacy, proof ZK, output authorization and opening guarantees. Test malicious/adaptive inputs, timing/access/proof-shape leakage and evaluator enumeration; keep the identifier PRF key outside evaluator custody and enforce authorized-query policy. Ordinary FHE or ZK alone cannot hide ciphertext/output leakage. Preserve secure randomness and clearing ownership; test key/witness/program erasure on success, error and unwind.
+Acceptance: Separate encryption secrecy, hidden-function privacy, proof ZK, output authorization and opening guarantees. Test malicious/adaptive inputs, timing/access/proof-shape leakage and evaluator enumeration; keep the identifier PRF key outside evaluator custody and enforce authorized-query policy. Ordinary FHE or ZK alone cannot hide ciphertext/output leakage. Preserve secure randomness and clearing ownership; test key/witness/program erasure on success, error and unwind. Establish circuit privacy and the leakage bound for normalized evaluation under the fixed public schedule, including maximum-shape physical noise and sanitization.
 
 ### R.8 Verifiable decryption opening and identifier PRF
 
@@ -897,19 +903,19 @@ Acceptance: Test swapped ciphertext/output/key/context/beneficiary, unauthorized
 
 Deliverable: Ship general ramLfe.execute through a native execution/result ISI, genuine proof, required verified opening and actual result using operation-v1; register supported policies without activation.
 
-Acceptance: All SDK/direct/prepared/Kotodama routes cover local encryption, evaluation, proof/preflight/opening, four-peer result, cold restart/full canonical replay and pending/cancel/recovery. It does not depend on phone credentials, bounded programs, refresh, threshold, X509, full IVM proof or SoraCloud.
+Acceptance: All SDK/direct/prepared/Kotodama routes cover local encryption, evaluation, proof/preflight/opening, four-peer result, cold restart/full canonical replay and pending/cancel/recovery. It does not depend on phone credentials, bounded programs, refresh, threshold, X509, full IVM proof or SoraCloud. Deliver proved normalized affine execution under one fixed public schedule per class profile padded to the class maximum, with maximum-shape correctness, physical noise and leakage evidence.
 
 ### R.7 Bounded RAM-LFE class and usable flow
 
-Deliverable: Implement bounded.v1 with all eleven tape instructions including Mul and complete SelectEqZero lowering, actual operand depth/equality exponentiation/select multiplication and a derived leveled noise/work plan.
+Deliverable: Implement bounded.v1 with all eleven tape instructions including Mul and complete SelectEqZero lowering, actual operand depth/equality exponentiation/select multiplication and a derived leveled noise/work plan. Prove the normalizing lowering preserves bounded semantics under one fixed public schedule per class profile padded to the class maximum.
 
-Acceptance: Prove class membership, all tape/slot/register/memory/depth/output limits, integer/RNS carries/quotients/rounding/key switching, malformed private transitions and class substitution. Extend operation-v1 immediately, including opening and any available threshold mode; refresh remains independent later work.
+Acceptance: Prove class membership, all tape/slot/register/memory/depth/output limits, integer/RNS carries/quotients/rounding/key switching, malformed private transitions and class substitution. Extend operation-v1 immediately, including opening and any available threshold mode; refresh remains independent later work. Demonstrate maximum-shape correctness and physical noise/work bounds; logical rank bounds ciphertext multiplication depth, not physical noise.
 
 ### R.9 Refresh RAM-LFE class and usable flow
 
-Deliverable: Implement refresh.v1 with genuine noise-reducing refresh plus its complete hidden-program proof, limits between refreshes and total refresh count; extend the same native/SDK path.
+Deliverable: Implement refresh.v1 with genuine noise-reducing refresh plus its complete hidden-program proof, limits between refreshes and total refresh count; extend the same native/SDK path. Prove the normalizing lowering preserves refresh semantics under one fixed public schedule per class profile padded to the class maximum.
 
-Acceptance: Demonstrate repeated refresh and correct output/noise on maximum supported workloads with opening, class-substitution and malformed-witness controls. Adding encrypted zero is not bootstrap. Failed cost projections trigger construction work; refresh stays mandatory and supported-class threshold tests extend with this slice.
+Acceptance: Demonstrate repeated refresh and correct output/noise on maximum supported workloads with opening, class-substitution and malformed-witness controls. Adding encrypted zero is not bootstrap. Failed cost projections trigger construction work; refresh stays mandatory and supported-class threshold tests extend with this slice. Prove physical noise bounds and fixed public refresh scheduling without exposing the private logical refresh schedule; logical rank bounds ciphertext multiplication depth, not physical noise.
 
 ### R.10 RAM-LFE threshold opening delivery
 

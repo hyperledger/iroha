@@ -15,7 +15,8 @@ history and changes no file. It fails when:
   inventory records, or its generator or replay test is gone;
 - a history loader defines or imports a compatibility-named item that is neither
   a listed rejection helper nor a classified definition;
-- a retired decoder or shim identifier reappears;
+- a retired decoder or shim identifier reappears, or a retired trait
+  implementation (`impl <Trait> for <Type>`) is written again anywhere;
 - a helper kept only for tests is referenced from production source;
 - a retired store artifact refusal no longer exists, is no longer called from
   the Strict open path, refuses other names than the inventory lists, or a
@@ -23,7 +24,18 @@ history and changes no file. It fails when:
 - an incompatible-change surface lacks a concrete regeneration target with a
   generator or checking test that mentions it, or the contract table and the
   inventory list different surfaces or cutovers;
+- the ABI V1 hash golden differs from the hash the inventory declares, a listed
+  artifact of that surface does not carry the declared hash in every form its
+  entry states (a text carrier exactly the stated number of times; a program
+  file, artifact map, compiler capture or base64 fixture in the header of every
+  program it holds), or the pinned history holds it while the declaration says
+  no fresh genesis is needed;
 - a probe or custody anchor of the obsolete-history evidence is gone;
+- the contract section that states the rule for a future authenticated
+  checkpoint changes, loses one of its listed statements, or the source site
+  that marks restore as unimplemented is gone, without the inventory changing;
+- a prerequisite of a listed test (a daemon build, its environment variable) no
+  longer matches the source;
 - an open finding no longer matches the source, so the inventory is stale.
 
 Limits. The loader check is name-based: it sees definitions and `use ... as`
@@ -33,10 +45,19 @@ a neutral name. The test check reads attributes on the test function only, not
 on enclosing modules. Whether a retired artifact is still refused at run time,
 and whether a history written by an earlier build still replays, is established
 by the listed Rust tests, which read this inventory and the pinned fixture.
+The ABI carrier check reads the listed carriers only: it does not search the
+tree for another file that states the hash, and in a text carrier it counts the
+declared hash without knowing which other fields could state one. A test-only
+reference is matched as written: `decode_exact_versioned::<SignedBlock>` is
+seen, the same call with an inferred type is not.
 
 `--report` prints every open finding as `path:line` at the current source.
 `--test-commands` prints one `cargo test` command per package and target that
-runs exactly the listed tests; blocked targets are printed as comments.
+runs exactly the listed tests; blocked targets are printed as comments. A
+package with a listed prerequisite gets its build command first and its
+environment on every command, so each printed line runs as printed from the
+repository root. The future-checkpoint check pins the text of a rule; it does
+not establish that checkpoints exist or work.
 
 Requires Python 3.10+ and no third-party module. `--root` selects another
 checkout (default: the repository containing this script).
@@ -45,6 +66,7 @@ checkout (default: the repository containing this script).
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -119,6 +141,37 @@ SURFACE_ROW = re.compile(
 )
 SURFACE_ID = re.compile(r"[a-z][a-z_]*\Z")
 TEST_TARGET = re.compile(r"(?:lib|test:[A-Za-z0-9_]+)\Z")
+BUILD_COMMAND = re.compile(r"cargo build -p [A-Za-z0-9_-]+ --bin [A-Za-z0-9_-]+\Z")
+ENVIRONMENT_NAME = re.compile(r"[A-Z][A-Z0-9_]*\Z")
+# A value a POSIX shell expands inside double quotes: no quote, backtick or command substitution.
+ENVIRONMENT_VALUE = re.compile(r"[A-Za-z0-9_./:${}-]+\Z")
+SHA256_HEX = re.compile(r"[0-9a-f]{64}\Z")
+PLAIN_IDENTIFIER = re.compile(r"[A-Za-z_]\w*\Z")
+# How a regeneration target carries the ABI V1 hash. Text forms: lower-case or upper-case
+# hexadecimal, or hexadecimal split over adjacent string literals or lines; the hash occurs in
+# each stated text form exactly as often as the entry's `occurrences` says (once by default).
+# Program forms: the header of one IVM program, of every IVM program an artifact map lists in
+# its third column, of every hexadecimal IVM program in the tab-separated rows of a compiler
+# capture, or of every base64 IVM program embedded in a text fixture. An entry may state
+# several forms; each must hold.
+ABI_TEXT_FORMS = ("hex", "HEX", "hex_wrapped")
+ABI_HASH_FORMS = (
+    *ABI_TEXT_FORMS,
+    "ivm_header",
+    "artifact_map",
+    "ivm_hex_rows",
+    "ivm_base64",
+)
+# An IVM program starts with magic, version, mode, vector length, cycle bound and ABI version;
+# the ABI hash is the last field of that fixed header.
+IVM_MAGIC = b"IVM\0"
+IVM_ABI_HASH_SPAN = (17, 49)
+HEX_WRAPPING = re.compile(rb'[\s"]+')
+IVM_MAGIC_HEX = IVM_MAGIC.hex()
+HEX_TEXT = re.compile(r"(?:[0-9a-f]{2})+\Z")
+# Base64 of a byte string that starts with the IVM magic: `SVZN` encodes `IVM` and the zero
+# byte that follows fixes the next character to `A`.
+IVM_BASE64 = re.compile(rb"(?<![A-Za-z0-9+/=])SVZNA[A-Za-z0-9+/]*={0,2}(?![A-Za-z0-9+/=])")
 CHAR_LITERAL = re.compile(r"'(?:\\(?:u\{[0-9a-fA-F_]{1,8}\}|x[0-9a-fA-F]{2}|.)|[^\\'\n])'")
 LITERAL_START = re.compile(r"//|/\*|\"|'|\b[bc]?r#*\"")
 BLOCK_COMMENT_EDGE = re.compile(r"/\*|\*/")
@@ -346,9 +399,13 @@ def load_inventory(root: Path) -> tuple[dict, list[str]]:
         "test_only_references": list,
         "retired_identifier_roots": list,
         "retired_identifiers": list,
+        "retired_impls": list,
         "retired_store_artifacts": list,
         "incompatible_change_surfaces": list,
+        "declared_abi_cutover": dict,
         "obsolete_history_evidence": dict,
+        "future_checkpoint_rule": dict,
+        "test_prerequisites": list,
         "open_findings": list,
     }
     for key, kind in required.items():
@@ -420,6 +477,29 @@ def reference_pattern(needle: str) -> str:
     return r"(?<!\w)" + r"\s+".join(words) + r"(?!\w)"
 
 
+def retired_impl_pattern(trait: str, target: str) -> re.Pattern[str]:
+    """Regular expression matching `impl <trait> for <target>` with any path or generics."""
+    path = r"(?:\w+\s*::\s*)*"
+    generics = r"(?:\s*<[^{;]*?>)?"
+    return re.compile(
+        r"\bimpl\b" + generics + r"\s*" + path + re.escape(trait) + generics
+        + r"\s+for\s+" + path + re.escape(target) + r"(?!\w)"
+    )
+
+
+def retired_impl_errors(
+    relative: str, text: str, retired: list[tuple[dict, re.Pattern[str]]]
+) -> list[str]:
+    """Retired trait implementations written again in one source file, tests included."""
+    blanked = blank_rust_literals(text)
+    return [
+        f"{relative}:{line_of(blanked, found.start())}: retired implementation "
+        f"`{entry['trait']} for {entry['type']}` reappeared"
+        for entry, pattern in retired
+        for found in pattern.finditer(blanked)
+    ]
+
+
 def test_only_reference_errors(
     relative: str, text: str, references: list[tuple[dict, re.Pattern[str]]]
 ) -> list[str]:
@@ -446,8 +526,9 @@ def check_sources(root: Path, inventory: dict) -> list[str]:
     """One pass over the scanned roots.
 
     Every `Version` implementation must be listed, and a history-bearing type admits exactly its
-    one listed version. No retired decoder or shim identifier may appear anywhere. A helper kept
-    only for tests has no reference in production source.
+    one listed version. No retired decoder or shim identifier may appear anywhere, and no retired
+    trait implementation may be written again. A helper kept only for tests has no reference in
+    production source.
     """
     identifiers = [entry["identifier"] for entry in inventory["retired_identifiers"]]
     errors = [
@@ -464,6 +545,21 @@ def check_sources(root: Path, inventory: dict) -> list[str]:
                 f"finding {entry['finding']}; when the helper is gone, delete the entry"
             )
         references.append((entry, re.compile(reference_pattern(entry["needle"]))))
+    retired_impls: list[tuple[dict, re.Pattern[str]]] = []
+    for entry in inventory["retired_impls"]:
+        trait, target = str(entry.get("trait", "")), str(entry.get("type", ""))
+        if not PLAIN_IDENTIFIER.match(trait) or not PLAIN_IDENTIFIER.match(target):
+            errors.append(
+                f"{INVENTORY}: retired implementation `{trait} for {target}` names a plain "
+                "trait and a plain type"
+            )
+            continue
+        if not entry.get("retired"):
+            errors.append(
+                f"{INVENTORY}: retired implementation `{trait} for {target}` states what was "
+                "retired"
+            )
+        retired_impls.append((entry, retired_impl_pattern(trait, target)))
     if errors:
         return errors
     needles = [identifier.encode() for identifier in identifiers]
@@ -495,7 +591,11 @@ def check_sources(root: Path, inventory: dict) -> list[str]:
                 )
         has_version = b"Version" in data and VERSION_IMPL_BYTES.search(data)
         has_reference = any(all(piece in data for piece in pieces) for pieces in prefilters)
-        if not has_version and not has_reference:
+        has_retired_impl = b"impl" in data and any(
+            entry["trait"].encode() in data and entry["type"].encode() in data
+            for entry, _ in retired_impls
+        )
+        if not has_version and not has_reference and not has_retired_impl:
             continue
         try:
             text = data.decode("utf-8")
@@ -506,6 +606,8 @@ def check_sources(root: Path, inventory: dict) -> list[str]:
             errors += version_impl_errors(relative, text, listed, test_only, seen)
         if has_reference:
             errors += test_only_reference_errors(relative, text, references)
+        if has_retired_impl:
+            errors += retired_impl_errors(relative, text, retired_impls)
     for key in sorted((set(listed) | test_only) - seen):
         errors.append(f"{key[0]}: listed `Version` implementation for {key[1]} does not exist")
     return errors
@@ -613,19 +715,63 @@ def test_commands(inventory: dict) -> list[str]:
         (entry["package"], entry["target"]): entry["reason"]
         for entry in inventory["blocked_test_targets"]
     }
+    prerequisites = {entry["package"]: entry for entry in inventory.get("test_prerequisites", [])}
     groups: dict[tuple[str, str], list[str]] = {}
     for entry in listed_tests(inventory):
         groups.setdefault((entry["package"], entry["target"]), []).append(entry["test"])
     lines: list[str] = []
+    built: set[str] = set()
     for (package, target), names in sorted(groups.items()):
         selector = "--lib" if target == "lib" else f"--test {target.split(':', 1)[1]}"
         command = f"cargo test -p {package} {selector} -- {' '.join(sorted(set(names)))}"
+        prerequisite = prerequisites.get(package)
+        prefix = "# " if (package, target) in blocked else ""
         if (package, target) in blocked:
             lines.append(f"# blocked: {blocked[(package, target)]}")
-            lines.append(f"# {command}")
-        else:
-            lines.append(command)
+        if prerequisite is not None:
+            if package not in built:
+                built.add(package)
+                lines.append(f"{prefix}{prerequisite['build']}")
+            assignments = " ".join(
+                f'{name}="{value}"' for name, value in sorted(prerequisite["environment"].items())
+            )
+            command = f"{assignments} {command}"
+        lines.append(f"{prefix}{command}")
     return lines
+
+
+def check_test_prerequisites(root: Path, inventory: dict) -> list[str]:
+    """Each prerequisite of a listed test names a real build, variable and source anchor."""
+    errors: list[str] = []
+    packages = {entry.get("package") for entry in listed_tests(inventory)}
+    seen: set[str] = set()
+    for entry in inventory["test_prerequisites"]:
+        package = str(entry.get("package", ""))
+        label = f"{INVENTORY}: test prerequisite of `{package}`"
+        if package not in packages or package in seen:
+            errors.append(f"{label} names one package with a listed test, once")
+        seen.add(package)
+        if not BUILD_COMMAND.match(str(entry.get("build", ""))):
+            errors.append(f"{label} needs `build` as `cargo build -p <package> --bin <binary>`")
+        environment = entry.get("environment")
+        if not isinstance(environment, dict) or not environment:
+            errors.append(f"{label} needs a non-empty `environment`")
+            environment = {}
+        for name, value in environment.items():
+            if not ENVIRONMENT_NAME.match(str(name)) or not ENVIRONMENT_VALUE.match(str(value)):
+                errors.append(f"{label} has an environment entry a shell cannot take as printed")
+        if not entry.get("reason"):
+            errors.append(f"{label} states its `reason`")
+        anchors = entry.get("anchors") or []
+        if not anchors:
+            errors.append(f"{label} has no source anchor")
+        for anchor in anchors:
+            if check_anchor(root, anchor["path"], anchor["contains"]) is None:
+                errors.append(
+                    f"{anchor['path']}: test prerequisite anchor `{anchor['contains']}` is "
+                    "missing; the way the listed tests find their daemon changed"
+                )
+    return errors
 
 
 def check_pinned_history(root: Path, sources: Sources, inventory: dict) -> list[str]:
@@ -912,8 +1058,33 @@ def check_retired_store_artifacts(root: Path, sources: Sources, inventory: dict)
     return errors
 
 
+def carrier_forms(target: dict) -> tuple[str, ...] | None:
+    """The forms in which a regeneration target states that it carries the ABI hash.
+
+    `()` when the target is no carrier; `None` when `carries` is neither one known form nor a
+    non-empty list of distinct known forms.
+    """
+    stated = target.get("carries")
+    if stated is None:
+        return ()
+    forms = [stated] if isinstance(stated, str) else stated
+    if (
+        not isinstance(forms, list)
+        or not forms
+        or any(not isinstance(form, str) or form not in ABI_HASH_FORMS for form in forms)
+        or len(set(forms)) != len(forms)
+    ):
+        return None
+    return tuple(forms)
+
+
 def regeneration_errors(root: Path, surface: str, target: dict) -> list[str]:
-    """One regeneration target names a concrete artifact and what produces or checks it."""
+    """One regeneration target names a concrete artifact and what produces or checks it.
+
+    `mention` ties the `generator` to the artifact. A `checked_by` source is tied by
+    `check_mention` when the entry states one (the name of the test that fails on a stale
+    artifact) and by `mention` otherwise.
+    """
     artifact = str(target.get("artifact", ""))
     path = root / artifact
     if not artifact or not path.exists():
@@ -923,24 +1094,55 @@ def regeneration_errors(root: Path, surface: str, target: dict) -> list[str]:
             f"{artifact}: regeneration target of `{surface}` is a whole top-level directory; "
             "name the pinned artifact"
         ]
+    forms = carrier_forms(target)
+    if forms is None:
+        return [
+            f"{artifact}: regeneration target of `{surface}` carries the ABI hash in the unknown "
+            f"form `{target.get('carries')}`; use one of {', '.join(ABI_HASH_FORMS)}, or a list "
+            "of distinct ones"
+        ]
+    occurrences = target.get("occurrences")
+    if occurrences is not None and (
+        type(occurrences) is not int
+        or occurrences < 1
+        or not any(form in ABI_TEXT_FORMS for form in forms)
+    ):
+        return [
+            f"{artifact}: `occurrences` is the positive number of times a text carrier "
+            f"({', '.join(ABI_TEXT_FORMS)}) holds the ABI hash"
+        ]
     if target.get("document"):
+        if forms:
+            return [
+                f"{artifact}: a carrier of the ABI hash names its `generator` or `checked_by` "
+                "source, not `document`"
+            ]
         if not path.is_file():
             return [f"{artifact}: document regeneration target of `{surface}` must be a file"]
         return []
-    owners = [target[key] for key in ("generator", "checked_by") if target.get(key)]
     mention = target.get("mention")
+    owners = [
+        (target[key], tie)
+        for key, tie in (
+            ("generator", mention),
+            ("checked_by", target.get("check_mention") or mention),
+        )
+        if target.get(key)
+    ]
     if not owners or not mention:
         return [
             f"{artifact}: regeneration target of `{surface}` needs a `generator` or `checked_by` "
             "source and the `mention` that ties it to the artifact"
         ]
+    if target.get("check_mention") and not target.get("checked_by"):
+        return [f"{artifact}: `check_mention` names what its `checked_by` source mentions"]
     errors: list[str] = []
-    for owner in owners:
+    for owner, tie in owners:
         text = read(root / owner)
         if text is None:
             errors.append(f"{owner}: generator or check of `{artifact}` is missing")
-        elif mention not in text:
-            errors.append(f"{owner}: no longer mentions `{mention}`; it does not cover `{artifact}`")
+        elif tie not in text:
+            errors.append(f"{owner}: no longer mentions `{tie}`; it does not cover `{artifact}`")
     return errors
 
 
@@ -988,6 +1190,216 @@ def check_surfaces(root: Path, inventory: dict) -> list[str]:
     return errors
 
 
+def ivm_program_abi_hash(program: bytes) -> bytes | None:
+    """The ABI hash field of an IVM program header, or `None` when the bytes are no IVM program."""
+    start, end = IVM_ABI_HASH_SPAN
+    if len(program) < end or not program.startswith(IVM_MAGIC):
+        return None
+    return program[start:end]
+
+
+def abi_carrier_errors(root: Path, target: dict, declared: str) -> list[str]:
+    """One regeneration target carries the declared ABI hash in every form its entry states.
+
+    A text form holds the hash exactly `occurrences` times (once by default), so a file with
+    several statements of the hash cannot keep a stale one beside a regenerated one. A program
+    form reads the header of every program it finds: each row of a capture, each base64 image
+    of a fixture, each file of an artifact map.
+    """
+    artifact = target["artifact"]
+    raw = bytes.fromhex(declared)
+    try:
+        data = (root / artifact).read_bytes()
+    except OSError:
+        return [f"{artifact}: carrier of the ABI hash is unreadable"]
+    owner = target.get("generator") or target.get("checked_by") or "its generator"
+    stale = (
+        f"does not carry the declared ABI hash {declared}; regenerate it through {owner} in the "
+        "change that declares the cutover"
+    )
+    expected = target.get("occurrences", 1)
+    errors: list[str] = []
+    for form in carrier_forms(target) or ():
+        if form == "artifact_map":
+            programs = 0
+            for line in data.decode("utf-8", errors="replace").splitlines():
+                if not line or line.startswith("#"):
+                    continue
+                fields = line.split("\t")
+                if len(fields) != 3 or not fields[2]:
+                    errors.append(
+                        f"{artifact}: artifact map row `{line}` is not owner, source, artifact"
+                    )
+                    continue
+                programs += 1
+                try:
+                    program = (root / fields[2]).read_bytes()
+                except OSError:
+                    errors.append(f"{fields[2]}: IVM program listed in {artifact} is missing")
+                    continue
+                if ivm_program_abi_hash(program) != raw:
+                    errors.append(f"{fields[2]}: IVM program header {stale}")
+            if not programs:
+                errors.append(f"{artifact}: artifact map lists no IVM program")
+        elif form == "ivm_hex_rows":
+            rows = 0
+            for number, line in enumerate(
+                data.decode("utf-8", errors="replace").splitlines(), start=1
+            ):
+                if not line:
+                    continue
+                rows += 1
+                programs = [
+                    field for field in line.split("\t") if field.startswith(IVM_MAGIC_HEX)
+                ]
+                if not programs:
+                    errors.append(f"{artifact}:{number}: capture row holds no IVM program")
+                elif not all(
+                    HEX_TEXT.match(program)
+                    and ivm_program_abi_hash(bytes.fromhex(program)) == raw
+                    for program in programs
+                ):
+                    errors.append(f"{artifact}:{number}: IVM program header {stale}")
+            if not rows:
+                errors.append(f"{artifact}: capture holds no row")
+        elif form == "ivm_base64":
+            images = IVM_BASE64.findall(data)
+            if not images:
+                errors.append(f"{artifact}: holds no base64 IVM program")
+            for image in images:
+                try:
+                    program = base64.b64decode(image, validate=True)
+                except ValueError:
+                    program = b""
+                if ivm_program_abi_hash(program) != raw:
+                    errors.append(f"{artifact}: base64 IVM program header {stale}")
+        elif form == "ivm_header":
+            if ivm_program_abi_hash(data) != raw:
+                errors.append(f"{artifact}: {stale}")
+        else:
+            if form == "hex":
+                found = data.count(declared.encode())
+            elif form == "HEX":
+                found = data.count(declared.upper().encode())
+            else:
+                found = HEX_WRAPPING.sub(b"", data).count(declared.encode())
+            if not found:
+                errors.append(f"{artifact}: {stale}")
+            elif found != expected:
+                errors.append(
+                    f"{artifact}: holds the declared ABI hash {found} times as `{form}`, its "
+                    f"entry states {expected}; state `occurrences` or regenerate it through "
+                    f"{owner}"
+                )
+    return errors
+
+
+def pinned_frames(root: Path, inventory: dict) -> list[bytes]:
+    """The readable frames of the pinned history; its own check reports what is missing."""
+    relative = inventory["pinned_history"].get("manifest", "")
+    try:
+        manifest = json.loads((root / relative).read_text(encoding="utf-8"))
+        names = [str(block["file"]) for block in manifest["blocks"]]
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError):
+        return []
+    frames: list[bytes] = []
+    for name in names:
+        try:
+            frames.append(((root / relative).parent / name).read_bytes())
+        except OSError:
+            continue
+    return frames
+
+
+def check_abi_cutover(root: Path, inventory: dict) -> list[str]:
+    """The ABI V1 hash in the tree is the one the inventory declares a cutover for.
+
+    Admission compares a contract manifest with the ABI hash compiled into the node, so a
+    changed hash is a `contract_redeployment` cutover. The inventory records the hash; the
+    golden, every regeneration target that states how it `carries` the hash, and the inventory
+    must agree, so a regenerated hash cannot land without its declaration and its carriers.
+    The pinned history must not hold the hash unless the declaration says the cutover also took
+    a fresh genesis. The check reads bytes; it computes no ABI hash and admits no contract.
+    """
+    declaration = inventory["declared_abi_cutover"]
+    declared = str(declaration.get("abi_hash", ""))
+    golden = declaration.get("golden")
+    errors: list[str] = []
+    if not SHA256_HEX.match(declared):
+        errors.append(f"{INVENTORY}: `declared_abi_cutover` records `abi_hash` as 64 hex digits")
+    if not isinstance(golden, dict) or not golden.get("path") or not golden.get("prefix"):
+        errors.append(f"{INVENTORY}: `declared_abi_cutover` names the `golden` path and prefix")
+    if not declaration.get("change"):
+        errors.append(f"{INVENTORY}: `declared_abi_cutover` states the `change` it declares")
+    if not isinstance(declaration.get("fresh_genesis"), bool) or not declaration.get(
+        "fresh_genesis_reason"
+    ):
+        errors.append(
+            f"{INVENTORY}: `declared_abi_cutover` states `fresh_genesis` and its reason"
+        )
+    surfaces = {
+        str(entry.get("id")): entry for entry in inventory["incompatible_change_surfaces"]
+    }
+    surface = surfaces.get(str(declaration.get("surface", "")))
+    if surface is None:
+        errors.append(f"{INVENTORY}: `declared_abi_cutover` names a listed surface")
+    elif declaration.get("cutover") != surface["cutover"]:
+        errors.append(
+            f"{INVENTORY}: `declared_abi_cutover` declares `{declaration.get('cutover')}`, but "
+            f"the cutover of surface `{surface['id']}` is `{surface['cutover']}`"
+        )
+    for identifier, entry in surfaces.items():
+        if entry is surface:
+            continue
+        for target in entry["regenerate"]:
+            if target.get("carries") is not None:
+                errors.append(
+                    f"{target.get('artifact')}: only targets of the declared surface carry the "
+                    f"ABI hash, not those of `{identifier}`"
+                )
+    if errors:
+        return errors
+    carriers = [
+        target
+        for target in surface["regenerate"]
+        if carrier_forms(target) and not target.get("document")
+    ]
+    if golden["path"] not in {target["artifact"] for target in carriers}:
+        errors.append(
+            f"{INVENTORY}: the ABI golden {golden['path']} must be a regeneration target of "
+            f"`{surface['id']}` that `carries` the hash"
+        )
+    text = read(root / golden["path"])
+    if text is None or text.count(golden["prefix"]) != 1:
+        errors.append(
+            f"{golden['path']}: the ABI golden must hold `{golden['prefix']}` exactly once"
+        )
+    else:
+        start = text.index(golden["prefix"]) + len(golden["prefix"])
+        found = text[start : start + 64]
+        if not SHA256_HEX.match(found):
+            errors.append(f"{golden['path']}: the ABI golden is not 64 hex digits")
+        elif found != declared:
+            errors.append(
+                f"{golden['path']}: ABI golden {found} is not the hash {INVENTORY} declares "
+                f"({declared}); a regenerated ABI hash is a declared cutover: record it in the "
+                "inventory and regenerate every carrier in the same change"
+            )
+    for target in carriers:
+        # The golden is compared exactly above; the others carry the hash in their stated form.
+        if target["artifact"] != golden["path"]:
+            errors += abi_carrier_errors(root, target, declared)
+    raw = bytes.fromhex(declared)
+    held = any(raw in frame for frame in pinned_frames(root, inventory))
+    if held and not declaration["fresh_genesis"]:
+        errors.append(
+            f"{inventory['pinned_history'].get('manifest')}: the pinned history holds the declared "
+            "ABI hash (a contract or runtime-ABI record), so this cutover also needs a fresh "
+            "genesis: regenerate the history and declare `fresh_genesis`"
+        )
+    return errors
+
+
 def check_evidence(root: Path, inventory: dict) -> list[str]:
     """The obsolete-history evidence tool, its test and the mechanisms it relies on exist."""
     evidence = inventory["obsolete_history_evidence"]
@@ -1006,6 +1418,70 @@ def check_evidence(root: Path, inventory: dict) -> list[str]:
             errors.append(
                 f"{anchor['path']}: obsolete-history evidence anchor `{anchor['contains']}` is "
                 "missing; the contract's diagnostic path changed"
+            )
+    return errors
+
+
+def contract_section(contract: str, heading: str) -> str | None:
+    """Body of the one `## heading` section of the contract, or `None` when it is not unique."""
+    lines = contract.splitlines()
+    starts = [index for index, line in enumerate(lines) if line.strip() == f"## {heading}"]
+    if len(starts) != 1:
+        return None
+    body: list[str] = []
+    for line in lines[starts[0] + 1 :]:
+        if line.startswith("## "):
+            break
+        body.append(line)
+    return " ".join(" ".join(body).split())
+
+
+def check_checkpoint_rule(root: Path, inventory: dict) -> list[str]:
+    """The contract still states the future-checkpoint rule, and restore is still marked open.
+
+    The section is pinned by the digest of its text with whitespace collapsed, so any
+    edit of the rule is a change of the inventory too. This preserves a stated
+    constraint on future work; it does not show that a checkpoint exists or verifies.
+    """
+    rule = inventory["future_checkpoint_rule"]
+    contract_path = inventory["contract"]
+    errors: list[str] = []
+    heading = str(rule.get("section", ""))
+    statements = rule.get("statements") or []
+    anchors = rule.get("anchors") or []
+    if not heading or not statements or not all(isinstance(text, str) and text for text in statements):
+        errors.append(f"{INVENTORY}: `future_checkpoint_rule` names its section and statements")
+    if not SHA256_HEX.match(str(rule.get("section_sha256", ""))):
+        errors.append(f"{INVENTORY}: `future_checkpoint_rule` records `section_sha256`")
+    if not rule.get("owner") or not rule.get("summary"):
+        errors.append(f"{INVENTORY}: `future_checkpoint_rule` states its owner and summary")
+    if not anchors:
+        errors.append(f"{INVENTORY}: `future_checkpoint_rule` has no source anchor")
+    if errors:
+        return errors
+    section = contract_section(read(root / contract_path) or "", heading)
+    if section is None:
+        return [
+            f"{contract_path}: the contract must have exactly one `## {heading}` section; it "
+            "states the rule for a future authenticated checkpoint"
+        ]
+    for statement in statements:
+        if " ".join(statement.split()) not in section:
+            errors.append(
+                f"{contract_path}: section `{heading}` no longer states `{statement}`; a future "
+                "checkpoint must still specify its verified suffix and validate nothing below it"
+            )
+    if hashlib.sha256(section.encode("utf-8")).hexdigest() != rule["section_sha256"]:
+        errors.append(
+            f"{contract_path}: section `{heading}` differs from the text {INVENTORY} pins; "
+            "review the future-checkpoint rule and record the new `section_sha256`"
+        )
+    for anchor in anchors:
+        if check_anchor(root, anchor["path"], anchor["contains"]) is None:
+            errors.append(
+                f"{anchor['path']}: future-checkpoint anchor `{anchor['contains']}` is missing; "
+                "if restore from a checkpoint now exists, it must implement the rule of "
+                f"`{heading}` and the inventory must say where"
             )
     return errors
 
@@ -1059,7 +1535,10 @@ def check(root: Path) -> tuple[str, ...]:
     errors += check_loader_definitions(root, sources, inventory)
     errors += check_retired_store_artifacts(root, sources, inventory)
     errors += check_surfaces(root, inventory)
+    errors += check_abi_cutover(root, inventory)
     errors += check_evidence(root, inventory)
+    errors += check_checkpoint_rule(root, inventory)
+    errors += check_test_prerequisites(root, inventory)
     errors += open_findings(root, inventory)[1]
     return tuple(sorted(set(errors)))
 

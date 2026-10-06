@@ -26,6 +26,37 @@ use std::{
 };
 // Public deterministic fixture material; this key must never authorize a real account.
 const CONTRACT_MANIFEST_FIXTURE_SIGNER_SEED: [u8; 32] = [0x33; 32];
+// Largest canonical signing frame the fixed contract-manifest fixture may encode.
+const CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT: usize = 64 * 1024;
+// Physical scratch funded for signing and verifying the fixed contract-manifest fixture.
+const CONTRACT_MANIFEST_FIXTURE_SCRATCH_BYTES: usize = 8 * CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT;
+/// Run `body` with the funded, bounded codec context the fixture manifest is signed under.
+///
+/// The pool owns the cumulative counter and the signing scratch for exactly this call; the
+/// signed bytes do not depend on the context.
+fn with_contract_manifest_fixture_signing_context<R>(
+    body: impl FnOnce(&norito::core::DecodeBudgetContext) -> R,
+) -> Result<R, String> {
+    let pool = iroha_allocation::AllocationBudget::new(
+        CONTRACT_MANIFEST_FIXTURE_SCRATCH_BYTES
+            + norito::core::DecodeBudgetContext::allocation_layout().size(),
+    );
+    let _scratch = pool
+        .try_reserve_bytes(CONTRACT_MANIFEST_FIXTURE_SCRATCH_BYTES)
+        .map_err(|error| format!("fund contract-manifest fixture signing scratch: {error:?}"))?;
+    let context = norito::core::DecodeBudgetContext::try_new_owned(
+        norito::DecodeLimits::new(
+            CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT,
+            CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT,
+            CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT,
+            CONTRACT_MANIFEST_FIXTURE_SCRATCH_BYTES,
+            256,
+        ),
+        &pool,
+    )
+    .map_err(|error| format!("fund contract-manifest fixture signing counter: {error}"))?;
+    Ok(body(&context))
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
     Check,
@@ -207,10 +238,12 @@ fn contract_manifest_fixture_types()
         Algorithm::Ed25519,
     )
     .map_err(|error| format!("derive contract-manifest fixture signer: {error}"))?;
-    let signed_manifest = manifest
-        .clone()
-        .try_signed(&key_pair)
-        .map_err(|error| format!("sign contract-manifest fixture: {error}"))?;
+    let signed_manifest = with_contract_manifest_fixture_signing_context(|context| {
+        manifest
+            .clone()
+            .try_signed(context, CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT, &key_pair)
+            .map_err(|error| format!("sign contract-manifest fixture: {error}"))
+    })??;
     Ok((event_filter, manifest, signed_manifest))
 }
 fn render_contract_manifest_v1_fixture() -> Result<String, String> {
@@ -445,9 +478,17 @@ mod tests {
     fn contract_manifest_fixture_is_type_derived_signed_and_deterministic() {
         let (_, manifest, signed_manifest) =
             contract_manifest_fixture_types().expect("build typed contract-manifest fixture");
+        let payload_of = |manifest: &ContractManifest| {
+            with_contract_manifest_fixture_signing_context(|context| {
+                manifest.signature_payload_bytes(context, CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT)
+            })
+            .expect("fund fixture signing context")
+            .expect("encode bounded fixture signature payload")
+        };
+        let signed_payload = payload_of(&signed_manifest);
         assert_eq!(
-            manifest.signature_payload(),
-            signed_manifest.signature_payload(),
+            payload_of(&manifest),
+            signed_payload,
             "provenance must not change the signed payload"
         );
         let provenance = signed_manifest
@@ -456,11 +497,19 @@ mod tests {
             .expect("fixture manifest provenance");
         provenance
             .signature
-            .verify(
-                &provenance.signer,
-                &signed_manifest.signature_payload_bytes(),
-            )
+            .verify(&provenance.signer, &signed_payload)
             .expect("fixture manifest signature");
+        // The context only accounts for the frame: a frame limit below the payload refuses,
+        // and no other limit changes the signed bytes.
+        assert!(signed_payload.len() <= CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT);
+        assert!(
+            with_contract_manifest_fixture_signing_context(|context| {
+                signed_manifest.signature_payload_bytes(context, signed_payload.len() - 1)
+            })
+            .expect("fund fixture signing context")
+            .is_err(),
+            "a frame limit below the canonical payload must refuse"
+        );
         let rendered =
             render_contract_manifest_v1_fixture().expect("render contract-manifest fixture");
         assert_eq!(

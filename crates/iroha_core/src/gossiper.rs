@@ -1498,8 +1498,8 @@ impl TransactionGossiper {
         let mut batch_seen_hashes = HashSet::with_capacity(batch_txs);
         let state = self.state.as_ref();
         let committed_transactions = state.transactions.view();
-        let ed25519_batch_cap = self.state.pipeline.signature_batch_max_ed25519;
-        let stateless_cache_cap = self.state.pipeline.stateless_cache_cap;
+        let ed25519_batch_cap = self.state.installed_pipeline().signature_batch_max_ed25519;
+        let stateless_cache_cap = self.state.installed_pipeline().stateless_cache_cap;
         let active_lane_ids = active_gossip_lane_ids(state, &nexus);
         struct MaterializedGossipCandidate {
             entrypoint: TransactionEntrypoint,
@@ -5052,7 +5052,7 @@ deferred_send_ttl: Duration::from_millis(defaults::network::DEFERRED_SEND_TTL_MS
     #[test]
     fn gossip_rejects_changed_signature_after_exact_valid_envelope_warms_cache() {
         let gossiper = closed_test_gossiper(NonZeroU32::new(1).expect("nonzero resend ticks"));
-        assert!(gossiper.state.pipeline.stateless_cache_cap > 0);
+        assert!(gossiper.state.installed_pipeline().stateless_cache_cap > 0);
         let (valid, _) = build_transaction("signature-cache-identity");
         let (max_clock_drift, limits) = gossiper.state.transaction_admission_limits();
         let (_clock, time_source) = TimeSource::new_mock(valid.creation_time());

@@ -103,6 +103,7 @@ fn original_claim_metadata_refusal_defers_fee_quote_and_retries_exact_payload() 
             &world.view(),
             &nexus,
             &pipeline,
+            &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             50,
             2,
@@ -153,6 +154,7 @@ fn original_claim_alias_refusal_after_metadata_defers_fee_quote_and_retries() {
             &world.view(),
             &nexus,
             &pipeline,
+            &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             50,
             2,
@@ -338,6 +340,7 @@ fn original_network_xor_pin_refusal_defers_quote_and_retries_same_parameter() {
             &world.view(),
             &nexus,
             &pipeline,
+            &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             50,
             2,
@@ -375,6 +378,7 @@ fn fee_quote_discovers_pipeline_gas_and_matches_strict_signed_payload_quote() {
         &world,
         &nexus,
         &pipeline,
+        &crate::gas::DEFAULT_ZK_GAS,
         &payload,
         0,
         1,
@@ -395,6 +399,7 @@ fn fee_quote_discovers_pipeline_gas_and_matches_strict_signed_payload_quote() {
         &world,
         &nexus,
         &pipeline,
+        &crate::gas::DEFAULT_ZK_GAS,
         &payload,
         0,
         1,
@@ -404,4 +409,106 @@ fn fee_quote_discovers_pipeline_gas_and_matches_strict_signed_payload_quote() {
     assert_eq!(strict, draft.quote);
     assert_eq!(strict.authority_balances.len(), 2);
     assert_eq!(strict.authority_charge_assets.len(), 2);
+}
+/// The fee bound and the fee quote of a proof-bearing transaction follow the verification
+/// gas schedule of the committed ZK validity policy the quoting view holds: not the protocol
+/// default, and not a schedule the node installed.
+#[test]
+fn fee_quote_prices_a_proof_instruction_with_the_committed_gas_schedule() {
+    use iroha_data_model::{
+        isi::zk::VerifyProof,
+        parameter::Parameter,
+        proof::{ProofAttachment, VerifyingKeyId},
+        zk_validity_policy::ZkValidityPolicyV1,
+    };
+    let (world, nexus, pipeline, log_payload) = multi_component_fee_quote_fixture();
+    let mut policy = ZkValidityPolicyV1::protocol_default();
+    policy.gas.proof_base += 19;
+    policy.gas.per_proof_byte += 2;
+    policy
+        .validate()
+        .expect("a policy that differs in gas is valid");
+    {
+        let mut parameters = world.parameters.block();
+        parameters.set_parameter(Parameter::Custom(policy.clone().into_custom_parameter()));
+        parameters.commit();
+    }
+    let fixture = crate::zk::test_utils::halo2_fixture_envelope("halo2/ipa:fee-quote", [0u8; 32]);
+    let proof_box = fixture.proof_box("halo2/ipa");
+    let attachment = ProofAttachment::new_ref(
+        proof_box.backend.clone(),
+        proof_box,
+        VerifyingKeyId::new("halo2/ipa", "vk-fee-quote"),
+    );
+    let proof_bytes = attachment.proof.bytes.len() as u64;
+    let delta = 19 + 2 * proof_bytes;
+    let payload = TransactionBuilder::new(
+        executor_test_network_id(b"fee-quote"),
+        log_payload.authority.clone(),
+        iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+    )
+    .with_instructions([VerifyProof::new(attachment)])
+    .into_payload()
+    .expect("canonical unsigned payload");
+
+    let mut state = crate::state::State::new_for_testing(
+        world,
+        crate::kura::Kura::blank_kura_for_testing(),
+        crate::query::store::LiveQueryStore::start_test(),
+    );
+    // A node that installed another schedule: the view must not expose it.
+    let mut divergent = crate::state::default_zk_config();
+    divergent.gas.proof_base = 1;
+    divergent.gas.per_proof_byte = 1_000;
+    state
+        .install_node_zk(divergent)
+        .expect("node ZK resources install");
+    let view = state.view();
+    let committed = view.zk.gas;
+    assert_eq!(committed.proof_base, policy.gas.proof_base);
+    assert_eq!(committed.per_proof_byte, policy.gas.per_proof_byte);
+
+    // The fee bound meters the instructions with the schedule it is given.
+    let (_, count, gas_committed) =
+        fee_bound_for_admission_payload(&payload, &committed).expect("bound under the policy");
+    let (_, _, gas_default) =
+        fee_bound_for_admission_payload(&payload, &crate::gas::DEFAULT_ZK_GAS)
+            .expect("bound under the default");
+    assert_eq!(count, 1);
+    assert_eq!(gas_committed - gas_default, delta);
+
+    // The quote charges pipeline gas at three units per gas unit (the fixture rate).
+    let pipeline_gas_bound = |zk_gas: &ConfidentialGas| {
+        let draft = quote_nexus_fee_admission_draft(
+            view.world(),
+            &nexus,
+            &pipeline,
+            zk_gas,
+            &payload,
+            0,
+            1,
+            Some(DataSpaceId::UNIVERSAL),
+        )
+        .expect("draft quote");
+        draft
+            .quote
+            .charges
+            .iter()
+            .find(|charge| charge.kind == FeeChargeKind::PipelineGas)
+            .expect("the fixture charges pipeline gas")
+            .max_bound
+            .clone()
+    };
+    assert_eq!(
+        pipeline_gas_bound(&committed),
+        Quantity::from(u128::from(gas_committed) * 3)
+    );
+    assert_eq!(
+        pipeline_gas_bound(&crate::gas::DEFAULT_ZK_GAS),
+        Quantity::from(u128::from(gas_default) * 3)
+    );
+    assert_ne!(
+        pipeline_gas_bound(&committed),
+        pipeline_gas_bound(&crate::gas::DEFAULT_ZK_GAS)
+    );
 }

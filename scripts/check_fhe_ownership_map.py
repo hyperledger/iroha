@@ -1599,8 +1599,9 @@ FILE_ROLES = (
 )
 IMPLEMENTATION_ROLES = ("canonical", "duplicate", "consolidation_candidate", "test_only_reference")
 # `shared_arithmetic` labels the references of the shared owner crate itself (its unit tests
-# and canonical-vector oracle); it belongs to no protocol.
-PROTOCOL_SCHEMES = ("bfv", "bgv_mkhe", "ram_lfe", "jindo", "bootle_lantern", "shared_arithmetic")
+# and canonical-vector oracle); it belongs to no protocol. `rns_bgv` is the exact modular
+# RNS-BGV scheme of crates/iroha_fhe/src/bgv, the shared starting candidate of task C.3.
+PROTOCOL_SCHEMES = ("bfv", "bgv_mkhe", "ram_lfe", "jindo", "bootle_lantern", "shared_arithmetic", "rns_bgv")
 REFERENCE_KINDS = ("oracle", "key_generation_reference", "protocol_reference", "fixture", "candidate", "unit_tests")
 REQUIRED_REFERENCE_KINDS = ("oracle", "key_generation_reference", "protocol_reference")
 # What a protocol-logic component runs. A component that only validates,

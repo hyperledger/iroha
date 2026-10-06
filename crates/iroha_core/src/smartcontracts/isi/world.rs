@@ -428,11 +428,7 @@ pub mod isi {
     fn validate_governed_pipeline_gas_parameter(
         custom: &iroha_data_model::parameter::CustomParameter,
     ) -> Result<(), Error> {
-        let parameter_id = iroha_data_model::parameter::CustomParameterId(
-            "ivm_gas_units_per_gas"
-                .parse()
-                .expect("static pipeline gas parameter id"),
-        );
+        let parameter_id = crate::state::governed_pipeline_gas_parameter_id();
         if custom.id() != &parameter_id {
             return Ok(());
         }
@@ -4336,28 +4332,21 @@ pub mod isi {
                 None
             };
             // 3) Verify the proof against the resolved VK (ZK1/H2* envelope dispatch)
-            let vk_id = ballot_vk_id
-                .or_else(|| {
-                    state_transaction.gov.vk_ballot.as_ref().map(|v| {
-                        iroha_data_model::proof::VerifyingKeyId::new(
-                            v.backend.clone(),
-                            v.name.clone(),
-                        )
-                    })
-                })
-                .ok_or_else(|| {
-                    state_transaction.world.emit_events(Some(
-                        iroha_data_model::events::data::governance::GovernanceEvent::BallotRejected(
-                            iroha_data_model::events::data::governance::GovernanceBallotRejected {
-                                referendum_id: self.election_id.clone(),
-                                reason: "verifying key not configured".into(),
-                            },
-                        ),
-                    ));
-                    InstructionExecutionError::InvariantViolation(
-                        "verifying key not configured".into(),
-                    )
-                })?;
+            // The election's own committed key selects the ballot relation; no
+            // node configuration supplies a default.
+            let vk_id = ballot_vk_id.ok_or_else(|| {
+                state_transaction.world.emit_events(Some(
+                    iroha_data_model::events::data::governance::GovernanceEvent::BallotRejected(
+                        iroha_data_model::events::data::governance::GovernanceBallotRejected {
+                            referendum_id: self.election_id.clone(),
+                            reason: "election commits no ballot verifying key".into(),
+                        },
+                    ),
+                ));
+                InstructionExecutionError::InvariantViolation(
+                    "election commits no ballot verifying key".into(),
+                )
+            })?;
             let Some(vk_rec) = state_transaction.world.verifying_keys.get(&vk_id).cloned() else {
                 state_transaction.world.emit_events(Some(
                     iroha_data_model::events::data::governance::GovernanceEvent::BallotRejected(
@@ -4472,12 +4461,14 @@ pub mod isi {
                     iroha_data_model::events::data::governance::GovernanceEvent::BallotRejected(
                         iroha_data_model::events::data::governance::GovernanceBallotRejected {
                             referendum_id: self.election_id.clone(),
-                            reason: "stark verification is disabled in node configuration".into(),
+                            reason:
+                                "stark verification is disabled by the committed ZK validity policy"
+                                    .into(),
                         },
                     ),
                 ));
                 return Err(InstructionExecutionError::InvariantViolation(
-                    "stark verification is disabled in node configuration".into(),
+                    "stark verification is disabled by the committed ZK validity policy".into(),
                 ));
             }
             if let Err(err) = enforce_vk_max_proof_bytes("ballot", &vk_rec, proof_bytes.len()) {
@@ -4632,12 +4623,8 @@ pub mod isi {
                     "election already finalized".into(),
                 ));
             }
-            // Resolve verifying key id: prefer election's vk_ballot, else config default
-            if let Some(vk_id) = st.vk_ballot.clone().or_else(|| {
-                state_transaction.gov.vk_ballot.as_ref().map(|v| {
-                    iroha_data_model::proof::VerifyingKeyId::new(v.backend.clone(), v.name.clone())
-                })
-            }) {
+            // The election's own committed key selects the ballot relation.
+            if let Some(vk_id) = st.vk_ballot.clone() {
                 if state_transaction.world.verifying_keys.get(&vk_id).is_none() {
                     return Err(InstructionExecutionError::InvariantViolation(
                         "verifying key not found".into(),
@@ -12987,7 +12974,7 @@ pub mod isi {
             && !state_transaction.zk.stark.enabled
         {
             return Err(InstructionExecutionError::InvariantViolation(
-                "stark verification is disabled in node configuration".into(),
+                "stark verification is disabled by the committed ZK validity policy".into(),
             ));
         }
         let record = state_transaction
@@ -14045,17 +14032,12 @@ pub mod isi {
         ),
         Error,
     > {
-        let vk_id = st
-            .vk_ballot
-            .clone()
-            .or_else(|| {
-                state_transaction.gov.vk_ballot.as_ref().map(|v| {
-                    iroha_data_model::proof::VerifyingKeyId::new(v.backend.clone(), v.name.clone())
-                })
-            })
-            .ok_or_else(|| {
-                InstructionExecutionError::InvariantViolation("verifying key not configured".into())
-            })?;
+        // The election's own committed key selects the ballot relation.
+        let vk_id = st.vk_ballot.clone().ok_or_else(|| {
+            InstructionExecutionError::InvariantViolation(
+                "election commits no ballot verifying key".into(),
+            )
+        })?;
         if attachment.vk_ref != vk_id {
             return Err(InstructionExecutionError::InvariantViolation(
                 "ballot verifying key ref mismatch".into(),
@@ -14127,17 +14109,12 @@ pub mod isi {
         ),
         Error,
     > {
-        let vk_id = st
-            .vk_tally
-            .clone()
-            .or_else(|| {
-                state_transaction.gov.vk_tally.as_ref().map(|v| {
-                    iroha_data_model::proof::VerifyingKeyId::new(v.backend.clone(), v.name.clone())
-                })
-            })
-            .ok_or_else(|| {
-                InstructionExecutionError::InvariantViolation("verifying key not configured".into())
-            })?;
+        // The election's own committed key selects the tally relation.
+        let vk_id = st.vk_tally.clone().ok_or_else(|| {
+            InstructionExecutionError::InvariantViolation(
+                "election commits no tally verifying key".into(),
+            )
+        })?;
         if attachment.vk_ref != vk_id {
             return Err(InstructionExecutionError::InvariantViolation(
                 "tally verifying key ref mismatch".into(),
@@ -14382,7 +14359,7 @@ pub mod isi {
             let backend = vk_id.backend.as_str();
             if crate::zk::is_stark_fri_v1_backend(backend) && !state_transaction.zk.stark.enabled {
                 return Err(InstructionExecutionError::InvariantViolation(
-                    "stark verification is disabled in node configuration".into(),
+                    "stark verification is disabled by the committed ZK validity policy".into(),
                 ));
             }
             let proof_len = self.ballot_proof.proof.bytes.len();
@@ -14572,7 +14549,7 @@ pub mod isi {
             let backend = vk_id.backend.as_str();
             if crate::zk::is_stark_fri_v1_backend(backend) && !state_transaction.zk.stark.enabled {
                 return Err(InstructionExecutionError::InvariantViolation(
-                    "stark verification is disabled in node configuration".into(),
+                    "stark verification is disabled by the committed ZK validity policy".into(),
                 ));
             }
             let proof_len = att.proof.bytes.len();
@@ -18214,6 +18191,24 @@ pub mod isi {
                 }
                 validate_alias_dataspace_bootstrap_grant(custom, state_transaction)?;
                 validate_governed_pipeline_gas_parameter(custom)?;
+                // The committed ZK validity policy is an ordinary authorized
+                // parameter. A malformed or incoherent payload, or one that strands
+                // committed pending transitions, is rejected from the instruction
+                // bytes and committed State alone, identically on every validator.
+                // An accepted change governs the next block.
+                crate::zk_validity_policy::validate_set_parameter(
+                    custom,
+                    state_transaction
+                        .world
+                        .confidential_policy_transition_counts
+                        .iter()
+                        .map(|(effective_height, count)| (*effective_height, *count)),
+                )
+                .map_err(|error| invalid_smart_contract_parameter(error.to_string()))?;
+                // The committed pipeline validity policy: same rule, decided from
+                // the instruction bytes alone.
+                crate::pipeline_validity_policy::validate_set_parameter(custom)
+                    .map_err(|error| invalid_smart_contract_parameter(error.to_string()))?;
                 validate_hijiri_parameters(custom, state_transaction)?;
                 validate_da_ingest_admission_policy(custom, state_transaction)?;
                 validate_reputation_archive_retention_request(custom, state_transaction)?;
@@ -21891,11 +21886,13 @@ pub mod isi {
             use crate::sumeragi::test_chain::TestChainConfig;
             let nexus = component.nexus_snapshot();
             let crypto = component.crypto.read().as_ref().clone();
+            let pipeline = component.installed_pipeline().clone();
+            let zk = component.installed_zk().clone();
             let mut config = TestChainConfig::new(component.world, 0);
             config.chain_id = component.chain_id;
-            config.pipeline = component.pipeline;
+            config.pipeline = pipeline;
             config.nexus = Some(nexus);
-            config.zk = Some(component.zk);
+            config.zk = Some(zk);
             config.governance = Some(component.gov);
             config.crypto = Some(crypto);
             config.fraud_monitoring = component.fraud_monitoring;
@@ -27133,6 +27130,31 @@ seiyaku GovernanceLifecycle {
             let tally_error = resolve_tally_vk(&st, &tally_att, &stx)
                 .expect_err("retired Halo2 vote-tally circuit must not resolve");
             assert_contains!(tally_error .to_string(), "tally verifying key circuit mismatch", "unexpected retired tally circuit rejection: {tally_error}");
+        });
+        world_test!(election_keys_are_read_from_the_committed_election_only {
+            blank_state_transaction!(state, block, state_block, stx);
+            // A settings value that names default keys, as a node configuration
+            // could before the keys of `[gov]` were removed from its schema. The
+            // committed election record is the only relation selector.
+            let configured = VerifyingKeyId::new("halo2/ipa", "vk_node_default");
+            let configured_box = VerifyingKeyBox::new("halo2/ipa".into(), vec![9, 9, 9]);
+            vk_record!(rec, 1, VOTING_BALLOT_CIRCUIT_ID, BackendTag::Halo2IpaPasta, "pallas", [0u8; 32], hash_vk(&configured_box); status = ConfidentialStatus::Active, key = Some(configured_box.clone()), vk_len = u32::try_from(configured_box.bytes.len()) .expect("verifying key length fits into u32"));
+            stx.world.verifying_keys.insert(configured.clone(), rec);
+            let node_default = iroha_config::parameters::actual::VerifyingKeyRef {
+                backend: "halo2/ipa".to_owned(),
+                name: "vk_node_default".to_owned(),
+            };
+            stx.gov.vk_ballot = Some(node_default.clone());
+            stx.gov.vk_tally = Some(node_default);
+            let without_keys = crate::state::ElectionState::default();
+            let proof = ProofBox::new("halo2/ipa".into(), vec![0xaa]);
+            let attachment = ProofAttachment::new_ref("halo2/ipa".into(), proof, configured);
+            let ballot_error = resolve_ballot_vk(&without_keys, &attachment, &stx)
+                .expect_err("an election without a committed ballot key has no ballot relation");
+            assert_contains!(ballot_error.to_string(), "election commits no ballot verifying key", "unexpected rejection: {ballot_error}");
+            let tally_error = resolve_tally_vk(&without_keys, &attachment, &stx)
+                .expect_err("an election without a committed tally key has no tally relation");
+            assert_contains!(tally_error.to_string(), "election commits no tally verifying key", "unexpected rejection: {tally_error}");
         });
         world_test!(standalone_zk_semantic_guard_stays_closed_independently_of_vote_roles {
             blank_state_transaction!(state, block, state_block, stx);

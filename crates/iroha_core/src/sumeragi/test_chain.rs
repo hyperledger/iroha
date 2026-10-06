@@ -1517,6 +1517,7 @@ impl CertifiedTestChain {
                 view.world(),
                 view.nexus(),
                 view.pipeline(),
+                &view.zk().gas,
                 draft.payload(),
                 created_ms,
                 self.height() + 1,

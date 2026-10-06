@@ -79,8 +79,8 @@ criteria).
 
 | Consumer | Stack (direct) | Use | Live exposure | Milestone |
 | --- | --- | --- | --- | --- |
-| `iroha_core_zk` verify dispatch: `lib.rs` (`verify_halo2_ipa`, `zkparse`), `verification.rs`, `halo2_backend.rs` (+`_01/_02/_03` tests), `zk1_test_helpers.rs`, `ivm_proof_identity` | halo2-axiom | V T | Taira `[zk.halo2] enabled = true` (`configs/soranexus/taira/config.toml:314`). Stored proofs and registered VKs: unknown offline | M2(d) |
-| `iroha_core_zk::confidential_v2` (+tests): transfer v2, unshield v2/v3 circuits | halo2-axiom, halo2-base, snark-verifier | P V H | Taira `[confidential] enabled = true` (`config.toml:288`). Shielded notes and registered `CONFIDENTIAL_*_VK_DIGEST_V1`: unknown offline | Note hash: Step 3 (KAT gate). Circuits: M2(c), re-key |
+| `iroha_core_zk` verify dispatch: `lib.rs` (`verify_halo2_ipa`, `zkparse`), `verification.rs`, `halo2_backend.rs` (+`_01/_02/_03` tests), `zk1_test_helpers.rs`, `ivm_proof_identity` | halo2-axiom | V T | Taira: `halo2.enabled = true` in the committed `zk_validity_policy_v1` parameter of `configs/soranexus/taira/genesis.template.json` (the node configuration has no `[zk.halo2]` key). Stored proofs and registered VKs: unknown offline | M2(d) |
+| `iroha_core_zk::confidential_v2` (+tests): transfer v2, unshield v2/v3 circuits | halo2-axiom, halo2-base, snark-verifier | P V H | Taira `[confidential] enabled = true` (`configs/soranexus/taira/config.toml`, a node-local handshake switch; the proof limits are the committed `zk_validity_policy_v1` parameter). Shielded notes and registered `CONFIDENTIAL_*_VK_DIGEST_V1`: unknown offline | Note hash: Step 3 (KAT gate). Circuits: M2(c), re-key |
 | `iroha_core_zk::kagemusha_v1_poseidon` | halo2-base spec, snark-verifier `Poseidon` | H | Every KAGEMUSHA state and replay root. Taira has the KAGEMUSHA V1 asset (`skills/sora-taira-testnet/SKILL.md:202`) | Step 3 to `iroha_pasta::poseidon` (T7), KAT gate |
 | `iroha_core_zk::kagemusha_v1_state` (`mod.rs`, `sparse_merkle.rs`) | halo2-axiom `Fp`/`Fq` | T H | As above; 41 `connect_norito_bridge` files | Step 3, after the canonical-byte boundary (critique) |
 | `iroha_core_zk::kagemusha_v1_recursion`: 171 of 224 files; σ/Λ/Ω relations, generation, accumulation, deferred parent, native backend | all five | P V T H | Taira `[torii.kagemusha_v1_commands]`; no settlement release in the template (`config.toml:142-146`). Installed releases: unknown | M5. Delete caller by caller (spec §9), not by prefix |
@@ -92,7 +92,7 @@ criteria).
 | `g3_proof_scaling_measurement_tests.rs` | all five | P | Test harness | Port M7/M8 cases to σ and devicebench (Step 6), then delete |
 | `ram_lfe_*` (`#[cfg(test)]`) | halo2-axiom | P | None | Owner: re-express or delete |
 | `kaigi_*_v1_tests.rs` (in `iroha_core_zk`) | halo2-axiom | P V | Test | M2(b) |
-| `iroha_core` Kaigi: `isi/kaigi/privacy{,/authorization_v1,/proof_fixture_v1}.rs`, `privacy_release_evidence/kaigi.rs`, `tests/kaigi_privacy.rs` | halo2-axiom | V | Kaigi VKs are config refs (`kaigi_authorization_vk`, `kaigi_usage_vk`), unset in the Taira template. Live: unknown | M2(b) |
+| `iroha_core` Kaigi: `isi/kaigi/privacy{,/authorization_v1,/proof_fixture_v1}.rs`, `privacy_release_evidence/kaigi.rs`, `tests/kaigi_privacy.rs` | halo2-axiom | V | Kaigi VKs are references in the committed `zk_validity_policy_v1` parameter (`proofs.kaigi_authorization_vk`, `proofs.kaigi_usage_vk`), unset in the Taira genesis template. Live: unknown | M2(b) |
 | `iroha_core` `isi/kagemusha.rs` (halo2-base `BaseCircuitParams` from the artifact profile) | halo2-base | T | KAGEMUSHA settlement, when configured | M5 (native descriptors) |
 | `iroha_core` `isi/kagemusha/kagemusha_v1_reserve.rs` | halo2-axiom; snark-verifier `IpaAccumulator` (dev) | V | KAGEMUSHA reserve decide | M5 (`iroha_plonk` decide) |
 | `iroha_core` vote tally and tooling: `tests/zk_vote_tally_audit.rs`, `tests/zk_testkit.rs`, `benches/zk_poseidon.rs`; feature `circuit-params = ["halo2_proofs/circuit-params"]` | halo2-axiom | P V | Test | M2(d). Remove the feature forward |
@@ -148,7 +148,7 @@ criteria).
 ## Live networks
 
 - **Taira:**
-  - The checked-in config enables `[zk.halo2]` and `[confidential]`.
+  - The checked-in config enables `[confidential]`; Halo2 verification is on by the protocol default of the committed ZK validity policy.
   - The privacy rollout lists Orchard as not executed.
   - The KAGEMUSHA V1 asset and Torii commands exist.
   - The genesis templates register no halo2 VKs.

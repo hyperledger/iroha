@@ -236,6 +236,9 @@ pub enum RamLfeClassV1 {
     Affine,
     /// `bounded.v1`: all eleven instructions within a bounded logical rank.
     Bounded,
+    // TODO(R.9, C.8): only membership and the canonical refresh schedule exist for
+    // this class. No refresh runs between segments until R.9 delivers the class on the
+    // shared bootstrap arithmetic of C.8.
     /// `refresh.v1`: bounded semantics plus refresh between rank-bounded segments.
     Refresh,
 }

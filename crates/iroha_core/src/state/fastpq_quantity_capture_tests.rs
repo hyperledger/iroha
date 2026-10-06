@@ -729,7 +729,7 @@ fn body_and_real_pipeline_fee_replace_one_complete_entry_counter() {
         Mint::asset_quantity(2_u32, alice.clone()).into(),
         Transfer::asset_quantity(alice.clone(), 1_u32, BOB_ID.clone()).into(),
     ];
-    let gas = crate::gas::meter_instructions(&body);
+    let gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS);
     assert!(gas > 0 && gas < 1_000_000_000);
     let fee = Quantity::from(gas);
     let (source, call) = source_with_fee(

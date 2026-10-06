@@ -377,10 +377,7 @@ async fn run() -> Result<()> {
     };
     let mut builder = NetworkBuilder::new()
         .with_peers(4)
-        .with_auto_populated_trusted_peers()
-        .with_config_layer(|layer| {
-            layer.write(["zk", "halo2", "enabled"], true);
-        });
+        .with_auto_populated_trusted_peers();
     for permission in [
         Permission::from(CanManageSmartContractCode),
         Permission::from(CanEnactGovernance),

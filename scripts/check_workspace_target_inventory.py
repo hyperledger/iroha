@@ -50,7 +50,6 @@ EXPECTED_DECLARED_BINS = EXPECTED_DEFAULT_BINS | frozenset(
         ("build-support", "clippy-inventory"),
         ("build-support", "sumeragi_baseline_report"),
         ("build-support", "sumeragi_da_report"),
-        ("connect_norito_bridge", "kagemusha_sender_release_parser"),
         ("connect_norito_bridge", "soracloud_request_signer"),
         ("connect_norito_bridge", "swift_parity_regen"),
         ("fastpq_prover", "fastpq_cuda_bench"),

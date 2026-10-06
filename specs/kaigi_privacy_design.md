@@ -75,8 +75,10 @@ schema, canonical `OpenVerifyEnvelope`, empty auxiliary bytes, exact proof
 column dimensions, and the matching compiled circuit/key geometry. A trailing
 zero instance row is rejected. Governed keys must be active, include a gas
 schedule and nonzero proof-size bound, and match the envelope key commitment.
-`zk.kaigi_authorization_vk` selects the sole authorization key for all four
-actions; `zk.kaigi_usage_vk` selects the distinct usage key. Retired per-action
+`proofs.kaigi_authorization_vk` of the committed `zk_validity_policy_v1`
+parameter selects the sole authorization key for all four actions;
+`proofs.kaigi_usage_vk` selects the distinct usage key. Both are chain policy,
+set in genesis or by an authorized `SetParameter`, never node configuration. Retired per-action
 configuration and roster circuits are not aliases. Unit tests and production
 use the same verifier; the mock-verifier feature has been removed.
 

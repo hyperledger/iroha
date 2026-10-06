@@ -1,8 +1,18 @@
 seiyaku LocalChainValues {
-    error enum Failure { Low = 3, High = 9 }
+    error enum Failure {
+        Low = 3, High = 9
+    }
+
     state int trace;
-    hajimari() { trace = 0; }
-    fn touch(int _ amount) -> int { trace = trace + amount; return trace; }
+    hajimari() {
+        trace = 0;
+    }
+
+    fn touch(int _ amount) -> int {
+        trace = trace + amount;
+        return trace;
+    }
+
     kotoage fn main() -> (int, int, int) authorize("WriteState") {
         require(trace >= 0, Failure::Low);
         let left = (trace + 3) * (trace + 4);
@@ -11,7 +21,11 @@ seiyaku LocalChainValues {
         let computed = (noise + extra) * (left - extra);
         trace = computed;
         require(trace <= 100, Failure::High);
-        if trace > 30 { trace = trace + 4; } else { trace = trace + 9; }
+        if trace > 30 {
+            trace = trace + 4;
+        } else {
+            trace = trace + 9;
+        }
         return (trace, left, noise);
     }
 }

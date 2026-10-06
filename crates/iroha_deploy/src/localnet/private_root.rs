@@ -527,9 +527,7 @@ fn prepare_fresh(
         signed_path: &signed_path,
         policies: GenesisConsensusPolicies {
             da_proof_policies: Some(resolve_localnet_da_proof_policies(&config)),
-            confidential_policy_hash: iroha_core::state::compute_genesis_confidential_policy_hash(
-                &config.zk,
-            ),
+            confidential_policy_hash: iroha_core::state::default_genesis_confidential_policy_hash(),
         },
     })?;
     write_and_validate_genesis_expected_hash(

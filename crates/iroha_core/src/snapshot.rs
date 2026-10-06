@@ -3137,8 +3137,10 @@ pub fn try_read_snapshot_with_limits(
         expected_chain_id,
         expected_network_id,
         &|state| {
+            // The restored World decides validity; `zk` supplies local resources only.
             state
-                .set_zk(zk.clone())
+                .install_node_zk(zk.clone())
+                .map(|_ignored| ())
                 .map_err(TryReadError::ZkConfigInstall)
         },
         #[cfg(feature = "telemetry")]

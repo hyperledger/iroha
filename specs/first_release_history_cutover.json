@@ -170,6 +170,12 @@
       "target": "lib"
     },
     {
+      "path": "crates/iroha_data_model/src/block/tests.rs",
+      "test": "framed_block_rejects_packed_confidential_digest_hash_arrays",
+      "package": "iroha_data_model",
+      "target": "lib"
+    },
+    {
       "path": "crates/iroha_data_model/src/transaction/signed_model_tests.rs",
       "test": "transaction_v1_rejects_pre_release_binary_layouts_without_nullable_fields",
       "package": "iroha_data_model",
@@ -277,24 +283,9 @@
   ],
   "test_only_references": [
     {
-      "needle": "frame_versioned_signed_block_bytes",
-      "finding": "T1-A15",
-      "reason": "frames a headerless block payload; storage, distribution and genesis loading take only framed blocks"
-    },
-    {
-      "needle": "SignedBlock::decode_all_versioned",
-      "finding": "T1-A15",
-      "reason": "the headerless DecodeVersioned of SignedBlock"
-    },
-    {
-      "needle": "SignedBlock as iroha_version::codec::DecodeVersioned",
-      "finding": "T1-A15",
-      "reason": "the headerless DecodeVersioned of SignedBlock, qualified form"
-    },
-    {
-      "needle": "SignedBlock as DecodeVersioned",
-      "finding": "T1-A15",
-      "reason": "the headerless DecodeVersioned of SignedBlock, qualified form"
+      "needle": "decode_exact_versioned::<SignedBlock>",
+      "finding": "T1-A16",
+      "reason": "the generic headerless decode of a block; block tests use it to show that a structurally altered payload is refused before framing, production reads only `decode_framed_signed_block`"
     }
   ],
   "retired_identifier_roots": [
@@ -377,6 +368,21 @@
     {
       "identifier": "legacy_snapshot_missing_space_directory_section",
       "retired": "tests asserting that a snapshot missing a State section loads by default or from Kura"
+    },
+    {
+      "identifier": "frame_versioned_signed_block_bytes",
+      "retired": "public helper that framed a headerless block payload; a block frame comes only from `SignedBlock::canonical_wire`"
+    },
+    {
+      "identifier": "decode_bare_versioned_signed_block_inner",
+      "retired": "headerless block decoder behind the retired `DecodeVersioned` implementation of `SignedBlock`"
+    }
+  ],
+  "retired_impls": [
+    {
+      "trait": "DecodeVersioned",
+      "type": "SignedBlock",
+      "retired": "headerless versioned decode of a block; storage, distribution, genesis loading and tests decode only the framed wire (`decode_framed_signed_block`)"
     }
   ],
   "retired_store_artifacts": [
@@ -801,7 +807,10 @@
         {
           "artifact": "fixtures/sumeragi/native-finality",
           "generator": "crates/iroha_data_model/src/sumeragi_finality/test_fixtures.rs",
-          "mention": "capture_native_checkpoint_fixtures"
+          "mention": "capture_native_checkpoint_fixtures",
+          "checked_by": "crates/iroha_data_model/src/sumeragi_finality/test_fixtures.rs",
+          "check_mention": "tracked_native_checkpoint_fixtures_are_the_current_exporter_output",
+          "note": "The check compares the two tracked frames with the exporter's output of the current tree and with the sizes and digests `capture.json` lists for them. The `generator` block of `capture.json` describes the capture of 2026-10-02: its source digests are those of that day, not of the current sources, and nothing compares them."
         },
         {
           "artifact": "specs/sumeragi.md",
@@ -883,7 +892,9 @@
         },
         {
           "artifact": "crates/ivm/tests/abi_hash_versions.rs",
-          "document": true
+          "generator": "crates/ivm/src/bin/gen_abi_hash_doc.rs",
+          "mention": "crates/ivm/tests/abi_hash_versions.rs",
+          "carries": "hex"
         },
         {
           "artifact": "crates/ivm/tests/pointer_type_ids_golden.rs",
@@ -898,14 +909,110 @@
           "document": true
         },
         {
+          "artifact": "specs/ivm_header.md",
+          "generator": "crates/ivm/src/bin/gen_abi_hash_doc.rs",
+          "mention": "ivm_header.md",
+          "carries": "hex"
+        },
+        {
+          "artifact": "specs/samples/runtime_abi_hash.md",
+          "generator": "crates/ivm/src/bin/gen_abi_hash_doc.rs",
+          "mention": "samples/runtime_abi_hash.md",
+          "carries": "hex"
+        },
+        {
           "artifact": "scripts/ivm_artifacts.tsv",
           "generator": "scripts/regenerate_kotodama_goldens.py",
-          "mention": "ivm_artifacts.tsv"
+          "mention": "ivm_artifacts.tsv",
+          "carries": "artifact_map"
+        },
+        {
+          "artifact": "demo/authority_probe.manifest.json",
+          "generator": "scripts/regenerate_kotodama_goldens.py",
+          "mention": "demo/authority_probe.manifest.json",
+          "carries": "HEX"
+        },
+        {
+          "artifact": "demo/irohaswap.manifest.json",
+          "generator": "scripts/regenerate_kotodama_goldens.py",
+          "mention": "demo/irohaswap.manifest.json",
+          "carries": "HEX"
+        },
+        {
+          "artifact": "demo/ivm_smoke.manifest.json",
+          "generator": "scripts/regenerate_kotodama_goldens.py",
+          "mention": "demo/ivm_smoke.manifest.json",
+          "carries": "HEX"
+        },
+        {
+          "artifact": "demo/prediction_market.manifest.json",
+          "generator": "scripts/regenerate_kotodama_goldens.py",
+          "mention": "demo/prediction_market.manifest.json",
+          "carries": "HEX"
+        },
+        {
+          "artifact": "defaults/executor.to",
+          "generator": "crates/ivm/src/bin/ivm_fixture_export.rs",
+          "mention": "defaults/executor.to",
+          "carries": "ivm_header"
+        },
+        {
+          "artifact": "specs/sdk/android/generated/fixtures/smart_contract_code_executor_hashes.json",
+          "generator": "crates/ivm/src/bin/ivm_fixture_export.rs",
+          "mention": "smart_contract_code_executor_hashes.json",
+          "carries": "hex"
         },
         {
           "artifact": "javascript/iroha_js/test/fixtures/current_rust_contract_artifact.json",
           "generator": "scripts/regenerate_current_rust_contract_artifact.py",
-          "mention": "current_rust_contract_artifact.json"
+          "mention": "current_rust_contract_artifact.json",
+          "carries": [
+            "hex",
+            "HEX",
+            "ivm_base64"
+          ]
+        },
+        {
+          "artifact": "fixtures/kotodama/compact_emission/native_v1.tsv",
+          "generator": "crates/kotodama_lang/src/compiler/compact_emission/native_pairs.rs",
+          "mention": "capture_actual_compact_emission_native_pairs",
+          "carries": "ivm_hex_rows"
+        },
+        {
+          "artifact": "fixtures/kotodama/frame_emission/native_v1.tsv",
+          "generator": "crates/kotodama_lang/src/compiler/frame_emission/native_pairs.rs",
+          "mention": "capture_actual_frame_emission_native_pairs",
+          "carries": "ivm_hex_rows"
+        },
+        {
+          "artifact": "fixtures/kotodama/local_emission/native_v1.tsv",
+          "generator": "crates/kotodama_lang/src/compiler/local_emission/native_pairs.rs",
+          "mention": "capture_actual_local_emission_native_pairs",
+          "carries": "ivm_hex_rows"
+        },
+        {
+          "artifact": "fixtures/kotodama/numeric_zero/native_v1.tsv",
+          "generator": "crates/kotodama_lang/src/compiler/numeric_zero/native_pairs.rs",
+          "mention": "capture_actual_numeric_zero_native_pairs",
+          "carries": "ivm_hex_rows"
+        },
+        {
+          "artifact": "fixtures/kotodama/private_single_use/native_v1.tsv",
+          "generator": "crates/kotodama_lang/src/compiler/single_use_fixtures.rs",
+          "mention": "capture_private_single_use_native_pairs",
+          "carries": "ivm_hex_rows"
+        },
+        {
+          "artifact": "crates/iroha_data_model/tests/fixtures/axt_golden.rs",
+          "generator": "crates/iroha_data_model/tests/axt_policy_vectors.rs",
+          "mention": "print_golden_vectors",
+          "carries": "hex_wrapped"
+        },
+        {
+          "artifact": "crates/iroha/tests/fixtures/contract_code_readback/provenance.json",
+          "generator": "crates/iroha/tests/fixtures/contract_code_readback/README.md",
+          "mention": "provenance.json",
+          "carries": "hex"
         }
       ]
     },
@@ -942,6 +1049,19 @@
       ]
     }
   ],
+  "declared_abi_cutover": {
+    "surface": "abi",
+    "cutover": "contract_redeployment",
+    "abi_hash": "c7281066ec6f2fb47a2b0051c1d2ac95562f6ca7a576011cf173e07e845fdec1",
+    "golden": {
+      "path": "crates/ivm/tests/abi_hash_versions.rs",
+      "prefix": "const ABI_V1_HASH_GOLDEN: &str = \""
+    },
+    "change": "Commit a5d2617d6a replaced the body of `CallSchemaV1`, the argument and result schema of every contract callable, with the compact CS1 body (magic `43533100`, a fixed `u64` node count, one-byte node tags) and rewrote the `call_table_layout` clause of the hashed ABI V1 descriptor to describe it. That clause is the only difference between the descriptors before and after the commit; the syscall list, signatures, pointer types and every other clause are unchanged and the ABI version stays 1.",
+    "redeployment": "A contract compiled before the change embeds the former callable body and the former `abi_hash`; the decoder refuses the body and admission refuses the hash. Recompile `.ko` to `.to` with the current compiler and deploy the new manifest. There is no alias for the former hash and no second decoder.",
+    "fresh_genesis": false,
+    "fresh_genesis_reason": "The pinned history holds no contract and no runtime-ABI record: none of its frames contains the ABI hash, which the guard re-checks on every run. A history that holds either needs a fresh genesis with this cutover."
+  },
   "obsolete_history_evidence": {
     "tool": "scripts/first_release_history_evidence.py",
     "tool_test": "pytests/scripts/first_release_history_evidence_test.py",
@@ -985,6 +1105,43 @@
       }
     ]
   },
+  "future_checkpoint_rule": {
+    "section": "Snapshots and checkpoints",
+    "statements": [
+      "Authenticated snapshot restore is separate unfinished work",
+      "A future authenticated checkpoint must state its height, block hash and certified result, how they are authenticated against the genesis-bound committee schedule, and the suffix it verifies: the blocks after the checkpoint, replayed and compared with their certificates.",
+      "It verifies nothing below its height and cannot retroactively validate discarded history."
+    ],
+    "section_sha256": "3530d66e98773f17cdbbe6f7c6765a56d55f45a60f6f678969b6605de638a03c",
+    "anchors": [
+      {
+        "path": "crates/iroha_core/src/sumeragi/node.rs",
+        "contains": "is not implemented (TODO(S9)); Strict startup therefore rebuilds original State from the"
+      }
+    ],
+    "owner": "outside-zk-plan:consensus",
+    "summary": "No authenticated checkpoint exists: restore against the certified World root is open under Sumeragi goal S9, and startup replays from the signed genesis. The guard preserves the rule the contract states for that future work; it is not evidence that a checkpoint exists or verifies."
+  },
+  "test_prerequisites": [
+    {
+      "package": "integration_tests",
+      "build": "cargo build -p irohad --bin iroha3d",
+      "environment": {
+        "TEST_NETWORK_BIN_IROHAD": "${CARGO_TARGET_DIR:-$PWD/target}/debug/iroha3d"
+      },
+      "reason": "The real-peer tests start `iroha3d` processes of the tree under test. The command builds that daemon and the variable names it by absolute path when run from the repository root; `CARGO_TARGET_DIR`, when set, must be absolute.",
+      "anchors": [
+        {
+          "path": "crates/iroha_test_network/src/lib.rs",
+          "contains": "const PROGRAM_IROHAD_ENV: &str = \"TEST_NETWORK_BIN_IROHAD\";"
+        },
+        {
+          "path": "crates/irohad/bins/Cargo.toml",
+          "contains": "name = \"iroha3d\""
+        }
+      ]
+    }
+  ],
   "open_findings": [
     {
       "id": "T1-A01",
@@ -1064,13 +1221,6 @@
       "summary": "ZK-AMS MKHE public-polynomial reader still handles the 38-limb release layout"
     },
     {
-      "id": "T1-A15",
-      "owner": "T.1",
-      "path": "crates/iroha_data_model/src/block/mod.rs",
-      "anchor": "pub fn frame_versioned_signed_block_bytes(",
-      "summary": "SignedBlock keeps a public headerless DecodeVersioned and frame_versioned_signed_block_bytes frames a headerless payload; tests, one bench and one integration test call them, the guard (test_only_references) refuses any other caller, and storage, distribution and genesis loading decode only framed blocks"
-    },
-    {
       "id": "T1-A12",
       "owner": "outside-zk-plan:consensus",
       "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
@@ -1083,6 +1233,20 @@
       "path": "crates/iroha_data_model/src/query/tx_predicate.rs",
       "anchor": "Convert the legacy flat filter representation into the lossless predicate tree.",
       "summary": "transaction query predicates keep a flat representation convertible to and from the typed tree"
+    },
+    {
+      "id": "T1-A16",
+      "owner": "outside-zk-plan:block-wire",
+      "path": "crates/iroha_data_model/src/block/mod.rs",
+      "anchor": "impl iroha_version::codec::EncodeVersioned for SignedBlock {",
+      "summary": "`SignedBlock` keeps a headerless versioned form: `EncodeVersioned` emits the version byte and bare payload, and the generic `iroha_version::codec::decode_exact_versioned` decodes it because the type implements `Version` and `DecodeFromSlice`; storage, distribution and genesis loading use neither, and the guard sees only the explicit `decode_exact_versioned::<SignedBlock>` call, not one whose type is inferred"
+    },
+    {
+      "id": "T1-A17",
+      "owner": "outside-zk-plan:norito",
+      "path": "crates/norito/src/core.rs",
+      "anchor": "record_slice_access(bytes, N);",
+      "summary": "the `[u8; N]` leaf decoder accepts exactly N packed bytes besides the emitted array of N length-prefixed elements, so a headerless or inline decode reads two byte strings as one value; complete-frame decoders refuse the packed one by comparing with the canonical encoding"
     }
   ]
 }

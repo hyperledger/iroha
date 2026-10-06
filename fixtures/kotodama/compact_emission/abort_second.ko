@@ -1,10 +1,17 @@
 seiyaku CompactAbortSecond {
-    error enum Failure { Low = 3, High = 9 }
+    error enum Failure {
+        Low = 3, High = 9
+    }
+
     state int trace;
-    hajimari() { trace = 0; }
+    hajimari() {
+        trace = 0;
+    }
+
     fn guarded(int _ flag) {
         require(flag >= 0, Failure::Low);
     }
+
     kotoage fn main() authorize("WriteState") {
         trace = 11;
         guarded(0);

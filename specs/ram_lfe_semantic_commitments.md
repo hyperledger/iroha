@@ -539,10 +539,12 @@ also compile. These API controls do not qualify hardware execution or a complete
    private length/padding word, modular alias, opcode, register/state transition,
    evaluation-key coefficient and output ordering with adversarial witnesses.
    Qualify native interpreter/circuit equality over generated valid programs.
-5. Complete the independent cryptographic review, parameter/framing/PRF review,
-   integer-lift argument, encryption replacement and qualification, full native
-   proof and network/SDK execution controls. Only then consider proof-mode
-   admission.
+5. Deliver the independent cryptographic review, parameter/framing/PRF review,
+   integer-lift argument, replacement encryption with its tests, full native
+   proof and network/SDK execution controls. These are implementation
+   requirements of the change that replaces the refusal. The V1 policy has no
+   proof mode to admit: no activation step, qualification record or approval
+   stands between the implemented relation and its use.
 
 Rekey acceptance must include two independently valid BFV encryption and
 relinearization bundles for the same fixed profile. Holding program key, tape,

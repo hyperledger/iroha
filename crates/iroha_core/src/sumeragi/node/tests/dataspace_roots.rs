@@ -46,7 +46,7 @@ fn work_instruction(text: &str) -> InstructionBox {
 }
 
 fn work_fee(text: &str) -> u64 {
-    let gas = crate::gas::meter_instruction(&work_instruction(text));
+    let gas = crate::gas::meter_instruction(&work_instruction(text), &crate::gas::DEFAULT_ZK_GAS);
     assert!(gas > 0, "paid progress requires a positive metered charge");
     // The immutable signed policy burns a positive base charge plus metered gas.
     gas.checked_add(1).unwrap()

@@ -1,8 +1,18 @@
 seiyaku PrivateOrderedArguments {
     state int trace;
-    hajimari() { trace = 0; }
-    fn next() -> int { trace = trace + 1; return trace; }
-    fn combine(int _ left, int _ right) -> int { return left * 10 + right; }
+    hajimari() {
+        trace = 0;
+    }
+
+    fn next() -> int {
+        trace = trace + 1;
+        return trace;
+    }
+
+    fn combine(int _ left, int _ right) -> int {
+        return left * 10 + right;
+    }
+
     kotoage fn main() -> (int, int) authorize("WriteState") {
         let result = combine(next(), next());
         return (result, trace);

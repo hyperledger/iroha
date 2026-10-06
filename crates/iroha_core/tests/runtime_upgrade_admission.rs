@@ -589,8 +589,6 @@ fn propose_runtime_upgrade_rejects_missing_provenance_when_required() {
 }
 #[test]
 fn propose_runtime_upgrade_rejects_untrusted_signer() {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use iroha_core::{kura::Kura, query::store::LiveQueryStore};
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
@@ -627,7 +625,8 @@ fn propose_runtime_upgrade_rejects_untrusted_signer() {
         slsa_attestation: Vec::new(),
         provenance: Vec::new(),
     }
-    .try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &untrusted).expect("sign bounded fixture manifest");
+    .try_signed(&untrusted)
+    .expect("sign the runtime upgrade manifest with the untrusted key");
     let manifest_bytes = manifest.canonical_bytes();
     let err = iroha_data_model::isi::runtime_upgrade::ProposeRuntimeUpgrade { manifest_bytes }
         .execute(&account_id, &mut stx)

@@ -1114,3 +1114,7 @@ mod prehashed_tests {
         assert_eq!(hash.as_ref()[Hash::LENGTH - 1] & 1, 1);
     }
 }
+
+#[cfg(test)]
+#[path = "hash_native_candidate_tests.rs"]
+mod native_candidate_tests;

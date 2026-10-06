@@ -56,7 +56,12 @@ See [proof envelopes](zk_envelopes.md), [FASTPQ](fastpq_plan.md), and
 
 An implemented engine or available compiled profile in this table is not a
 production-qualified protocol. All rows still require same-candidate release,
-independent audit, SDK, hardware, and deployment evidence.
+independent audit, SDK, hardware, and deployment evidence. The
+[operation inventory](zk_operation_inventory.json) pins each row's dispatch
+arm, native verifier, compiled-profile arm, ledger effect and named tests
+against the source, and records for each protocol separately whether it is
+registered, verified, effective and delivered, and whether a test that runs
+by default calls its verifier.
 
 | Protocol | Current source observation | Remaining outcome |
 | --- | --- | --- |

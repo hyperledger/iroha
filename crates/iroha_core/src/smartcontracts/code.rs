@@ -1989,7 +1989,7 @@ seiyaku LifecycleAba {
     #[test]
     fn register_code_rejects_cycle_ceiling_above_node_policy() {
         let (mut state, authority, _kp) = test_state();
-        let mut pipeline = state.pipeline.clone();
+        let mut pipeline = state.installed_pipeline().clone();
         pipeline.ivm_max_cycles_upper_bound =
             core::num::NonZeroU64::new(1).expect("test ceiling is non-zero");
         state.set_pipeline(pipeline);

@@ -1,7 +1,13 @@
 seiyaku PrivateUnit {
     state int trace;
-    hajimari() { trace = 0; }
-    fn stamp(int _ value) { trace = trace * 10 + value; }
+    hajimari() {
+        trace = 0;
+    }
+
+    fn stamp(int _ value) {
+        trace = trace * 10 + value;
+    }
+
     kotoage fn main() -> ((), int) authorize("WriteState") {
         let unit = stamp(7);
         return (unit, trace);

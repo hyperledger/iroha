@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib.util
 import json
@@ -80,6 +81,7 @@ mod tests {
 """
 NODE = """\
 //! Startup replay.
+// Restoring a snapshot is not implemented (TODO(S9)); startup replays from genesis.
 #[cfg(test)]
 mod tests {
     /// Cold restart.
@@ -128,11 +130,108 @@ CONTRACT = """\
 | --- | --- | --- | --- |
 | `wire` | Block wire | `fresh_genesis` | the pinned history |
 | `proof` | Proof relation | `fresh_genesis_when_stored`: only when stored | proof fixtures |
+| `abi` | ABI hash | `contract_redeployment`, and a fresh genesis when stored | goldens |
+
+## Snapshots and checkpoints
+
+Restart is full replay. A future checkpoint states the suffix it
+verifies. It cannot retroactively validate discarded history.
+
+## Halted chain
+
+Operators repair it.
 """
+CHECKPOINT_SECTION = (
+    "Restart is full replay. A future checkpoint states the suffix it verifies. "
+    "It cannot retroactively validate discarded history."
+)
+NETWORK_RS = "crates/network/src/lib.rs"
+NETWORK = 'const PROGRAM_ENV: &str = "TEST_BIN_NODE";\n'
 GENERATOR = "#!/bin/sh\n# Regenerates fixtures/proof/vectors.json.\n"
 EVIDENCE_TOOL = 'SCHEMA = "iroha.obsolete_history_evidence.v1"\n'
 PROBE = "pub fn run_check_storage() {}\n"
 FRAMES = (b"\x01genesis frame", b"\x01block two frame")
+ABI_HASH = hashlib.sha256(b"synthetic abi surface").hexdigest()
+ABI_RAW = bytes.fromhex(ABI_HASH)
+OTHER_ABI_HASH = hashlib.sha256(b"another abi surface").hexdigest()
+OTHER_ABI_RAW = bytes.fromhex(OTHER_ABI_HASH)
+ABI_GOLDEN_RS = "crates/vm/tests/abi_golden.rs"
+ABI_GOLDEN_PREFIX = 'const ABI_GOLDEN: &str = "'
+ABI_GOLDEN = f'//! ABI golden.\n{ABI_GOLDEN_PREFIX}{ABI_HASH}";\n'
+ABI_DOC_MD = "specs/abi.md"
+ABI_DOC = f"| ABI v1 | {ABI_HASH} |\n"
+ABI_MANIFEST_JSON = "demo/sample.manifest.json"
+ABI_MANIFEST = json.dumps({"abi_hash": f"hash:{ABI_HASH.upper()}#0000"}) + "\n"
+ABI_WRAPPED_RS = "crates/model/tests/fixtures/handle_golden.rs"
+ABI_WRAPPED = (
+    "pub const HANDLE: &[u8] = &hex!(\n"
+    f'    "0102{ABI_HASH[:30]}"\n'
+    f'    "{ABI_HASH[30:]}0304"\n'
+    ");\n"
+)
+ABI_EXECUTOR_TO = "defaults/executor.to"
+ABI_SAMPLE_TO = "demo/sample.to"
+ABI_MAP_TSV = "scripts/artifacts.tsv"
+ABI_MAP = (
+    "# owner\tsource-or-tag\tartifact\n"
+    f"contract\tdemo/sample.ko\t{ABI_SAMPLE_TO}\n"
+    f"default\tv1\t{ABI_EXECUTOR_TO}\n"
+)
+ABI_GENERATOR_SH = "scripts/regen_abi.sh"
+ABI_GENERATOR = (
+    "#!/bin/sh\n# Regenerates abi_golden.rs, specs/abi.md, sample.manifest.json,\n"
+    "# handle_golden.rs, defaults/executor.to and every row of artifacts.tsv,\n"
+    "# the capture native_v1.tsv and the fixture artifact.json.\n"
+)
+ABI_CAPTURE_TSV = "fixtures/compiler/native_v1.tsv"
+ABI_FIXTURE_JSON = "sdk/test/fixtures/artifact.json"
+
+
+def ivm_program(abi_hash: bytes, body: bytes = b"\x00" * 8) -> bytes:
+    """An IVM program image: the fixed 49-byte header ending in the ABI hash, then `body`."""
+    header = b"IVM\0" + bytes([1, 1, 0, 0]) + (1_000_000).to_bytes(8, "little") + b"\x01"
+    return header + abi_hash + body
+
+
+def capture_row(case: str, before: bytes, after: bytes) -> str:
+    """One row of a compiler capture: case, source hash, two program hashes, two programs."""
+    return "\t".join(
+        (
+            case,
+            hashlib.sha256(case.encode()).hexdigest(),
+            hashlib.sha256(before).hexdigest(),
+            hashlib.sha256(after).hexdigest(),
+            before.hex(),
+            after.hex(),
+        )
+    ) + "\n"
+
+
+def abi_capture(abi_hash: bytes = ABI_RAW) -> str:
+    """A two-row compiler capture whose four programs carry `abi_hash` in their headers.
+
+    Each program states the hash a second time in its body, as a compiled contract does.
+    """
+    return capture_row(
+        "first", ivm_program(abi_hash, b"CNTR" + abi_hash), ivm_program(abi_hash, b"\x01")
+    ) + capture_row(
+        "second", ivm_program(abi_hash, b"\x02"), ivm_program(abi_hash, b"CNTR" + abi_hash)
+    )
+
+
+def abi_fixture(abi_hash: bytes = ABI_RAW) -> str:
+    """A fixture stating `abi_hash` three ways: base64 program, upper-case and lower-case hex."""
+    return (
+        json.dumps(
+            {
+                "artifact_base64": base64.b64encode(ivm_program(abi_hash, b"CNTR")).decode(),
+                "manifest": {"abi_hash": f"hash:{abi_hash.hex().upper()}#0000"},
+                "artifact_semantics": {"abi_hash_hex": abi_hash.hex()},
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
 
 def pinned_manifest(frames: tuple[bytes, ...] = FRAMES) -> dict:
@@ -210,6 +309,9 @@ def inventory() -> dict:
             {"identifier": "LegacyBlockHeader", "retired": ""},
             {"identifier": "legacy_snapshot_missing_section", "retired": ""},
         ],
+        "retired_impls": [
+            {"trait": "DecodeHeaderless", "type": "SignedBlock", "retired": "headerless decode"}
+        ],
         "retired_store_artifacts": [
             {
                 "refusal": "reject_retired_snapshot_tail",
@@ -282,13 +384,51 @@ def inventory() -> dict:
                     }
                 ],
             },
+            {
+                "id": "abi",
+                "surface": "ABI hash",
+                "cutover": "contract_redeployment",
+                "anchors": [{"path": ABI_GOLDEN_RS, "contains": "const ABI_GOLDEN"}],
+                "regenerate": [
+                    abi_carrier(ABI_GOLDEN_RS, "abi_golden.rs", "hex"),
+                    abi_carrier(ABI_DOC_MD, "specs/abi.md", "hex"),
+                    abi_carrier(ABI_MANIFEST_JSON, "sample.manifest.json", "HEX"),
+                    abi_carrier(ABI_WRAPPED_RS, "handle_golden.rs", "hex_wrapped"),
+                    abi_carrier(ABI_EXECUTOR_TO, "defaults/executor.to", "ivm_header"),
+                    abi_carrier(ABI_MAP_TSV, "artifacts.tsv", "artifact_map"),
+                    abi_carrier(ABI_CAPTURE_TSV, "native_v1.tsv", "ivm_hex_rows"),
+                    abi_carrier(ABI_FIXTURE_JSON, "artifact.json", ["hex", "HEX", "ivm_base64"]),
+                    {"artifact": "norito.md", "document": True},
+                ],
+            },
         ],
+        "declared_abi_cutover": {
+            "surface": "abi",
+            "cutover": "contract_redeployment",
+            "abi_hash": ABI_HASH,
+            "golden": {"path": ABI_GOLDEN_RS, "prefix": ABI_GOLDEN_PREFIX},
+            "change": "the callable schema body changed",
+            "fresh_genesis": False,
+            "fresh_genesis_reason": "the pinned history holds no contract",
+        },
         "obsolete_history_evidence": {
             "tool": "scripts/first_release_history_evidence.py",
             "tool_test": "pytests/scripts/first_release_history_evidence_test.py",
             "manifest_schema": "iroha.obsolete_history_evidence.v1",
             "anchors": [{"path": "crates/node/src/probe.rs", "contains": "pub fn run_check_storage"}],
         },
+        "future_checkpoint_rule": {
+            "section": "Snapshots and checkpoints",
+            "statements": [
+                "A future checkpoint states the suffix it verifies.",
+                "It cannot retroactively validate discarded history.",
+            ],
+            "section_sha256": hashlib.sha256(CHECKPOINT_SECTION.encode("utf-8")).hexdigest(),
+            "anchors": [{"path": NODE_RS, "contains": "is not implemented (TODO(S9))"}],
+            "owner": "outside-zk-plan:consensus",
+            "summary": "no checkpoint exists",
+        },
+        "test_prerequisites": [],
         "open_findings": [
             {
                 "id": "T1-A01",
@@ -298,6 +438,27 @@ def inventory() -> dict:
                 "summary": "replay proof kind",
             }
         ],
+    }
+
+
+def abi_carrier(artifact: str, mention: str, form: str | list[str]) -> dict:
+    """A regeneration target of the `abi` surface that carries the ABI hash in `form`."""
+    return {
+        "artifact": artifact,
+        "generator": ABI_GENERATOR_SH,
+        "mention": mention,
+        "carries": form,
+    }
+
+
+def real_peer_prerequisite() -> dict:
+    """The prerequisite of a package whose tests start a daemon of the tree under test."""
+    return {
+        "package": "it",
+        "build": "cargo build -p node --bin noded",
+        "environment": {"TEST_BIN_NODE": "${CARGO_TARGET_DIR:-$PWD/target}/debug/noded"},
+        "reason": "the tests start the daemon",
+        "anchors": [{"path": NETWORK_RS, "contains": 'const PROGRAM_ENV: &str = "TEST_BIN_NODE";'}],
     }
 
 
@@ -324,6 +485,7 @@ def tree(tmp_path: Path) -> Path:
     write(tmp_path, NODE_RS, NODE)
     write(tmp_path, KURA_RS, KURA)
     write(tmp_path, "crates/node/src/probe.rs", PROBE)
+    write(tmp_path, NETWORK_RS, NETWORK)
     write(tmp_path, "integration_tests/tests/restart.rs", "//! Restart.\n")
     write(tmp_path, f"{PINNED_DIR}/manifest.json", json.dumps(pinned_manifest()))
     for index, frame in enumerate(FRAMES):
@@ -331,6 +493,16 @@ def tree(tmp_path: Path) -> Path:
     write(tmp_path, "fixtures/proof/vectors.json", "{}\n")
     write(tmp_path, "norito.md", "# Norito\n")
     write(tmp_path, "scripts/regen_proof.sh", GENERATOR)
+    write(tmp_path, ABI_GOLDEN_RS, ABI_GOLDEN)
+    write(tmp_path, ABI_DOC_MD, ABI_DOC)
+    write(tmp_path, ABI_MANIFEST_JSON, ABI_MANIFEST)
+    write(tmp_path, ABI_WRAPPED_RS, ABI_WRAPPED)
+    write(tmp_path, ABI_EXECUTOR_TO, ivm_program(ABI_RAW))
+    write(tmp_path, ABI_SAMPLE_TO, ivm_program(ABI_RAW, b"CNTR" + ABI_RAW))
+    write(tmp_path, ABI_MAP_TSV, ABI_MAP)
+    write(tmp_path, ABI_CAPTURE_TSV, abi_capture())
+    write(tmp_path, ABI_FIXTURE_JSON, abi_fixture())
+    write(tmp_path, ABI_GENERATOR_SH, ABI_GENERATOR)
     write(tmp_path, "scripts/first_release_history_evidence.py", EVIDENCE_TOOL)
     write(tmp_path, "pytests/scripts/first_release_history_evidence_test.py", "\n")
     return tmp_path
@@ -414,6 +586,100 @@ def test_current_inventory_lists_every_kura_refusal_and_every_contract_surface()
         assert all("/" in target["artifact"] or target.get("document") for target in entry["regenerate"])
 
 
+def test_current_inventory_declares_the_abi_cutover_and_every_carrier() -> None:
+    data, errors = GUARD.load_inventory(ROOT)
+    assert errors == []
+    declaration = data["declared_abi_cutover"]
+    assert (declaration["surface"], declaration["cutover"]) == ("abi", "contract_redeployment")
+    assert declaration["fresh_genesis"] is False
+    golden = (ROOT / declaration["golden"]["path"]).read_text(encoding="utf-8")
+    assert f'{declaration["golden"]["prefix"]}{declaration["abi_hash"]}"' in golden
+    surface = next(
+        entry for entry in data["incompatible_change_surfaces"] if entry["id"] == "abi"
+    )
+    forms = {
+        target["artifact"]: target["carries"]
+        for target in surface["regenerate"]
+        if "carries" in target
+    }
+    assert forms["crates/ivm/tests/abi_hash_versions.rs"] == "hex"
+    assert forms["scripts/ivm_artifacts.tsv"] == "artifact_map"
+    assert forms["defaults/executor.to"] == "ivm_header"
+    assert forms["crates/iroha_data_model/tests/fixtures/axt_golden.rs"] == "hex_wrapped"
+    assert {path for path, form in forms.items() if form == "HEX"} == {
+        f"demo/{name}.manifest.json"
+        for name in ("authority_probe", "irohaswap", "ivm_smoke", "prediction_market")
+    }
+    # A compiler capture is read row by row, both programs of every row.
+    captures = {
+        f"fixtures/kotodama/{name}/native_v1.tsv"
+        for name in (
+            "compact_emission",
+            "frame_emission",
+            "local_emission",
+            "numeric_zero",
+            "private_single_use",
+        )
+    }
+    assert {path for path, form in forms.items() if form == "ivm_hex_rows"} == captures
+    assert {path for path in forms if path.startswith("fixtures/kotodama/")} == captures
+    rows = 0
+    for capture in sorted(captures):
+        for line in (ROOT / capture).read_text(encoding="utf-8").splitlines():
+            programs = [field for field in line.split("\t") if field.startswith("49564d00")]
+            assert len(programs) == 2, (capture, line[:40])
+            rows += 1
+    assert rows == 42
+    # The JS fixture states the hash as a base64 program, in its manifest and in its semantics.
+    assert forms["javascript/iroha_js/test/fixtures/current_rust_contract_artifact.json"] == [
+        "hex",
+        "HEX",
+        "ivm_base64",
+    ]
+    # The hand-maintained provenance record of the SDK readback fixture is a carrier too.
+    assert forms["crates/iroha/tests/fixtures/contract_code_readback/provenance.json"] == "hex"
+    # Every program of the artifact map carries the declared hash in its header.
+    raw = bytes.fromhex(declaration["abi_hash"])
+    rows = [
+        line.split("\t")
+        for line in (ROOT / "scripts/ivm_artifacts.tsv").read_text(encoding="utf-8").splitlines()
+        if line and not line.startswith("#")
+    ]
+    assert len(rows) >= 60
+    assert all(GUARD.ivm_program_abi_hash((ROOT / row[2]).read_bytes()) == raw for row in rows)
+
+
+def test_current_inventory_retired_the_headerless_block_decoder() -> None:
+    data, _ = GUARD.load_inventory(ROOT)
+    assert not any(entry["id"] == "T1-A15" for entry in data["open_findings"])
+    # What is left of the headerless form is an open finding: the generic versioned codec
+    # still encodes and decodes a block, and production may not name that decode.
+    assert [(entry["needle"], entry["finding"]) for entry in data["test_only_references"]] == [
+        ("decode_exact_versioned::<SignedBlock>", "T1-A16")
+    ]
+    findings = {entry["id"]: entry for entry in data["open_findings"]}
+    assert findings["T1-A16"]["path"] == "crates/iroha_data_model/src/block/mod.rs"
+    assert "EncodeVersioned for SignedBlock" in findings["T1-A16"]["anchor"]
+    # The leaf form the frame decoders refuse is recorded with the test that shows the refusal.
+    assert findings["T1-A17"]["path"] == "crates/norito/src/core.rs"
+    assert any(
+        entry["test"] == "framed_block_rejects_packed_confidential_digest_hash_arrays"
+        and entry["path"] == "crates/iroha_data_model/src/block/tests.rs"
+        for entry in data["obsolete_layout_rejection_tests"]
+    )
+    retired = {entry["identifier"] for entry in data["retired_identifiers"]}
+    assert {
+        "frame_versioned_signed_block_bytes",
+        "decode_bare_versioned_signed_block_inner",
+    } <= retired
+    assert {(entry["trait"], entry["type"]) for entry in data["retired_impls"]} == {
+        ("DecodeVersioned", "SignedBlock")
+    }
+    block = (ROOT / "crates/iroha_data_model/src/block/mod.rs").read_text(encoding="utf-8")
+    assert "pub fn decode_framed_signed_block(" in block
+    assert "DecodeVersioned for SignedBlock" not in block
+
+
 def test_synthetic_tree_passes(tree: Path) -> None:
     assert GUARD.check(tree) == ()
 
@@ -456,6 +722,194 @@ def test_test_commands_run_exactly_the_listed_tests_and_comment_blocked_targets(
     assert GUARD.test_commands(data)[1] == (
         "cargo test -p it --test restart -- history_replays_from_storage"
     )
+
+
+def test_test_commands_of_a_real_peer_package_build_the_daemon_and_name_it(tree: Path) -> None:
+    def real_peers(data: dict) -> None:
+        data["replay_tests"][0].update(package="it", target="test:restart")
+        data["replay_tests"].append(
+            {
+                "path": NODE_RS,
+                "test": "pinned_history_replays",
+                "covers": "",
+                "package": "it",
+                "target": "test:lanes",
+            }
+        )
+        data["test_prerequisites"] = [real_peer_prerequisite()]
+
+    edit_inventory(tree, real_peers)
+    assert GUARD.check(tree) == ()
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--root", str(tree), "--test-commands"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    variable = 'TEST_BIN_NODE="${CARGO_TARGET_DIR:-$PWD/target}/debug/noded"'
+    # The daemon is built once, before the first command that needs it, and every
+    # command of the package names it: each printed line runs as printed.
+    assert result.stdout.splitlines()[:5] == [
+        "cargo test -p core --lib -- block_rejects_pre_release_layout pinned_history_replays",
+        "cargo build -p node --bin noded",
+        f"{variable} cargo test -p it --test lanes -- pinned_history_replays",
+        f"{variable} cargo test -p it --test restart -- history_replays_from_storage",
+        "# blocked: the lib-test target does not compile",
+    ]
+    # A blocked target of such a package stays a comment, prerequisite included.
+    data = inventory()
+    real_peers(data)
+    data["blocked_test_targets"][0].update(package="it", target="test:lanes")
+    lines = GUARD.test_commands(data)
+    assert lines[1:4] == [
+        "# blocked: the lib-test target does not compile",
+        "# cargo build -p node --bin noded",
+        f"# {variable} cargo test -p it --test lanes -- pinned_history_replays",
+    ]
+
+
+def test_current_test_commands_make_the_real_peer_lines_runnable_as_printed() -> None:
+    data, errors = GUARD.load_inventory(ROOT)
+    assert errors == []
+    lines = GUARD.test_commands(data)
+    build = lines.index("cargo build -p irohad --bin iroha3d")
+    variable = 'TEST_NETWORK_BIN_IROHAD="${CARGO_TARGET_DIR:-$PWD/target}/debug/iroha3d"'
+    real_peer = [line for line in lines if "-p integration_tests" in line]
+    assert len(real_peer) == 2
+    assert all(line.startswith(f"{variable} cargo test -p integration_tests --test ") for line in real_peer)
+    assert all(lines.index(line) > build for line in real_peer)
+    assert not [line for line in lines if "TEST_NETWORK_BIN_IROHAD" in line and line not in real_peer]
+
+
+@pytest.mark.parametrize(
+    "change,fragment",
+    [
+        (lambda entry: entry.update(package="absent"), "names one package with a listed test"),
+        (lambda entry: entry.update(build="make daemon"), "needs `build` as `cargo build -p"),
+        (lambda entry: entry.update(build="cargo build -p node --bin noded; rm -rf x"), "needs `build` as"),
+        (lambda entry: entry.update(environment={}), "needs a non-empty `environment`"),
+        (lambda entry: entry.update(environment={"bin": "x"}), "a shell cannot take as printed"),
+        (lambda entry: entry.update(environment={"TEST_BIN_NODE": "$(id)"}), "a shell cannot take as printed"),
+        (lambda entry: entry.update(reason=""), "states its `reason`"),
+        (lambda entry: entry.update(anchors=[]), "has no source anchor"),
+    ],
+)
+def test_malformed_test_prerequisite_fails(tree: Path, change, fragment: str) -> None:
+    def malformed(data: dict) -> None:
+        data["replay_tests"][0].update(package="it", target="test:restart")
+        entry = real_peer_prerequisite()
+        change(entry)
+        data["test_prerequisites"] = [entry]
+
+    edit_inventory(tree, malformed)
+    errors = GUARD.check(tree)
+    assert any(fragment in error for error in errors), errors
+
+
+def test_test_prerequisite_goes_stale_when_the_daemon_variable_changes(tree: Path) -> None:
+    def real_peers(data: dict) -> None:
+        data["replay_tests"][0].update(package="it", target="test:restart")
+        data["test_prerequisites"] = [real_peer_prerequisite(), real_peer_prerequisite()]
+
+    edit_inventory(tree, real_peers)
+    assert_single(GUARD.check(tree), "names one package with a listed test, once")
+    edit_inventory(
+        tree,
+        lambda data: (
+            data["replay_tests"][0].update(package="it", target="test:restart"),
+            data.update(test_prerequisites=[real_peer_prerequisite()]),
+        ),
+    )
+    assert GUARD.check(tree) == ()
+    edit(tree, NETWORK_RS, "TEST_BIN_NODE", "TEST_BIN_DAEMON")
+    assert_single(GUARD.check(tree), NETWORK_RS, "test prerequisite anchor", "is missing")
+
+
+def test_current_inventory_pins_the_future_checkpoint_rule() -> None:
+    data, errors = GUARD.load_inventory(ROOT)
+    assert errors == []
+    rule = data["future_checkpoint_rule"]
+    assert rule["section"] == "Snapshots and checkpoints"
+    assert any(
+        "the suffix it verifies" in statement for statement in rule["statements"]
+    )
+    assert any(
+        "cannot retroactively validate discarded history" in statement
+        for statement in rule["statements"]
+    )
+    assert [anchor["path"] for anchor in rule["anchors"]] == [
+        "crates/iroha_core/src/sumeragi/node.rs"
+    ]
+    assert all("TODO(S9)" in anchor["contains"] for anchor in rule["anchors"])
+    contract = (ROOT / data["contract"]).read_text(encoding="utf-8")
+    section = GUARD.contract_section(contract, rule["section"])
+    assert section is not None
+    assert hashlib.sha256(section.encode("utf-8")).hexdigest() == rule["section_sha256"]
+
+
+@pytest.mark.parametrize(
+    "old,new,fragments",
+    [
+        # The rule itself is removed or weakened.
+        (
+            " It cannot retroactively validate discarded history.",
+            "",
+            ("no longer states `It cannot retroactively validate discarded history.`",),
+        ),
+        (
+            "states the suffix it\nverifies",
+            "may state a suffix",
+            ("no longer states `A future checkpoint states the suffix it verifies.`",),
+        ),
+        # Any other edit of the section is a reviewed change of the inventory too.
+        (
+            "Restart is full replay.",
+            "Restart is full replay or a snapshot.",
+            ("differs from the text", "record the new `section_sha256`"),
+        ),
+        # The section disappears, or a second one makes the rule ambiguous.
+        ("## Snapshots and checkpoints", "## Snapshots", ("exactly one `## Snapshots and checkpoints` section",)),
+        (
+            "## Halted chain",
+            "## Snapshots and checkpoints",
+            ("exactly one `## Snapshots and checkpoints` section",),
+        ),
+    ],
+)
+def test_changing_the_future_checkpoint_rule_without_the_inventory_fails(
+    tree: Path, old: str, new: str, fragments: tuple[str, ...]
+) -> None:
+    edit(tree, CONTRACT_MD, old, new)
+    errors = GUARD.check(tree)
+    assert errors, "the guard must fail when the checkpoint section changes"
+    assert_any(errors, CONTRACT_MD, *fragments)
+
+
+def test_reflowing_the_checkpoint_section_is_not_a_change(tree: Path) -> None:
+    edit(tree, CONTRACT_MD, "states the suffix it\nverifies", "states the\nsuffix it verifies")
+    assert GUARD.check(tree) == ()
+
+
+def test_the_unimplemented_restore_marker_is_part_of_the_checkpoint_rule(tree: Path) -> None:
+    edit(tree, NODE_RS, "is not implemented (TODO(S9))", "is implemented")
+    assert_single(GUARD.check(tree), NODE_RS, "future-checkpoint anchor", "is missing")
+
+
+@pytest.mark.parametrize(
+    "change,fragment",
+    [
+        (lambda rule: rule.update(statements=[]), "names its section and statements"),
+        (lambda rule: rule.update(section=""), "names its section and statements"),
+        (lambda rule: rule.update(section_sha256="abc"), "records `section_sha256`"),
+        (lambda rule: rule.update(anchors=[]), "has no source anchor"),
+        (lambda rule: rule.update(owner=""), "states its owner and summary"),
+    ],
+)
+def test_malformed_future_checkpoint_rule_fails(tree: Path, change, fragment: str) -> None:
+    edit_inventory(tree, lambda data: change(data["future_checkpoint_rule"]))
+    errors = GUARD.check(tree)
+    assert any(fragment in error for error in errors), errors
 
 
 def test_failure_exits_nonzero_and_names_the_site(tree: Path) -> None:
@@ -759,6 +1213,39 @@ def test_test_only_reference_needs_its_open_finding(tree: Path) -> None:
     assert_single(GUARD.check(tree), "names the unknown finding T1-A99")
 
 
+def test_a_generic_call_named_with_its_type_is_a_test_only_reference(tree: Path) -> None:
+    def generic(data: dict) -> None:
+        data["test_only_references"].append(
+            {"needle": "decode_exact::<SignedBlock>", "finding": "T1-A01", "reason": ""}
+        )
+
+    edit_inventory(tree, generic)
+    relative = "crates/core/src/sync.rs"
+    write(tree, relative, "fn read(b: &[u8]) {\n    let _ = codec :: decode_exact :: <SignedBlock>(b);\n}\n")
+    assert_single(
+        GUARD.check(tree),
+        f"{relative}:2",
+        "production source references `decode_exact::<SignedBlock>`",
+        "T1-A01",
+    )
+    # The match is textual: another type is another call, and a call whose type is inferred
+    # is not seen at all.
+    write(
+        tree,
+        relative,
+        "fn read(b: &[u8]) {\n    let _ = decode_exact::<SignedTransaction>(b);\n"
+        "    let _: SignedBlock = decode_exact(b);\n}\n",
+    )
+    assert GUARD.check(tree) == ()
+    write(tree, relative, "//! Sync.\n")
+    write(
+        tree,
+        "crates/core/tests/frames.rs",
+        "fn read(b: &[u8]) {\n    let _ = decode_exact::<SignedBlock>(b);\n}\n",
+    )
+    assert GUARD.check(tree) == ()
+
+
 @pytest.mark.parametrize(
     "old,new,fragment",
     [
@@ -926,6 +1413,63 @@ def test_generator_that_stops_covering_its_artifact_fails(tree: Path) -> None:
     assert_single(GUARD.check(tree), "scripts/regen_proof.sh", "no longer mentions")
 
 
+def test_a_check_is_tied_to_its_artifact_by_its_own_mention(tree: Path) -> None:
+    # The exporter and the test that fails on a stale artifact live in one file: the entry
+    # names both, so removing the test is seen although the exporter still mentions itself.
+    checked = lambda data: data["incompatible_change_surfaces"][0]["regenerate"][0].update(
+        checked_by=NODE_RS, check_mention="pinned_frames_are_the_current_capture"
+    )
+    edit_inventory(tree, checked)
+    assert_single(
+        GUARD.check(tree), NODE_RS, "no longer mentions `pinned_frames_are_the_current_capture`"
+    )
+    edit(
+        tree,
+        NODE_RS,
+        "fn capture_pinned_history() {}",
+        "fn capture_pinned_history() {}\n#[test]\nfn pinned_frames_are_the_current_capture() {}",
+    )
+    assert GUARD.check(tree) == ()
+    # Without `check_mention` the check is tied by `mention`, as before.
+    plain = lambda data: data["incompatible_change_surfaces"][0]["regenerate"][0].update(
+        checked_by=NODE_RS
+    )
+    edit_inventory(tree, plain)
+    assert GUARD.check(tree) == ()
+    orphan = lambda data: data["incompatible_change_surfaces"][0]["regenerate"][0].update(
+        check_mention="pinned_frames_are_the_current_capture"
+    )
+    edit_inventory(tree, orphan)
+    assert_single(GUARD.check(tree), PINNED_DIR, "`check_mention` names what its `checked_by`")
+
+
+def test_current_inventory_checks_the_native_finality_frames_with_a_live_test() -> None:
+    data, _ = GUARD.load_inventory(ROOT)
+    surface = next(
+        entry for entry in data["incompatible_change_surfaces"] if entry["id"] == "execution_root"
+    )
+    target = next(
+        entry
+        for entry in surface["regenerate"]
+        if entry["artifact"] == "fixtures/sumeragi/native-finality"
+    )
+    assert target["mention"] == "capture_native_checkpoint_fixtures"
+    check = "tracked_native_checkpoint_fixtures_are_the_current_exporter_output"
+    assert target["check_mention"] == check
+    source = GUARD.Sources(ROOT).get(target["checked_by"])
+    assert source is not None
+    # The exporter is an explicit, ignored capture; the check beside it runs with the lib tests.
+    position = source.blanked.index(f"fn {check}(")
+    attributes = GUARD.function_attributes(source.blanked, position)
+    assert any(GUARD.IS_TEST_ATTRIBUTE.match(attribute) for attribute in attributes)
+    assert not any(GUARD.IGNORE_ATTRIBUTE.match(attribute) for attribute in attributes)
+    exporter = source.blanked.index(f"fn {target['mention']}(")
+    assert any(
+        GUARD.IGNORE_ATTRIBUTE.match(attribute)
+        for attribute in GUARD.function_attributes(source.blanked, exporter)
+    )
+
+
 @pytest.mark.parametrize(
     "relative,contents,fragment",
     [
@@ -948,6 +1492,433 @@ def test_missing_obsolete_history_evidence_tool_or_test_fails(tree: Path) -> Non
     assert_single(GUARD.check(tree), "evidence test is missing")
 
 
+def test_regenerated_abi_golden_is_a_declared_cutover_with_every_carrier(tree: Path) -> None:
+    edit(tree, ABI_GOLDEN_RS, ABI_HASH, OTHER_ABI_HASH)
+    assert_single(GUARD.check(tree), ABI_GOLDEN_RS, "is not the hash", "declared cutover")
+    # Declaring the new hash is not enough: every listed carrier must be regenerated with it.
+    declare = lambda data: data["declared_abi_cutover"].update(abi_hash=OTHER_ABI_HASH)
+    edit_inventory(tree, declare)
+    errors = GUARD.check(tree)
+    assert len(errors) == 10, errors
+    for carrier in (ABI_DOC_MD, ABI_MANIFEST_JSON, ABI_WRAPPED_RS, ABI_FIXTURE_JSON):
+        assert_any(errors, f"{carrier}: does not carry the declared ABI hash {OTHER_ABI_HASH}")
+    assert_any(errors, f"{ABI_EXECUTOR_TO}: does not carry the declared ABI hash")
+    assert_any(errors, f"{ABI_EXECUTOR_TO}: IVM program header does not carry")
+    assert_any(errors, f"{ABI_SAMPLE_TO}: IVM program header does not carry", ABI_GENERATOR_SH)
+    for row in (1, 2):
+        assert_any(errors, f"{ABI_CAPTURE_TSV}:{row}: IVM program header does not carry")
+    assert_any(errors, f"{ABI_FIXTURE_JSON}: base64 IVM program header does not carry")
+    other = bytes.fromhex(OTHER_ABI_HASH)
+    write(tree, ABI_DOC_MD, ABI_DOC.replace(ABI_HASH, OTHER_ABI_HASH))
+    write(tree, ABI_MANIFEST_JSON, ABI_MANIFEST.replace(ABI_HASH.upper(), OTHER_ABI_HASH.upper()))
+    write(
+        tree,
+        ABI_WRAPPED_RS,
+        f'pub const HANDLE: &[u8] = &hex!(\n    "{OTHER_ABI_HASH[:7]}"\n    "{OTHER_ABI_HASH[7:]}"\n);\n',
+    )
+    write(tree, ABI_EXECUTOR_TO, ivm_program(other))
+    write(tree, ABI_SAMPLE_TO, ivm_program(other))
+    write(tree, ABI_CAPTURE_TSV, abi_capture(other))
+    write(tree, ABI_FIXTURE_JSON, abi_fixture(other))
+    assert GUARD.check(tree) == ()
+
+
+@pytest.mark.parametrize(
+    "relative,contents,fragments",
+    [
+        (ABI_DOC_MD, f"| ABI v1 | {OTHER_ABI_HASH} |\n", (ABI_DOC_MD, "does not carry")),
+        # The text forms are exact: a manifest literal is upper case, a golden lower case.
+        (ABI_MANIFEST_JSON, ABI_MANIFEST.lower(), (ABI_MANIFEST_JSON, "does not carry")),
+        (ABI_DOC_MD, ABI_DOC.upper(), (ABI_DOC_MD, "does not carry")),
+        (
+            ABI_WRAPPED_RS,
+            ABI_WRAPPED.replace(ABI_HASH[30:], OTHER_ABI_HASH[30:]),
+            (ABI_WRAPPED_RS, "does not carry"),
+        ),
+        # A program is read at its header: the hash elsewhere in the image does not count.
+        (
+            ABI_SAMPLE_TO,
+            ivm_program(bytes.fromhex(OTHER_ABI_HASH), b"CNTR" + ABI_RAW),
+            (ABI_SAMPLE_TO, "IVM program header does not carry"),
+        ),
+        (ABI_SAMPLE_TO, b"NOPE" + ivm_program(ABI_RAW)[4:], (ABI_SAMPLE_TO, "IVM program header")),
+        (ABI_SAMPLE_TO, ivm_program(ABI_RAW)[:40], (ABI_SAMPLE_TO, "IVM program header")),
+        (
+            ABI_MAP_TSV,
+            ABI_MAP + "contract\tdemo/absent.ko\tdemo/absent.to\n",
+            ("demo/absent.to", f"listed in {ABI_MAP_TSV} is missing"),
+        ),
+        (ABI_MAP_TSV, ABI_MAP + "contract demo/sample.to\n", (ABI_MAP_TSV, "is not owner, source")),
+        (ABI_MAP_TSV, "# owner\tsource-or-tag\tartifact\n", (ABI_MAP_TSV, "lists no IVM program")),
+        # A capture is read row by row: one stale program of one row is enough, wherever the
+        # row stands and whichever of its two programs it is.
+        (
+            ABI_CAPTURE_TSV,
+            abi_capture(OTHER_ABI_RAW).splitlines(keepends=True)[0]
+            + abi_capture().splitlines(keepends=True)[1],
+            (f"{ABI_CAPTURE_TSV}:1:", "IVM program header does not carry"),
+        ),
+        (
+            ABI_CAPTURE_TSV,
+            abi_capture()
+            + capture_row("third", ivm_program(ABI_RAW), ivm_program(OTHER_ABI_RAW, b"CNTR" + ABI_RAW)),
+            (f"{ABI_CAPTURE_TSV}:3:", "IVM program header does not carry"),
+        ),
+        (
+            ABI_CAPTURE_TSV,
+            abi_capture()
+            + capture_row("third", ivm_program(OTHER_ABI_RAW, b"CNTR" + ABI_RAW), ivm_program(ABI_RAW)),
+            (f"{ABI_CAPTURE_TSV}:3:", "IVM program header does not carry"),
+        ),
+        # Program text is canonical lower-case hexadecimal of a complete header.
+        (
+            ABI_CAPTURE_TSV,
+            abi_capture() + f"odd\t{ivm_program(ABI_RAW).hex()}0\n",
+            (f"{ABI_CAPTURE_TSV}:3:", "IVM program header does not carry"),
+        ),
+        (
+            ABI_CAPTURE_TSV,
+            abi_capture() + f"short\t{ivm_program(ABI_RAW)[:40].hex()}\n",
+            (f"{ABI_CAPTURE_TSV}:3:", "IVM program header does not carry"),
+        ),
+        (
+            ABI_CAPTURE_TSV,
+            abi_capture() + f"mixed\t49564d00{ivm_program(ABI_RAW)[4:].hex().upper()}\n",
+            (f"{ABI_CAPTURE_TSV}:3:", "IVM program header does not carry"),
+        ),
+        # The hash as bare text in a row is no program.
+        (
+            ABI_CAPTURE_TSV,
+            abi_capture() + f"bare\t{ABI_HASH}\t{ABI_HASH}\n",
+            (f"{ABI_CAPTURE_TSV}:3:", "capture row holds no IVM program"),
+        ),
+        (ABI_CAPTURE_TSV, "", (ABI_CAPTURE_TSV, "capture holds no row")),
+        (ABI_CAPTURE_TSV, "\n\n", (ABI_CAPTURE_TSV, "capture holds no row")),
+        # A fixture states the hash three ways; each is checked on its own.
+        (
+            ABI_FIXTURE_JSON,
+            abi_fixture().replace(
+                base64.b64encode(ivm_program(ABI_RAW, b"CNTR")).decode(),
+                base64.b64encode(ivm_program(OTHER_ABI_RAW, b"CNTR")).decode(),
+            ),
+            (ABI_FIXTURE_JSON, "base64 IVM program header does not carry"),
+        ),
+        (
+            ABI_FIXTURE_JSON,
+            abi_fixture().replace(f'"{ABI_HASH}"', f'"{OTHER_ABI_HASH}"'),
+            (f"{ABI_FIXTURE_JSON}: does not carry",),
+        ),
+        (
+            ABI_FIXTURE_JSON,
+            abi_fixture().replace(ABI_HASH.upper(), OTHER_ABI_HASH.upper()),
+            (f"{ABI_FIXTURE_JSON}: does not carry",),
+        ),
+        (
+            ABI_FIXTURE_JSON,
+            abi_fixture().replace(
+                base64.b64encode(ivm_program(ABI_RAW, b"CNTR")).decode(), "bm90IGEgcHJvZ3JhbQ=="
+            ),
+            (ABI_FIXTURE_JSON, "holds no base64 IVM program"),
+        ),
+        # A base64 image cut inside its header is still found and still refused.
+        (
+            ABI_FIXTURE_JSON,
+            abi_fixture().replace(
+                base64.b64encode(ivm_program(ABI_RAW, b"CNTR")).decode(),
+                base64.b64encode(ivm_program(ABI_RAW)[:30]).decode(),
+            ),
+            (ABI_FIXTURE_JSON, "base64 IVM program header does not carry"),
+        ),
+        (
+            ABI_FIXTURE_JSON,
+            abi_fixture().replace(
+                base64.b64encode(ivm_program(ABI_RAW, b"CNTR")).decode(),
+                base64.b64encode(ivm_program(ABI_RAW, b"CNTR")).decode()[:-3],
+            ),
+            (ABI_FIXTURE_JSON, "base64 IVM program header does not carry"),
+        ),
+        # A text carrier holds the hash exactly as often as its entry states.
+        (ABI_DOC_MD, ABI_DOC + ABI_DOC, (ABI_DOC_MD, "holds the declared ABI hash 2 times as `hex`", "states 1")),
+        (
+            ABI_MANIFEST_JSON,
+            ABI_MANIFEST + ABI_MANIFEST,
+            (ABI_MANIFEST_JSON, "holds the declared ABI hash 2 times as `HEX`", "states 1"),
+        ),
+        (
+            ABI_WRAPPED_RS,
+            ABI_WRAPPED + ABI_WRAPPED.replace("HANDLE", "OTHER"),
+            (ABI_WRAPPED_RS, "holds the declared ABI hash 2 times as `hex_wrapped`", "states 1"),
+        ),
+    ],
+)
+def test_stale_or_malformed_abi_hash_carrier_fails(
+    tree: Path, relative: str, contents: str | bytes, fragments: tuple[str, ...]
+) -> None:
+    write(tree, relative, contents)
+    assert_single(GUARD.check(tree), *fragments)
+
+
+def test_a_text_carrier_cannot_keep_a_stale_statement_beside_a_regenerated_one(tree: Path) -> None:
+    # A document that states the hash twice says so in its entry.
+    twice = lambda data: data["incompatible_change_surfaces"][2]["regenerate"][1].update(
+        occurrences=2
+    )
+    edit_inventory(tree, twice)
+    assert_single(GUARD.check(tree), ABI_DOC_MD, "holds the declared ABI hash 1 times", "states 2")
+    write(tree, ABI_DOC_MD, ABI_DOC + f"| runtime | {ABI_HASH} |\n")
+    assert GUARD.check(tree) == ()
+    # Regenerating one of the two statements leaves the other stale: the count fails.
+    write(tree, ABI_DOC_MD, ABI_DOC + f"| runtime | {OTHER_ABI_HASH} |\n")
+    assert_single(GUARD.check(tree), ABI_DOC_MD, "holds the declared ABI hash 1 times", "states 2")
+    write(tree, ABI_DOC_MD, ABI_DOC.replace(ABI_HASH, OTHER_ABI_HASH) + f"| runtime | {OTHER_ABI_HASH} |\n")
+    assert_single(GUARD.check(tree), f"{ABI_DOC_MD}: does not carry the declared ABI hash")
+
+
+def test_a_capture_with_extra_columns_or_one_program_per_row_is_read_by_program(tree: Path) -> None:
+    program = ivm_program(ABI_RAW, b"CNTR" + ABI_RAW).hex()
+    write(tree, ABI_CAPTURE_TSV, f"solo\t{program}\n\nwide\tnote\t{program}\t{program}\t{program}\n")
+    assert GUARD.check(tree) == ()
+    stale = ivm_program(OTHER_ABI_RAW, b"CNTR" + ABI_RAW).hex()
+    write(tree, ABI_CAPTURE_TSV, f"solo\t{program}\n\nwide\tnote\t{program}\t{program}\t{stale}\n")
+    assert_single(GUARD.check(tree), f"{ABI_CAPTURE_TSV}:3:", "IVM program header does not carry")
+
+
+def test_every_base64_program_of_a_fixture_is_read(tree: Path) -> None:
+    fresh = base64.b64encode(ivm_program(ABI_RAW, b"\x07")).decode()
+    stale = base64.b64encode(ivm_program(OTHER_ABI_RAW, b"\x07")).decode()
+    with_second = lambda image: abi_fixture().replace(
+        '"manifest"', f'"second_base64": "{image}",\n  "manifest"'
+    )
+    write(tree, ABI_FIXTURE_JSON, with_second(fresh))
+    assert GUARD.check(tree) == ()
+    write(tree, ABI_FIXTURE_JSON, with_second(stale))
+    assert_single(GUARD.check(tree), ABI_FIXTURE_JSON, "base64 IVM program header does not carry")
+
+
+def test_carrier_forms_accept_one_form_or_a_list_of_distinct_forms() -> None:
+    assert GUARD.carrier_forms({}) == ()
+    assert GUARD.carrier_forms({"carries": "hex"}) == ("hex",)
+    assert GUARD.carrier_forms({"carries": ["HEX", "ivm_base64"]}) == ("HEX", "ivm_base64")
+    for malformed in ("base64", "", [], ["hex", "hex"], ["hex", "sha"], ["hex", 3], {"hex": 1}, 7, True):
+        assert GUARD.carrier_forms({"carries": malformed}) is None, malformed
+    assert set(GUARD.ABI_TEXT_FORMS) < set(GUARD.ABI_HASH_FORMS)
+
+
+def test_wrapped_hex_carrier_ignores_only_quotes_and_whitespace(tree: Path) -> None:
+    write(tree, ABI_WRAPPED_RS, f'const H: &[u8] = &hex!("{ABI_HASH[:1]}"\n\t "{ABI_HASH[1:]}");\n')
+    assert GUARD.check(tree) == ()
+    write(tree, ABI_WRAPPED_RS, f'const H: &[u8] = &hex!("{ABI_HASH[:32]}", "{ABI_HASH[32:]}");\n')
+    assert_single(GUARD.check(tree), ABI_WRAPPED_RS, "does not carry")
+
+
+@pytest.mark.parametrize(
+    "change,fragment",
+    [
+        (lambda data: data.pop("declared_abi_cutover"), "`declared_abi_cutover` must be a dict"),
+        (
+            lambda data: data["declared_abi_cutover"].update(abi_hash="c728"),
+            "records `abi_hash` as 64 hex digits",
+        ),
+        (
+            lambda data: data["declared_abi_cutover"].update(abi_hash=ABI_HASH.upper()),
+            "records `abi_hash` as 64 hex digits",
+        ),
+        (lambda data: data["declared_abi_cutover"].pop("golden"), "names the `golden` path"),
+        (
+            lambda data: data["declared_abi_cutover"]["golden"].update(prefix="const OTHER: &str ="),
+            "the ABI golden must hold `const OTHER: &str =` exactly once",
+        ),
+        (
+            lambda data: data["declared_abi_cutover"]["golden"].update(prefix="const "),
+            "the ABI golden is not 64 hex digits",
+        ),
+        (
+            lambda data: data["declared_abi_cutover"]["golden"].update(path=ABI_DOC_MD),
+            "the ABI golden must hold",
+        ),
+        (lambda data: data["declared_abi_cutover"].update(change=""), "states the `change`"),
+        (lambda data: data["declared_abi_cutover"].pop("fresh_genesis"), "states `fresh_genesis`"),
+        (
+            lambda data: data["declared_abi_cutover"].update(fresh_genesis="no"),
+            "states `fresh_genesis`",
+        ),
+        (
+            lambda data: data["declared_abi_cutover"].update(fresh_genesis_reason=""),
+            "states `fresh_genesis`",
+        ),
+        (lambda data: data["declared_abi_cutover"].update(surface="gas"), "names a listed surface"),
+        (
+            lambda data: data["declared_abi_cutover"].update(cutover="fresh_genesis"),
+            "declares `fresh_genesis`, but the cutover of surface `abi` is `contract_redeployment`",
+        ),
+        (
+            lambda data: data["declared_abi_cutover"].update(surface="wire"),
+            "but the cutover of surface `wire` is `fresh_genesis`",
+        ),
+        (
+            lambda data: data["incompatible_change_surfaces"][0]["regenerate"][0].update(
+                carries="hex"
+            ),
+            "only targets of the declared surface carry the ABI hash, not those of `wire`",
+        ),
+        (
+            lambda data: data["incompatible_change_surfaces"][2]["regenerate"][0].pop("carries"),
+            f"the ABI golden {ABI_GOLDEN_RS} must be a regeneration target of `abi`",
+        ),
+        (
+            lambda data: data["incompatible_change_surfaces"][2]["regenerate"][1].update(
+                carries="base64"
+            ),
+            "carries the ABI hash in the unknown form `base64`",
+        ),
+        (
+            lambda data: data["incompatible_change_surfaces"][2]["regenerate"][1].update(carries=[]),
+            "carries the ABI hash in the unknown form `[]`",
+        ),
+        (
+            lambda data: data["incompatible_change_surfaces"][2]["regenerate"][1].update(
+                carries=["hex", "hex"]
+            ),
+            "or a list of distinct ones",
+        ),
+        (
+            lambda data: data["incompatible_change_surfaces"][2]["regenerate"][1].update(
+                carries=["hex", "sha256"]
+            ),
+            "carries the ABI hash in the unknown form",
+        ),
+        (
+            lambda data: data["incompatible_change_surfaces"][2]["regenerate"][1].update(
+                occurrences=0
+            ),
+            "`occurrences` is the positive number of times a text carrier",
+        ),
+        (
+            lambda data: data["incompatible_change_surfaces"][2]["regenerate"][1].update(
+                occurrences=True
+            ),
+            "`occurrences` is the positive number of times a text carrier",
+        ),
+        (
+            lambda data: data["incompatible_change_surfaces"][2]["regenerate"][1].update(
+                occurrences="2"
+            ),
+            "`occurrences` is the positive number of times a text carrier",
+        ),
+        (
+            # A program carrier has no text count.
+            lambda data: data["incompatible_change_surfaces"][2]["regenerate"][4].update(
+                occurrences=1
+            ),
+            f"{ABI_EXECUTOR_TO}: `occurrences` is the positive number of times a text carrier",
+        ),
+        (
+            # Nor has a target that carries nothing.
+            lambda data: data["incompatible_change_surfaces"][0]["regenerate"][0].update(
+                occurrences=1
+            ),
+            f"{PINNED_DIR}: `occurrences` is the positive number of times a text carrier",
+        ),
+        (
+            lambda data: data["incompatible_change_surfaces"][2]["regenerate"][1].update(
+                document=True
+            ),
+            "a carrier of the ABI hash names its `generator` or `checked_by` source",
+        ),
+        (
+            lambda data: data["incompatible_change_surfaces"][2]["regenerate"][1].update(
+                mention="other.md"
+            ),
+            "no longer mentions `other.md`",
+        ),
+    ],
+)
+def test_malformed_abi_cutover_declaration_fails(tree: Path, change, fragment: str) -> None:
+    edit_inventory(tree, change)
+    assert_any(GUARD.check(tree), fragment)
+
+
+def test_pinned_history_holding_the_abi_hash_needs_a_fresh_genesis(tree: Path) -> None:
+    frames = (FRAMES[0], b"\x01deployment under " + ABI_RAW)
+    write(tree, f"{PINNED_DIR}/block-2.wire", frames[1])
+    write(tree, f"{PINNED_DIR}/manifest.json", json.dumps(pinned_manifest(frames)))
+
+    def regenerated(data: dict) -> None:
+        data["pinned_history"].update(history_sha256=pinned_manifest(frames)["history_sha256"])
+
+    edit_inventory(tree, regenerated)
+    assert_single(
+        GUARD.check(tree),
+        f"{PINNED_DIR}/manifest.json",
+        "the pinned history holds the declared ABI hash",
+        "fresh genesis",
+    )
+
+    def declared(data: dict) -> None:
+        regenerated(data)
+        data["declared_abi_cutover"].update(fresh_genesis=True)
+
+    edit_inventory(tree, declared)
+    assert GUARD.check(tree) == ()
+
+
+@pytest.mark.parametrize(
+    "relative,contents",
+    [
+        ("crates/model/src/codec.rs", "impl DecodeHeaderless for SignedBlock {\n    fn d() {}\n}\n"),
+        ("crates/model/src/codec.rs", "impl v::codec::DecodeHeaderless for crate::b::SignedBlock {}\n"),
+        ("crates/model/src/codec.rs", "impl<'a> DecodeHeaderless<'a>\n    for SignedBlock\n{\n}\n"),
+        ("crates/model/src/codec.rs", "#[cfg(test)]\nimpl DecodeHeaderless for SignedBlock {}\n"),
+        ("crates/model/src/block_tests.rs", "impl DecodeHeaderless for SignedBlock {}\n"),
+        ("integration_tests/tests/decode.rs", "impl DecodeHeaderless for SignedBlock {}\n"),
+    ],
+)
+def test_retired_implementation_written_again_fails(tree: Path, relative: str, contents: str) -> None:
+    write(tree, relative, contents)
+    assert_single(
+        GUARD.check(tree),
+        relative,
+        "retired implementation `DecodeHeaderless for SignedBlock` reappeared",
+    )
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        "impl DecodeHeaderless for SignedTransaction {}\n",
+        "impl EncodeHeaderless for SignedBlock {}\n",
+        "impl DecodeHeaderless for SignedBlockWire {}\n",
+        "impl DecodeHeaderlessProbe for SignedBlock {}\n",
+        "impl<T: DecodeHeaderless> Frame<T> for SignedBlock {}\n",
+        "// impl DecodeHeaderless for SignedBlock {}\n",
+        'const NOTE: &str = "impl DecodeHeaderless for SignedBlock";\n',
+        "fn decode<T: DecodeHeaderless>(bytes: &[u8]) -> SignedBlock {\n    todo(bytes)\n}\n",
+    ],
+)
+def test_other_implementations_and_mentions_are_not_the_retired_one(
+    tree: Path, contents: str
+) -> None:
+    write(tree, "crates/model/src/codec.rs", contents)
+    assert GUARD.check(tree) == ()
+
+
+@pytest.mark.parametrize(
+    "change,fragment",
+    [
+        (lambda data: data.pop("retired_impls"), "`retired_impls` must be a list"),
+        (
+            lambda data: data["retired_impls"][0].update(trait="codec::DecodeHeaderless"),
+            "names a plain trait and a plain type",
+        ),
+        (lambda data: data["retired_impls"][0].pop("type"), "names a plain trait and a plain type"),
+        (lambda data: data["retired_impls"][0].update(retired=""), "states what was retired"),
+    ],
+)
+def test_malformed_retired_implementation_entry_fails(tree: Path, change, fragment: str) -> None:
+    edit_inventory(tree, change)
+    assert_any(GUARD.check(tree), fragment)
+
+
 def test_resolved_or_misowned_open_finding_fails(tree: Path) -> None:
     edit(tree, PROOF_RS, "    LegacyReplay,\n", "")
     assert_single(GUARD.check(tree), "open finding T1-A01 no longer matches the source")
@@ -966,6 +1937,11 @@ def test_resolved_or_misowned_open_finding_fails(tree: Path) -> None:
         (lambda data: data.update(schema="other"), "schema must be"),
         (lambda data: data.pop("replay_tests"), "`replay_tests` must be a list"),
         (lambda data: data.pop("pinned_history"), "`pinned_history` must be a dict"),
+        (
+            lambda data: data.pop("future_checkpoint_rule"),
+            "`future_checkpoint_rule` must be a dict",
+        ),
+        (lambda data: data.pop("test_prerequisites"), "`test_prerequisites` must be a list"),
         (lambda data: data.update(retired_identifiers=[]), "`retired_identifiers` must not be empty"),
         (lambda data: data.update(retired_store_artifacts=[]), "`retired_store_artifacts` must not be empty"),
         (lambda data: data.update(contract="specs/missing.md"), "contract specs/missing.md is missing"),

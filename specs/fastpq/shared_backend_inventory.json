@@ -160,6 +160,10 @@
           "role": "test"
         },
         {
+          "path": "crates/iroha_core/src/state/authority_registry/keyed_commitment/candidates_tests.rs",
+          "role": "test"
+        },
+        {
           "path": "crates/iroha_core/src/state/fastpq_quantity_capture_tests.rs",
           "role": "test"
         },
@@ -181,6 +185,10 @@
         },
         {
           "path": "crates/iroha_core_privacy/tests/fastpq_phase_tree_measurement.rs",
+          "role": "test"
+        },
+        {
+          "path": "crates/iroha_core_privacy/tests/state_commitment_candidates_measurement.rs",
           "role": "test"
         },
         {
@@ -322,12 +330,20 @@
           "role": "test"
         },
         {
+          "path": "crates/iroha_core_privacy/tests/state_commitment_candidates_measurement.rs",
+          "role": "test"
+        },
+        {
           "path": "crates/iroha_core_zk/src/stark.rs",
           "role": "source"
         },
         {
           "path": "crates/iroha_crypto/src/fhe_bfv.rs",
           "role": "source"
+        },
+        {
+          "path": "crates/iroha_crypto/src/hash_native_candidate_tests.rs",
+          "role": "test"
         },
         {
           "path": "crates/iroha_crypto/src/privacy.rs",

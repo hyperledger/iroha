@@ -1,0 +1,1679 @@
+#!/usr/bin/env python3
+"""Validate the primitive and workload specification against the source tree.
+
+Requires Python 3.9+ and its standard library; no environment variables or
+installed packages are needed, and nothing is downloaded. In a Git checkout the
+file list comes from `git ls-files` (tracked and unignored files); elsewhere the
+tree is walked. The default specification is specs/zk_primitive_workloads.json
+relative to this script's repository; it is the task H.1 output of
+specs/zk_delivery_plan.md. The check is read-only. It establishes that the
+specification matches the tree; it does not establish cryptographic security,
+measured performance or readiness.
+
+The check fails when
+* a file in a file-granularity scan unit names a digest primitive, or one of
+  its listed wrapper symbols, that the specification does not list for that
+  file, or the reverse; a tree-granularity unit gains or loses a primitive; a
+  scanned file belongs to no consumer;
+* a (consumer, primitive) pair found by the scan is not classified under that
+  consumer, a classified pair no longer occurs, or a role names a pair its
+  consumer does not use;
+* a digest role names a missing path, symbol or domain literal, an unknown
+  primitive, family or consumer, an output length its primitive lacks, or a
+  compile status (production or test-only) that the source does not show;
+* a function of a ledger scope calls a digest and is not listed with its
+  primitives, domain literals, return type and role, or the reverse;
+* any tree file holds a pinned commitment value (as words, bytes, hexadecimal,
+  decimal or base64) or names a commitment type without being listed, an
+  anchored SDK owner or generated fixture disappears, or an SDK has neither an
+  owner nor a recorded reason;
+* a role that moves to the candidate lacks its transcript-seed check, its
+  decision contradicts that check, or the lists of changing roles differ from
+  the role decisions;
+* the candidate frame layout, bounds or semantics differ from the pinned form
+  and from the Rust reference encoder, or an example vector differs from the
+  frame the specification describes (BLAKE3 is recomputed here by
+  scripts/zk_blake3_reference.py, independently of the Rust crate);
+* the BN254 Poseidon tables differ from the independent regeneration, a
+  recorded parameter fact or defect differs from the recomputed one, a consumer
+  of the helpers is unlisted, or the pinned vectors differ;
+* Cargo.lock holds a post-quantum package other than the recorded ones or a
+  superseded pre-standard package, a known-answer response file does not hash
+  to its official digest, a call site or a legacy algorithm label is unlisted,
+  a required finding is missing, or a named test no longer exists;
+* a workload lacks an identity, a shape, a measured quantity or a phase label,
+  uses a label outside the grammar of crates/iroha_measurement/src/text.rs,
+  names an unknown backend consumer, measures State candidates (owned by G.2),
+  or records a measurement that is not labelled exploratory;
+* a shared transcript requirement loses its order, its binding list or a
+  current implementation site, or the listed engines differ from those of
+  specs/fastpq/shared_backend_inventory.json.
+
+Limits of the check
+* Primitives are found by name and by the wrapper symbols the specification
+  lists. A digest reached through an unlisted re-export, a macro expansion or a
+  foreign-language binding without the algorithm name is invisible. Shell
+  scripts, manifests, Markdown and data files are not scanned for primitives
+  (they are scanned for pinned values).
+* Inside a tree-granularity unit a new file that uses an already listed
+  primitive is not reported.
+* A role site is anchored by text. The check shows that the named symbol and
+  literals are present, not that the described construction is implemented.
+* The producer ledger is lexical (see scripts/zk_rust_lexical_index.py): it
+  lists functions whose own body names a digest call, inside the declared
+  scopes only. A caller that only forwards to such a function is not listed.
+
+Maintainer modes (the default run changes nothing)
+* `--print-scan` prints the fresh scan as JSON.
+* `--refresh` prints the specification with every derived table recomputed
+  from the tree: scan tables, pinned-value carriers, type files, producer
+  facts, BN254 helper consumers, post-quantum call sites and legacy labels.
+  Classifications, roles and role assignments are never changed, so a new use
+  still fails until a maintainer classifies it.
+* `--refresh --write` writes that result over the specification file.
+* `--write-candidate-vectors` rewrites the candidate frame fixture from the
+  specification, with all three digest columns recomputed here.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+from typing import Any, Iterator, Optional, Sequence
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import zk_blake3_reference as blake3_reference  # noqa: E402
+import zk_bn254_poseidon_reference as poseidon_reference  # noqa: E402
+import zk_pq_kat_reference as pq_reference  # noqa: E402
+import zk_rust_lexical_index as rust_index  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_SPEC = "specs/zk_primitive_workloads.json"
+SCHEMA_VERSION = 2
+SCOPE = "Specification consistency only; not cryptographic qualification or measured performance."
+SKIP_DIRECTORIES = frozenset(
+    {".git", "target", "dist", "node_modules", "build", ".build", ".gradle", "DerivedData"}
+)
+# Files above this size are not read; the check fails unless each is listed.
+MAX_FILE_BYTES = 64 * 1024 * 1024
+ROLE_KEY = re.compile(r"[a-z0-9]+(?:[.-][a-z0-9]+)*\Z")
+USE_CLASSES = frozenset(
+    {
+        "role",
+        "ledger-identity",
+        "proof-internal",
+        "in-circuit",
+        "standard-internal",
+        "kdf-or-mac",
+        "commitment-scheme",
+        "evidence-metadata",
+        "transport-or-storage",
+        "label-only",
+        "test-or-tooling",
+    }
+)
+PRIMITIVE_KINDS = frozenset(
+    {"native", "algebraic", "commitment", "kdf-mac", "password-kdf", "wrapper", "watch"}
+)
+# Role family -> primitive kinds that can serve it.
+ROLE_FAMILIES = {
+    "native": frozenset({"native", "algebraic", "commitment", "wrapper"}),
+    "in-circuit": frozenset({"native", "algebraic", "commitment", "wrapper"}),
+    "proof-internal": frozenset({"native", "algebraic", "commitment"}),
+    "standard-internal": frozenset({"native", "commitment"}),
+    "kdf": frozenset({"kdf-mac", "password-kdf", "native"}),
+}
+# Canonical-native decision -> role families it can apply to.
+NATIVE_DECISIONS = {
+    "changes": frozenset({"native"}),
+    "changes-with-profile": frozenset({"native"}),
+    "provisional": frozenset({"native"}),
+    "already-blake3": frozenset({"native"}),
+    "proof-internal": frozenset({"proof-internal", "in-circuit"}),
+    "retained-family": frozenset(ROLE_FAMILIES),
+    "standard-internal": frozenset({"standard-internal", "in-circuit"}),
+    "not-a-commitment": frozenset({"kdf"}),
+}
+# Decisions under which a role moves to the candidate frame; each carries a
+# transcript-seed check, and a role whose value binds proof internals moves
+# only together with the proof profile.
+MOVING_DECISIONS = ("changes", "changes-with-profile", "provisional", "already-blake3")
+# The consumers the H.1 acceptance names; each needs a role that moves or a
+# recorded reading of why none does.
+REQUIRED_CONSUMERS = ("privacy-catalog", "kaigi", "confidential", "mkhe")
+REQUIRED_BN254_DEFECTS = ("BN254-POSEIDON-D1", "BN254-POSEIDON-D2", "BN254-POSEIDON-D3")
+REQUIRED_PQ_FINDINGS = ("PQ-D1", "PQ-D2", "PQ-D3")
+SDKS = ("rust", "swift", "kotlin", "javascript", "python", "csharp")
+SDK_PATH_ROOTS = {
+    "swift": ("IrohaSwift/",),
+    "kotlin": ("kotlin/", "java/"),
+    "javascript": ("javascript/",),
+    "python": ("python/",),
+    "csharp": ("csharp/",),
+}
+SUPERSEDED_PQ_PACKAGES = re.compile(
+    r"(?:\A|[-_])(?:kyber|dilithium|sphincs|saber|ntru|frodo|sike|rainbow|picnic|newhope)"
+    r"(?:\Z|[-_0-9])|pqcrypto-(?!internals\Z|traits\Z|mlkem\Z|mldsa\Z)"
+)
+PQ_PACKAGE = re.compile(r"pqcrypto|ml-?kem|ml-?dsa|fips20[3-5]|slh-?dsa|falcon|fn-?dsa|oqs|pqclean")
+LEGACY_PQ_LABEL = re.compile(r"kyber|dilithium")
+PQ_CALL_SITE = re.compile(r"pqcrypto_(?:mlkem|mldsa|traits)|soranet_pq")
+SDK_MANIFEST = re.compile(
+    r"(?:build\.gradle(?:\.kts)?|settings\.gradle(?:\.kts)?|libs\.versions\.toml|Package\.swift|"
+    r"package\.json|pyproject\.toml|requirements[^/]*\.txt|[^/]+\.csproj)\Z"
+)
+SDK_ROOTS = ("kotlin/", "java/", "IrohaSwift/", "javascript/", "python/", "csharp/")
+SDK_PQ_LIBRARY = re.compile(r"liboqs|pqclean|pqcrypto|kyber|dilithium|bcpqc", re.I)
+JVM_SOURCE = (".kt", ".kts", ".java")
+BOUNCYCASTLE_PQ = re.compile(
+    r"org\.bouncycastle\.pqc|org\.bouncycastle\.[\w.]*(?:kyber|dilithium|mldsa|mlkem)", re.I
+)
+LABEL_GRAMMAR_SOURCE = "crates/iroha_measurement/src/text.rs"
+# The canonical frame, version 1. The specification states this layout; the
+# check fails when the two differ, so neither can change alone.
+FRAME_LAYOUT_V1 = (
+    ("magic", None, "magic"),
+    ("algorithm", 1, "bytes-u32-le"),
+    ("catalog", 2, "bytes-u32-le"),
+    ("protocol", 3, "bytes-u32-le"),
+    ("profile", 4, "bytes-u32-le"),
+    ("role", 5, "bytes-u32-le"),
+    ("phase", 6, "bytes-u32-le"),
+    ("level", 7, "u64-le"),
+    ("index", 8, "u64-le"),
+    ("counter", 9, "u64-le"),
+    ("field_count", 10, "count-u32-le"),
+    ("fields", 11, "each-bytes-u64-le"),
+)
+FRAME_BOUND_CONSTANTS = {
+    "domain_field_max_bytes": "MAX_DOMAIN_FIELD_BYTES_V1",
+    "payload_field_count_max": "MAX_PAYLOAD_FIELDS_V1",
+}
+# Words that mark a State tree or hash workload; G.2 owns those.
+STATE_WORKLOAD = re.compile(r"state[-_ ](?:tree|commitment|root|candidate)|keyed[-_ ]state|\bwg\b", re.I)
+# Pairs of examples the frame semantics require to differ, by example name.
+FRAME_DISTINCT_EXAMPLES = (
+    ("split-abc-def", "joined-abcdef"),
+    ("no-fields", "one-empty-field"),
+    ("kaigi-call-id", "kaigi-account-id"),
+    ("spentness-leaf", "spentness-node"),
+)
+# Column of the first payload field in an `example` row of the candidate
+# fixture; the column before it holds the field count.
+EXAMPLE_FIELDS_AT = 12
+_UPPER = frozenset(range(ord("A"), ord("Z") + 1))
+_LOWER_OR_DIGIT = frozenset(range(ord("a"), ord("z") + 1)) | frozenset(range(ord("0"), ord("9") + 1))
+_IDENTIFIER_BYTES = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")
+_STRING_CONSTANT = re.compile(
+    r'\b(?:const|static)\s+([A-Z][A-Z0-9_]*)\s*:\s*[^=;]*=\s*b?r?#*"((?:[^"\\]|\\.)*)"'
+)
+_INLINE_LITERAL = re.compile(r'\bb"((?:[^"\\]|\\.)*)"')
+_CONSTANT_NAME = re.compile(r"\b[A-Z][A-Z0-9_]{2,}\b")
+_DOMAIN_LITERAL = re.compile(r"[ -~]{6,160}\Z")
+
+
+# ---------------------------------------------------------------------------
+# Tree access
+# ---------------------------------------------------------------------------
+
+
+def tree_files(root: Path) -> list[str]:
+    """Tracked and unignored files, or a walk when `root` is not a Git checkout."""
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+            cwd=root,
+            capture_output=True,
+            check=True,
+        ).stdout.decode("utf-8", "surrogateescape")
+        inside = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"], cwd=root, capture_output=True, check=True
+        ).stdout.decode().strip()
+        if Path(inside).resolve() == root.resolve():
+            return sorted(path for path in listed.split("\0") if path and (root / path).is_file())
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    found = []
+    for directory, names, files in os.walk(root):
+        names[:] = sorted(name for name in names if name not in SKIP_DIRECTORIES)
+        for name in files:
+            found.append(Path(directory, name).relative_to(root).as_posix())
+    return sorted(found)
+
+
+def read_text(root: Path, path: str) -> str:
+    """Read a tree file as text; undecodable bytes are replaced."""
+    return (root / path).read_text(encoding="utf-8", errors="replace")
+
+
+# ---------------------------------------------------------------------------
+# Digest scan
+# ---------------------------------------------------------------------------
+
+
+def literal_starts(pattern: str) -> list[str]:
+    """Literal text that every match of each top-level alternative begins with.
+
+    An empty string means that alternative has no literal start; the caller
+    then searches with the pattern alone.
+    """
+    alternatives, depth, current, escaped, in_class = [], 0, [], False, False
+    for char in pattern:
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif in_class:
+            in_class = char != "]"
+        elif char == "[":
+            in_class = True
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        elif char == "|" and depth == 0:
+            alternatives.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    alternatives.append("".join(current))
+    starts = []
+    for alternative in alternatives:
+        match = re.match(r"[A-Za-z0-9_:<> -]*", alternative)
+        literal = match.group(0) if match else ""
+        # A quantifier makes the character before it optional or repeated.
+        if alternative[len(literal):len(literal) + 1] in ("?", "*", "{"):
+            literal = literal[:-1]
+        starts.append(literal)
+    return starts
+
+
+class _Finder:
+    """A pattern searched from the occurrences of its literal starts."""
+
+    def __init__(self, pattern: str, text: str) -> None:
+        self.pattern = re.compile(pattern.encode("ascii"))
+        starts = sorted(set(literal_starts(text)))
+        # One alternative with a literal start is searched fastest by the pattern itself.
+        direct = len(starts) == 1 or "" in starts
+        self.starts = None if direct else [start.encode("ascii") for start in starts]
+
+    def positions(self, data: bytes) -> Iterator[int]:
+        """Start offsets of the matches of the pattern in `data`."""
+        if self.starts is None:
+            for match in self.pattern.finditer(data):
+                yield match.start()
+            return
+        for start in self.starts:
+            position = data.find(start)
+            while position >= 0:
+                if self.pattern.match(data, position):
+                    yield position
+                position = data.find(start, position + 1)
+
+    def occurs(self, data: bytes) -> bool:
+        """Whether the pattern matches anywhere in `data`."""
+        return next(self.positions(data), None) is not None
+
+
+class Token:
+    """How one primitive is recognised in a file."""
+
+    def __init__(self, token: dict[str, Any]) -> None:
+        self.finder = _Finder(token["pattern"], token["pattern"])
+        self.forbidden = frozenset(token.get("not_preceded_by", "").encode("ascii"))
+        self.camel_case = bool(token.get("camel_case"))
+        self.wrappers = [
+            (
+                _Finder(f"(?:{wrapper['symbol']})(?![A-Za-z0-9_])", wrapper["symbol"]),
+                re.compile(wrapper["paths"]) if wrapper.get("paths") else None,
+            )
+            for wrapper in token.get("wrappers", [])
+        ]
+
+    def names(self, data: bytes, lowered: bytes) -> bool:
+        """Whether the algorithm name occurs at an accepted position."""
+        for start in self.finder.positions(lowered):
+            if not self.forbidden or start == 0:
+                return True
+            previous = data[start - 1]
+            if lowered[start - 1] not in self.forbidden:
+                return True
+            # A CamelCase word boundary: `MerkleSm3`, `KeyedHmac`.
+            if self.camel_case and data[start] in _UPPER and previous in _LOWER_OR_DIGIT:
+                return True
+        return False
+
+    def wrapped(self, data: bytes, path: str) -> bool:
+        """Whether a wrapper symbol of the primitive occurs in a file at `path`."""
+        for finder, paths in self.wrappers:
+            if paths is not None and not paths.search(path):
+                continue
+            for start in finder.positions(data):
+                if start == 0 or data[start - 1] not in _IDENTIFIER_BYTES:
+                    return True
+        return False
+
+
+class Scanner:
+    """Name-based digest scan driven by the specification."""
+
+    def __init__(self, spec: dict[str, Any]) -> None:
+        scan = spec["scan"]
+        self.extensions = tuple(scan["extensions"])
+        self.tokens = {
+            primitive["id"]: Token(primitive["token"]) for primitive in spec["digest_primitives"]
+        }
+        self.excluded = frozenset(scan.get("exclude_files", []))
+        scope = scan["scope"]
+        self.full_prefixes = tuple(scope["file_granularity_prefixes"])
+        self.word_roots = tuple(scope["file_granularity_path_roots"])
+        self.words = re.compile(scope["file_granularity_path_pattern"])
+        self.content = frozenset(scope["file_granularity_primitives"])
+        self.tree_overrides = [
+            (re.compile(entry["pattern"]), entry["unit"], bool(entry.get("inside_proof_crates")))
+            for entry in scope["tree_unit_overrides"]
+        ]
+        self.rules = [
+            (re.compile(rule["pattern"]), rule["consumer"]) for rule in scan["consumer_rules"]
+        ]
+
+    def primitives_in(self, data: bytes | str, path: str = "") -> list[str]:
+        """Primitive ids named in a file's bytes, by algorithm name or wrapper symbol."""
+        if isinstance(data, str):
+            data = data.encode("utf-8", "surrogateescape")
+        lowered = data.lower()
+        return sorted(
+            name
+            for name, token in self.tokens.items()
+            if token.names(data, lowered) or token.wrapped(data, path)
+        )
+
+    def unit_of(self, path: str, found: Sequence[str] = ()) -> tuple[str, str]:
+        """Return (unit key, granularity) of a scanned path that names `found`."""
+        low = path.lower()
+        in_proof_crate = path.startswith(self.full_prefixes)
+        for pattern, unit, inside in self.tree_overrides:
+            if pattern.search(low) and (inside or not in_proof_crate):
+                return unit, "tree"
+        parts = path.split("/")
+        package = "/".join(parts[:2]) if parts[0] == "crates" and len(parts) > 2 else parts[0]
+        if in_proof_crate or (
+            path.startswith(self.word_roots)
+            and (self.words.search(low) or not self.content.isdisjoint(found))
+        ):
+            return package + "#zk", "file"
+        return package + "#other", "tree"
+
+    def consumer_of(self, path: str) -> str | None:
+        """Consumer key of a file-granularity path; first matching rule wins."""
+        low = path.lower()
+        for pattern, consumer in self.rules:
+            if pattern.search(low):
+                return consumer
+        return None
+
+    def scan(self, root: Path, files: Sequence[str]) -> dict[str, Any]:
+        """Scan the tree into file-granularity and tree-granularity tables."""
+        file_table: dict[str, list[str]] = {}
+        tree_table: dict[str, set[str]] = {}
+        for path in files:
+            if self.scans(path):
+                self.record(path, (root / path).read_bytes(), file_table, tree_table)
+        return self.tables(file_table, tree_table)
+
+    def scans(self, path: str) -> bool:
+        """Whether the digest scan reads this path."""
+        return path.endswith(self.extensions) and path not in self.excluded
+
+    def record(
+        self, path: str, data: bytes, file_table: dict[str, list[str]], tree_table: dict[str, set[str]]
+    ) -> None:
+        """Add the primitives of one file to the scan tables."""
+        found = self.primitives_in(data, path)
+        if not found:
+            return
+        unit, granularity = self.unit_of(path, found)
+        if granularity == "file":
+            file_table[path] = found
+        else:
+            tree_table.setdefault(unit, set()).update(found)
+
+    @staticmethod
+    def tables(file_table: dict[str, list[str]], tree_table: dict[str, set[str]]) -> dict[str, Any]:
+        """Sorted scan tables."""
+        return {
+            "files": dict(sorted(file_table.items())),
+            "tree_units": {unit: sorted(found) for unit, found in sorted(tree_table.items())},
+        }
+
+
+# ---------------------------------------------------------------------------
+# Pinned values and commitment surfaces
+# ---------------------------------------------------------------------------
+
+
+def pinned_needles(pinned: dict[str, Any]) -> dict[str, list[bytes]]:
+    """Byte strings that carry a pinned value, by form name.
+
+    `words` are the 64-bit words of the value in order; the value's bytes are
+    the little-endian words concatenated. A file is a carrier when it holds the
+    first word as hexadecimal (either byte order, optionally grouped by `_`) or
+    as a decimal number, or the whole value as raw bytes, hexadecimal or base64
+    at any of the three byte alignments.
+    """
+    words = [int(word, 16) for word in pinned["words"]]
+    raw = b"".join(word.to_bytes(8, "little") for word in words)
+    first = f"{words[0]:016x}"
+    grouped = "_".join(first[index:index + 4] for index in range(0, 16, 4))
+    reversed_first = raw[:8].hex()
+    encoded = []
+    for pad in range(3):
+        for alphabet in (base64.b64encode, base64.urlsafe_b64encode):
+            text = alphabet(b"\0" * pad + raw).decode("ascii")
+            # Drop the characters that depend on neighbouring bytes.
+            encoded.append(text[(4 if pad else 0):-4].encode("ascii"))
+    return {
+        "word-hex": [form.encode("ascii") for form in (first, first.upper(), grouped, grouped.upper())],
+        "word-hex-reversed": [reversed_first.encode("ascii"), reversed_first.upper().encode("ascii")],
+        "word-decimal": [str(words[0]).encode("ascii")],
+        "bytes-hex": [raw.hex().encode("ascii"), raw.hex().upper().encode("ascii")],
+        "bytes-raw": [raw],
+        "bytes-base64": sorted(set(encoded)),
+    }
+
+
+def carrier_forms(data: bytes, needles: dict[str, list[bytes]]) -> list[str]:
+    """Names of the pinned-value forms a file holds."""
+    found = []
+    for form, values in needles.items():
+        if form == "word-decimal":
+            if any(_whole_number(data, value) for value in values):
+                found.append(form)
+        elif any(value in data for value in values):
+            found.append(form)
+    return found
+
+
+def _whole_number(data: bytes, digits: bytes) -> bool:
+    """Whether `digits` occurs in `data` without a digit on either side."""
+    position = data.find(digits)
+    while position >= 0:
+        end = position + len(digits)
+        before = data[position - 1:position] if position else b""
+        if not before.isdigit() and not data[end:end + 1].isdigit():
+            return True
+        position = data.find(digits, position + 1)
+    return False
+
+
+class Surface:
+    """Files that name the type of one commitment role."""
+
+    def __init__(self, surface: dict[str, Any]) -> None:
+        self.tokens = [_Finder(token, token) for token in surface["type_tokens"]]
+        self.extensions = tuple(surface["extensions"])
+        self.excluded = tuple(surface.get("exclude_prefixes", []))
+
+    def reads(self, path: str) -> bool:
+        """Whether the surface scan reads this path."""
+        return path.endswith(self.extensions) and not path.startswith(self.excluded)
+
+    def names(self, data: bytes) -> bool:
+        """Whether a type token occurs in a file's bytes."""
+        return any(token.occurs(data) for token in self.tokens)
+
+
+# ---------------------------------------------------------------------------
+# Producer ledger
+# ---------------------------------------------------------------------------
+
+
+class ProducerLedger:
+    """Functions of the declared scopes whose body calls a digest."""
+
+    def __init__(self, ledger: dict[str, Any]) -> None:
+        self.detectors = {
+            primitive: re.compile(pattern) for primitive, pattern in ledger["detectors"].items()
+        }
+        self.scopes = [(scope["crate"], tuple(scope["prefixes"])) for scope in ledger["scopes"]]
+
+    def crates(self) -> list[str]:
+        return sorted({crate for crate, _ in self.scopes})
+
+    def in_scope(self, path: str) -> bool:
+        return path.endswith(".rs") and any(path.startswith(prefixes) for _, prefixes in self.scopes)
+
+    def derive(self, root: Path, files: Sequence[str]) -> dict[str, Any]:
+        """Production producers per file, and counts of test-only and unreached ones."""
+        production: dict[str, dict[str, Any]] = {}
+        test_only: dict[str, int] = {}
+        unreached: list[str] = []
+        cache: dict[str, Optional[str]] = {}
+
+        def read(path: str) -> Optional[str]:
+            if path not in cache:
+                try:
+                    cache[path] = (root / path).read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    cache[path] = None
+            return cache[path]
+
+        for crate in self.crates():
+            members = [path for path in files if path.startswith(crate) and path.endswith(".rs")]
+            modules = rust_index.CrateModules(members, read)
+            for path in members:
+                if not self.in_scope(path):
+                    continue
+                source = read(path)
+                if source is None or not any(d.search(source) for d in self.detectors.values()):
+                    continue
+                status = modules.status(path)
+                constants = dict(_STRING_CONSTANT.findall(source))
+                masked = rust_index.mask(source)
+                functions = rust_index.functions(source, masked)
+                for function in functions:
+                    # A nested function is listed on its own; its text does not
+                    # make the enclosing function a producer.
+                    body = _own_body(source, function, functions)
+                    used = sorted(name for name, rx in self.detectors.items() if rx.search(body))
+                    if not used:
+                        continue
+                    if status == "unreached":
+                        if path not in unreached:
+                            unreached.append(path)
+                        continue
+                    if status != "production" or function.test_only():
+                        test_only[path] = test_only.get(path, 0) + 1
+                        continue
+                    entry = {
+                        "primitives": used,
+                        "domains": _domains(body, constants),
+                        "returns": function.returns,
+                    }
+                    name = function.qualified_name()
+                    listed = production.setdefault(path, {})
+                    # Two impl blocks of one type can hold functions of the same name.
+                    key, suffix = name, 2
+                    while key in listed:
+                        key, suffix = f"{name}#{suffix}", suffix + 1
+                    listed[key] = entry
+        return {
+            "production": dict(sorted(production.items())),
+            "test_only_counts": dict(sorted(test_only.items())),
+            "unreached_files": sorted(unreached),
+        }
+
+
+def _own_body(source: str, function: rust_index.Block, functions: Sequence[rust_index.Block]) -> str:
+    """Text of a function without the text of functions nested inside it."""
+    pieces, position = [], function.header_start
+    for nested in functions:
+        if nested is not function and function.body_start < nested.header_start and nested.end <= function.end:
+            if nested.header_start >= position:
+                pieces.append(source[position:nested.header_start])
+                position = nested.end
+    pieces.append(source[position:function.end])
+    return "".join(pieces)
+
+
+def _domains(body: str, constants: dict[str, str]) -> list[str]:
+    """Domain literals a function body names, as written in the source.
+
+    These are its inline byte-string literals and the string or byte-string
+    constants of its file that it names. Only printable literals of six to 160
+    characters are kept.
+    """
+    found = set(_INLINE_LITERAL.findall(body))
+    found |= {constants[name] for name in _CONSTANT_NAME.findall(body) if name in constants}
+    return sorted(literal for literal in found if _DOMAIN_LITERAL.match(literal))
+
+
+# ---------------------------------------------------------------------------
+# Candidate frame
+# ---------------------------------------------------------------------------
+
+
+def encode_candidate_frame(example: dict[str, Any], frame: dict[str, Any]) -> bytes:
+    """Encode one example with the layout and bounds the specification states.
+
+    Raises `ValueError` for an unknown layout entry or a value outside the
+    stated bounds.
+    """
+    bounds = frame["bounds"]
+    out = bytearray()
+    fields = [bytes.fromhex(field) for field in example["fields_hex"]]
+    for entry in sorted(frame["layout"], key=lambda item: item["order"]):
+        name, kind = entry["field"], entry["kind"]
+        tag = bytes([entry["tag"]]) if entry.get("tag") is not None else b""
+        if kind == "magic":
+            out += frame["magic_ascii"].encode("ascii") + b"\0"
+        elif kind == "bytes-u32-le":
+            data = example[name].encode("ascii")
+            if len(data) > bounds["domain_field_max_bytes"]:
+                raise ValueError(f"{name} exceeds the domain field bound")
+            out += tag + len(data).to_bytes(4, "little") + data
+        elif kind == "u64-le":
+            out += tag + int(example[name]).to_bytes(8, "little")
+        elif kind == "count-u32-le":
+            if len(fields) > bounds["payload_field_count_max"]:
+                raise ValueError("payload field count exceeds its bound")
+            out += tag + len(fields).to_bytes(4, "little")
+        elif kind == "each-bytes-u64-le":
+            for field in fields:
+                if len(field) > bounds["payload_field_max_bytes"]:
+                    raise ValueError("payload field exceeds its bound")
+                out += tag + len(field).to_bytes(8, "little") + field
+        else:
+            raise ValueError(f"unknown frame layout kind {kind!r}")
+    return bytes(out)
+
+
+def render_candidate_vectors(spec: dict[str, Any]) -> str:
+    """Render the candidate fixture with every digest column recomputed here."""
+    frame_spec = spec["canonical_native_commitment"]["frame"]
+    lines = [
+        "# Candidate canonical native commitment frame, version 1 (task H.1; frozen by H.2).",
+        "# Generated by `python3 scripts/check_zk_primitive_workloads.py --write-candidate-vectors`;",
+        "# the BLAKE3 column comes from scripts/zk_blake3_reference.py and the Rust tests recompute it.",
+        "# example <name> <algorithm> <catalog> <protocol> <profile> <role> <phase> <level> <index>",
+        "#   <counter> <field count> <fields...> <frame> <blake3-256> <blake2b-256> <shake256/48>",
+        "# Byte strings are hex; `-` is the empty string. Do not edit by hand.",
+    ]
+    for example in frame_spec["examples"]:
+        frame = encode_candidate_frame(example, frame_spec)
+        row = ["example", example["name"]]
+        row += [
+            example[name].encode("ascii").hex() or "-"
+            for name in ("algorithm", "catalog", "protocol", "profile", "role", "phase")
+        ]
+        row += [str(example[name]) for name in ("level", "index", "counter")]
+        row.append(str(len(example["fields_hex"])))
+        row += [field or "-" for field in example["fields_hex"]]
+        row += [
+            frame.hex(),
+            blake3_reference.blake3(frame).hex(),
+            hashlib.blake2b(frame, digest_size=32).hexdigest(),
+            hashlib.shake_256(frame).hexdigest(48),
+        ]
+        lines.append(" ".join(row))
+    return "\n".join(lines) + "\n"
+
+
+def rust_usize_constant(text: str, name: str) -> Optional[int]:
+    """Value of `const NAME: usize = <integer>;` in Rust source, or None."""
+    match = re.search(rf"\bconst\s+{re.escape(name)}\s*:\s*usize\s*=\s*([0-9_]+)\s*;", text)
+    return int(match.group(1).replace("_", "")) if match else None
+
+
+def label_grammar(root: Path) -> re.Pattern[str]:
+    """The public label grammar of the measurement crate, read from its source.
+
+    Raises `ValueError` when the source no longer has the expected shape.
+    """
+    text = read_text(root, LABEL_GRAMMAR_SOURCE)
+    bound = rust_usize_constant(text, "MAX_LABEL_BYTES")
+    body = re.search(
+        r"fn label_byte\(byte: u8\) -> bool \{\s*byte\.is_ascii_alphanumeric\(\)\s*\|\|\s*"
+        r"matches!\(byte,([^)]*)\)\s*\}",
+        text,
+    )
+    if bound is None or body is None:
+        raise ValueError(f"{LABEL_GRAMMAR_SOURCE}: the label grammar is not in its expected form")
+    extra = re.findall(r"b'(.)'", body.group(1))
+    if len(extra) != len(body.group(1).split("|")):
+        raise ValueError(f"{LABEL_GRAMMAR_SOURCE}: an unreadable label byte")
+    return re.compile("[A-Za-z0-9" + "".join(re.escape(char) for char in extra) + "]{1,%d}\\Z" % bound)
+
+
+# ---------------------------------------------------------------------------
+# Derived tables
+# ---------------------------------------------------------------------------
+
+
+def lock_packages(root: Path) -> list[dict[str, str]]:
+    """Packages of Cargo.lock as name, version and checksum."""
+    try:
+        text = (root / "Cargo.lock").read_text(encoding="utf-8")
+    except OSError:
+        return []
+    packages = []
+    for block in text.split("[[package]]")[1:]:
+        fields = dict(re.findall(r'^(name|version|checksum) = "([^"]*)"', block, re.M))
+        if "name" in fields:
+            packages.append(fields)
+    return packages
+
+
+def derive(root: Path, spec: dict[str, Any], files: Sequence[str]) -> dict[str, Any]:
+    """Every table the tree determines, from one read of each file."""
+    scanner = Scanner(spec)
+    roles = spec["digest_roles"]
+    needles = {
+        role["key"]: pinned_needles(role["pinned_value"]) for role in roles if role.get("pinned_value")
+    }
+    surfaces = {role["key"]: Surface(role["surface"]) for role in roles if role.get("surface")}
+    carriers: dict[str, dict[str, list[str]]] = {key: {} for key in needles}
+    type_files: dict[str, list[str]] = {key: [] for key in surfaces}
+    poseidon = spec["bn254_poseidon"]
+    helper_needles = poseidon["consumer_needles"]
+    owner = poseidon["owner_crate"]
+    own_paths = frozenset([spec_path_of(spec)] + spec["scan"].get("exclude_files", []))
+    file_table: dict[str, list[str]] = {}
+    tree_table: dict[str, set[str]] = {}
+    consumers: dict[str, list[str]] = {}
+    call_sites: list[str] = []
+    legacy: list[str] = []
+    oversized: list[str] = []
+    for path in files:
+        target = root / path
+        try:
+            if target.stat().st_size > MAX_FILE_BYTES:
+                oversized.append(path)
+                continue
+            data = target.read_bytes()
+        except OSError:
+            continue
+        if path not in own_paths:
+            for key, forms in needles.items():
+                found = carrier_forms(data, forms)
+                if found:
+                    carriers[key][path] = found
+            for key, surface in surfaces.items():
+                if surface.reads(path) and surface.names(data):
+                    type_files[key].append(path)
+        if not path.endswith(scanner.extensions):
+            continue
+        if scanner.scans(path):
+            scanner.record(path, data, file_table, tree_table)
+        text = data.decode("utf-8", "replace")
+        tooling = path.startswith("scripts/")
+        vendored = path.startswith("vendor/")
+        if not tooling and not path.startswith(owner):
+            found = sorted(needle for needle in helper_needles if needle in text)
+            if found:
+                consumers[path] = found
+        if not vendored and PQ_CALL_SITE.search(text):
+            call_sites.append(path)
+        if not vendored and not tooling and LEGACY_PQ_LABEL.search(text.lower()):
+            legacy.append(path)
+    pq_packages = sorted(
+        (
+            {key: package.get(key, "") for key in ("name", "version", "checksum")}
+            for package in lock_packages(root)
+            if PQ_PACKAGE.search(package["name"])
+        ),
+        key=lambda package: package["name"],
+    )
+    return {
+        "scan": scanner.tables(file_table, tree_table),
+        "oversized": sorted(oversized),
+        "carriers": {key: dict(sorted(found.items())) for key, found in carriers.items()},
+        "type_files": {key: sorted(found) for key, found in type_files.items()},
+        "producers": ProducerLedger(spec["producer_ledger"]).derive(root, files),
+        "bn254_consumers": dict(sorted(consumers.items())),
+        "pq_call_sites": sorted(call_sites),
+        "pq_legacy_label_files": sorted(legacy),
+        "pq_lock_packages": pq_packages,
+    }
+
+
+def spec_path_of(spec: dict[str, Any]) -> str:
+    """Repository path of the specification itself."""
+    return spec.get("artifact", DEFAULT_SPEC)
+
+
+def refreshed(spec: dict[str, Any], derived: dict[str, Any]) -> dict[str, Any]:
+    """Copy of the specification with every derived table replaced.
+
+    Role assignments of producers are kept; a producer that is new gets an
+    empty role, which the check rejects until a maintainer assigns one.
+    """
+    result = json.loads(json.dumps(spec))
+    result["scan"]["files"] = derived["scan"]["files"]
+    result["scan"]["tree_units"] = derived["scan"]["tree_units"]
+    result["scan"]["oversized_files"] = derived["oversized"]
+    for role in result["digest_roles"]:
+        if role.get("pinned_value"):
+            role["pinned_value"]["carriers"] = derived["carriers"][role["key"]]
+        if role.get("surface"):
+            role["surface"]["type_files"] = derived["type_files"][role["key"]]
+    ledger = result["producer_ledger"]
+    recorded = ledger.get("production", {})
+    production = {}
+    for path, functions in derived["producers"]["production"].items():
+        production[path] = {}
+        for name, facts in functions.items():
+            kept = recorded.get(path, {}).get(name, {})
+            production[path][name] = dict(facts, role=kept.get("role", ""))
+            if kept.get("role_note"):
+                production[path][name]["role_note"] = kept["role_note"]
+    ledger["production"] = production
+    ledger["test_only_counts"] = derived["producers"]["test_only_counts"]
+    ledger["unreached_files"] = derived["producers"]["unreached_files"]
+    result["bn254_poseidon"]["consumers"] = derived["bn254_consumers"]
+    result["post_quantum"]["call_sites"] = derived["pq_call_sites"]
+    result["post_quantum"]["legacy_labels"]["files"] = derived["pq_legacy_label_files"]
+    result["post_quantum"]["lock_packages"] = derived["pq_lock_packages"]
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Checks
+# ---------------------------------------------------------------------------
+
+
+class Report:
+    """Collected inconsistencies."""
+
+    def __init__(self) -> None:
+        self.errors: list[str] = []
+
+    def error(self, message: str) -> None:
+        self.errors.append(message)
+
+    def require(self, condition: bool, message: str) -> None:
+        if not condition:
+            self.error(message)
+
+
+def compile_status(text: str, symbol: str) -> Optional[str]:
+    """`production` or `test-only` for the item that holds `symbol` in a Rust file.
+
+    The answer is lexical: a test attribute on the item or on an enclosing
+    block. It does not see a `mod` declaration in another file. Returns None
+    when the symbol is absent.
+    """
+    offset = text.find(symbol)
+    if offset < 0:
+        return None
+    for block in rust_index.blocks(text):
+        if block.header_start <= offset < block.end and block.test_only():
+            return "test-only"
+    # A bodiless item (a constant or a type) carries its attribute directly above it.
+    line_start = text.rfind("\n", 0, offset) + 1
+    above = text[:line_start].rstrip().splitlines()
+    while above and above[-1].lstrip().startswith(("///", "#[")):
+        if rust_index.TEST_ATTRIBUTE.match(above[-1].strip()[2:-1]):
+            return "test-only"
+        above.pop()
+    return "production"
+
+
+def check_site(root: Path, report: Report, owner: str, site: dict[str, Any]) -> None:
+    """A site names an existing file that holds its symbol and literals."""
+    path = site.get("path", "")
+    if not path or not (root / path).is_file():
+        report.error(f"{owner}: path {path!r} does not exist")
+        return
+    text = read_text(root, path)
+    for needle in [site.get("symbol", "")] + list(site.get("literals", [])):
+        if not needle:
+            report.error(f"{owner}: {path} has an empty symbol or literal")
+        elif needle not in text:
+            report.error(f"{owner}: {path} no longer contains {needle!r}")
+    compiled = site.get("compiled")
+    if compiled is not None and site.get("symbol") and site["symbol"] in text:
+        if compiled not in ("production", "test-only"):
+            report.error(f"{owner}: {path} has an unknown compile status {compiled!r}")
+        elif compile_status(text, site["symbol"]) != compiled:
+            report.error(
+                f"{owner}: {path} {site['symbol']!r} is recorded as {compiled} but the source shows "
+                f"{compile_status(text, site['symbol'])}"
+            )
+
+
+def check_primitives(root: Path, spec: dict[str, Any], derived: dict[str, Any], report: Report) -> None:
+    seen = set()
+    used = {name for found in derived["scan"]["files"].values() for name in found}
+    used |= {name for found in derived["scan"]["tree_units"].values() for name in found}
+    for primitive in spec["digest_primitives"]:
+        name = primitive.get("id", "")
+        report.require(name not in seen, f"primitive {name!r} is listed twice")
+        seen.add(name)
+        for key in ("algorithm", "kind", "token", "output_bytes", "in_use"):
+            report.require(key in primitive, f"primitive {name}: `{key}` is missing")
+        report.require(primitive.get("kind") in PRIMITIVE_KINDS, f"primitive {name}: unknown kind")
+        report.require(
+            primitive.get("in_use") == (name in used),
+            f"primitive {name}: in_use is {primitive.get('in_use')} but the scan "
+            f"{'finds' if name in used else 'does not find'} it",
+        )
+        for owner in primitive.get("owners", []):
+            check_site(root, report, f"primitive {name}", owner)
+            report.require(
+                len(owner.get("symbol", "")) >= 8,
+                f"primitive {name}: owner symbol {owner.get('symbol')!r} is too short to anchor a definition",
+            )
+        if primitive.get("in_use"):
+            report.require(bool(primitive.get("owners")), f"primitive {name}: an owner site is required")
+        for wrapper in primitive.get("token", {}).get("wrappers", []):
+            report.require(bool(wrapper.get("owner")), f"primitive {name}: wrapper {wrapper.get('symbol')!r} has no owner site")
+            if wrapper.get("owner"):
+                check_site(root, report, f"primitive {name} wrapper", wrapper["owner"])
+
+
+def check_scan(spec: dict[str, Any], derived: dict[str, Any], report: Report) -> None:
+    recorded_files = spec["scan"]["files"]
+    fresh_files = derived["scan"]["files"]
+    for path in sorted(set(recorded_files) | set(fresh_files)):
+        recorded, fresh = recorded_files.get(path), fresh_files.get(path)
+        if recorded is None:
+            report.error(f"scan: {path} uses {fresh} and is not listed")
+        elif fresh is None:
+            report.error(f"scan: {path} is listed with {recorded} but names no primitive now")
+        elif recorded != fresh:
+            report.error(f"scan: {path} is listed with {recorded} but uses {fresh}")
+    recorded_units = spec["scan"]["tree_units"]
+    fresh_units = derived["scan"]["tree_units"]
+    for unit in sorted(set(recorded_units) | set(fresh_units)):
+        recorded, fresh = recorded_units.get(unit), fresh_units.get(unit)
+        if recorded != fresh:
+            report.error(f"scan: tree unit {unit} is listed with {recorded} but uses {fresh}")
+    report.require(
+        spec["scan"].get("oversized_files", []) == derived["oversized"],
+        f"scan: files above {MAX_FILE_BYTES} bytes are not read and must be listed: {derived['oversized']}",
+    )
+
+
+def check_consumers(spec: dict[str, Any], derived: dict[str, Any], report: Report) -> None:
+    scanner = Scanner(spec)
+    consumers = spec["consumers"]
+    roles = {role["key"]: role for role in spec["digest_roles"]}
+    found: dict[tuple[str, str], str] = {}
+    for path, primitives in derived["scan"]["files"].items():
+        consumer = scanner.consumer_of(path)
+        if consumer is None:
+            report.error(f"scan: {path} matches no consumer rule")
+            continue
+        for primitive in primitives:
+            found.setdefault((consumer, primitive), path)
+    declared = set()
+    for key, consumer in consumers.items():
+        report.require(bool(ROLE_KEY.match(key)), f"consumer {key!r}: key is not a stable key")
+        report.require(bool(consumer.get("description")), f"consumer {key}: description is missing")
+        for primitive, use in consumer.get("uses", {}).items():
+            declared.add((key, primitive))
+            owner = f"consumer {key} / {primitive}"
+            report.require(use.get("class") in USE_CLASSES, f"{owner}: unknown class")
+            report.require(bool(use.get("note")), f"{owner}: note is missing")
+            for role_key in use.get("roles", []):
+                report.require(role_key in roles, f"{owner}: role {role_key!r} does not exist")
+            if use.get("class") == "role":
+                # A use classified as a role names at least one role of that primitive;
+                # further keys are cross-references.
+                report.require(
+                    any(
+                        roles.get(role_key, {}).get("primitive") == primitive
+                        for role_key in use.get("roles", [])
+                    ),
+                    f"{owner}: class `role` needs a role whose primitive is {primitive}",
+                )
+    for (consumer, primitive), path in sorted(found.items()):
+        if consumer not in consumers:
+            report.error(f"scan: consumer {consumer!r} (first file {path}) is not described")
+        elif (consumer, primitive) not in declared:
+            report.error(
+                f"consumer {consumer}: use of {primitive} (first file {path}) is not classified"
+            )
+    for consumer, primitive in sorted(declared - set(found)):
+        report.error(f"consumer {consumer}: classified use of {primitive} no longer occurs")
+    for role in spec["digest_roles"]:
+        pair = (role.get("consumer"), role.get("primitive"))
+        if pair[0] in consumers:
+            use = consumers[pair[0]].get("uses", {}).get(pair[1])
+            report.require(
+                use is not None and role.get("key") in use.get("roles", []),
+                f"role {role.get('key')}: consumer {pair[0]} does not list it under its use of {pair[1]}",
+            )
+
+
+def check_roles(root: Path, spec: dict[str, Any], derived: dict[str, Any], report: Report) -> None:
+    primitives = {primitive["id"]: primitive for primitive in spec["digest_primitives"]}
+    seen = set()
+    for role in spec["digest_roles"]:
+        key = role.get("key", "")
+        owner = f"role {key}"
+        report.require(bool(ROLE_KEY.match(key)), f"{owner}: key is not a stable key")
+        report.require(key not in seen, f"{owner}: listed twice")
+        seen.add(key)
+        for field in ("consumer", "role", "family", "primitive", "output_bytes", "domain_separation"):
+            report.require(bool(role.get(field)), f"{owner}: `{field}` is missing")
+        report.require(role.get("consumer") in spec["consumers"], f"{owner}: unknown consumer")
+        family = role.get("family")
+        report.require(family in ROLE_FAMILIES, f"{owner}: unknown family {family!r}")
+        primitive = primitives.get(role.get("primitive"))
+        if primitive is None:
+            report.error(f"{owner}: unknown primitive {role.get('primitive')!r}")
+        else:
+            if role.get("output_bytes") not in primitive["output_bytes"]:
+                report.error(
+                    f"{owner}: output of {role.get('output_bytes')} bytes is not one of "
+                    f"{primitive['output_bytes']} for {primitive['id']}"
+                )
+            if family in ROLE_FAMILIES and primitive.get("kind") not in ROLE_FAMILIES[family]:
+                report.error(
+                    f"{owner}: family {family} cannot be served by a primitive of kind {primitive.get('kind')}"
+                )
+        report.require(bool(role.get("sites")), f"{owner}: at least one site is required")
+        for site in role.get("sites", []):
+            check_site(root, report, owner, site)
+        native = role.get("canonical_native", {})
+        decision = native.get("decision")
+        if decision not in NATIVE_DECISIONS:
+            report.error(f"{owner}: canonical_native.decision is invalid")
+        elif family in ROLE_FAMILIES and family not in NATIVE_DECISIONS[decision]:
+            report.error(f"{owner}: decision {decision} does not apply to a role of family {family}")
+        report.require(bool(native.get("note")), f"{owner}: canonical_native.note is missing")
+        check_seed(root, report, owner, native)
+        pinned = role.get("pinned_value")
+        if pinned:
+            fresh = derived["carriers"].get(key, {})
+            if pinned.get("carriers") != fresh:
+                missing = sorted(set(fresh) - set(pinned.get("carriers", {})))
+                stale = sorted(set(pinned.get("carriers", {})) - set(fresh))
+                changed = sorted(
+                    path for path in set(fresh) & set(pinned.get("carriers", {}))
+                    if fresh[path] != pinned["carriers"][path]
+                )
+                report.error(
+                    f"{owner}: pinned-value carriers differ (unlisted {missing}, stale {stale}, "
+                    f"changed forms {changed})"
+                )
+        if decision in ("changes", "changes-with-profile", "provisional"):
+            report.require(bool(role.get("surface")), f"{owner}: a changing role needs its `surface`")
+        if role.get("surface"):
+            check_surface(root, report, owner, role, derived["type_files"].get(key, []))
+
+
+def check_seed(root: Path, report: Report, owner: str, native: dict[str, Any]) -> None:
+    """A role that moves to the candidate records whether it binds proof internals."""
+    decision = native.get("decision")
+    seed = native.get("transcript_seed_check")
+    if decision not in MOVING_DECISIONS:
+        return
+    if not isinstance(seed, dict) or not isinstance(seed.get("binds_proof_internals"), bool):
+        report.error(f"{owner}: a role that moves to the candidate needs `transcript_seed_check`")
+        return
+    report.require(bool(seed.get("finding")), f"{owner}: transcript_seed_check.finding is missing")
+    report.require(bool(seed.get("sites")), f"{owner}: transcript_seed_check needs evidence sites")
+    for site in seed.get("sites", []):
+        check_site(root, report, f"{owner} transcript-seed evidence", site)
+    binds = seed["binds_proof_internals"]
+    if decision == "changes" and binds:
+        report.error(
+            f"{owner}: the value binds proof internals, so it changes only with the proof profile "
+            "(`changes-with-profile`)"
+        )
+    if decision == "changes-with-profile" and not binds:
+        report.error(f"{owner}: `changes-with-profile` needs a value that binds proof internals")
+    if binds and decision in ("provisional", "already-blake3"):
+        report.require(
+            bool(seed.get("coordination")),
+            f"{owner}: a value that binds proof internals names the profile it changes with",
+        )
+
+
+def check_surface(root: Path, report: Report, owner: str, role: dict[str, Any], fresh: list[str]) -> None:
+    """Type owners, SDK owners and generated fixtures of a commitment role."""
+    surface = role["surface"]
+    listed = surface.get("type_files", [])
+    if listed != fresh:
+        report.error(
+            f"{owner}: files that name the commitment type differ (unlisted "
+            f"{sorted(set(fresh) - set(listed))}, stale {sorted(set(listed) - set(fresh))})"
+        )
+    carriers = set(role.get("pinned_value", {}).get("carriers", {}))
+    known = set(fresh) | carriers
+    owners = surface.get("sdk_owners", [])
+    for site in owners:
+        check_site(root, report, f"{owner} SDK owner", site)
+        sdk = site.get("sdk")
+        report.require(sdk in SDKS, f"{owner}: SDK owner names an unknown SDK {sdk!r}")
+        report.require(
+            site.get("path") in known,
+            f"{owner}: SDK owner {site.get('path')} neither names the type nor carries the value",
+        )
+        if sdk in SDK_PATH_ROOTS:
+            report.require(
+                str(site.get("path", "")).startswith(SDK_PATH_ROOTS[sdk]),
+                f"{owner}: SDK owner {site.get('path')} is outside the {sdk} tree",
+            )
+    owned = {site.get("sdk") for site in owners}
+    absent = surface.get("sdks_without_owner", {})
+    for sdk in SDKS:
+        if sdk in owned:
+            report.require(sdk not in absent, f"{owner}: SDK {sdk} has an owner and a reason for having none")
+            continue
+        report.require(bool(absent.get(sdk)), f"{owner}: SDK {sdk} has neither an owner nor a recorded reason")
+        roots = SDK_PATH_ROOTS.get(sdk, ())
+        strays = sorted(path for path in known if roots and path.startswith(roots))
+        report.require(
+            not strays, f"{owner}: SDK {sdk} is recorded without an owner but {strays} name or carry the value"
+        )
+    for fixture in surface.get("fixtures", []):
+        check_site(root, report, f"{owner} fixture", {"path": fixture.get("path", ""), "symbol": fixture.get("contains", "")})
+        report.require(
+            fixture.get("path") in known,
+            f"{owner}: fixture {fixture.get('path')} neither names the type nor carries the value",
+        )
+        generator = fixture.get("generator")
+        report.require(bool(generator), f"{owner}: fixture {fixture.get('path')} names no generator")
+        if generator:
+            check_site(root, report, f"{owner} fixture generator", generator)
+
+
+def check_producers(spec: dict[str, Any], derived: dict[str, Any], report: Report) -> None:
+    """Every production digest call of a ledger scope is listed with a role."""
+    ledger = spec["producer_ledger"]
+    roles = {role["key"]: role for role in spec["digest_roles"]}
+    recorded = ledger.get("production", {})
+    fresh = derived["producers"]["production"]
+    for path in sorted(set(recorded) | set(fresh)):
+        listed, found = recorded.get(path, {}), fresh.get(path, {})
+        for name in sorted(set(listed) | set(found)):
+            owner = f"producer {path} {name}"
+            if name not in listed:
+                report.error(f"{owner}: calls {found[name]['primitives']} and is not listed")
+                continue
+            if name not in found:
+                report.error(f"{owner}: is listed but no longer calls a digest in production")
+                continue
+            entry = listed[name]
+            for field in ("primitives", "domains", "returns"):
+                if entry.get(field) != found[name][field]:
+                    report.error(f"{owner}: recorded {field} {entry.get(field)!r} differ from {found[name][field]!r}")
+            role = roles.get(entry.get("role"))
+            if role is None:
+                report.error(f"{owner}: role {entry.get('role')!r} does not exist")
+            elif role["primitive"] not in entry.get("primitives", []) and not entry.get("role_note"):
+                report.error(
+                    f"{owner}: role {role['key']} is of primitive {role['primitive']}, which the "
+                    "function does not call; record a `role_note` if it only reaches it"
+                )
+    for field, key in (("test_only_counts", "test_only_counts"), ("unreached_files", "unreached_files")):
+        report.require(
+            ledger.get(field) == derived["producers"][key],
+            f"producer ledger: `{field}` differs from the tree",
+        )
+    assigned = {entry.get("role") for functions in recorded.values() for entry in functions.values()}
+    for consumer in REQUIRED_CONSUMERS:
+        report.require(
+            any(roles[key]["consumer"] == consumer for key in assigned if key in roles),
+            f"producer ledger: no production producer is assigned to a role of consumer {consumer}",
+        )
+
+
+def check_canonical(root: Path, spec: dict[str, Any], report: Report) -> None:
+    candidate = spec["canonical_native_commitment"]
+    roles = {role["key"]: role for role in spec["digest_roles"]}
+    for field in ("candidate", "status", "decision_rule", "security_rationale", "cost_rationale"):
+        report.require(bool(candidate.get(field)), f"canonical native commitment: `{field}` is missing")
+    for list_name, decisions in (
+        ("consumers_that_change", ("changes", "changes-with-profile")),
+        ("provisional", ("provisional",)),
+        ("already_blake3", ("already-blake3",)),
+    ):
+        listed = [entry["role"] for entry in candidate.get(list_name, [])]
+        expected = sorted(
+            key for key, role in roles.items() if role["canonical_native"]["decision"] in decisions
+        )
+        report.require(
+            sorted(listed) == expected,
+            f"canonical native commitment: {list_name} {sorted(listed)} differs from the roles "
+            f"marked `{'` or `'.join(decisions)}` {expected}",
+        )
+        for entry in candidate.get(list_name, []):
+            report.require(bool(entry.get("change")), f"{list_name} {entry.get('role')}: `change` is missing")
+            seed = roles.get(entry.get("role"), {}).get("canonical_native", {}).get("transcript_seed_check", {})
+            if seed.get("binds_proof_internals"):
+                report.require(
+                    bool(entry.get("coordination")),
+                    f"{list_name} {entry.get('role')}: the role binds proof internals, so its entry names "
+                    "what it changes with",
+                )
+    families = candidate.get("distinct_families_retained", [])
+    report.require(bool(families), "canonical native commitment: retained families are missing")
+    retained = set()
+    for family in families:
+        for key in family.get("roles", []):
+            role = roles.get(key)
+            retained.add(key)
+            if role is None:
+                report.error(f"retained family {family.get('id')}: role {key!r} does not exist")
+            elif role["canonical_native"]["decision"] in MOVING_DECISIONS:
+                report.error(f"retained family {family.get('id')}: role {key} is marked as changing")
+        report.require(bool(family.get("reason")), f"retained family {family.get('id')}: reason is missing")
+    for key, role in roles.items():
+        if role["canonical_native"]["decision"] not in MOVING_DECISIONS:
+            report.require(key in retained, f"canonical native commitment: role {key} is in no retained family")
+    readings = candidate.get("consumer_readings", {})
+    for consumer in REQUIRED_CONSUMERS:
+        moving = [
+            key for key, role in roles.items()
+            if role["consumer"] == consumer and role["canonical_native"]["decision"] in MOVING_DECISIONS
+        ]
+        report.require(bool(moving), f"canonical native commitment: no role of consumer {consumer} moves to the candidate")
+        reading = readings.get(consumer, {})
+        report.require(bool(reading.get("reading")), f"canonical native commitment: consumer {consumer} has no recorded reading")
+        report.require(
+            sorted(reading.get("roles", [])) == sorted(moving),
+            f"canonical native commitment: reading of {consumer} lists {sorted(reading.get('roles', []))}, "
+            f"its moving roles are {sorted(moving)}",
+        )
+    check_frame(root, candidate.get("frame", {}), report)
+    for measurement in candidate.get("exploratory_measurements", []):
+        check_exploratory(measurement, "canonical native commitment", report)
+
+
+def check_frame(root: Path, frame: dict[str, Any], report: Report) -> None:
+    """The frame the specification states is the pinned one and matches the vectors."""
+    layout = tuple(
+        (entry.get("field"), entry.get("tag"), entry.get("kind"))
+        for entry in sorted(frame.get("layout", []), key=lambda item: item.get("order", 0))
+    )
+    if layout != FRAME_LAYOUT_V1:
+        report.error("candidate frame: the layout differs from frame version 1")
+        return
+    orders = [entry.get("order") for entry in frame.get("layout", [])]
+    report.require(sorted(orders) == list(range(1, len(orders) + 1)), "candidate frame: layout order is not a sequence")
+    report.require(frame.get("version") == 1, "candidate frame: version differs")
+    report.require(len(frame.get("semantics", [])) >= 5, "candidate frame: semantics are missing")
+    names = [example.get("name") for example in frame.get("examples", [])]
+    report.require(len(names) == len(set(names)) and len(names) >= 8, "candidate frame: examples are missing or repeated")
+    fixture = frame.get("vectors", "")
+    reference = frame.get("reference_encoder_test", "")
+    try:
+        existing = read_text(root, fixture)
+        rust = read_text(root, reference)
+    except OSError as error:
+        report.error(f"candidate frame: {error}")
+        return
+    bounds = frame.get("bounds", {})
+    for field, constant in FRAME_BOUND_CONSTANTS.items():
+        report.require(
+            bounds.get(field) == rust_usize_constant(rust, constant),
+            f"candidate frame: bound {field} differs from {constant} in {reference}",
+        )
+    report.require(
+        bounds.get("payload_field_max_bytes") == 2**32 - 1 and "u32::try_from(field.len())" in rust,
+        f"candidate frame: the payload field bound differs from the u32 check in {reference}",
+    )
+    magic = f'b"{frame.get("magic_ascii", "")}\\0"'
+    report.require(magic in rust, f"candidate frame: magic differs from {reference}")
+    try:
+        rendered = render_candidate_vectors({"canonical_native_commitment": {"frame": frame}})
+        frames = {
+            example["name"]: encode_candidate_frame(example, frame) for example in frame.get("examples", [])
+        }
+    except (AttributeError, KeyError, TypeError, ValueError) as error:
+        report.error(f"candidate frame: an example cannot be encoded: {error}")
+        return
+    if existing != rendered:
+        report.error(f"candidate frame: {fixture} differs from the frame the specification describes")
+    for left, right in FRAME_DISTINCT_EXAMPLES:
+        if left not in frames or right not in frames:
+            report.error(f"candidate frame: examples {left} and {right} are required")
+        elif frames[left] == frames[right]:
+            report.error(f"candidate frame: examples {left} and {right} encode to the same frame")
+    for error in blake3_reference.self_check():
+        report.error(f"candidate frame: {error}")
+
+
+def check_exploratory(measurement: dict[str, Any], owner: str, report: Report) -> None:
+    """A recorded measurement is labelled exploratory and never a qualification."""
+    report.require(measurement.get("label") == "exploratory", f"{owner}: a measurement is not labelled exploratory")
+    report.require(measurement.get("qualification") is False, f"{owner}: a measurement claims qualification")
+    for field in ("source_commit", "hardware", "command", "conditions", "results"):
+        report.require(bool(measurement.get(field)), f"{owner}: measurement `{field}` is missing")
+
+
+def check_poseidon(root: Path, spec: dict[str, Any], derived: dict[str, Any], report: Report) -> None:
+    section = spec["bn254_poseidon"]
+    try:
+        fresh = poseidon_reference.build_report(root)
+        fixture = poseidon_reference.render_vector_fixture(fresh["vectors"])
+    except (OSError, ValueError) as error:
+        report.error(f"BN254 Poseidon: {error}")
+        return
+    if read_text(root, poseidon_reference.VECTOR_FIXTURE) != fixture:
+        report.error(f"BN254 Poseidon: {poseidon_reference.VECTOR_FIXTURE} differs from the regenerated vectors")
+    fresh.pop("vectors")
+    report.require(
+        section.get("regeneration") == fresh,
+        "BN254 Poseidon: recorded regeneration facts differ from the recomputed ones",
+    )
+    report.require(
+        section.get("consumers") == derived["bn254_consumers"],
+        "BN254 Poseidon: helper consumers differ from the scan "
+        f"(unlisted {sorted(set(derived['bn254_consumers']) - set(section.get('consumers', {})))}, "
+        f"stale {sorted(set(section.get('consumers', {})) - set(derived['bn254_consumers']))})",
+    )
+    for site in section.get("sites", []):
+        check_site(root, report, "BN254 Poseidon", site)
+    defects = {defect["id"]: defect for defect in section.get("defects", [])}
+    widths = fresh["widths"]
+    expectations = {
+        "BN254-POSEIDON-D1": fresh["published_width3"]["partial_rounds"]
+        != widths["3"]["repository_partial_rounds"],
+        "BN254-POSEIDON-D2": not widths["6"]["repository_meets_margin_rule"],
+    }
+    for identifier, present in expectations.items():
+        report.require(
+            (identifier in defects) == present,
+            f"BN254 Poseidon: defect {identifier} is {'missing' if present else 'recorded but no longer holds'}",
+        )
+    # D3 is a property of the helper modes, anchored on their source.
+    mode = defects.get("BN254-POSEIDON-D3", {})
+    report.require(bool(mode), "BN254 Poseidon: defect BN254-POSEIDON-D3 is missing")
+    report.require(bool(mode.get("sites")), "BN254-POSEIDON-D3: the helper sites that show the mode are missing")
+    for site in mode.get("sites", []):
+        check_site(root, report, "BN254-POSEIDON-D3", site)
+    for identifier, defect in defects.items():
+        for field in ("title", "class", "evidence", "consumer_needles", "owner_task"):
+            report.require(bool(defect.get(field)), f"{identifier}: `{field}` is missing")
+        report.require(
+            set(defect.get("consumer_needles", [])) <= set(section["consumer_needles"]),
+            f"{identifier}: a consumer needle is not scanned",
+        )
+        report.require(defect.get("owner_task") == "F.5", f"{identifier}: parameter changes belong to F.5")
+
+
+def check_post_quantum(root: Path, spec: dict[str, Any], derived: dict[str, Any], files: Sequence[str], report: Report) -> None:
+    section = spec["post_quantum"]
+    report.require(
+        section.get("lock_packages") == derived["pq_lock_packages"],
+        f"post-quantum: Cargo.lock packages {derived['pq_lock_packages']} differ from the recorded ones",
+    )
+    for package in lock_packages(root):
+        if SUPERSEDED_PQ_PACKAGES.search(package["name"]):
+            report.error(f"post-quantum: Cargo.lock holds superseded package {package['name']}")
+    report.require(
+        section.get("call_sites") == derived["pq_call_sites"],
+        "post-quantum: call sites differ from the scan "
+        f"(unlisted {sorted(set(derived['pq_call_sites']) - set(section.get('call_sites', [])))}, "
+        f"stale {sorted(set(section.get('call_sites', [])) - set(derived['pq_call_sites']))})",
+    )
+    legacy = section.get("legacy_labels", {})
+    report.require(
+        legacy.get("files") == derived["pq_legacy_label_files"],
+        "post-quantum: files with a superseded algorithm label differ from the scan "
+        f"(unlisted {sorted(set(derived['pq_legacy_label_files']) - set(legacy.get('files', [])))}, "
+        f"stale {sorted(set(legacy.get('files', [])) - set(derived['pq_legacy_label_files']))})",
+    )
+    for site in legacy.get("wire_visible", []):
+        check_site(root, report, "post-quantum legacy label", site)
+        report.require(bool(site.get("replacement_changes")), f"legacy label {site.get('symbol')}: wire change is missing")
+    for error in pq_reference.check_fixtures(root):
+        report.error(f"post-quantum: {error}")
+    recorded = {entry["id"]: entry for entry in section.get("parameter_sets", [])}
+    for suite, digest in pq_reference.OFFICIAL_NISTKAT_SHA256.items():
+        entry = recorded.get(suite)
+        if entry is None:
+            report.error(f"post-quantum: parameter set {suite} is not recorded")
+            continue
+        report.require(entry.get("official_nistkat_sha256") == digest, f"post-quantum: {suite} digest differs")
+        report.require(entry.get("response") == pq_reference.response_path(suite), f"post-quantum: {suite} response path differs")
+        report.require(
+            tuple(entry.get("encoded_bytes", {}).values()) == pq_reference.FIPS_LENGTHS[suite],
+            f"post-quantum: {suite} encoded lengths differ from the FIPS lengths",
+        )
+        pinned = entry.get("rust_pin", {})
+        check_site(root, report, f"post-quantum {suite} Rust pin", {"path": pinned.get("path", ""), "symbol": digest})
+    for test in section.get("tests", []):
+        check_site(root, report, "post-quantum test", {"path": test["path"], "symbol": f"fn {test['name']}("})
+    for path in files:
+        if path.startswith(SDK_ROOTS) and SDK_MANIFEST.search(path):
+            match = SDK_PQ_LIBRARY.search(read_text(root, path))
+            if match and path not in section.get("sdk_manifests_with_pq_library", []):
+                report.error(f"post-quantum: SDK manifest {path} names {match.group(0)!r}")
+    for site in section.get("jvm_bouncycastle", {}).get("manifests", []):
+        check_site(root, report, "post-quantum BouncyCastle manifest", site)
+    for path in files:
+        if path.startswith(SDK_ROOTS) and path.endswith(JVM_SOURCE):
+            match = BOUNCYCASTLE_PQ.search(read_text(root, path))
+            if match:
+                report.error(
+                    f"post-quantum: {path} uses the BouncyCastle post-quantum class {match.group(0)!r}"
+                )
+    findings = {finding.get("id"): finding for finding in section.get("findings", [])}
+    for identifier in REQUIRED_PQ_FINDINGS:
+        report.require(identifier in findings, f"post-quantum: finding {identifier} is missing")
+    for finding in section.get("findings", []):
+        for field in ("id", "title", "class", "evidence", "owner_task"):
+            report.require(bool(finding.get(field)), f"post-quantum finding {finding.get('id')}: `{field}` is missing")
+        for site in finding.get("sites", []):
+            check_site(root, report, f"post-quantum finding {finding.get('id')}", site)
+    for site in section.get("in_tree_implementations", []):
+        check_site(root, report, "post-quantum in-tree implementation", site)
+        report.require(bool(site.get("finding")), f"in-tree implementation {site.get('path')}: finding id is missing")
+        report.require(site.get("finding") in findings, f"in-tree implementation {site.get('path')}: unknown finding")
+
+
+def check_workloads(root: Path, spec: dict[str, Any], report: Report) -> None:
+    section = spec["workloads"]
+    inventory_path = section.get("backend_inventory", "")
+    try:
+        inventory = json.loads(read_text(root, inventory_path))
+        known = {entry["id"] for entry in inventory["consumers"]}
+        known |= {entry["id"] for entry in inventory["distinct_families"]}
+        known |= {entry["id"] for entry in inventory["roles_without_an_engine"]}
+    except (OSError, ValueError, KeyError) as error:
+        report.error(f"workloads: backend inventory {inventory_path!r}: {error}")
+        known = set()
+    try:
+        label = label_grammar(root)
+    except (OSError, ValueError) as error:
+        report.error(f"workloads: {error}")
+        return
+    report.require(section.get("label") == "exploratory", "workloads: the section is not labelled exploratory")
+    report.require(bool(section.get("final_measurement_task") == "H.3"), "workloads: final measurement belongs to H.3")
+    wg = section.get("state_candidates", {})
+    report.require(wg.get("owner_task") == "G.2", "workloads: State candidate measurement belongs to G.2")
+    kinds = section.get("kinds", {})
+    report.require(bool(kinds) and "state" not in kinds, "workloads: the workload kinds are missing or include State")
+    primitives = {primitive["id"] for primitive in spec["digest_primitives"]}
+    roles = {role["key"] for role in spec["digest_roles"]}
+    seen = set()
+    covered = set()
+    for workload in section.get("definitions", []):
+        identifier = workload.get("id", "")
+        owner = f"workload {identifier}"
+        report.require(bool(label.match(identifier)), f"{owner}: id is outside the measurement label grammar")
+        report.require(identifier not in seen, f"{owner}: listed twice")
+        seen.add(identifier)
+        report.require(workload.get("label") == "exploratory", f"{owner}: not labelled exploratory")
+        report.require(
+            workload.get("kind") in kinds,
+            f"{owner}: kind {workload.get('kind')!r} is not a workload kind of this file; State candidates belong to G.2",
+        )
+        for field in ("kind", "question", "shapes", "measured", "phases", "flow"):
+            report.require(bool(workload.get(field)), f"{owner}: `{field}` is missing")
+        report.require(
+            not STATE_WORKLOAD.search(f"{identifier} {workload.get('question', '')}"),
+            f"{owner}: State tree and hash candidates are measured by G.2, not defined here",
+        )
+        for phase in workload.get("phases", []):
+            report.require(bool(label.match(phase)), f"{owner}: phase {phase!r} is outside the label grammar")
+        for consumer in workload.get("backend_consumers", []):
+            covered.add(consumer)
+            report.require(consumer in known, f"{owner}: backend consumer {consumer!r} is not in {inventory_path}")
+        for primitive in workload.get("primitives", []):
+            report.require(primitive in primitives, f"{owner}: unknown primitive {primitive!r}")
+        for role in workload.get("roles", []):
+            report.require(role in roles, f"{owner}: unknown role {role!r}")
+        for measurement in workload.get("exploratory_measurements", []):
+            check_exploratory(measurement, owner, report)
+    report.require(
+        known <= covered,
+        f"workloads: no workload for backend consumers {sorted(known - covered)}",
+    )
+    harness = section.get("harness", {})
+    check_site(root, report, "workloads harness", harness)
+
+
+def check_transcript(root: Path, spec: dict[str, Any], report: Report) -> None:
+    section = spec["shared_transcript_requirements"]
+    report.require(section.get("consumed_by") == "H.2", "transcript requirements: the consumer is H.2")
+    order = [entry.get("order") for entry in section.get("binding_order", [])]
+    report.require(order == list(range(1, len(order) + 1)) and len(order) >= 7, "transcript requirements: binding order is not a complete sequence")
+    for entry in section.get("binding_order", []):
+        report.require(bool(entry.get("binds")) and bool(entry.get("before")), f"transcript requirement {entry.get('order')}: `binds` or `before` is missing")
+    for field in ("framing", "grinding", "security_claims", "candidate"):
+        report.require(bool(section.get(field)), f"transcript requirements: `{field}` is missing")
+    claims = section.get("security_claims", {})
+    for model in ("classical_rom", "qrom"):
+        report.require(bool(claims.get(model)), f"transcript requirements: the {model} claim is missing")
+    listed: dict[str, dict[str, Any]] = {}
+    for site in section.get("current_implementations", []):
+        check_site(root, report, "transcript implementation", site)
+        report.require(bool(site.get("engine")), f"transcript implementation {site.get('path')}: engine is missing")
+        report.require(site.get("engine") not in listed, f"transcript implementation {site.get('engine')}: listed twice")
+        listed[site.get("engine")] = site
+    inventory_path = section.get("engine_inventory", "")
+    try:
+        engines = {
+            entry["id"]: bool(entry.get("components", {}).get("transcript"))
+            for entry in json.loads(read_text(root, inventory_path))["engines"]
+        }
+    except (OSError, ValueError, KeyError) as error:
+        report.error(f"transcript requirements: engine inventory {inventory_path!r}: {error}")
+        return
+    report.require(
+        set(listed) == set(engines),
+        f"transcript requirements: engines {sorted(listed)} differ from those of {inventory_path} {sorted(engines)}",
+    )
+    for engine, own in engines.items():
+        site = listed.get(engine)
+        if site is not None:
+            report.require(
+                site.get("own_transcript") is own,
+                f"transcript implementation {engine}: own_transcript is {site.get('own_transcript')} but "
+                f"{inventory_path} {'records' if own else 'does not record'} a transcript component",
+            )
+
+
+def check(
+    root: Path,
+    spec: dict[str, Any],
+    files: Sequence[str] | None = None,
+    derived: dict[str, Any] | None = None,
+) -> list[str]:
+    """Return every inconsistency between the specification and the tree.
+
+    `files` and `derived` let a caller that already listed and scanned the tree
+    reuse those tables; they must come from the same tree and scan rules.
+    """
+    report = Report()
+    report.require(spec.get("schema_version") == SCHEMA_VERSION, "schema_version differs")
+    report.require(spec.get("scope") == SCOPE, "scope statement differs")
+    report.require(spec.get("task") == "H.1", "task differs")
+    for section in (
+        "digest_primitives", "digest_roles", "consumers", "scan", "producer_ledger",
+        "canonical_native_commitment", "bn254_poseidon", "post_quantum", "workloads",
+        "shared_transcript_requirements",
+    ):  # fmt: skip
+        if section not in spec:
+            report.error(f"section `{section}` is missing")
+    if report.errors:
+        return report.errors
+    if files is None:
+        files = tree_files(root)
+    if derived is None:
+        derived = derive(root, spec, files)
+    check_primitives(root, spec, derived, report)
+    check_scan(spec, derived, report)
+    check_consumers(spec, derived, report)
+    check_roles(root, spec, derived, report)
+    check_producers(spec, derived, report)
+    check_canonical(root, spec, report)
+    check_poseidon(root, spec, derived, report)
+    check_post_quantum(root, spec, derived, files, report)
+    check_workloads(root, spec, report)
+    check_transcript(root, spec, report)
+    return report.errors
+
+
+def _encode(value: Any, depth: int) -> str:
+    """JSON text with one-space indentation and lists of scalars on one line."""
+    if isinstance(value, dict) and value:
+        pad = " " * (depth + 1)
+        items = [
+            f"{pad}{json.dumps(key, ensure_ascii=False)}: {_encode(item, depth + 1)}"
+            for key, item in value.items()
+        ]
+        return "{\n" + ",\n".join(items) + "\n" + " " * depth + "}"
+    if isinstance(value, list) and any(isinstance(item, (dict, list)) for item in value):
+        pad = " " * (depth + 1)
+        return (
+            "[\n"
+            + ",\n".join(pad + _encode(item, depth + 1) for item in value)
+            + "\n"
+            + " " * depth
+            + "]"
+        )
+    return json.dumps(value, ensure_ascii=False)
+
+
+def dump(spec: dict[str, Any]) -> str:
+    """Canonical text of the specification."""
+    return _encode(spec, 0) + "\n"
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the check or a maintainer mode."""
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--root", type=Path, default=ROOT, help="repository root")
+    parser.add_argument("--spec", default=DEFAULT_SPEC, help="specification path under the root")
+    parser.add_argument("--print-scan", action="store_true", help="print the fresh scan")
+    parser.add_argument("--refresh", action="store_true", help="print the refreshed specification")
+    parser.add_argument("--write", action="store_true", help="with --refresh, write the file")
+    parser.add_argument("--write-candidate-vectors", action="store_true", help="rewrite the candidate frame fixture")
+    args = parser.parse_args(argv)
+    root = args.root.resolve()
+    try:
+        spec = json.loads((root / args.spec).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        print(f"{args.spec}: {error}", file=sys.stderr)
+        return 1
+    if args.write_candidate_vectors:
+        fixture = root / spec["canonical_native_commitment"]["frame"]["vectors"]
+        fixture.write_text(render_candidate_vectors(spec), encoding="utf-8")
+        return 0
+    if args.print_scan or args.refresh:
+        derived = derive(root, spec, tree_files(root))
+        if args.print_scan:
+            sys.stdout.write(json.dumps(derived["scan"], indent=1) + "\n")
+            return 0
+        text = dump(refreshed(spec, derived))
+        if args.write:
+            (root / args.spec).write_text(text, encoding="utf-8")
+        else:
+            sys.stdout.write(text)
+        return 0
+    errors = check(root, spec)
+    for error in errors:
+        print(error, file=sys.stderr)
+    if errors:
+        print(f"{args.spec}: {len(errors)} inconsistencies", file=sys.stderr)
+        return 1
+    producers = sum(len(functions) for functions in spec["producer_ledger"]["production"].values())
+    print(
+        f"{args.spec}: {len(spec['digest_primitives'])} primitives, {len(spec['digest_roles'])} roles, "
+        f"{len(spec['consumers'])} consumers, {len(spec['scan']['files'])} scanned files, "
+        f"{producers} production digest producers, "
+        f"{len(spec['workloads']['definitions'])} workloads consistent with the tree"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

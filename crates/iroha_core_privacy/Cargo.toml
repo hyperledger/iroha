@@ -76,3 +76,10 @@ x509-parser = { version = "0.18.0", default-features = false, features = ["verif
 name = "fastpq_phase_tree_measurement"
 path = "tests/fastpq_phase_tree_measurement.rs"
 required-features = ["fastpq-replay-measurement"]
+
+# Development-only measurement of the State commitment candidates of ZK
+# delivery plan task G.2. TODO(G.3): remove with the prototypes.
+[[test]]
+name = "state_commitment_candidates_measurement"
+path = "tests/state_commitment_candidates_measurement.rs"
+required-features = ["fastpq-replay-measurement"]

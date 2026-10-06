@@ -526,9 +526,10 @@ destination (§5.1.5, §9.9).
 
 Node-local behavior (key directory, submission cadence, keeper endpoints)
 lives in `iroha_config` `[sccp.attestor]` (§4.9) and `[sccp.light_client_keeper]`
-(§4.13.4), with defaults that need no operator input. The `[zk.sccp]`
-native verifier work limits stay in `iroha_config` and remain bound into the
-consensus policy hash. Each category has a per-transaction and a per-block
+(§4.13.4), with defaults that need no operator input. The native verifier work
+limits are the `sccp` section of the committed `zk_validity_policy_v1` chain
+parameter (protocol defaults when a chain commits none), bound into the
+consensus policy hash; they are not node configuration. Each category has a per-transaction and a per-block
 limit: proofs, proof bytes (plus a per-frame bound), native headers and header
 bytes, Ethereum light-client updates, BSC vote attestations, secp256k1
 recoveries (TRON) and Ed25519 signature checks (TON). Defaults admit one full
@@ -1205,7 +1206,7 @@ Validation:
    sender, nonce, payload_hash }`. Its `emitter` equals revision `r`'s
    deployment address, and its fields equal those recomputed from `payload`.
 5. Verifier work is estimated from the frame alone (`SccpVerifierWorkV1`)
-   and reserved under the `[zk.sccp]` transaction and block limits before any
+   and reserved under the committed `sccp` transaction and block limits before any
    cryptography runs; advances and equivocation evidence are reserved the same
    way. A reservation reaches the block only when its transaction commits. A
    transaction carries at most one inbound or void proof, preceded by any
@@ -1270,7 +1271,7 @@ following hold:
   AdvanceSccpLightClientV1*, SubmitSccpInboundMessageV1]` or
   `[SettleSccpV1::Inbound]`;
 - admission pre-verifies it against committed state. For a proof, the
-  included advances and the proof verify within the `[zk.sccp]` limits and the
+  included advances and the proof verify within the committed `sccp` limits and the
   message is not yet proven. For a settle, the record is `Pending`;
 - the payload amount exceeds `inbound_self_claim_fee`;
 - the queue holds at most one pending exempt self-claim per authority and per
@@ -1356,7 +1357,7 @@ cannot advance and needs re-initialization (§4.13.4). **Fork bound:** the
 source-chain fork schedule and its `supported_until` (the last fork the
 verifier supports) are part of the compiled chain profile of the running
 release, read at execution time and never stored in `params`. They are bound
-into the consensus policy hash together with the `[zk.sccp]` limits, so peers
+into the consensus policy hash together with the committed `sccp` limits, so peers
 on releases with different schedules cannot silently diverge. Any advance or
 proof signed under a fork beyond `supported_until` fails closed until a Taira
 release extends the compiled profile; once the release is running, the same

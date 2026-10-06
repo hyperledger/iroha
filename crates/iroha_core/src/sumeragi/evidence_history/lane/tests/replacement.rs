@@ -213,6 +213,7 @@ fn paid(
         view.world(),
         view.nexus(),
         view.pipeline(),
+        &view.zk().gas,
         draft.payload(),
         at,
         chain.height() + 1,

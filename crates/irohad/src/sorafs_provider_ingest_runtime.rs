@@ -2107,6 +2107,7 @@ impl NativeCompletionPayloadBuilderV1 {
             view.world(),
             &view.nexus,
             &view.pipeline,
+            &view.zk.gas,
             &payload,
             payload.creation_time_ms,
             next_height,

@@ -1356,6 +1356,110 @@ mod tests {
         }
     }
 
+    /// The default proof bound of an `OpenVerify` envelope is inclusive: a proof field of
+    /// exactly 64 MiB passes admission validation and one byte more is refused.
+    #[test]
+    fn open_verify_default_proof_bound_admits_the_limit_and_rejects_one_byte_over() {
+        assert_eq!(OPEN_VERIFY_DEFAULT_MAX_PROOF_BYTES, 64 * 1024 * 1024);
+        assert_eq!(
+            OpenVerifyEnvelopeBounds::default().max_proof_bytes,
+            OPEN_VERIFY_DEFAULT_MAX_PROOF_BYTES
+        );
+        let mut envelope = valid_open_verify_admission_envelope();
+        envelope.proof_bytes = vec![0xA5; OPEN_VERIFY_DEFAULT_MAX_PROOF_BYTES];
+        envelope
+            .validate_for_admission()
+            .expect("a proof field of exactly the bound is admitted");
+        envelope.proof_bytes.push(0xA5);
+        assert_eq!(
+            envelope.validate_for_admission().unwrap_err(),
+            OpenVerifyEnvelopeValidationError::ProofBytesTooLarge {
+                len: OPEN_VERIFY_DEFAULT_MAX_PROOF_BYTES + 1,
+                max: OPEN_VERIFY_DEFAULT_MAX_PROOF_BYTES,
+            }
+        );
+    }
+
+    /// The default bounds of the other fields of an `OpenVerify` envelope are inclusive too:
+    /// a circuit identifier, a public-input field and an auxiliary field of exactly the
+    /// bound pass validation and one byte more is refused. Admission refuses any auxiliary
+    /// field, so its bound is exercised where a caller allows one.
+    #[test]
+    fn open_verify_default_field_bounds_admit_the_limit_and_reject_one_byte_over() {
+        let defaults = OpenVerifyEnvelopeBounds::default();
+        assert_eq!(
+            (
+                defaults.max_circuit_id_bytes,
+                defaults.max_public_input_bytes,
+                defaults.max_aux_bytes
+            ),
+            (
+                OPEN_VERIFY_DEFAULT_MAX_CIRCUIT_ID_BYTES,
+                OPEN_VERIFY_DEFAULT_MAX_PUBLIC_INPUT_BYTES,
+                OPEN_VERIFY_DEFAULT_MAX_AUX_BYTES
+            )
+        );
+        assert_eq!(
+            (
+                OPEN_VERIFY_DEFAULT_MAX_CIRCUIT_ID_BYTES,
+                OPEN_VERIFY_DEFAULT_MAX_PUBLIC_INPUT_BYTES,
+                OPEN_VERIFY_DEFAULT_MAX_AUX_BYTES
+            ),
+            (256, 1024 * 1024, 64 * 1024)
+        );
+
+        let mut envelope = valid_open_verify_admission_envelope();
+        envelope.circuit_id = "c".repeat(OPEN_VERIFY_DEFAULT_MAX_CIRCUIT_ID_BYTES);
+        envelope
+            .validate_for_admission()
+            .expect("a circuit identifier of exactly the bound is admitted");
+        envelope.circuit_id.push('c');
+        assert_eq!(
+            envelope.validate_for_admission().unwrap_err(),
+            OpenVerifyEnvelopeValidationError::CircuitIdTooLarge {
+                len: OPEN_VERIFY_DEFAULT_MAX_CIRCUIT_ID_BYTES + 1,
+                max: OPEN_VERIFY_DEFAULT_MAX_CIRCUIT_ID_BYTES,
+            }
+        );
+
+        let mut envelope = valid_open_verify_admission_envelope();
+        envelope.public_inputs = vec![0xA5; OPEN_VERIFY_DEFAULT_MAX_PUBLIC_INPUT_BYTES];
+        envelope
+            .validate_for_admission()
+            .expect("a public-input field of exactly the bound is admitted");
+        envelope.public_inputs.push(0xA5);
+        assert_eq!(
+            envelope.validate_for_admission().unwrap_err(),
+            OpenVerifyEnvelopeValidationError::PublicInputsTooLarge {
+                len: OPEN_VERIFY_DEFAULT_MAX_PUBLIC_INPUT_BYTES + 1,
+                max: OPEN_VERIFY_DEFAULT_MAX_PUBLIC_INPUT_BYTES,
+            }
+        );
+
+        let with_aux = OpenVerifyEnvelopeBounds {
+            allow_aux: true,
+            ..OpenVerifyEnvelopeBounds::default()
+        };
+        let mut envelope = valid_open_verify_admission_envelope();
+        envelope.aux = vec![0x5A; OPEN_VERIFY_DEFAULT_MAX_AUX_BYTES];
+        envelope
+            .validate_with_bounds(with_aux)
+            .expect("an auxiliary field of exactly the bound passes where one is allowed");
+        assert_eq!(
+            envelope.validate_for_admission().unwrap_err(),
+            OpenVerifyEnvelopeValidationError::NonEmptyAux,
+            "admission refuses every auxiliary field"
+        );
+        envelope.aux.push(0x5A);
+        assert_eq!(
+            envelope.validate_with_bounds(with_aux).unwrap_err(),
+            OpenVerifyEnvelopeValidationError::AuxTooLarge {
+                len: OPEN_VERIFY_DEFAULT_MAX_AUX_BYTES + 1,
+                max: OPEN_VERIFY_DEFAULT_MAX_AUX_BYTES,
+            }
+        );
+    }
+
     #[test]
     fn backend_tag_json_accepts_only_exact_canonical_labels() {
         for backend in BackendTag::ALL {

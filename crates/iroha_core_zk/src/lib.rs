@@ -2460,6 +2460,36 @@ mod zk1 {
         }
         write_tlv(buf, *b"I10P", &payload);
     }
+
+    #[cfg(test)]
+    mod section_bound_tests {
+        use super::*;
+
+        /// `MAX_PROOF_LEN` is inclusive: a ZK1 section of exactly the bound is read whole,
+        /// and one byte more is refused although the whole payload is present.
+        #[test]
+        fn zk1_section_of_exactly_the_bound_is_read_and_one_byte_more_is_refused() {
+            assert_eq!(MAX_PROOF_LEN, 8 * 1024 * 1024);
+            let mut exact = Vec::with_capacity(MAX_PROOF_LEN + 8);
+            write_tlv(&mut exact, *b"PROF", &vec![0xA5; MAX_PROOF_LEN]);
+            let mut cursor = Cursor::new(exact.as_slice());
+            let (tag, payload) = read_tlv(&mut cursor).expect("a section of exactly the bound");
+            assert_eq!(&tag, b"PROF");
+            assert_eq!(payload.len(), MAX_PROOF_LEN);
+            assert_eq!(usize::try_from(cursor.position()).unwrap(), exact.len());
+
+            let mut over = Vec::with_capacity(MAX_PROOF_LEN + 9);
+            write_tlv(&mut over, *b"PROF", &vec![0xA5; MAX_PROOF_LEN + 1]);
+            assert!(
+                read_tlv(&mut Cursor::new(over.as_slice())).is_none(),
+                "a section one byte over the bound is refused"
+            );
+            // The refusal is decided by the declared length, before any payload is read.
+            let mut declared = b"PROF".to_vec();
+            declared.extend_from_slice(&u32::try_from(MAX_PROOF_LEN + 1).unwrap().to_le_bytes());
+            assert!(read_tlv(&mut Cursor::new(declared.as_slice())).is_none());
+        }
+    }
 }
 #[cfg(any(test, feature = "test-utils"))]
 /// Test-only helpers for constructing canonical and retired proof carriers.
@@ -3785,7 +3815,7 @@ pub enum PreverifyResult {
     Duplicate,
     /// Backend tag is empty or not recognized by the pre-verifier.
     UnsupportedBackend,
-    /// Backend curve is not allowed by node configuration/policy.
+    /// Backend curve is not the curve of the committed ZK validity policy.
     CurveNotAllowed,
     /// Proof payload exceeds the locally accepted maximum size for pre-verify.
     ProofTooBig,
@@ -6167,9 +6197,10 @@ const REJECTED_VERIFY_REPORT: VerifyReport = VerifyReport {
 };
 /// Configuration guardrails for proof verification (enabled flags + payload size caps).
 ///
-/// This struct is intentionally scalar-only so it can be sourced both from node configuration
-/// (`zk_guardrails::guardrails_from_config` in `iroha_core`) and from host-local verification caps
-/// (e.g. IVM host).
+/// This struct is intentionally scalar-only so it can be sourced both from the ZK settings a
+/// State froze for a block (`zk_guardrails::guardrails_from_config` in `iroha_core`; the switches
+/// and caps there are the committed `zk_validity_policy_v1` parameter or the protocol default)
+/// and from host-local verification caps (e.g. IVM host).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ZkVerifyGuardrails {
     /// Whether halo2 verification is enabled.
@@ -6260,14 +6291,14 @@ pub fn verify_backend_with_timing_guardrails(
         if !guardrails.halo2_enabled {
             tracing::debug!(
                 backend,
-                "halo2 verification is disabled in node configuration"
+                "halo2 verification is disabled by the committed ZK validity policy"
             );
             return REJECTED_VERIFY_REPORT;
         }
         if proof.bytes.len() > guardrails.halo2_max_envelope_bytes {
             tracing::debug!(
                 backend,
-                "halo2 payload exceeds node-configured max_envelope_bytes"
+                "halo2 payload exceeds the committed max_envelope_bytes"
             );
             return REJECTED_VERIFY_REPORT;
         }
@@ -6334,14 +6365,14 @@ pub fn verify_backend_with_timing_guardrails(
         if !guardrails.stark_enabled {
             tracing::debug!(
                 backend,
-                "stark verification is disabled in node configuration"
+                "stark verification is disabled by the committed ZK validity policy"
             );
             return REJECTED_VERIFY_REPORT;
         }
         if proof.bytes.len() > guardrails.stark_max_envelope_bytes {
             tracing::debug!(
                 backend,
-                "stark payload exceeds node-configured max_envelope_bytes"
+                "stark payload exceeds the committed max_envelope_bytes"
             );
             return REJECTED_VERIFY_REPORT;
         }
@@ -6415,7 +6446,7 @@ pub fn verify_backend_with_timing_guardrails(
         if open.envelope_bytes.len() > guardrails.stark_max_proof_bytes {
             tracing::debug!(
                 backend,
-                "stark envelope proof bytes exceed node-configured max_proof_bytes"
+                "stark envelope proof bytes exceed the committed max_proof_bytes"
             );
             return REJECTED_VERIFY_REPORT;
         }
@@ -7767,6 +7798,36 @@ mod zkparse {
         let payload = proof_payload.ok_or("missing PROF TLV")?;
         let inst_cols = inst_cols.unwrap_or_default();
         Ok((payload, inst_cols))
+    }
+
+    #[cfg(test)]
+    mod section_bound_tests {
+        use super::*;
+
+        fn section(tag: &[u8; 4], len: usize) -> Vec<u8> {
+            let mut bytes = Vec::with_capacity(len + 8);
+            bytes.extend_from_slice(tag);
+            bytes.extend_from_slice(&u32::try_from(len).unwrap().to_le_bytes());
+            bytes.resize(len + 8, 0x5A);
+            bytes
+        }
+
+        /// The Halo2 envelope parser applies `MAX_PROOF_LEN` inclusively: a section of
+        /// exactly the bound is read whole and one byte more is refused.
+        #[test]
+        fn halo2_envelope_section_of_exactly_the_bound_is_read_and_one_byte_more_is_refused() {
+            let bound = crate::MAX_PROOF_LEN;
+            let exact = section(b"PROF", bound);
+            let mut cursor = Cursor::new(exact.as_slice());
+            let (tag, payload) = read_tlv(&mut cursor).expect("a section of exactly the bound");
+            assert_eq!(&tag, b"PROF");
+            assert_eq!(payload.len(), bound);
+            assert_eq!(usize::try_from(cursor.position()).unwrap(), exact.len());
+
+            let over = section(b"PROF", bound + 1);
+            assert_eq!(over.len(), bound + 9, "the whole payload is present");
+            assert!(read_tlv(&mut Cursor::new(over.as_slice())).is_none());
+        }
     }
 }
 fn halo2_params_for_verifier_v1(vk_bytes: &[u8], circuit_id: &str) -> Option<PastaParams> {

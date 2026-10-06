@@ -1,12 +1,19 @@
 seiyaku PrivateConditional {
     fn choose(int _ value) -> int {
-        if value == 0 { return 17; }
-        if value == 1 { return 19; }
+        if value == 0 {
+            return 17;
+        }
+        if value == 1 {
+            return 19;
+        }
         return 23;
     }
+
     view fn main() -> int {
         var total = 0;
-        for value in range(3) { total = total + choose(value); }
+        for value in range(3) {
+            total = total + choose(value);
+        }
         return total;
     }
 }

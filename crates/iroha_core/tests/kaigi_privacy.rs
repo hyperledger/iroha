@@ -326,9 +326,15 @@ fn new_state() -> State {
         Kura::blank_kura_for_testing(),
         LiveQueryStore::start_test(),
     );
-    state.zk.halo2.enabled = true;
-    state.zk.verify_timeout = Duration::ZERO;
-    state.zk.kaigi_authorization_vk = Some(authorization_key().reference());
+    state
+        .edit_zk_for_testing(|zk| zk.halo2.enabled = true)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.verify_timeout = Duration::ZERO)
+        .expect("fixture ZK settings install");
+    state
+        .edit_zk_for_testing(|zk| zk.kaigi_authorization_vk = Some(authorization_key().reference()))
+        .expect("fixture ZK settings install");
     state
 }
 fn register_key(tx: &mut StateTransaction<'_, '_>, key: &GovernedKey) {
@@ -796,7 +802,9 @@ fn kaigi_authorization_rejects_metadata_root_cap_and_admission_tampering() {
 #[test]
 fn usage_summary_emitted_only_for_exact_host_context_and_fresh_segment() {
     let mut state = new_state();
-    state.zk.kaigi_usage_vk = Some(usage_key().reference());
+    state
+        .edit_zk_for_testing(|zk| zk.kaigi_usage_vk = Some(usage_key().reference()))
+        .expect("fixture ZK settings install");
     let mut block = state.block(BlockHeader::new(
         NonZeroU64::new(1).unwrap(),
         None,

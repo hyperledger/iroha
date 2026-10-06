@@ -70,9 +70,6 @@ allowed_curve_ids = []
 enabled = true
 assume_valid = false
 
-[static.zk.halo2]
-enabled = true
-
 [static.nexus]
 lane_count = 4
 

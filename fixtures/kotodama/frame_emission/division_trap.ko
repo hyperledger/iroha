@@ -1,8 +1,16 @@
 seiyaku LargeFrameTrap {
     state int trace;
-    hajimari() { trace = 0; }
-    fn pulse() { trace = trace + 1; }
-    kotoage fn main() -> (int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int) authorize("WriteState") {
+    hajimari() {
+        trace = 0;
+    }
+
+    fn pulse() {
+        trace = trace + 1;
+    }
+
+    kotoage fn main() -> (int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int) authorize(
+        "WriteState"
+    ) {
         let seed = trace;
         let a1 = seed + 1;
         let a2 = seed + 2;
@@ -54,7 +62,8 @@ seiyaku LargeFrameTrap {
         let a48 = seed + 48;
         let a49 = seed + 49;
         let a50 = seed + 50;
-        pulse(); pulse();
+        pulse();
+        pulse();
         trace = 41;
         return (a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30, a31, a32, a33, a34, a35, a36, a37, a38, a39, a40, a41, a42, a43, a44, a45, a46, a47, a48, a49, a50, a1 / (trace - 41));
     }

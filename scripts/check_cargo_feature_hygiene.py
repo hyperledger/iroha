@@ -464,6 +464,7 @@ EXPLICIT_OPT_IN_FEATURES: dict[str, tuple[str, ...]] = {
  "proofs-full",
  "quic",
  "sm-ffi-openssl",
+ "state-commitment-prototypes",
  "test-network-parliament-signers",
  "test-network-private-settlement-evidence",
  "zk-proof-tags",

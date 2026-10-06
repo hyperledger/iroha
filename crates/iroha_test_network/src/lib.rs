@@ -4329,10 +4329,9 @@ impl Network {
         let pipeline_config = actual_config.as_ref().map(|config| config.pipeline.clone());
         let nexus_config = actual_config.as_ref().map(|config| config.nexus.clone());
         let zk_config = actual_config.as_ref().map(|config| config.zk.clone());
-        let confidential_policy_hash = Some(actual_config.as_ref().map_or_else(
-            iroha_core::state::default_genesis_confidential_policy_hash,
-            |config| iroha_core::state::compute_genesis_confidential_policy_hash(&config.zk),
-        ));
+        // Genesis runs under the protocol-default ZK validity policy on every peer.
+        let confidential_policy_hash =
+            Some(iroha_core::state::default_genesis_confidential_policy_hash());
         let consensus_handshake_meta = consensus_handshake_parameter(&self.consensus_profile);
         let genesis_account_id = AccountId::new(self.genesis_key_pair.public_key().clone());
         let recompute_staged_hashes = |block: &GenesisBlock| {
@@ -8115,10 +8114,9 @@ impl NetworkBuilder {
         let da_proof_policies = resolved_genesis_config
             .as_ref()
             .map(|config| iroha_core::da::proof_policy_bundle(&config.nexus.lane_config));
-        let confidential_policy_hash = Some(resolved_genesis_config.as_ref().map_or_else(
-            iroha_core::state::default_genesis_confidential_policy_hash,
-            |config| iroha_core::state::compute_genesis_confidential_policy_hash(&config.zk),
-        ));
+        // Genesis runs under the protocol-default ZK validity policy on every peer.
+        let confidential_policy_hash =
+            Some(iroha_core::state::default_genesis_confidential_policy_hash());
         let genesis_crypto = resolved_genesis_config
             .as_ref()
             .map(|config| config::manifest_crypto_from_actual(&config.crypto));
@@ -12786,17 +12784,12 @@ mod tests {
     #[test]
     fn genesis_embeds_confidential_policy_hash_from_config_layers() {
         init_instruction_registry();
-        let network =
-            build_with_isolated_permit(NetworkBuilder::new().with_peers(4).with_config_layer(
-                |layer| {
-                    layer.write(["zk", "halo2", "enabled"], true);
-                },
-            ));
+        let network = build_with_isolated_permit(NetworkBuilder::new().with_peers(4));
         let config_layers: Vec<Table> = network.config_layers().map(Cow::into_owned).collect();
         let peer = network.peers().first().expect("network should have peers");
         let actual = resolve_actual_config(peer, &config_layers)
             .expect("should resolve full config for genesis");
-        let expected = iroha_core::state::compute_genesis_confidential_policy_hash(&actual.zk);
+        let expected = iroha_core::state::default_genesis_confidential_policy_hash();
         let genesis = network.genesis();
         assert_eq!(
             genesis

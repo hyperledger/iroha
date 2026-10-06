@@ -248,6 +248,7 @@ mod initial_publication_admission {
                 view.world(),
                 view.nexus(),
                 view.pipeline(),
+                &view.zk().gas,
                 builder.payload(),
                 view.authenticated_query_ledger_time_ms().unwrap(),
                 self.chain.height() + 1,

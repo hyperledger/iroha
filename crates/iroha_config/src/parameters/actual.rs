@@ -2579,9 +2579,16 @@ impl_default!(ParliamentTleKeyLifecycle => {
 /// Governance configuration (actual layer).
 #[derive(Debug, Clone)]
 pub struct Governance {
-    /// Optional default verifying key for ZK ballots (backend + name).
+    /// Unused default verifying key for ZK ballots: always `None` on a node.
+    ///
+    /// Each election commits its own ballot key and validation reads only
+    /// that; the node schema has no key for this field.
+    // TODO(F.4): delete this field and `vk_tally` together with their terms of
+    // `execution_policy_digest_v1` and of the State governance projection.
+    // Removing the terms changes the certified State root, so it belongs to the
+    // declared cutover that regenerates the pinned first-release history.
     pub vk_ballot: Option<VerifyingKeyRef>,
-    /// Optional default verifying key for ZK tallies (backend + name).
+    /// Unused default verifying key for ZK tallies: always `None` on a node.
     pub vk_tally: Option<VerifyingKeyRef>,
     /// Asset definition used to denominate governance bonds and voting locks.
     pub voting_asset_id: AssetDefinitionId,
@@ -4102,6 +4109,13 @@ fn execution_policy_canonical_set<'a, T: Encode + 'a>(
 /// host time.
 #[must_use]
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+// The pipeline execution limits hashed here are the committed `pipeline_validity_policy_v1`
+// parameter or its protocol default (State passes its effective settings).
+// TODO(F.4): the other fields are still read from node configuration (`[pipeline.gas]`,
+// [crypto], [gov], oracle, fraud, content, settlement router and the Nexus policy digest).
+// Move each family into a typed committed parameter, as `zk_validity_policy_v1` and
+// `pipeline_validity_policy_v1` did (census entries `cfg.*` of
+// specs/zk_runtime_validity_census.json), then remove this digest from genesis metadata.
 pub fn execution_policy_digest_v1(
     pipeline: &Pipeline,
     oracle: &Oracle,
@@ -4818,7 +4832,10 @@ pub struct GovernanceModule {
     /// Additional parameters defined by the module.
     pub params: BTreeMap<String, String>,
 }
-/// Confidential asset and verifier configuration.
+/// Node-local confidential settings.
+///
+/// Confidential proof limits, windows, registry caps and the verification gas
+/// schedule are chain policy and are not held here.
 #[derive(Debug, Clone)]
 pub struct Confidential {
     /// Enables confidential asset features for this node.
@@ -4827,46 +4844,8 @@ pub struct Confidential {
     pub assume_valid: bool,
     /// Preferred verifier backend identifier.
     pub verifier_backend: String,
-    /// Maximum proof size accepted from a single confidential operation.
-    pub max_proof_size_bytes: u32,
-    /// Maximum number of nullifiers per transaction.
-    pub max_nullifiers_per_tx: u32,
-    /// Maximum number of commitments per transaction.
-    pub max_commitments_per_tx: u32,
-    /// Maximum confidential operations per block.
-    pub max_confidential_ops_per_block: u32,
-    /// Verifier timeout.
+    /// Local wall-clock budget of one verification attempt.
     pub verify_timeout: Duration,
-    /// Maximum anchor age in blocks.
-    pub max_anchor_age_blocks: u64,
-    /// Aggregate proof bytes allowed per block.
-    pub max_proof_bytes_block: u64,
-    /// Maximum verification calls per transaction.
-    pub max_verify_calls_per_tx: u32,
-    /// Maximum verification calls per block.
-    pub max_verify_calls_per_block: u32,
-    /// Maximum public inputs per proof.
-    pub max_public_inputs: u32,
-    /// Configured reorg depth bound.
-    pub reorg_depth_bound: u64,
-    /// Minimum delay between policy change request and activation.
-    pub policy_transition_delay_blocks: u64,
-    /// Grace window around policy activation.
-    pub policy_transition_window_blocks: u64,
-    /// Maximum confidential-policy transitions that may share one effective height.
-    pub policy_transition_max_per_height: NonZeroU32,
-    /// Non-zero commitment tree root history length.
-    pub tree_roots_history_len: NonZeroUsize,
-    /// Frontier checkpoint interval.
-    pub tree_frontier_checkpoint_interval: u64,
-    /// Maximum verifier entries allowed in registry.
-    pub registry_max_vk_entries: u32,
-    /// Maximum parameter entries allowed in registry.
-    pub registry_max_params_entries: u32,
-    /// Maximum registry mutations per block.
-    pub registry_max_delta_per_block: u32,
-    /// Gas schedule applied to confidential proof verification.
-    pub gas: ConfidentialGas,
 }
 /// Confidential verification gas schedule parameters.
 #[derive(Debug, Clone, Copy)]

@@ -8,6 +8,7 @@ use iroha_core::{
     executor::Executor,
     kura::Kura,
     query::store::LiveQueryStore,
+    smartcontracts::Execute as _,
     state::{State, WorldReadOnly},
 };
 use iroha_core_zk::test_utils::{FixtureEnvelope, halo2_fixture_envelope};
@@ -31,9 +32,70 @@ fn rejected(err: ExecutionAttemptError<ValidationFail>) -> ValidationFail {
         }
     }
 }
+#[path = "common/root_scope_fixture.rs"]
+mod root_scope_fixture;
 #[path = "common/world_fixture.rs"]
 mod test_world;
 const TINY_ADD_CIRCUIT_ID: &str = "halo2/ipa:tiny-add-public";
+/// A circuit of the first-release Halo2 registry. `VerifyProof` admits no other circuit, so
+/// the fixtures of the confidential usage caps name it.
+const PRODUCTION_CIRCUIT_ID: &str =
+    iroha_core_zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
+/// Seed the canonical verifying key of [`PRODUCTION_CIRCUIT_ID`] and return its registry id
+/// and commitment.
+///
+/// A key enters the registry through the governed lifecycle, which a component fixture does
+/// not run. The fixture applies the grant and the registration themselves, as the registry
+/// tests of the crate do; the caps under test are charged by `VerifyProof`, which the
+/// calling test submits through the executor.
+fn seed_production_verifying_key(
+    stx: &mut iroha_core::state::StateTransaction<'_, '_>,
+) -> (iroha_data_model::proof::VerifyingKeyId, [u8; 32]) {
+    let permission = iroha_data_model::permission::Permission::new(
+        "CanManageVerifyingKeys".parse().expect("permission name"),
+        iroha_primitives::json::Json::new(()),
+    );
+    Grant::account_permission(permission, ALICE_ID.clone())
+        .execute(&ALICE_ID, stx)
+        .expect("grant verifying-key management");
+    let id = iroha_data_model::proof::VerifyingKeyId::new("halo2/ipa", "vk_main");
+    let record = iroha_core_zk::confidential_v2::confidential_transfer_v2_vk_record("core", 1)
+        .expect("canonical verifying key of the production circuit");
+    let commitment = record.commitment;
+    iroha_data_model::isi::verifying_keys::RegisterVerifyingKey {
+        id: id.clone(),
+        record,
+    }
+    .execute(&ALICE_ID, stx)
+    .expect("register the production verifying key");
+    (id, commitment)
+}
+/// A proof of [`PRODUCTION_CIRCUIT_ID`] whose envelope the registry admits (the canonical
+/// public-input schema of the circuit, the commitment of its registered key) and whose
+/// payload is `seed` repeated: the backend runs and records the proof as rejected.
+fn production_circuit_proof(
+    vk_commitment: [u8; 32],
+    seed: u8,
+) -> iroha_data_model::proof::ProofBox {
+    let envelope = iroha_data_model::zk::OpenVerifyEnvelope::new(
+        BackendTag::Halo2IpaPasta,
+        PRODUCTION_CIRCUIT_ID,
+        vk_commitment,
+        iroha_core_zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_PUBLIC_INPUTS_SCHEMA_V1.to_vec(),
+        vec![seed; 64],
+    );
+    iroha_data_model::proof::ProofBox::new(
+        "halo2/ipa".into(),
+        norito::to_bytes(&envelope).expect("encode OpenVerifyEnvelope"),
+    )
+}
+// TODO: stale fixtures, left as they were when the two usage-cap tests of this file were
+// repaired. Fifteen tests call `bound_halo2_fixture` and stop at "fixture verifying key": the
+// generator returns no verifying key for this development circuit. Five more fail before
+// or at their assertion on other stale fixture state (two of them on a setup instruction
+// executed at the first height without the committed root scope). They need the fixture
+// of `seed_production_verifying_key` and, where a test expects a verified proof, a valid
+// proof of a production circuit.
 fn bound_halo2_fixture() -> FixtureEnvelope {
     let seed = halo2_fixture_envelope(TINY_ADD_CIRCUIT_ID, [0; 32]);
     let vk_hash = seed.vk_hash("halo2/ipa").expect("fixture verifying key");
@@ -242,42 +304,44 @@ fn verifyproof_rejects_when_exceeding_size_cap() {
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(world, kura, query_handle);
-    let mut zk_cfg = state.zk.clone();
+    let mut zk_cfg = state.installed_zk().clone();
     zk_cfg.max_proof_size_bytes = 3;
     state
         .set_zk(zk_cfg)
         .expect("empty state accepts verifier test configuration");
-    let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
+    // Instruction execution requires committed root authority: the first height commits the
+    // Global root scope and the fixture executes at the second height.
+    root_scope_fixture::commit_global_root_scope(&state);
+    let header = iroha_data_model::block::BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
     let mut block = state.block(header);
     let mut stx = block.transaction();
     let exec = Executor::default();
-    let vk_id = iroha_data_model::proof::VerifyingKeyId::new("halo2/ipa", "vk_main");
-    let fixture = bound_halo2_fixture();
-    let vk_box = fixture.vk_box("halo2/ipa").expect("fixture verifying key");
-    let vk_rec = build_vk_record("vk_main", vk_box, fixture.schema_hash);
-    let reg_vk: InstructionBox = iroha_data_model::isi::verifying_keys::RegisterVerifyingKey {
-        id: vk_id.clone(),
-        record: vk_rec,
-    }
-    .into();
-    grant_vk_management(&exec, &mut stx, &ALICE_ID.clone());
-    exec.execute_instruction(&mut stx, &ALICE_ID.clone(), reg_vk)
-        .expect("register vk");
-    let attachment = iroha_data_model::proof::ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        fixture.proof_box("halo2/ipa"),
-        vk_id.clone(),
-    );
+    let (vk_id, vk_commitment) = seed_production_verifying_key(&mut stx);
+    // The generator has no proving circuit for a production identifier: it returns the
+    // placeholder envelope, which is far above the three-byte cap.
+    let fixture = halo2_fixture_envelope(PRODUCTION_CIRCUIT_ID, vk_commitment);
+    let proof = fixture.proof_box("halo2/ipa");
+    assert!(proof.bytes.len() > 3, "the fixture proof exceeds the cap");
+    let attachment =
+        iroha_data_model::proof::ProofAttachment::new_ref("halo2/ipa".into(), proof, vk_id);
     let verify: InstructionBox = iroha_data_model::isi::zk::VerifyProof::new(attachment).into();
     let err = exec
         .execute_instruction(&mut stx, &ALICE_ID.clone(), verify)
         .expect_err("proof should exceed size cap");
-    assert!(matches!(
-        err,
-        ValidationFail::InstructionFailed(InstructionExecutionError::InvalidParameter(
-            InvalidParameterError::SmartContract(msg)
-        )) if msg.contains("max_proof_size_bytes")
-    ));
+    assert!(
+        matches!(
+            &err,
+            ValidationFail::InstructionFailed(InstructionExecutionError::InvalidParameter(
+                InvalidParameterError::SmartContract(msg)
+            )) if msg.contains("max_proof_size_bytes")
+        ),
+        "unexpected error: {err:?}"
+    );
+    assert_eq!(
+        stx.world.proofs().iter().count(),
+        0,
+        "a proof above the size cap leaves no record"
+    );
 }
 #[test]
 fn verifyproof_rejects_when_block_cap_hit() {
@@ -285,7 +349,7 @@ fn verifyproof_rejects_when_block_cap_hit() {
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(world, kura, query_handle);
-    let mut zk_cfg = state.zk.clone();
+    let mut zk_cfg = state.installed_zk().clone();
     zk_cfg.max_confidential_ops_per_block = 1;
     zk_cfg.max_verify_calls_per_block = 1;
     zk_cfg.max_verify_calls_per_tx = 2;
@@ -294,46 +358,59 @@ fn verifyproof_rejects_when_block_cap_hit() {
     state
         .set_zk(zk_cfg)
         .expect("empty state accepts verifier test configuration");
-    let header = iroha_data_model::block::BlockHeader::new(nonzero!(1_u64), None, None, 0, 0);
+    // Instruction execution requires committed root authority: the first height commits the
+    // Global root scope and the fixture executes at the second height.
+    root_scope_fixture::commit_global_root_scope(&state);
+    let header = iroha_data_model::block::BlockHeader::new(nonzero!(2_u64), None, None, 0, 0);
     let mut block = state.block(header);
     let mut stx = block.transaction();
     let exec = Executor::default();
-    let vk_id = iroha_data_model::proof::VerifyingKeyId::new("halo2/ipa", "vk_main");
-    let fixture1 = bound_halo2_fixture();
-    let vk_box = fixture1.vk_box("halo2/ipa").expect("fixture verifying key");
-    let vk_rec = build_vk_record("vk_main", vk_box, fixture1.schema_hash);
-    let reg_vk: InstructionBox = iroha_data_model::isi::verifying_keys::RegisterVerifyingKey {
-        id: vk_id.clone(),
-        record: vk_rec,
-    }
-    .into();
-    grant_vk_management(&exec, &mut stx, &ALICE_ID.clone());
-    exec.execute_instruction(&mut stx, &ALICE_ID.clone(), reg_vk)
-        .expect("register vk");
-    let attachment = iroha_data_model::proof::ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        fixture1.proof_box("halo2/ipa"),
-        vk_id.clone(),
-    );
+    let (vk_id, vk_commitment) = seed_production_verifying_key(&mut stx);
+    // The cap counts verification calls, whatever the backend decides: the first proof is
+    // admitted, verified and recorded as rejected, and it uses the one call of the block.
+    let first = production_circuit_proof(vk_commitment, 0x11);
+    let first_id = iroha_data_model::proof::ProofId {
+        backend: "halo2/ipa".into(),
+        proof_hash: iroha_core_zk::hash_proof(&first),
+    };
+    let attachment =
+        iroha_data_model::proof::ProofAttachment::new_ref("halo2/ipa".into(), first, vk_id.clone());
     let verify: InstructionBox = iroha_data_model::isi::zk::VerifyProof::new(attachment).into();
     exec.execute_instruction(&mut stx, &ALICE_ID.clone(), verify)
         .expect("first verify should succeed");
-    let fixture2 = bound_halo2_fixture();
-    let attachment2 = iroha_data_model::proof::ProofAttachment::new_ref(
-        "halo2/ipa".into(),
-        fixture2.proof_box("halo2/ipa"),
-        vk_id.clone(),
+    assert_eq!(
+        stx.world
+            .proofs()
+            .get(&first_id)
+            .expect("the first call records its proof")
+            .status,
+        iroha_data_model::proof::ProofStatus::Rejected,
+        "the placeholder payload is not a valid proof"
     );
+    let second = production_circuit_proof(vk_commitment, 0x22);
+    let second_id = iroha_data_model::proof::ProofId {
+        backend: "halo2/ipa".into(),
+        proof_hash: iroha_core_zk::hash_proof(&second),
+    };
+    let attachment2 =
+        iroha_data_model::proof::ProofAttachment::new_ref("halo2/ipa".into(), second, vk_id);
     let verify2: InstructionBox = iroha_data_model::isi::zk::VerifyProof::new(attachment2).into();
     let err = exec
         .execute_instruction(&mut stx, &ALICE_ID.clone(), verify2)
         .expect_err("second verify should hit block cap");
-    assert!(matches!(
-        err,
-        ValidationFail::InstructionFailed(InstructionExecutionError::InvalidParameter(
-            InvalidParameterError::SmartContract(msg)
-        )) if msg.contains("per block exceeded")
-    ));
+    assert!(
+        matches!(
+            &err,
+            ValidationFail::InstructionFailed(InstructionExecutionError::InvalidParameter(
+                InvalidParameterError::SmartContract(msg)
+            )) if msg.contains("per block exceeded")
+        ),
+        "unexpected error: {err:?}"
+    );
+    assert!(
+        stx.world.proofs().get(&second_id).is_none(),
+        "the call above the block cap leaves no record"
+    );
 }
 #[test]
 fn preverify_rejects_missing_vk_reference() {

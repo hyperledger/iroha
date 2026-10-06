@@ -578,6 +578,68 @@ fn ivm_binding_verifying_key_is_unavailable_without_complete_relation() {
         .expect_err("binding-only IVM verifier key must fail admission");
     assert!(error.contains("complete native STARK verification"));
 }
+/// The length predicate of the envelope bound, which the verifier calls before it decodes
+/// a byte: the bound is inclusive, and a caller can lower it but not raise it above
+/// `MAX_ENVELOPE_BYTES`. Nothing is decoded here; the verifier itself is exercised at
+/// the bound by `stark_verifier_accepts_an_envelope_of_exactly_its_bound_and_refuses_one_byte_more`.
+#[test]
+fn stark_envelope_length_predicate_admits_exactly_the_bound_and_refuses_one_byte_more() {
+    let limits = StarkVerifierLimits::default();
+    assert_eq!(MAX_ENVELOPE_BYTES, 1 << 20);
+    assert_eq!(effective_max_envelope_bytes(&limits), MAX_ENVELOPE_BYTES);
+    assert!(!envelope_exceeds_limit(MAX_ENVELOPE_BYTES, &limits));
+    assert!(envelope_exceeds_limit(MAX_ENVELOPE_BYTES + 1, &limits));
+    assert!(!envelope_exceeds_limit(0, &limits));
+
+    let mut lowered = StarkVerifierLimits::default();
+    lowered.max_envelope_bytes = 4096;
+    assert!(!envelope_exceeds_limit(4096, &lowered));
+    assert!(envelope_exceeds_limit(4097, &lowered));
+
+    let mut raised = StarkVerifierLimits::default();
+    raised.max_envelope_bytes = MAX_ENVELOPE_BYTES + 1;
+    assert!(!envelope_exceeds_limit(MAX_ENVELOPE_BYTES, &raised));
+    assert!(
+        envelope_exceeds_limit(MAX_ENVELOPE_BYTES + 1, &raised),
+        "a caller limit above the bound is clamped to the bound"
+    );
+}
+/// The verifier applies the envelope bound to a real proof: with the bound set to the
+/// length of a valid envelope the proof verifies, and with the bound one byte below that
+/// length the same envelope is refused. The bound a caller sets is never above
+/// `MAX_ENVELOPE_BYTES` (the predicate test above), so this is the behaviour at the limit.
+#[test]
+fn stark_verifier_accepts_an_envelope_of_exactly_its_bound_and_refuses_one_byte_more() {
+    let params = StarkFriParamsV1 {
+        version: 1,
+        n_log2: 4,
+        blowup_log2: 2,
+        fold_arity: 2,
+        queries: 2,
+        merkle_arity: 2,
+        domain_tag: "iroha:test:envelope-bound".to_owned(),
+    };
+    let bytes = prove_stark_fri_air_envelope_bytes(
+        params,
+        "IROHA-TEST-STARK".to_owned(),
+        "stark/fri/poseidon-x7-goldilocks-6x64-v1:test".to_owned(),
+        test_digest(0x33),
+    )
+    .expect("valid STARK envelope");
+    assert!(bytes.len() > 1 && bytes.len() < MAX_ENVELOPE_BYTES);
+    let mut limits = StarkVerifierLimits::default();
+    assert!(verify_stark_fri_envelope_with_limits(&bytes, &limits));
+    limits.max_envelope_bytes = bytes.len();
+    assert!(
+        verify_stark_fri_envelope_with_limits(&bytes, &limits),
+        "an envelope of exactly the bound is decoded and verifies"
+    );
+    limits.max_envelope_bytes = bytes.len() - 1;
+    assert!(
+        !verify_stark_fri_envelope_with_limits(&bytes, &limits),
+        "the same envelope, one byte above the bound, is refused"
+    );
+}
 #[test]
 fn stark_verifier_limits_cannot_relax_canonical_structure_caps() {
     let valid = StarkFriParamsV1 {

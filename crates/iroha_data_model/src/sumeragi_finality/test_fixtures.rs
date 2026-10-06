@@ -796,6 +796,74 @@ mod tests {
         println!("NATIVE_CHECKPOINT_H2={}", hex::encode(second_bytes));
     }
     #[test]
+    fn tracked_native_checkpoint_fixtures_are_the_current_exporter_output() {
+        use sha2::{Digest as _, Sha256};
+        // The tracked frames are what `capture_native_checkpoint_fixtures` prints from this
+        // tree. A change to the certified result, its schedule projection or the checkpoint
+        // codec makes them stale: regenerate them with that exporter in the same change
+        // (`specs/first_release_history_cutover.md`, surface `execution_root`).
+        let genesis = NativeFinalityFixture::start("portable-native-fixture");
+        let second = NativeFinalityFixture::new();
+        let tracked: [(&str, SumeragiFinalityCheckpoint, &[u8]); 2] = [
+            (
+                "genesis-checkpoint.nrt",
+                genesis.checkpoint(),
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/sumeragi/native-finality/genesis-checkpoint.nrt"
+                )),
+            ),
+            (
+                "height-2-checkpoint.nrt",
+                second.checkpoint(),
+                include_bytes!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../fixtures/sumeragi/native-finality/height-2-checkpoint.nrt"
+                )),
+            ),
+        ];
+        assert_eq!(tracked[0].1.height(), 1);
+        assert_eq!(tracked[1].1.height(), 2);
+        // `capture.json` records the capture that produced the tracked frames. Its identity
+        // and artifact entries describe those frames and are compared here. Its `generator`
+        // block (source digests, harness, logs) describes the sources of the day of the
+        // capture: it says nothing about the current sources and is not compared.
+        let record: norito::json::Value = norito::json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/sumeragi/native-finality/capture.json"
+        )))
+        .unwrap();
+        assert_eq!(record["chain_id"].as_str(), Some(genesis.chain_id()));
+        assert_eq!(
+            record["network_id"].as_str(),
+            Some(genesis.network_id().to_string().as_str())
+        );
+        assert_eq!(genesis.network_id(), second.network_id());
+        let artifacts = record["artifacts"].as_array().unwrap();
+        assert_eq!(artifacts.len(), tracked.len());
+        for ((name, checkpoint, bytes), artifact) in tracked.iter().zip(artifacts) {
+            assert!(
+                checkpoint.encode_canonical().unwrap() == *bytes,
+                "fixtures/sumeragi/native-finality/{name} is not the current exporter output"
+            );
+            assert_eq!(
+                &SumeragiFinalityCheckpoint::decode_canonical(bytes).unwrap(),
+                checkpoint
+            );
+            assert_eq!(
+                artifact["path"].as_str(),
+                Some(format!("fixtures/sumeragi/native-finality/{name}").as_str())
+            );
+            assert_eq!(artifact["height"].as_u64(), Some(checkpoint.height()));
+            assert_eq!(artifact["bytes"].as_u64(), Some(bytes.len() as u64));
+            assert_eq!(
+                artifact["sha256"].as_str(),
+                Some(hex::encode(Sha256::digest(bytes)).as_str()),
+                "capture.json does not describe the tracked {name}"
+            );
+        }
+    }
+    #[test]
     fn explicitly_selected_npos_fixture_binds_signed_epoch_policy() {
         let fixture = NativeFinalityFixture::start_with_mode(
             "native-npos-fixture",

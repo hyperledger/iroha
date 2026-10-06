@@ -70,7 +70,7 @@ fn execute_register_domain_like_bench() {
         },
     )
     .into();
-    let _ = gas::meter_instruction(&instr);
+    let _ = gas::meter_instruction(&instr, &iroha_core::gas::DEFAULT_ZK_GAS);
     executor
         .execute_instruction_with_profile(
             &mut tx,

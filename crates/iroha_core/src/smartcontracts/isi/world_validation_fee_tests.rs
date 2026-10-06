@@ -1114,7 +1114,14 @@ fn prospective_fee_sponsor_enrollment_funds_only_exact_self_bootstrap() {
             attachments: None,
         };
         let result = crate::executor::quote_nexus_fee_admission_draft(
-            &stx.world, &nexus, &pipeline, &payload, 0, 146, None,
+            &stx.world,
+            &nexus,
+            &pipeline,
+            &crate::gas::DEFAULT_ZK_GAS,
+            &payload,
+            0,
+            146,
+            None,
         );
         if eligible {
             let quoted = result.expect("exact absent beneficiary can fund its first bootstrap");
@@ -1124,7 +1131,14 @@ fn prospective_fee_sponsor_enrollment_funds_only_exact_self_bootstrap() {
             );
             payload.fee_payment = quoted.recommended_intent;
             crate::executor::quote_nexus_fee_admission_payload(
-                &stx.world, &nexus, &pipeline, &payload, 0, 146, None,
+                &stx.world,
+                &nexus,
+                &pipeline,
+                &crate::gas::DEFAULT_ZK_GAS,
+                &payload,
+                0,
+                146,
+                None,
             )
             .expect("exact signature-bound quote also passes strict admission");
         } else {

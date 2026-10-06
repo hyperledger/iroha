@@ -12327,7 +12327,7 @@ async fn handler_get_configuration(
 ) -> Result<impl IntoResponse, Error> {
     let remote_ip = remote.ip();
     check_operator_rate_limit(&app, &headers, Some(remote_ip), "v1/configuration", true).await?;
-    routing::handle_get_configuration(app.kiso.clone()).await
+    routing::handle_get_configuration(app.kiso.clone(), app.state.clone()).await
 }
 /// Exact native marketplace policy and reviewed rollout qualification.
 async fn handler_nft_offer_capabilities(
@@ -13029,7 +13029,7 @@ async fn handler_zk_verify_batch(
     if !halo2.enabled {
         return Err(Error::Query(
             iroha_data_model::ValidationFail::NotPermitted(
-                "halo2 verification is disabled in node configuration".to_owned(),
+                "halo2 verification is disabled by the committed ZK validity policy".to_owned(),
             ),
         ));
     }
@@ -32144,6 +32144,7 @@ pub(crate) fn quote_internal_fee_payment_from_parts(
         &world,
         &nexus,
         &pipeline,
+        &state.zk_snapshot().gas,
         payload,
         ledger_time_ms,
         next_block_height,
@@ -32253,6 +32254,7 @@ async fn handler_fee_quote(
             &world,
             &nexus,
             &pipeline,
+            &app.state.zk_snapshot().gas,
             &request.payload,
             ledger_time_ms,
             next_block_height,

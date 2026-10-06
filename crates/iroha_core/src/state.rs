@@ -3191,6 +3191,13 @@ pub enum ZkConfigInstallError {
         /// Candidate maximum number of transitions at one height.
         maximum: NonZeroU32,
     },
+    /// The restored World holds a ZK validity policy payload that no valid
+    /// transition commits. The State needs recovery; the node does not fall
+    /// back to another policy.
+    #[error(
+        "the committed ZK validity policy (`zk_validity_policy_v1`) of the restored State is malformed"
+    )]
+    MalformedCommittedPolicy,
 }
 struct LaneGeometryCatalogPublicationFailure {
     error: LaneLifecycleError,
@@ -12082,8 +12089,13 @@ pub struct State {
     kura: Arc<Kura>,
     /// Handle to the [`LiveQueryStore`](crate::query::store::LiveQueryStore).
     pub query_handle: LiveQueryStoreHandle,
-    /// Pipeline execution preferences (dynamic prepass, parallel overlay).
-    pub pipeline: iroha_config::parameters::actual::Pipeline,
+    /// Installed pipeline settings: the node's local resources, with every
+    /// execution limit at the protocol default (a fixture State may hold other
+    /// values). Private: [`State::install_node_pipeline`] and the test-only
+    /// [`State::set_pipeline`] are the only writers; readers outside the State
+    /// modules use [`State::installed_pipeline`] for local resources and
+    /// [`State::pipeline_snapshot`], a view or a block for execution limits.
+    pipeline: iroha_config::parameters::actual::Pipeline,
     /// Shared pipeline worker pool snapshot (derived from pipeline config).
     pipeline_parallelism: PipelineParallelism,
     /// Optional node-local Soracloud runtime handle; never consulted by production replay.
@@ -12139,8 +12151,13 @@ pub struct State {
     tiered_snapshot_worker: TieredSnapshotWorker,
     /// Fraud monitoring configuration snapshot.
     pub fraud_monitoring: iroha_config::parameters::actual::FraudMonitoring,
-    /// Zero-knowledge verification configuration (Halo2 backend limits, etc.).
-    pub zk: iroha_config::parameters::actual::Zk,
+    /// Installed ZK settings: the node's local resources, with every validity
+    /// value at the protocol default (a fixture State may hold other values).
+    /// Private: [`State::install_node_zk`] and the test-only [`State::set_zk`]
+    /// are the only writers; readers outside the State modules use
+    /// [`State::installed_zk`] for local resources and [`State::zk_snapshot`],
+    /// a view or a block for validity values.
+    zk: iroha_config::parameters::actual::Zk,
     /// Governance configuration (voting keys, policies).
     pub gov: iroha_config::parameters::actual::Governance,
     /// Content lane configuration (bundle caps, chunk size).
@@ -22666,8 +22683,12 @@ impl WorldTransaction<'_, '_> {
     /// Update the executor data model, purge permissions it no longer declares, and synchronize
     /// derived parameter defaults.
     pub fn apply_executor_data_model(&mut self, mut executor_data_model: ExecutorDataModel) {
-        let npos_parameter_id = SumeragiNposParameters::parameter_id();
-        executor_data_model.parameters.remove(&npos_parameter_id);
+        // Consensus-owned parameters are written only by a validated
+        // `SetParameter`; an executor data model can neither declare, replace
+        // nor retire them.
+        executor_data_model
+            .parameters
+            .retain(|id, _| !is_consensus_owned_custom_parameter(id));
         executor_data_model
             .parameters
             .retain(|_, parameter| !is_retired_kagemusha_mint_finality_parameter(parameter.id()));
@@ -22935,15 +22956,14 @@ impl WorldTransaction<'_, '_> {
         if prev_parameters == new_parameters {
             return;
         }
-        let consensus_owned_ids = [SumeragiNposParameters::parameter_id()];
         let prev_ids: BTreeSet<_> = prev_parameters
             .keys()
-            .filter(|id| !consensus_owned_ids.contains(id))
+            .filter(|id| !is_consensus_owned_custom_parameter(id))
             .cloned()
             .collect();
         let new_ids: BTreeSet<_> = new_parameters
             .keys()
-            .filter(|id| !consensus_owned_ids.contains(id))
+            .filter(|id| !is_consensus_owned_custom_parameter(id))
             .cloned()
             .collect();
         let removed: Vec<_> = prev_ids.difference(&new_ids).cloned().collect();
@@ -28555,8 +28575,9 @@ impl State {
     /// Apply deterministic test runtime settings after authenticated fixture startup.
     pub(crate) fn configure_test_runtime_defaults(&mut self) {
         // Make pipeline settings conservative and single-threaded for tests to reduce
-        // flakiness and avoid scheduler edge cases on highly parallel configs.
-        self.pipeline.dynamic_prepass = true;
+        // flakiness and avoid scheduler edge cases on highly parallel configs. Only
+        // local scheduling settings are written: execution limits and
+        // `dynamic_prepass` are the committed pipeline validity policy.
         self.pipeline.parallel_overlay = false;
         self.pipeline.parallel_apply = false;
         self.pipeline.ready_queue_heap = false;
@@ -29896,7 +29917,6 @@ impl State {
             );
         }
         StateQueryView {
-            world,
             native_execution_tip,
             block_hashes,
             commit_topology,
@@ -29909,17 +29929,21 @@ impl State {
             accounts_snapshot_cache: SyncOnceCell::new(),
             #[cfg(feature = "telemetry")]
             telemetry: &self.telemetry,
-            pipeline: self.pipeline.clone(),
+            pipeline: crate::pipeline_validity_policy::effective_pipeline(
+                self.pipeline.clone(),
+                world.parameters(),
+            ),
             oracle: self.oracle.clone(),
             crypto: self.crypto(),
             nexus: projection.nexus,
             lane_incarnations: projection.incarnations,
             lane_incarnation_activation_heights: projection.activation_heights,
             lane_manifests: projection.manifests,
-            zk: self.zk.clone(),
+            zk: crate::zk_validity_policy::effective_zk(self.zk.clone(), world.parameters()),
             content: self.content.clone(),
             chain_id: self.chain_id.clone(),
             network_id: self.network_id,
+            world,
         }
     }
     /// Snapshot of the current commit topology.
@@ -30543,36 +30567,71 @@ impl State {
     pub const fn network_id_ref(&self) -> &iroha_data_model::NetworkId {
         &self.network_id
     }
-    /// Snapshot the current ZK verification configuration.
+    /// Snapshot the current ZK verification settings.
     ///
     /// This avoids acquiring a full [`StateView`] when only verifier settings are needed.
+    /// Validity-affecting values come from the committed ZK validity policy
+    /// ([`crate::zk_validity_policy::ZkValidityPolicyV1`]) when the chain installed
+    /// one; the installed value contributes local resource settings.
     #[must_use]
     #[track_caller]
     pub fn zk_snapshot(&self) -> iroha_config::parameters::actual::Zk {
-        self.zk.clone()
+        crate::zk_validity_policy::effective_zk(self.zk.clone(), &self.world.parameters.view())
     }
-    /// Snapshot the current pipeline configuration.
+    /// Borrow the ZK settings installed in this State.
+    ///
+    /// The value holds the local resource settings of this node (verifier
+    /// workers and queues, wall-clock budgets, FASTPQ prover settings). Its
+    /// validity values are the protocol default, or what a test fixture
+    /// installed, and are not what validation reads: use [`Self::zk_snapshot`],
+    /// a view or a block for those. The field itself is private, so
+    /// [`Self::install_node_zk`] and the test-only installers are its only
+    /// writers.
+    #[must_use]
+    pub const fn installed_zk(&self) -> &iroha_config::parameters::actual::Zk {
+        &self.zk
+    }
+    /// Borrow the pipeline settings installed in this State.
+    ///
+    /// The value holds the local resource settings of this node (workers,
+    /// caches, tracing, accelerator selection, signature batching) and the fee
+    /// policy. Its execution limits are the protocol default, or what a test
+    /// fixture installed, and are not what validation reads: use
+    /// [`Self::pipeline_snapshot`], a view or a block for those. The field
+    /// itself is private, so [`Self::install_node_pipeline`] and the test-only
+    /// installer are its only writers.
+    #[must_use]
+    pub const fn installed_pipeline(&self) -> &iroha_config::parameters::actual::Pipeline {
+        &self.pipeline
+    }
+    /// Snapshot the current pipeline settings.
     ///
     /// This avoids acquiring a full [`StateView`] when only query/pipeline limits are needed.
+    /// Validity-affecting values come from the committed pipeline validity policy
+    /// ([`crate::pipeline_validity_policy::PipelineValidityPolicyV1`]) when the chain
+    /// installed one; the installed value contributes local resource settings.
     #[must_use]
     pub fn pipeline_snapshot(&self) -> iroha_config::parameters::actual::Pipeline {
-        self.pipeline.clone()
+        crate::pipeline_validity_policy::effective_pipeline(
+            self.pipeline.clone(),
+            &self.world.parameters.view(),
+        )
     }
     /// Snapshot the effective cycle ceiling for newly admitted IVM programs.
     ///
-    /// Both node execution policy and the governance-controlled smart-contract
-    /// fuel parameter are consensus-visible admission limits, so producers must
-    /// embed the lower value in generated program headers.
+    /// Both the committed pipeline validity policy and the governance-controlled
+    /// smart-contract fuel parameter are consensus-visible admission limits, so
+    /// producers must embed the lower value in generated program headers.
     #[must_use]
     pub fn ivm_admission_cycle_limit(&self) -> NonZeroU64 {
-        let fuel = self.world.parameters.view().smart_contract().fuel();
-        NonZeroU64::new(
-            self.pipeline
-                .ivm_max_cycles_upper_bound
-                .get()
-                .min(fuel.get()),
-        )
-        .expect("both IVM cycle limits are non-zero")
+        let parameters = self.world.parameters.view();
+        let fuel = parameters.smart_contract().fuel();
+        // The committed pipeline validity policy decides the ceiling, as in
+        // every view and block.
+        let ceiling =
+            crate::pipeline_validity_policy::effective_pipeline(self.pipeline.clone(), &parameters)
+                .ivm_max_cycles_upper_bound;
+        NonZeroU64::new(ceiling.get().min(fuel.get())).expect("both IVM cycle limits are non-zero")
     }
     /// Snapshot the current governance configuration.
     ///
@@ -30805,6 +30864,11 @@ impl State {
                     "state view acquisition slow or retried"
                 );
             }
+            let zk = crate::zk_validity_policy::effective_zk(self.zk.clone(), world.parameters());
+            let pipeline = crate::pipeline_validity_policy::effective_pipeline(
+                self.pipeline.clone(),
+                world.parameters(),
+            );
             return Ok(StateView {
                 canonical_runtime,
                 canonical_runtime_predecessor,
@@ -30825,7 +30889,7 @@ impl State {
                 accounts_snapshot_cache: SyncOnceCell::new(),
                 #[cfg(feature = "telemetry")]
                 telemetry: &self.telemetry,
-                pipeline: self.pipeline.clone(),
+                pipeline,
                 oracle: self.oracle.clone(),
                 crypto,
                 nexus,
@@ -30833,7 +30897,7 @@ impl State {
                 lane_incarnation_activation_heights,
                 lane_manifests,
                 fraud_monitoring: self.fraud_monitoring.clone(),
-                zk: self.zk.clone(),
+                zk,
                 gov: self.gov.clone(),
                 content: self.content.clone(),
                 settlement: self.settlement.clone(),
@@ -33588,33 +33652,96 @@ impl State {
     pub fn set_fraud_monitoring(&mut self, cfg: iroha_config::parameters::actual::FraudMonitoring) {
         self.fraud_monitoring = cfg;
     }
-    /// Update zero-knowledge verification settings using loaded configuration.
+    /// Install complete zero-knowledge verification settings, validity values included.
     ///
-    /// The candidate configuration is checked against exact committed
-    /// confidential-policy transition counts before either the process-wide gas
-    /// schedule or this state instance is mutated. This is the startup boundary
-    /// where the actual node configuration is available; snapshot decoding
-    /// intentionally checks only configuration-independent structural invariants.
+    /// Test and fixture builds only: the caller owns the whole policy of an
+    /// isolated State. A node has no way to call this; it uses
+    /// [`Self::install_node_zk`], which takes local resource settings only. A
+    /// committed ZK validity policy still overrides the validity values
+    /// installed here in every view and block.
+    ///
+    /// The candidate is checked against exact committed confidential-policy
+    /// transition counts before this state instance is mutated. Verification
+    /// gas is part of the installed value: no process-wide schedule exists.
     ///
     /// # Errors
     ///
     /// Returns an error when a pending transition height exceeds the candidate
     /// per-height cap.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     pub fn set_zk(
         &mut self,
         zk: iroha_config::parameters::actual::Zk,
     ) -> core::result::Result<(), ZkConfigInstallError> {
         self.validate_zk_install(&zk)?;
-        crate::gas::configure_confidential_gas(zk.gas.into());
+        crate::gas::publish_confidential_gas_gauges(&zk.gas);
         self.zk = zk;
         Ok(())
+    }
+    /// Edit the installed ZK settings of a fixture State in place.
+    ///
+    /// Test and fixture builds only. The edited value is installed through
+    /// [`Self::set_zk`], with its validation; the settings field itself has no
+    /// other writer.
+    ///
+    /// # Errors
+    ///
+    /// Returns the error of [`Self::set_zk`]; the State is unchanged then.
+    #[cfg(any(test, feature = "iroha-core-tests"))]
+    pub fn edit_zk_for_testing(
+        &mut self,
+        edit: impl FnOnce(&mut iroha_config::parameters::actual::Zk),
+    ) -> core::result::Result<(), ZkConfigInstallError> {
+        let mut zk = self.zk.clone();
+        edit(&mut zk);
+        self.set_zk(zk)
+    }
+    /// Install the ZK settings of this node's own configuration.
+    ///
+    /// Only local resource settings are taken from `node` (verifier workers and
+    /// queues, wall-clock budgets, FASTPQ prover settings). Every
+    /// validity-affecting value is the committed ZK validity policy
+    /// ([`crate::zk_validity_policy::ZkValidityPolicyV1`]) when the restored
+    /// World already holds one, and the protocol default otherwise; a policy
+    /// committed later governs the blocks after it. A node configuration
+    /// therefore cannot change what this validator accepts, charges or
+    /// certifies. Returns the names of the validity fields `node` held with a
+    /// non-default value, which were ignored.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the restored World holds a malformed policy
+    /// payload, or when a pending transition height exceeds the committed
+    /// per-height cap.
+    pub fn install_node_zk(
+        &mut self,
+        node: iroha_config::parameters::actual::Zk,
+    ) -> core::result::Result<Vec<String>, ZkConfigInstallError> {
+        let ignored = crate::zk_validity_policy::node_validity_overrides(&node);
+        let installed = crate::zk_validity_policy::node_local_resources(node);
+        let effective = {
+            let parameters = self.world.parameters.view();
+            if let Err(error) = crate::zk_validity_policy::committed(&parameters) {
+                iroha_logger::error!(
+                    %error,
+                    "the restored State holds a malformed ZK validity policy"
+                );
+                return Err(ZkConfigInstallError::MalformedCommittedPolicy);
+            }
+            crate::zk_validity_policy::effective_zk(installed.clone(), &parameters)
+        };
+        self.validate_zk_install(&effective)?;
+        // Restore boundary: report the schedule of the policy this State
+        // already holds. Metering reads each block's frozen settings.
+        crate::gas::publish_confidential_gas_gauges(&effective.gas);
+        self.zk = installed;
+        Ok(ignored)
     }
     /// Install ZK settings into an isolated, non-running State reconstruction.
     ///
     /// Snapshot publication uses this after decoding a candidate payload. It performs the same
     /// committed confidential-policy transition validation as
-    /// [`Self::set_zk`] but deliberately does not mutate the process-wide
-    /// confidential-gas schedule.
+    /// [`Self::set_zk`] and publishes no telemetry gauge.
     #[cfg(test)]
     pub(crate) fn install_zk_for_isolated_prevalidation(
         &mut self,
@@ -35801,18 +35928,259 @@ pub fn default_zk_config() -> iroha_config::parameters::actual::Zk {
 pub fn default_genesis_confidential_policy_hash() -> [u8; 32] {
     compute_genesis_confidential_policy_hash(&default_zk_config())
 }
-/// Compute the genesis confidential policy hash from node-local configuration.
+/// Compute the genesis confidential policy hash of a ZK settings value.
 ///
 /// Genesis binds the pure ZK policy with the fixed SCCP policy input, so genesis construction is
-/// identical to block validation.
+/// identical to block validation. The genesis block runs under the protocol default
+/// ([`default_genesis_confidential_policy_hash`], which every genesis generator signs); a
+/// committed [`crate::zk_validity_policy::ZkValidityPolicyV1`] governs the blocks after it.
+///
+/// Crate-internal: genesis generators sign [`default_genesis_confidential_policy_hash`]
+/// and cannot hash a node configuration into a header.
 #[must_use]
-pub fn compute_genesis_confidential_policy_hash(
+pub(crate) fn compute_genesis_confidential_policy_hash(
     zk_config: &iroha_config::parameters::actual::Zk,
 ) -> [u8; 32] {
     combine_zk_and_sccp_policy_hashes(
         compute_zk_consensus_policy_hash(zk_config),
         sccp_policy_hash_v1(),
     )
+}
+/// Custom parameters with one fixed identifier that executor data-model
+/// reconciliation never writes.
+///
+/// Each is a typed payload Core validates in `SetParameter` (or, for the
+/// Nexus runtime catalog, refuses there and changes only through its typed
+/// transition) and then reads as committed State. Their only writer is that
+/// validated instruction. A migrated executor whose data model declares one
+/// of these identifiers, or stops declaring it, leaves the committed value
+/// untouched. Identifier families with a reserved prefix are covered by
+/// [`is_consensus_owned_custom_parameter`].
+pub(crate) fn consensus_owned_custom_parameter_ids()
+-> Vec<iroha_data_model::parameter::CustomParameterId> {
+    use iroha_data_model::{
+        account::admission::AccountAdmissionPolicy,
+        block::consensus::PrivateRootFeePolicy,
+        da::ingest::DaIngestAdmissionPolicyV1,
+        hijiri::HijiriParametersV1,
+        isi::settlement::FxCorridorPolicyRegistry,
+        nexus::{
+            LaneLifecycleParameterV1, NexusCatalogTransitionV1, NexusRuntimeCatalogV1,
+            ValidatorCommitteeOperationV1,
+        },
+        private_dataspace::PrivateDataspaceAdmissionPolicy,
+        sorafs::reputation::ReputationFinalizedArchiveRetentionRequestV1,
+        sumeragi_lanes::SumeragiLanePolicy,
+        validation_fee::ValidationFeePolicyRegistryV1,
+    };
+    vec![
+        SumeragiNposParameters::parameter_id(),
+        crate::zk_validity_policy::ZkValidityPolicyV1::parameter_id(),
+        crate::pipeline_validity_policy::PipelineValidityPolicyV1::parameter_id(),
+        SumeragiLanePolicy::parameter_id(),
+        governed_pipeline_gas_parameter_id(),
+        DaIngestAdmissionPolicyV1::parameter_id(),
+        NexusRuntimeCatalogV1::parameter_id(),
+        NexusCatalogTransitionV1::parameter_id(),
+        LaneLifecycleParameterV1::parameter_id(),
+        ValidatorCommitteeOperationV1::parameter_id(),
+        HijiriParametersV1::parameter_id(),
+        PrivateDataspaceAdmissionPolicy::parameter_id(),
+        FxCorridorPolicyRegistry::parameter_id(),
+        ValidationFeePolicyRegistryV1::parameter_id(),
+        AccountAdmissionPolicy::parameter_id(),
+        PrivateRootFeePolicy::parameter_id(),
+        ReputationFinalizedArchiveRetentionRequestV1::parameter_id(),
+    ]
+}
+/// Identifier of the governed pipeline gas-rate parameter (`ivm_gas_units_per_gas`).
+pub(crate) fn governed_pipeline_gas_parameter_id() -> iroha_data_model::parameter::CustomParameterId
+{
+    iroha_data_model::parameter::CustomParameterId(
+        "ivm_gas_units_per_gas"
+            .parse()
+            .expect("static pipeline gas parameter id"),
+    )
+}
+/// Whether `id` names a custom parameter that only a validated `SetParameter`
+/// may write: one of [`consensus_owned_custom_parameter_ids`], or a member of
+/// a reserved identifier family (alias dataspace bootstrap grants, Hijiri
+/// account risks).
+pub(crate) fn is_consensus_owned_custom_parameter(
+    id: &iroha_data_model::parameter::CustomParameterId,
+) -> bool {
+    iroha_data_model::alias_setup::AliasDataspaceBootstrapGrantV1::is_parameter_id(id)
+        || id
+            .name()
+            .as_ref()
+            .starts_with(iroha_data_model::hijiri::HIJIRI_ACCOUNT_RISK_PARAMETER_PREFIX_V1)
+        || consensus_owned_custom_parameter_ids().contains(id)
+}
+
+#[cfg(test)]
+mod consensus_owned_parameter_tests {
+    use iroha_data_model::{
+        executor::ExecutorDataModel,
+        parameter::{CustomParameter, CustomParameterId, Parameter},
+    };
+    use iroha_primitives::json::Json;
+
+    use super::*;
+
+    /// Every protected identifier: the fixed ones and one member of each
+    /// reserved family.
+    fn protected_ids() -> Vec<CustomParameterId> {
+        let mut ids = consensus_owned_custom_parameter_ids();
+        ids.push(
+            format!(
+                "{}probe",
+                iroha_data_model::alias_setup::AliasDataspaceBootstrapGrantV1::PARAMETER_ID_PREFIX
+            )
+            .parse()
+            .expect("alias grant identifier"),
+        );
+        ids.push(
+            format!(
+                "{}{}",
+                iroha_data_model::hijiri::HIJIRI_ACCOUNT_RISK_PARAMETER_PREFIX_V1,
+                "00".repeat(32)
+            )
+            .parse()
+            .expect("Hijiri account-risk identifier"),
+        );
+        ids
+    }
+
+    #[test]
+    fn every_typed_custom_parameter_is_protected_and_the_list_has_no_duplicate() {
+        let ids = protected_ids();
+        let unique: BTreeSet<_> = ids.iter().cloned().collect();
+        assert_eq!(unique.len(), ids.len());
+        for id in &ids {
+            assert!(is_consensus_owned_custom_parameter(id), "{id:?}");
+        }
+        // The three policies of this plan, the lane policy, the governed gas
+        // rates and the DA ingest admission policy are among them.
+        for name in [
+            "zk_validity_policy_v1",
+            "pipeline_validity_policy_v1",
+            "sumeragi_lane_policy",
+            "ivm_gas_units_per_gas",
+            "iroha:da_ingest_admission_policy_v1",
+            "nexus_runtime_catalog_v1",
+        ] {
+            let id: CustomParameterId = name.parse().expect("parameter identifier");
+            assert!(is_consensus_owned_custom_parameter(&id), "{name}");
+        }
+        // An executor's own parameter is not.
+        let own: CustomParameterId = "executor_owned_setting".parse().expect("identifier");
+        assert!(!is_consensus_owned_custom_parameter(&own));
+    }
+
+    fn state_over(world: World) -> State {
+        State::new_for_testing(
+            world,
+            Kura::blank_kura_for_testing(),
+            crate::query::store::LiveQueryStore::start_test(),
+        )
+    }
+
+    fn second_header() -> BlockHeader {
+        BlockHeader::new(nonzero_ext::nonzero!(2_u64), None, None, 0, 0)
+    }
+
+    #[test]
+    fn executor_reconciliation_cannot_insert_replace_or_remove_any_protected_parameter() {
+        let own: CustomParameterId = "executor_owned_setting".parse().expect("identifier");
+        for id in protected_ids() {
+            let committed = CustomParameter::new(id.clone(), Json::new("committed"));
+            let attacker = CustomParameter::new(id.clone(), Json::new("attacker"));
+
+            // The chain holds a committed value of the parameter. The value is
+            // placed in the transaction's World directly: reconciliation is the
+            // unit under test, and its rule does not depend on the payload.
+            let state = state_over(World::default());
+            let mut block = state.block(second_header());
+            let mut transaction = block.transaction();
+            transaction
+                .world
+                .parameters
+                .get_mut()
+                .set_parameter(Parameter::Custom(committed.clone()));
+            // A migrated executor declares the identifier with another value,
+            // next to a parameter of its own.
+            let mut declares = ExecutorDataModel::default();
+            declares.parameters.insert(id.clone(), attacker.clone());
+            declares.parameters.insert(
+                own.clone(),
+                CustomParameter::new(own.clone(), Json::new("default")),
+            );
+            transaction.world.apply_executor_data_model(declares);
+            assert_eq!(
+                transaction.world.parameters.get().custom().get(&id),
+                Some(&committed),
+                "{id:?} must not be replaced"
+            );
+            assert!(
+                transaction
+                    .world
+                    .executor_data_model
+                    .get()
+                    .parameters()
+                    .get(&id)
+                    .is_none(),
+                "{id:?} must not become an executor-owned schema entry"
+            );
+            assert!(
+                transaction
+                    .world
+                    .parameters
+                    .get()
+                    .custom()
+                    .get(&own)
+                    .is_some(),
+                "the executor's own parameter is still reconciled"
+            );
+            // A later migration stops declaring both.
+            transaction
+                .world
+                .apply_executor_data_model(ExecutorDataModel::default());
+            assert_eq!(
+                transaction.world.parameters.get().custom().get(&id),
+                Some(&committed),
+                "{id:?} must not be removed"
+            );
+            assert!(
+                transaction
+                    .world
+                    .parameters
+                    .get()
+                    .custom()
+                    .get(&own)
+                    .is_none()
+            );
+            drop(transaction);
+            drop(block);
+
+            // A chain without the parameter does not acquire it from an executor.
+            let state = state_over(World::default());
+            let mut block = state.block(second_header());
+            let mut transaction = block.transaction();
+            let mut declares = ExecutorDataModel::default();
+            declares.parameters.insert(id.clone(), attacker);
+            transaction.world.apply_executor_data_model(declares);
+            assert!(
+                transaction
+                    .world
+                    .parameters
+                    .get()
+                    .custom()
+                    .get(&id)
+                    .is_none(),
+                "{id:?} must not be inserted"
+            );
+        }
+    }
 }
 /// Reject the retired next-roster custom parameter without interpreting its payload.
 pub(crate) fn is_retired_kagemusha_mint_finality_parameter(
@@ -36291,15 +36659,18 @@ impl State {
         iroha_config::parameters::actual::NexusConsensusPolicyDigestError,
     > {
         let crypto = self.crypto.read().clone();
+        // The committed ZK and pipeline validity policies, as every view and block reads them.
+        let zk = self.zk_snapshot();
+        let pipeline = self.pipeline_snapshot();
         compute_execution_policy_digest_v1(
-            &self.pipeline,
+            &pipeline,
             &self.oracle,
             crypto.as_ref(),
             nexus,
             lane_manifests,
             lane_compliance,
             &self.fraud_monitoring,
-            &self.zk,
+            &zk,
             &self.gov,
             &self.content,
             &self.settlement,
@@ -39833,17 +40204,22 @@ mod tiered_snapshot_diff_tests {
         assert!(error.to_string().contains("musubi_pin_outbox_high_waters"));
     }
     #[test]
-    fn isolated_zk_prevalidation_install_preserves_process_gas_schedule() {
-        let _gas_guard = crate::gas::lock_confidential_gas_for_tests();
+    fn isolated_zk_prevalidation_install_affects_only_its_own_state() {
         let mut state = State::new_with_chain(
             World::default(),
             Kura::blank_kura_for_testing(),
             LiveQueryStore::start_test(),
             ChainId::from(SNAPSHOT_CHAIN_ID),
         );
-        let gas_before = crate::gas::confidential_gas_schedule_for_tests();
+        let running = State::new_with_chain(
+            World::default(),
+            Kura::blank_kura_for_testing(),
+            LiveQueryStore::start_test(),
+            ChainId::from(SNAPSHOT_CHAIN_ID),
+        );
+        let gas_before = running.zk_snapshot().gas;
         let mut candidate = state.zk_snapshot();
-        candidate.gas.proof_base = gas_before.base_verify ^ 1;
+        candidate.gas.proof_base = gas_before.proof_base ^ 1;
         state
             .install_zk_for_isolated_prevalidation(candidate.clone())
             .expect("isolated ZK install accepts a valid empty state");
@@ -39852,10 +40228,21 @@ mod tiered_snapshot_diff_tests {
             candidate.gas.proof_base,
             "isolated State must carry the candidate configuration for canonical replay"
         );
+        // The verification gas schedule is State-owned: a second State in the
+        // same process keeps its own, and metering takes the schedule it is given.
+        assert_eq!(running.zk_snapshot().gas.proof_base, gas_before.proof_base);
+        let instruction: InstructionBox = iroha_data_model::isi::zk::VerifyProof::new(
+            iroha_data_model::proof::ProofAttachment::new_ref(
+                "halo2/ipa".into(),
+                iroha_data_model::proof::ProofBox::new("halo2/ipa".into(), vec![0xa5; 8]),
+                iroha_data_model::proof::VerifyingKeyId::new("halo2/ipa", "isolated-gas"),
+            ),
+        )
+        .into();
         assert_eq!(
-            crate::gas::confidential_gas_schedule_for_tests(),
-            gas_before,
-            "snapshot prevalidation must not mutate the running process gas schedule"
+            crate::gas::meter_instruction(&instruction, &state.zk_snapshot().gas),
+            crate::gas::meter_instruction(&instruction, &running.zk_snapshot().gas) ^ 1,
+            "each State meters with its own schedule"
         );
     }
 }
@@ -42669,7 +43056,7 @@ impl StateTransaction<'_, '_> {
                     self,
                     None,
                 )?;
-                let instruction_gas = crate::gas::meter_instructions(instructions);
+                let instruction_gas = crate::gas::meter_instructions(instructions, &self.zk.gas);
                 self.charge_trigger_work_gas(instruction_gas, "native trigger instructions")?;
                 (
                     // Route trigger instructions through the executor so custom
@@ -42708,7 +43095,8 @@ impl StateTransaction<'_, '_> {
                     self,
                     None,
                 )?;
-                let explicit_gas = crate::gas::meter_instructions(&explicit_instructions);
+                let explicit_gas =
+                    crate::gas::meter_instructions(&explicit_instructions, &self.zk.gas);
                 let remaining_block_budget = if self.gas_limit_per_block == 0 {
                     u64::MAX
                 } else {

@@ -2,10 +2,7 @@
 //! Inspect genesis encoding/decoding behaviour for troubleshooting.
 use integration_tests::sandbox;
 use iroha_data_model::{
-    block::{
-        decode_framed_signed_block, deframe_versioned_signed_block_bytes,
-        frame_versioned_signed_block_bytes,
-    },
+    block::{decode_framed_signed_block, deframe_versioned_signed_block_bytes},
     transaction::Executable,
 };
 use iroha_test_network::{NetworkBuilder, init_instruction_registry};
@@ -22,13 +19,13 @@ fn genesis_roundtrip_inspection() {
         return;
     };
     let genesis = network.genesis();
-    let encoded = encode_adaptive(&genesis.0);
-    let mut sanity_versioned = Vec::with_capacity(1 + encoded.len());
-    sanity_versioned.push(1);
-    sanity_versioned.extend_from_slice(&encoded);
-    let sanity_framed =
-        frame_versioned_signed_block_bytes(&sanity_versioned).expect("frame sanity genesis");
-    decode_framed_signed_block(&sanity_framed).expect("sanity decode");
+    let sanity_wire = genesis.0.canonical_wire().expect("canonical genesis wire");
+    assert_eq!(
+        sanity_wire.payload(),
+        encode_adaptive(&genesis.0).as_slice(),
+        "the canonical wire carries the adaptive payload"
+    );
+    decode_framed_signed_block(sanity_wire.as_framed()).expect("sanity decode");
     for (tx_idx, tx) in genesis.0.external_transactions().enumerate() {
         if let Executable::Instructions(step) = tx.instructions() {
             eprintln!("tx#{tx_idx} instruction_count={}", step.len());
@@ -51,16 +48,18 @@ fn genesis_roundtrip_inspection() {
     versioned_1.push(1);
     versioned_1.extend_from_slice(&payload_1);
     eprintln!("payload_1 len={}", payload_1.len());
-    let framed = frame_versioned_signed_block_bytes(&versioned_1).expect("frame genesis");
+    let wire = genesis.0.canonical_wire().expect("canonical genesis wire");
+    let framed = wire.as_framed();
     let header_flags = framed[1 + norito::core::Header::SIZE - 1];
     eprintln!("header_flags stored: 0x{header_flags:02x}");
-    let deframed = deframe_versioned_signed_block_bytes(&framed).expect("deframe genesis");
+    let deframed = deframe_versioned_signed_block_bytes(framed).expect("deframe genesis");
     let bare = deframed.bare_versioned.into_owned();
+    assert_eq!(bare, versioned_1, "bare payload mismatch");
     let payload_2 = encode_adaptive(&genesis.0);
     eprintln!("payload_2 len={}", payload_2.len());
     let mut versioned_2 = Vec::with_capacity(1 + payload_2.len());
     versioned_2.push(1);
     versioned_2.extend_from_slice(&payload_2);
     assert_eq!(bare, versioned_2, "bare payload mismatch");
-    decode_framed_signed_block(&framed).expect("decode versioned genesis");
+    decode_framed_signed_block(framed).expect("decode versioned genesis");
 }

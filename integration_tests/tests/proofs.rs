@@ -188,10 +188,7 @@ async fn submit_proof_and_query_record() -> Result<()> {
                 Permission::new("CanManageVerifyingKeys".into(), Json::new(())),
                 SAMPLE_GENESIS_ACCOUNT_ID.clone(),
             ))
-            .with_genesis_instruction(vk_registration)
-            .with_config_layer(|layer| {
-                layer.write(["zk", "halo2", "enabled"], true);
-            }),
+            .with_genesis_instruction(vk_registration),
         stringify!(submit_proof_and_query_record),
     )
     .await?

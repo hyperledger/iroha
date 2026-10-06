@@ -188,10 +188,14 @@ fn completed_default_genesis_source_template_proposal_roundtrips() -> Result<()>
         saw_npos_custom,
         "Default genesis must emit SetParameter for `sumeragi_npos_parameters`"
     );
-    let encoded = proposal.0.encode_versioned();
+    let wire = proposal
+        .0
+        .canonical_wire()
+        .map_err(|error| eyre!("default genesis block should encode its canonical wire: {error}"))?;
     norito::core::reset_decode_state();
-    let decoded = SignedBlock::decode_all_versioned(&encoded)
-        .wrap_err("default genesis block should decode via canonical layout")?;
+    let decoded = iroha_data_model::block::decode_framed_signed_block(wire.as_framed()).map_err(
+        |error| eyre!("default genesis block should decode via canonical layout: {error}"),
+    )?;
     assert_eq!(
         decoded, proposal.0,
         "encoded + decoded default genesis proposal must preserve all fields"

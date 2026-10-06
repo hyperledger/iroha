@@ -24,8 +24,11 @@
 //! node configuration, and its only outcomes are acceptance and deterministic
 //! rejection.
 //!
-//! TODO(G.2): implement the candidate constructions behind this interface and run
-//! `conformance::check_contract` on each before measuring it.
+//! The G.2 candidates are development-only prototypes in
+//! `fastpq_prover::state_commitment_prototypes`; `candidates_tests.rs` puts each
+//! behind this interface and runs `conformance::check_contract` on it (unit tests
+//! built with the `state-commitment-prototypes` feature). Their measurements are
+//! in `specs/state_commitment_candidates.json`. No candidate is selected here.
 //! TODO(G.3): bind the selected construction to the State publication owner and
 //! replace the World state accumulator root in the execution result. Move
 //! [`KeyedStateRoot`] beside `ExecutionCommitment` as the one shared type, with an
@@ -619,6 +622,10 @@ pub(crate) trait KeyedStateCommitment: Sized {
     ) -> Result<(), Rejection>;
 }
 
+// The G.2 candidate prototypes behind this contract; development only.
+// TODO(G.3): remove with the prototypes.
+#[cfg(all(test, feature = "state-commitment-prototypes"))]
+mod candidates_tests;
 #[cfg(test)]
 pub(crate) mod conformance;
 #[cfg(test)]

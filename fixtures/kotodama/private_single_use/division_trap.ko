@@ -1,7 +1,14 @@
 seiyaku PrivateDivisionTrap {
     state int trace;
-    hajimari() { trace = 0; }
-    fn checked(int _ divisor) -> int { trace = trace + 1; return 5 / divisor; }
+    hajimari() {
+        trace = 0;
+    }
+
+    fn checked(int _ divisor) -> int {
+        trace = trace + 1;
+        return 5 / divisor;
+    }
+
     kotoage fn main() -> int authorize("WriteState") {
         trace = 40;
         return checked(0);

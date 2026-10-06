@@ -13,11 +13,52 @@ drift guard for that file. It fails when:
   different number of times than recorded (`count`, one when absent), or a site
   is only a bare symbol, a constant definition or a function signature;
 * a named test has lost its `#[test]` attribute, is `#[ignore]`d or compiled
-  out by `#[cfg(any())]`, or its file is no longer part of its crate (no `mod`,
-  `include!` or `#[path]` reaches it, or `autotests = false` without a
-  `[[test]]` entry);
-* a limit constant or committed default in a scanned owner file or directory
-  is neither a listed bound nor excluded with a reason (`completeness`), or a
+  out by a gate that never holds (below), or its file is no longer part of its
+  crate (no `mod`, `include!` or `#[path]` that a test build compiles reaches
+  it, or `autotests = false` without a `[[test]]` entry);
+* a named test is compiled only with Cargo features (a `cfg` gate on the
+  test, on an inline module or other block around it, on its file or on a
+  declaration between the file and its crate target, or `required-features`
+  of the target) and the contract does not record exactly those in
+  `features`, or one of them is not a feature of the crate, so the test never
+  runs;
+* a gate on that way never holds where the test is compiled: `any()`, `false`,
+  `not(all())` or `not(true)` at any depth of the predicate, `not(test)`, or a
+  predicate that is false with the default features of the crate and the
+  recorded ones (`not(feature = "std")` when `std` is a default feature);
+* a limit constant, immutable `static` or committed default in a scanned owner
+  file or directory is neither a listed bound nor excluded with a reason
+  (`completeness`), the defining expression of an excluded limit differs from
+  the one its exclusion pins in `exprs`, a listed name is defined a second
+  time in its scope;
+* in a scope that sets `comparisons` (the four crates on the path): an integer
+  constant of any name that the code compares or that the defining expression
+  of a scanned limit names (a term of that limit), or a limit-named function
+  without parameters that returns an integer (also inside `Option` or as the
+  value of a `Result`), is neither listed nor excluded;
+  an excluded term does not record under `term_of` exactly the limits whose
+  expressions name it, or an exclusion that is no term records one;
+  or a literal comparison is neither inside an enforcement site of a listed
+  bound nor recorded with a reason under `completeness.literals`, occurs a
+  different number of times than recorded, or is recorded and gone. A literal
+  comparison is a comparison with `<`, `<=`, `>` or `>=` (also written as a
+  method: `.lt`, `.le`, `.gt`, `.ge`), a capping call (`.min`, `.max`,
+  `.clamp`, `.take`, `.truncate`), either of the two called as a function,
+  bare or behind any path (`cmp::max(a, b)`, `u32::clamp(n, 2, 64)`,
+  `PartialOrd::lt(&a, &b)`), or a range tested with `.contains`, that holds
+  an integer literal of `literals.minimum` or more: as a whole operand,
+  argument or range end (`len > 4096`), as a part of one (`len > MAX + 1024`,
+  `len / 2 >= MAX`, `timeout > Duration::from_secs(30)`), or anywhere in the
+  receiver of `.min`, `.max`, `.clamp` or a comparison method. The receiver
+  is the whole method chain in front of the call, on one line or broken
+  across several (`delta.saturating_mul(10_000).saturating_div(n).min(cap)`),
+  also when the call takes no argument (`[n, 64].into_iter().max()`).
+  The constants a comparison names are read from the same text as its
+  literals: both operands, the arguments, that receiver, and the range with
+  the value it tests;
+* a source whose name looks like a test or fixture file is compiled outside
+  test builds and holds a limit that is not classified;
+* a
   field of an authoritative typed catalog in the code (`catalogs`: the
   execution-policy digest, the ZK consensus-policy hash, the Nexus
   consensus-policy preimage and the two committed policy structs) is neither
@@ -47,22 +88,75 @@ Expression reading is textual. It finds one definition by name and kind
 (`const`, `fn`, `field`, `arm`) after its anchors and evaluates integer
 arithmetic only. It is a source regression guard, not a Rust parser or a
 substitute for the Rust tests the contract names. A limit is found by its
-name (`LIMIT_NAME`): a limit named otherwise is found only once it is listed.
+name (`LIMIT_NAME`) in every scope, and by what the code compares in a
+`comparisons` scope (see "Limits that their name does not mark" below).
+A `static` that holds process state (an atomic, a lock, a once-cell, a cell)
+is a counter or a cache, not a limit, and is not scanned; a lazy static of a
+plain value (`LazyLock<usize>`) is immutable once computed and is scanned.
+
+Gates are read as text: `test`, `feature = ".."`, `true`, `false`, `all(..)`,
+`any(..)` and `not(..)` inside `#[cfg(..)]` and `#![cfg(..)]`, and a `cfg(Q)` that
+`#[cfg_attr(P, cfg(Q))]` applies, read as `any(not(P), Q)`. Every other
+predicate (`unix`, `target_os = ".."`, `debug_assertions`, a `--cfg` of the
+build) is not judged: an item behind one is taken as compiled. An inline
+module is a test module when one of its gates holds only in a test build,
+however the predicate is ordered (`all(feature = "..", test)`).
+
+What the scan still cannot see, by construction: a limit that reaches its
+comparison only through a function argument, a struct field or a local
+variable and is neither a limit-named constant nor a constant compared
+somewhere by name; a limit a function returns when the function takes
+parameters, its name has no limit word or its return type is no integer,
+`Option` of one or `Result` of one; a limit computed at run time; a
+constant of a non-integer type (a `Duration`, a range) that its name does
+not mark; a literal below `literals.minimum` or that is no integer (`0.5`).
+Comparisons the scan does not read, for a constant that no name marks as
+for a literal: one with `==`, `!=`, `cmp` or `partial_cmp`; a `match`
+pattern; a relational operator written without whitespace around it;
+checked arithmetic that refuses by underflow (`limit.checked_sub(64)?`);
+the receiver of `.take` and `.truncate` (the collection that is cut, as in
+`(0..ROWS).take(n)`); what a block yields when the block is the receiver of
+a cap or an operand (`match kind { .. }.min(cap)`); the head of a receiver
+chain in front of a blank outside brackets (the first arguments of a
+turbofish, as in `rows::<A, B>().min(cap)`); a cap or comparison function
+called under another name (an alias of `use`); and a constant or literal
+further than 600 characters from the operator of its relational comparison.
+Outside the `comparisons` scopes every limit that its name does not mark is
+unseen. An exclusion pins the text
+of its limit's defining expression. In a `comparisons` scope an integer
+constant that such an expression names is scanned as a term of the limit; an
+associated constant of a type (`Header::SIZE`), a constant of a crate that is
+not compared and a value a function computes are not followed. A listed
+bound resolves every constant its expression names through another verified
+bound (`refs`).
 
 Maintenance. The contract is edited by hand; two modes do the mechanical part:
 
 * `--refresh` rewrites every bound's recorded expression and value from the
   source, recomputes the derived bounds, the closed RAM-LFE budgets and the
-  occurrence count of every site that is still present, and removes exclusions
-  that match nothing any more. It keeps every classification, site text, test
-  and relation as written and prints each count it changed and each exclusion
-  it removed. Use it after an owner changed on purpose, then review the diff:
-  a changed value may break a relation, which the following check reports.
+  occurrence count of every site that is still present, records the defining
+  expression of every excluded limit, the limits every excluded term is part
+  of (`term_of`) and the features of every named test, and removes exclusions
+  that match nothing any more. It keeps every
+  classification, site text, test and relation as written and prints each
+  count, pinned expression and feature list it changed and each exclusion it
+  removed. Use it after an owner changed on purpose, then review the diff:
+  a changed value may break a relation, which the following check reports,
+  and a changed excluded limit may no longer fit the reason of its exclusion.
+* `--mutate [PATH_PREFIX ...]` writes nothing. It replaces, in memory and one
+  at a time, the defining expression of every scanned limit (or of the limits
+  below the given prefixes) by another value, and raises every literal of
+  every literal comparison of a `comparisons` scope by one, and fails when
+  the owner, completeness and site checks report nothing for a change.
+* `--test-commands` writes nothing. It prints one cargo command per crate
+  target and feature set that runs every Rust test the contract names.
 * `--propose` writes nothing. For every scanned limit or catalog field that is
   neither listed nor excluded it prints a bound skeleton with the owner
   expression, the value, candidate comparison sites and candidate tests; for
-  every site whose text is gone it prints the closest lines of the file; and
-  it lists stale exclusions. `--propose-for PATH:SYMBOL` prints the same
+  every literal comparison that is not recorded it prints the `path`, text
+  and count to add to a group of `completeness.literals`; for every site
+  whose text is gone it prints the closest lines of the file; and it lists
+  stale exclusions. `--propose-for PATH:SYMBOL` prints the same
   skeleton for one constant.
 
 Prerequisites: Python 3.9+ standard library, run from a checkout. No
@@ -73,6 +167,8 @@ Usage:
     python3 scripts/check_zk_resource_contract.py --show      # print every bound
     python3 scripts/check_zk_resource_contract.py --refresh   # rewrite expr, value, counts
     python3 scripts/check_zk_resource_contract.py --propose   # suggest entries, write nothing
+    python3 scripts/check_zk_resource_contract.py --mutate    # change every limit in memory
+    python3 scripts/check_zk_resource_contract.py --test-commands
 """
 
 from __future__ import annotations
@@ -190,17 +286,39 @@ CONST_DEFINITION = re.compile(
     r"(?:^|[{;])[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?const[ \t]+([A-Z][A-Z0-9_]*)[ \t]*:",
     re.MULTILINE,
 )
+# An immutable `static` is a limit written another way and is scanned like a constant.
+# A `static` that holds process state (an atomic, a lock, a once-cell, a cell: counters,
+# caches and guards) is not a value anything is compared with and is not scanned. A lazy
+# static is immutable once computed: `LazyLock<usize>` is scanned, `LazyLock<Mutex<..>>`
+# holds state and is not.
+STATIC_DEFINITION = re.compile(
+    r"(?:^|[{;])[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?static[ \t]+([A-Z][A-Z0-9_]*)[ \t]*:"
+    r"[ \t]*((?:[A-Za-z_][A-Za-z_0-9]*::)*[A-Za-z_][A-Za-z_0-9]*)?"
+    r"(?:[ \t]*<[ \t]*((?:[A-Za-z_][A-Za-z_0-9]*::)*[A-Za-z_][A-Za-z_0-9]*))?",
+    re.MULTILINE,
+)
+STATIC_STATE_HOLDER = re.compile(
+    r"^(?:Atomic\w+|Mutex|RwLock|OnceLock|OnceCell|LazyLock|Lazy|Cell|RefCell|Condvar)$"
+)
+STATIC_LAZY_HOLDER = re.compile(r"^(?:LazyLock|Lazy)$")
+
+
+def _static_holds_state(match: re.Match) -> bool:
+    """Whether a `STATIC_DEFINITION` match declares process state and not an immutable value."""
+    holder = (match.group(2) or "").rsplit("::", 1)[-1]
+    if not STATIC_STATE_HOLDER.match(holder):
+        return False
+    if STATIC_LAZY_HOLDER.match(holder) and match.group(3):
+        return bool(STATIC_STATE_HOLDER.match(match.group(3).rsplit("::", 1)[-1]))
+    return True
 DEFAULT_FN_DEFINITION = re.compile(
     r"(?:^|[{;}])[ \t]*pub[ \t]+(?:const[ \t]+)?fn[ \t]+([a-z][a-z0-9_]*)[ \t]*\(\s*\)",
     re.MULTILINE,
 )
-# An inline test module: `#[cfg(test)]` (or `#[cfg(all(test, ...))]`), then any doc
-# comments and further attributes, then `mod name {`.
-INLINE_TEST_MODULE = re.compile(
-    r"^[ \t]*#\[cfg\((?:test|all\(\s*test\b[^\]\n]*\))\)\][ \t]*\n"
-    r"(?:[ \t]*(?:///[^\n]*|#\[[^\n]*\])[ \t]*\n)*"
-    r"[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?mod[ \t]+\w+[ \t]*\{",
-    re.MULTILINE,
+# An inline module: `mod name {` at the start of a line. It is a test module when a `cfg`
+# attribute in front of it holds only in test builds (`inline_test_modules`).
+INLINE_MODULE = re.compile(
+    r"^[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?mod[ \t]+\w+[ \t]*\{", re.MULTILINE
 )
 # Files a directory scope never scans: test, bench, example and fixture sources.
 TEST_FILE = re.compile(
@@ -218,8 +336,16 @@ REQUIRED_CATALOGS = (
 CATALOG_FORMS = ("policy_push", "zk_policy_put", "struct_tree")
 TEST_ATTRIBUTE = re.compile(r"#\[\s*(?:tokio\s*::\s*)?test\b")
 IGNORE_ATTRIBUTE = re.compile(r"#\[\s*(?:ignore\b|cfg_attr\s*\([^\]]*\bignore\b)")
-# `#[cfg(any())]` is never true: the item it marks is not compiled.
-COMPILED_OUT = re.compile(r"#\[\s*cfg\s*\(\s*any\s*\(\s*\)\s*\)\s*\]")
+# What a gate that never holds is written with: `any()` and `false` are never true,
+# `all()` and `true` always are, and `not(test)` is false where a test is compiled. A
+# boolean literal counts only inside a `cfg` or `cfg_attr` attribute (`cfg(false)`,
+# `cfg(all(test, not(true)))`). A text without one of them holds no gate that `cfg_never`
+# can decide (a quick test before the attributes are read).
+CFG_CONSTANT = re.compile(
+    r"\b(?:any|all)\s*\(\s*\)|\bnot\s*\(\s*test\s*\)"
+    r"|\bcfg(?:_attr)?\s*\([^\]]*?\b(?:false|true)\b"
+)
+CFG_ATTRIBUTE = re.compile(r"#!?\[\s*(cfg|cfg_attr)\s*\(")
 PYTHON_SKIP = re.compile(r"@\s*(?:pytest\.mark\.(?:skip|skipif|xfail)|unittest\.skip)")
 # A site that is one whole constant or static item, or one function signature.
 CONST_ITEM = re.compile(
@@ -415,10 +541,15 @@ def evaluate_relation(expression: str, values: dict, where: str):
 
 
 _SOURCES: dict = {}
+# Source texts that stand in for a file during one check. Only the in-memory mutation
+# sweep sets them; nothing is written to disk.
+_OVERRIDES: dict = {}
 
 
 def _read(root: Path, relative: str, where: str) -> str:
     """Read one source file; a file is read once per size and modification time."""
+    if relative in _OVERRIDES:
+        return _OVERRIDES[relative]
     path = root / relative
     if not path.is_file():
         raise ContractError(f"{where}: {relative} does not exist")
@@ -429,15 +560,168 @@ def _read(root: Path, relative: str, where: str) -> str:
     return _SOURCES[key]
 
 
-_NORMALIZED: dict = {}
+def _override_for(file: Path) -> str | None:
+    """The in-memory text that stands in for `file` during this check, if any."""
+    if not _OVERRIDES:
+        return None
+    name = file.as_posix()
+    for relative, text in _OVERRIDES.items():
+        if name.endswith("/" + relative):
+            return text
+    return None
+
+
+class _TextMemo:
+    """Results computed from source texts, found by the text itself.
+
+    An entry is keyed by the text, never by its length and hash, so two different texts
+    cannot share a result. The oldest half of the texts is dropped beyond `capacity`.
+    `forget` drops one text and every text derived from it (its copy without inline
+    test modules); the in-memory mutation sweep calls it after each change, so mutated
+    copies of large files do not accumulate.
+    """
+
+    def __init__(self, capacity: int) -> None:
+        self._slots: dict = {}
+        self._capacity = capacity
+
+    def get(self, text: str, key, compute):
+        """The result recorded for `text` under `key`, computed on first use."""
+        slot = self._slots.get(text)
+        if slot is None:
+            if len(self._slots) >= self._capacity:
+                for stale in list(self._slots)[: self._capacity // 2]:
+                    del self._slots[stale]
+            slot = self._slots[text] = {}
+        if key not in slot:
+            slot[key] = compute()
+        return slot[key]
+
+    def derive(self, text: str, key, compute) -> str:
+        """Like `get` for a result that is itself a text: `forget(text)` drops it too."""
+        derived = self.get(text, key, compute)
+        self._slots[text].setdefault(_TextMemo, set()).add(derived)
+        return derived
+
+    def forget(self, text: str) -> None:
+        """Drop everything recorded for `text` and for the texts derived from it."""
+        slot = self._slots.pop(text, None)
+        for derived in (slot or {}).get(_TextMemo, ()):
+            if derived is not text:
+                self.forget(derived)
+
+    def __len__(self) -> int:
+        return len(self._slots)
+
+
+_TEXTS = _TextMemo(16384)
 
 
 def _normalized(text: str) -> str:
     """`normalize` of a whole source file, computed once."""
-    key = (len(text), hash(text))
-    if key not in _NORMALIZED:
-        _NORMALIZED[key] = normalize(text)
-    return _NORMALIZED[key]
+    return _TEXTS.get(text, "normalized", lambda: normalize(text))
+
+
+# Everything in a Rust source that is not code: comments, string literals (raw ones
+# included) and character literals. A lifetime (`'a`) has no closing quote and is code.
+_NON_CODE = re.compile(
+    r"//[^\n]*"
+    r"|/\*.*?\*/"
+    r"|(?<![A-Za-z0-9_])b?r(#*)\".*?\"\1"
+    r"|b?\"(?:\\.|[^\"\\])*\""
+    r"|b?'(?:\\(?:u\{[0-9a-fA-F_]{1,8}\}|x[0-9a-fA-F]{2}|.)|[^'\\\n])'",
+    re.DOTALL,
+)
+_NOT_NEWLINE = re.compile(r"[^\n]")
+
+
+def code_mask(source: str) -> str:
+    """`source` with every comment, string literal and character literal blanked.
+
+    Each blanked character becomes a space and newlines stay, so an offset in the mask
+    is the same offset in the source. Braces, operators and names that remain are code.
+    """
+    return _NON_CODE.sub(lambda match: _blank(match.group(0)), source)
+
+
+def source_mask(source: str) -> str:
+    """`code_mask` of a whole source file, computed once per text."""
+    return _TEXTS.get(source, "code_mask", lambda: code_mask(source))
+
+
+def _blank(text: str) -> str:
+    """`text` with every character but a newline replaced by a space."""
+    return " " * len(text) if "\n" not in text else _NOT_NEWLINE.sub(" ", text)
+
+
+def comment_mask(source: str) -> str:
+    """`source` with every comment blanked and every literal kept; offsets are unchanged.
+
+    Unlike dropping everything after `//`, this keeps a string that contains `//`
+    (`"https://.."`) whole, so the text can be masked again and searched for literals.
+    """
+
+    def blank(match: re.Match) -> str:
+        text = match.group(0)
+        return _blank(text) if text.startswith("/") else text
+
+    return _NON_CODE.sub(blank, source)
+
+
+_BRACE = re.compile(r"[{}]")
+
+
+def _top_level_blocks(source: str) -> tuple:
+    """The code mask of `source` and `(open, end)` of every brace block at nesting depth zero."""
+    mask = source_mask(source)
+    blocks = []
+    depth = 0
+    opening = 0
+    for match in _BRACE.finditer(mask):
+        if match.group(0) == "{":
+            if depth == 0:
+                opening = match.start()
+            depth += 1
+        elif depth > 0:
+            depth -= 1
+            if depth == 0:
+                blocks.append((opening, match.end()))
+    if depth > 0:
+        blocks.append((opening, len(mask)))
+    return mask, blocks
+
+
+def enclosing_heads(source: str, position: int) -> list:
+    """The header of every brace block of `source` that encloses `position`, outermost first.
+
+    A header is the text between the end of the previous item or block and the opening
+    brace: the attributes and the declaration of an inline `mod`, an `impl` or a
+    function. Braces inside comments and literals do not open a block.
+    """
+    mask, blocks = _TEXTS.get(source, "top_level_blocks", lambda: _top_level_blocks(source))
+    # Only the top-level block around the position can enclose it: start there.
+    low, high = 0, len(blocks)
+    while low < high:
+        middle = (low + high) // 2
+        if blocks[middle][0] < position:
+            low = middle + 1
+        else:
+            high = middle
+    if low == 0 or blocks[low - 1][1] <= position:
+        return []
+    stack: list = []
+    for match in _BRACE.finditer(mask, blocks[low - 1][0], position):
+        if match.group(0) == "{":
+            stack.append(match.start())
+        elif stack:
+            stack.pop()
+    heads = []
+    for opening in stack:
+        start = 1 + max(
+            mask.rfind(";", 0, opening), mask.rfind("}", 0, opening), mask.rfind("{", 0, opening)
+        )
+        heads.append(LINE_COMMENT.sub("", source[start:opening]))
+    return heads
 
 
 def _require(record: dict, keys: tuple, where: str) -> None:
@@ -476,9 +760,6 @@ def _definition_only(site: dict, owner: dict | None = None) -> bool:
     )
 
 
-_TEST_PROBLEMS: dict = {}
-
-
 def test_problem(
     source: str,
     path: str,
@@ -493,21 +774,13 @@ def test_problem(
     generator is defined in the same file, or in the file whose text is `macro_source`
     when the test file is an `include!` of it.
     """
-    key = (
-        len(source),
-        hash(source),
-        path.endswith(".py"),
-        name,
-        macro,
-        None if macro_source is None else hash(macro_source),
+    return _TEXTS.get(
+        source,
+        ("test_problem", path.endswith(".py"), name, macro, macro_source),
+        lambda: _test_problem(source, path, name)
+        if macro is None
+        else _macro_test_problem(source, name, macro, macro_source),
     )
-    if key not in _TEST_PROBLEMS:
-        _TEST_PROBLEMS[key] = (
-            _test_problem(source, path, name)
-            if macro is None
-            else _macro_test_problem(source, name, macro, macro_source)
-        )
-    return _TEST_PROBLEMS[key]
 
 
 def _macro_test_problem(
@@ -566,8 +839,14 @@ def _test_problem(source: str, path: str, name: str) -> str | None:
             continue
         if IGNORE_ATTRIBUTE.search(head):
             return "is `#[ignore]`d in"
-        if COMPILED_OUT.search(head):
-            return "is compiled out by `#[cfg(any())]` in"
+        gate = cfg_never(head, True)
+        if gate is not None:
+            return f"is compiled out by `#[cfg({gate})]` in"
+        # An inline module (or any other block) around the test that is never compiled.
+        for outer in enclosing_heads(source, match.start()):
+            gate = cfg_never(outer, True)
+            if gate is not None:
+                return f"is inside a block compiled out by `#[cfg({gate})]` in"
         return None
     return "has no `#[test]` attribute in" if found else "is not in"
 
@@ -581,11 +860,19 @@ _DECLARES: dict = {}
 
 
 def _code(file: Path) -> str:
-    """The text of `file` without line comments; read once per size and modification time."""
+    """The text of `file` with its comments blanked; read once per size and modification time.
+
+    Offsets are those of the file and literals are kept (`comment_mask`), so a position
+    found in this text can be given to `enclosing_heads`. A text that stands in for the
+    file during this check (`_OVERRIDES`) is read instead.
+    """
+    override = _override_for(file)
+    if override is not None:
+        return _TEXTS.derive(override, "code", lambda: comment_mask(override))
     stat = file.stat()
     key = (str(file), stat.st_mtime_ns, stat.st_size)
     if key not in _CODE:
-        _CODE[key] = LINE_COMMENT.sub("", file.read_text(encoding="utf-8"))
+        _CODE[key] = comment_mask(file.read_text(encoding="utf-8"))
     return _CODE[key]
 
 
@@ -606,8 +893,8 @@ def _crate_of(root: Path, file: Path) -> Path | None:
 def _crate_references(crate: Path) -> dict:
     """Every `include!("..")` and `#[path = ".."]` in the Rust files of `crate`.
 
-    Maps the resolved target to the files that name it. A reference marked
-    `#[cfg(any())]` does not count. Built at most once per run.
+    Maps the resolved target to the files that name it. A reference behind a gate that
+    holds in no build (`cfg_never`) does not count. Built at most once per run.
     """
     key = str(crate)
     if key not in _REFERENCES:
@@ -615,14 +902,25 @@ def _crate_references(crate: Path) -> dict:
         for file in sorted(crate.rglob("*.rs")):
             if "target" in file.relative_to(crate).parts:
                 continue
-            raw = file.read_text(encoding="utf-8")
+            raw = _override_for(file)
+            if raw is None:
+                raw = file.read_text(encoding="utf-8")
             if "include!" not in raw and "path" not in raw:
                 continue
-            text = LINE_COMMENT.sub("", raw)
+            # A file that may hold a gate that never holds is read with its comments
+            # blanked in place, so a reference can be placed among its blocks.
+            compiled_out = CFG_CONSTANT.search(raw) is not None
+            text = comment_mask(raw) if compiled_out else LINE_COMMENT.sub("", raw)
             for match in re.finditer(
                 r"(?:include!\s*\(\s*|#\[\s*path\s*=\s*)\"([^\"]+\.rs)\"", text
             ):
-                if COMPILED_OUT.search(text[max(0, match.start() - 160) : match.start()]):
+                if compiled_out and (
+                    cfg_never(_item_head(text, match.start(), 160)) is not None
+                    or any(
+                        cfg_never(outer) is not None
+                        for outer in enclosing_heads(text, match.start())
+                    )
+                ):
                     continue
                 target = (file.parent / match.group(1)).resolve()
                 found.setdefault(str(target), []).append(file)
@@ -652,19 +950,33 @@ def _referrers_by_path(crate: Path, file: Path) -> list:
 
 
 def _declares_module(file: Path, name: str) -> bool:
-    """Whether `file` declares `mod name;` (or an inline `mod name {`) that is compiled."""
+    """Whether `file` declares `mod name;` (or an inline `mod name {`) that a test build compiles."""
     if not file.is_file():
         return False
     stat = file.stat()
-    key = (str(file), stat.st_mtime_ns, stat.st_size, name)
+    key = (str(file), stat.st_mtime_ns, stat.st_size, name, _override_for(file))
     if key not in _DECLARES:
         text = _code(file)
         _DECLARES[key] = False
+        compiled_out = CFG_CONSTANT.search(text) is not None
         for match in re.finditer(rf"\bmod\s+{re.escape(name)}\s*[;{{]", text):
             head = text[max(0, match.start() - 200) : match.start()]
             head = head[max(head.rfind(";"), head.rfind("}"), head.rfind("{")) + 1 :]
             # `#[path = ".."] mod name;` names another file; `_referrers_by_path` reads it.
-            if not COMPILED_OUT.search(head) and not re.search(r"#\[\s*path\b", head):
+            if (
+                not re.search(r"#\[\s*path\b", head)
+                and not (
+                    compiled_out
+                    and (
+                        cfg_never(head, True) is not None
+                        # A declaration inside an inline module that is never compiled.
+                        or any(
+                            cfg_never(outer, True) is not None
+                            for outer in enclosing_heads(text, match.start())
+                        )
+                    )
+                )
+            ):
                 _DECLARES[key] = True
                 break
     return _DECLARES[key]
@@ -743,6 +1055,666 @@ def unreachable_test_file(root: Path, relative: str) -> bool:
     return not _reaches_crate_root(crate, file, frozenset())
 
 
+def _cfg_node(predicate: str) -> tuple:
+    """One `cfg` predicate as a tree.
+
+    `("test",)`, `("feature", name)`, `("all", parts)`, `("any", parts)`, `("not", part)`,
+    or `("other", text)` for every predicate this checker does not judge (`unix`,
+    `target_os = ".."`, `debug_assertions`, a `--cfg` of the build). The boolean
+    literals are read as the empty groups they equal: `false` as `any()`, which never
+    holds, and `true` as `all()`, which always does.
+    """
+    predicate = predicate.strip()
+    if predicate == "test":
+        return ("test",)
+    if predicate in ("false", "true"):
+        return ("any" if predicate == "false" else "all", [])
+    feature = re.fullmatch(r"feature\s*=\s*\"([^\"]+)\"", predicate)
+    if feature:
+        return ("feature", feature.group(1))
+    call = re.fullmatch(r"(all|any|not)\s*\((.*)\)", predicate, re.DOTALL)
+    if call is None:
+        return ("other", predicate)
+    parts = [_cfg_node(part) for part in _split_top_level(call.group(2)) if part.strip()]
+    if call.group(1) == "not":
+        return ("not", parts[0]) if len(parts) == 1 else ("other", predicate)
+    return (call.group(1), parts)
+
+
+def _cfg_value(node: tuple, test: bool | None, enabled=None, open_features=frozenset()):
+    """Whether a `cfg` tree holds: True, False, or None when that is not known.
+
+    `test` is True in a test build and None when the build is not known. `enabled` is the
+    set of Cargo features that are on (every other feature is off), or None when the
+    features are not known; a feature in `open_features` is not known either. `any()` is
+    false and `all()` is true. Every other predicate (`("other", ..)`) is not known.
+    """
+    kind = node[0]
+    if kind == "test":
+        return test
+    if kind == "feature":
+        if enabled is None or node[1] in open_features:
+            return None
+        return node[1] in enabled
+    if kind == "not":
+        inner = _cfg_value(node[1], test, enabled, open_features)
+        return None if inner is None else not inner
+    if kind in ("all", "any"):
+        values = [_cfg_value(part, test, enabled, open_features) for part in node[1]]
+        decides = kind == "any"
+        if decides in values:
+            return decides
+        return None if None in values else not decides
+    return None
+
+
+def _node_requirement(node: tuple) -> set:
+    """`_cfg_requirement` of a parsed predicate."""
+    kind = node[0]
+    if kind == "feature":
+        return {node[1]}
+    if kind == "all":
+        return set().union(*(_node_requirement(part) for part in node[1]))
+    if kind == "any":
+        # An alternative that never holds where a test is compiled (`not(test)`, `any()`)
+        # is none: `any(not(test), feature = "x")` requires x.
+        parts = [
+            _node_requirement(part) for part in node[1] if _cfg_value(part, True) is not False
+        ]
+        if not parts or any(not part for part in parts):
+            return set()
+        return {"|".join(sorted("+".join(sorted(part)) for part in parts))}
+    return set()
+
+
+def _cfg_requirement(predicate: str) -> set:
+    """The features one `cfg` predicate requires where a test is compiled.
+
+    `feature = "x"` requires x; `all(..)` requires what every part requires; `any(..)`
+    requires nothing when one alternative that can hold requires nothing
+    (`any(test, feature = "x")`) and otherwise the alternatives as one entry (`a|b`);
+    `not(..)` and every other predicate (`test`, `target_os = ".."`) require nothing.
+    """
+    return _node_requirement(_cfg_node(predicate))
+
+
+def cfg_predicates(text: str) -> list:
+    """The predicate of every `cfg` gate among the attributes in `text`.
+
+    `#[cfg(P)]` and `#![cfg(P)]` give P. `#[cfg_attr(P, .., cfg(Q), ..)]` applies
+    `cfg(Q)` where P holds and gives `any(not(P), Q)`, at every depth of nesting.
+    """
+    found = []
+    for match in CFG_ATTRIBUTE.finditer(text):
+        end = _group_end(text, match.end() - 1, "(", ")")
+        if end < 0:
+            continue
+        inside = text[match.end() : end - 1]
+        if match.group(1) == "cfg":
+            found.append(inside.strip())
+        else:
+            found.extend(_cfg_attr_predicates(inside))
+    return found
+
+
+def _cfg_attr_predicates(arguments: str) -> list:
+    """The gates a `cfg_attr(P, attribute, ..)` with these arguments applies."""
+    parts = [part.strip() for part in _split_top_level(arguments)]
+    condition, found = parts[0], []
+    for part in parts[1:]:
+        inner = re.fullmatch(r"(cfg|cfg_attr)\s*\((.*)\)", part, re.DOTALL)
+        if inner is None:
+            continue
+        gates = [inner.group(2).strip()] if inner.group(1) == "cfg" else _cfg_attr_predicates(inner.group(2))
+        found.extend(f"any(not({condition}), {gate})" for gate in gates)
+    return found
+
+
+def cfg_never(text: str, test: bool | None = None) -> str | None:
+    """The first `cfg` gate in `text` that never holds, or None.
+
+    With `test` None the gate holds in no build at all (`any()`, `false`,
+    `all(test, any())`, `not(all())`, `not(true)`); with `test` True it does not hold
+    where a test is compiled either
+    (`not(test)`). Features are not known here: `_test_features` judges a gate against
+    the features of the command that runs the test.
+    """
+    if CFG_CONSTANT.search(text) is None:
+        return None
+    for predicate in cfg_predicates(text):
+        if _cfg_value(_cfg_node(predicate), test) is False:
+            return " ".join(predicate.split())
+    return None
+
+
+def _cfg_requires_test(predicate: str) -> bool:
+    """Whether one `cfg` predicate holds only in a test build.
+
+    `test` does; `all(..)` does when one part does; `any(..)` when every alternative
+    does; `not(..)` and every other predicate do not.
+    """
+    predicate = predicate.strip()
+    if predicate == "test":
+        return True
+    call = re.fullmatch(r"(all|any|not)\s*\((.*)\)", predicate, re.DOTALL)
+    if call is None:
+        return False
+    parts = [
+        _cfg_requires_test(part) for part in _split_top_level(call.group(2)) if part.strip()
+    ]
+    if call.group(1) == "all":
+        return any(parts)
+    if call.group(1) == "any":
+        return bool(parts) and all(parts)
+    return False
+
+
+def cfg_requires_test(text: str) -> bool:
+    """Whether a `#[cfg(..)]` or `#![cfg(..)]` attribute in `text` holds only in a test build."""
+    for match in re.finditer(r"#!?\[\s*cfg\s*\(", text):
+        end = _group_end(text, match.end() - 1, "(", ")")
+        if end > 0 and _cfg_requires_test(text[match.end() : end - 1]):
+            return True
+    return False
+
+
+_TEST_ONLY: dict = {}
+_MANIFEST_TEXT: dict = {}
+_MODULE_DECLARATION = re.compile(r"\bmod\s+([A-Za-z_][A-Za-z_0-9]*)\s*[;{]")
+
+
+def _module_declarations(text: str) -> dict:
+    """Module name -> the offsets of every `mod name;` and `mod name {` in `text`."""
+
+    def read() -> dict:
+        found: dict = {}
+        for match in _MODULE_DECLARATION.finditer(text):
+            found.setdefault(match.group(1), []).append(match.start())
+        return found
+
+    return _TEXTS.get(text, "module_declarations", read)
+
+
+def _chain_test_only(crate: Path, file: Path, seen: frozenset) -> bool | None:
+    """Whether every chain from `file` to a crate target is compiled only in test builds.
+
+    Follows the chains of `_chain_gates`. A chain is test-only when the file, a
+    declaration on it or a block around such a declaration is gated by `cfg(test)`, or
+    when it ends in a test, bench or example target. Returns False when one chain
+    reaches a library or binary target without such a gate, and None when no chain
+    reaches a target (the file is not compiled).
+    """
+    key = str(file)
+    if key in seen or not file.is_file():
+        return None
+    # A verdict is kept while no source of the crate changes and no text stands in for
+    # one of its files. The module graph of a crate has no cycle, so the verdict of a
+    # file does not depend on the path that led to it.
+    kept = _crate_sources_unchanged(crate)
+    if kept and key in _TEST_ONLY:
+        return _TEST_ONLY[key]
+    verdict = _read_chain_test_only(crate, file, seen | {key})
+    if kept:
+        _TEST_ONLY[key] = verdict
+    return verdict
+
+
+_CRATE_FINGERPRINTS: dict = {}
+# Counts the scans of this process: the sources of a crate are compared with their last
+# fingerprint once per scan.
+_SCAN_EPOCH = [0]
+
+
+def _crate_sources_unchanged(crate: Path) -> bool:
+    """Whether verdicts recorded for `crate` may be reused in this scan.
+
+    False while a text stands in for a file of the crate. Otherwise the size and
+    modification time of every Rust source and of the manifest are compared with the
+    last scan, once per scan; when one differs, the verdicts of the crate are dropped.
+    """
+    name = crate.as_posix()
+    if any(name.endswith("/" + "/".join(relative.split("/")[:2])) for relative in _OVERRIDES):
+        return False
+    known = _CRATE_FINGERPRINTS.get(name)
+    if known is not None and known[0] == _SCAN_EPOCH[0]:
+        return True
+    files = [crate / "Cargo.toml", *crate.rglob("*.rs")]
+    fingerprint = hash(
+        tuple(sorted((str(file), file.stat().st_mtime_ns, file.stat().st_size) for file in files))
+    )
+    if known is None or known[1] != fingerprint:
+        prefix = name + "/"
+        for stale in [key for key in _TEST_ONLY if key.startswith(prefix)]:
+            del _TEST_ONLY[stale]
+    _CRATE_FINGERPRINTS[name] = (_SCAN_EPOCH[0], fingerprint)
+    return True
+
+
+_RAW: dict = {}
+
+
+def _raw(file: Path) -> str:
+    """The text of `file`, or the text that stands in for it; read once per stat."""
+    override = _override_for(file)
+    if override is not None:
+        return override
+    stat = file.stat()
+    key = (str(file), stat.st_mtime_ns, stat.st_size)
+    if key not in _RAW:
+        if len(_RAW) > 8192:
+            _RAW.clear()
+        _RAW[key] = file.read_text(encoding="utf-8")
+    return _RAW[key]
+
+
+def _file_requires_test(text: str) -> bool:
+    """Whether an inner attribute at the head of a file (`#![cfg(test)]`) gates it to tests.
+
+    Inner attributes come before the first item: only the leading blank, comment and
+    `#![..]` lines are read, so text further down that looks like one does not count.
+    """
+
+    def read() -> bool:
+        attributes = []
+        open_attribute = False
+        for line in text.splitlines():
+            stripped = line.strip()
+            if open_attribute:
+                attributes[-1] += " " + stripped
+                open_attribute = "]" not in stripped
+            elif stripped.startswith("#!["):
+                attributes.append(stripped)
+                open_attribute = stripped.count("[") > stripped.count("]")
+            elif stripped and not stripped.startswith("//"):
+                break
+        return cfg_requires_test("\n".join(attributes))
+
+    return _TEXTS.get(text, "file_requires_test", read)
+
+
+def _read_chain_test_only(crate: Path, file: Path, seen: frozenset) -> bool | None:
+    """`_chain_test_only` without its record of earlier verdicts."""
+    if _file_requires_test(_raw(file)):
+        return True
+    parts = file.relative_to(crate).parts
+    manifest_key = str(crate)
+    if manifest_key not in _MANIFEST_TEXT:
+        _MANIFEST_TEXT[manifest_key] = (crate / "Cargo.toml").read_text(encoding="utf-8")
+    manifest = _MANIFEST_TEXT[manifest_key]
+    relative = "/".join(parts)
+    if parts[0] == "src" and (
+        (len(parts) == 2 and parts[1] in ("lib.rs", "main.rs")) or (len(parts) == 3 and parts[1] == "bin")
+    ):
+        return False
+    for block in re.split(r"^\[", manifest, flags=re.MULTILINE)[1:]:
+        if re.search(rf"^path\s*=\s*\"{re.escape(relative)}\"", block, re.MULTILINE):
+            return block.lstrip("[").split("]", 1)[0] in ("test", "bench", "example")
+    if parts[0] in ("tests", "benches", "examples") and (
+        len(parts) == 2 or (len(parts) == 3 and parts[2] == "main.rs")
+    ):
+        return True
+    module, directory = file.stem, file.parent
+    if file.name == "mod.rs":
+        module, directory = directory.name, directory.parent
+    verdicts = []
+    ancestor = directory
+    # The inline modules a declaration in `ancestor` must sit in to name this file:
+    # `mod a { mod b { mod name; } }` in `x.rs` declares `x/a/b/name.rs`.
+    nesting: list = []
+    for _ in range(4):
+        if crate not in (ancestor, *ancestor.parents):
+            break
+        for parent in (
+            ancestor / "mod.rs",
+            ancestor.parent / f"{ancestor.name}.rs",
+            ancestor / "lib.rs",
+            ancestor / "main.rs",
+        ):
+            if parent == file or not parent.is_file():
+                continue
+            parent_text = _code(parent)
+            for position in _module_declarations(parent_text).get(module, ()):
+                head = _item_head(parent_text, position)
+                outer = enclosing_heads(parent_text, position)
+                if (
+                    cfg_never(head) is not None
+                    or re.search(r"#\[\s*path\b", head)
+                    or any(cfg_never(block) is not None for block in outer)
+                ):
+                    continue
+                # A module of the same name declared at another level is another file.
+                if _inline_module_names(outer) != nesting:
+                    continue
+                gated = cfg_requires_test(head) or any(cfg_requires_test(block) for block in outer)
+                verdicts.append((parent, gated))
+        nesting.insert(0, ancestor.name)
+        ancestor = ancestor.parent
+    for referrer in _referrers_by_path(crate, file):
+        if referrer == file:
+            continue
+        referrer_text = _code(referrer)
+        for match in re.finditer(
+            r"(?:include!\s*\(\s*|#\[\s*path\s*=\s*)\"([^\"]+\.rs)\"", referrer_text
+        ):
+            if (referrer.parent / match.group(1)).resolve() != file.resolve():
+                continue
+            head = _item_head(referrer_text, match.start())
+            tail = referrer_text[match.end() : match.end() + 300].split(";", 1)[0]
+            outer = enclosing_heads(referrer_text, match.start())
+            if any(cfg_never(block) is not None for block in outer):
+                continue
+            gated = (
+                cfg_requires_test(head)
+                or cfg_requires_test(tail)
+                or any(cfg_requires_test(block) for block in outer)
+            )
+            verdicts.append((referrer, gated))
+    reached = None
+    for referrer, gated in verdicts:
+        above = True if gated else _chain_test_only(crate, referrer, seen)
+        if above is False:
+            return False
+        if above is True:
+            reached = True
+    return reached
+
+
+def _test_only_verdict(root: Path, relative: str) -> bool | None:
+    """`_chain_test_only` of one source, read once per check; None also without a crate."""
+    file = root / relative
+    crate = _crate_of(root, file)
+    if crate is None:
+        return None
+    return _chain_test_only(crate, file, frozenset())
+
+
+def compiled_outside_tests(root: Path, relative: str) -> bool:
+    """Whether a Rust source whose name looks like a test file is production code.
+
+    True when a library or binary target of its crate compiles the file without a
+    `cfg(test)` gate on the way (`pub mod lane_fixture;`). A file without a crate
+    manifest above it is not judged: its name decides.
+    """
+    return _test_only_verdict(root, relative) is False
+
+
+def compiled_only_in_tests(root: Path, relative: str) -> bool:
+    """Whether every declaration that reaches a source compiles it only in test builds.
+
+    Such a file (`#[cfg(test)] mod reference;`) holds no production comparison, whatever
+    its name. A file without a crate manifest above it is not judged.
+    """
+    return _test_only_verdict(root, relative) is True
+
+
+def _inline_module_names(heads: list) -> list:
+    """The names of the inline modules among enclosing block headers, outermost first.
+
+    A header that is no `mod name` (an `impl`, a function) yields None in its place, so
+    a declaration inside such a block matches no directory nesting.
+    """
+    names = []
+    for head in heads:
+        module = re.search(r"\bmod\s+([A-Za-z_][A-Za-z_0-9]*)\s*$", head)
+        names.append(module.group(1) if module else None)
+    return names
+
+
+def _block_gates(heads: list) -> list:
+    """The `cfg` gates on enclosing blocks (`enclosing_heads`), as predicates."""
+    return [predicate for head in heads for predicate in cfg_predicates(head)]
+
+
+def _item_head(text: str, position: int, window: int = 600) -> str:
+    """The attributes in front of the item at `position`: the text after the previous item."""
+    head = text[max(0, position - window) : position]
+    return head[max(head.rfind(";"), head.rfind("}"), head.rfind("{")) + 1 :]
+
+
+_MANIFEST_FEATURES: dict = {}
+
+
+def _manifest_features(crate: Path) -> dict:
+    """The `[features]` table of a crate: each feature with the same-crate features it enables."""
+    key = str(crate)
+    if key not in _MANIFEST_FEATURES:
+        manifest = (crate / "Cargo.toml").read_text(encoding="utf-8")
+        table = re.search(r"^\[features\]\s*$(.*?)(?=^\[)", manifest + "\n[", re.MULTILINE | re.DOTALL)
+        features: dict = {}
+        if table:
+            for entry in re.finditer(
+                r"^([A-Za-z0-9_-]+)\s*=\s*\[(.*?)\]", table.group(1), re.MULTILINE | re.DOTALL
+            ):
+                features[entry.group(1)] = [
+                    name
+                    for name in re.findall(r"\"([^\"]+)\"", entry.group(2))
+                    if "/" not in name and not name.startswith("dep:")
+                ]
+        _MANIFEST_FEATURES[key] = features
+    return _MANIFEST_FEATURES[key]
+
+
+def _implied_features(crate: Path, name: str) -> set:
+    """Every same-crate feature that enabling `name` enables, `name` included."""
+    features = _manifest_features(crate)
+    seen = set()
+    pending = [name]
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        pending.extend(features.get(current, []))
+    return seen
+
+
+def _target_features(crate: Path, file: Path) -> set:
+    """`required-features` of the manifest target whose `path` is `file`."""
+    manifest = (crate / "Cargo.toml").read_text(encoding="utf-8")
+    relative = file.relative_to(crate).as_posix()
+    required: set = set()
+    for block in re.split(r"^\[\[", manifest, flags=re.MULTILINE)[1:]:
+        block = block.split("\n[", 1)[0]
+        if re.search(rf"^path\s*=\s*\"{re.escape(relative)}\"", block, re.MULTILINE):
+            listed = re.search(r"^required-features\s*=\s*\[(.*?)\]", block, re.MULTILINE | re.DOTALL)
+            if listed:
+                required |= set(re.findall(r"\"([^\"]+)\"", listed.group(1)))
+    return required
+
+
+def _chain_gates(crate: Path, file: Path, seen: frozenset) -> tuple | None:
+    """The gates on the `mod`, `include!` and `#[path]` chain from `file` to a crate target.
+
+    Follows the same chain as `_reaches_crate_root` and collects the `cfg` gates of every
+    declaration on it and of every block around one, the inner `#![cfg(..)]` gates of
+    every file on it and the `required-features` of the target. Returns
+    `(predicates, required_features)`, or None when no chain reaches a target. A
+    declaration behind a gate that never holds where a test is compiled is no chain.
+    """
+    key = str(file)
+    if key in seen or not file.is_file():
+        return None
+    seen = seen | {key}
+    _FEATURE_TRAIL.update((file, crate / "Cargo.toml"))
+    text = _code(file)
+    own = cfg_predicates("\n".join(re.findall(r"^[ \t]*#!\[[^\n]*", text, re.MULTILINE)))
+    parts = file.relative_to(crate).parts
+    manifest = (crate / "Cargo.toml").read_text(encoding="utf-8")
+    automatic = {"tests": "autotests", "benches": "autobenches", "examples": "autoexamples"}
+    is_target = (
+        (parts[0] == "src" and len(parts) == 2 and parts[1] in ("lib.rs", "main.rs"))
+        or (parts[0] == "src" and len(parts) == 3 and parts[1] == "bin")
+        or f'"{"/".join(parts)}"' in manifest
+        or (
+            parts[0] in automatic
+            and (len(parts) == 2 or (len(parts) == 3 and parts[2] == "main.rs"))
+            and not re.search(rf"^\s*{automatic[parts[0]]}\s*=\s*false", manifest, re.MULTILINE)
+        )
+    )
+    if is_target:
+        return own, _target_features(crate, file)
+    module, directory = file.stem, file.parent
+    if file.name == "mod.rs":
+        module, directory = directory.name, directory.parent
+    candidates = []
+    ancestor = directory
+    for _ in range(4):
+        if crate not in (ancestor, *ancestor.parents):
+            break
+        for parent in (
+            ancestor / "mod.rs",
+            ancestor.parent / f"{ancestor.name}.rs",
+            ancestor / "lib.rs",
+            ancestor / "main.rs",
+        ):
+            if parent == file or not parent.is_file():
+                continue
+            _FEATURE_TRAIL.add(parent)
+            parent_text = _code(parent)
+            for match in re.finditer(rf"\bmod\s+{re.escape(module)}\s*[;{{]", parent_text):
+                head = _item_head(parent_text, match.start())
+                outer = enclosing_heads(parent_text, match.start())
+                if (
+                    cfg_never(head, True) is None
+                    and not re.search(r"#\[\s*path\b", head)
+                    and not any(cfg_never(block, True) is not None for block in outer)
+                ):
+                    candidates.append((parent, cfg_predicates(head) + _block_gates(outer)))
+        ancestor = ancestor.parent
+    for referrer in _referrers_by_path(crate, file):
+        if referrer == file:
+            continue
+        _FEATURE_TRAIL.add(referrer)
+        referrer_text = _code(referrer)
+        for match in re.finditer(
+            r"(?:include!\s*\(\s*|#\[\s*path\s*=\s*)\"([^\"]+\.rs)\"", referrer_text
+        ):
+            if (referrer.parent / match.group(1)).resolve() != file.resolve():
+                continue
+            # The attributes before the reference and, for `#[path]`, up to its `mod`.
+            head = _item_head(referrer_text, match.start())
+            tail = referrer_text[match.end() : match.end() + 300].split(";", 1)[0]
+            outer = enclosing_heads(referrer_text, match.start())
+            if any(cfg_never(block, True) is not None for block in (head, tail, *outer)):
+                continue
+            candidates.append(
+                (referrer, cfg_predicates(head) + cfg_predicates(tail) + _block_gates(outer))
+            )
+    for referrer, declared in candidates:
+        above = _chain_gates(crate, referrer, seen)
+        if above is not None:
+            return own + declared + above[0], above[1]
+    return None
+
+
+# Files read while one feature chain is followed, and the answers they gave.
+_FEATURE_TRAIL: set = set()
+_TEST_FEATURES: dict = {}
+
+
+def test_features(root: Path, test: dict, where: str) -> list | None:
+    """The features a named Rust test needs to be compiled, smallest set, sorted.
+
+    They come from the `cfg` attributes of the test function, of every inline module (or
+    other block) that encloses it, of its file and of every declaration that joins the
+    file to its crate, and from `required-features` of its test target. A feature another
+    one of the set enables is left out. Returns None for a test that is not Rust, has no
+    crate or is generated by a macro. A test whose file no test build compiles, or that a
+    gate compiles out under those features, is an error. The answer of an earlier call is
+    reused while every
+    file that gave it is unchanged and no text stands in for a file (`_OVERRIDES`).
+    """
+    if not test["path"].endswith(".rs") or test.get("macro"):
+        return None
+    key = (str(root), test["path"], test["name"])
+    known = _TEST_FEATURES.get(key)
+    if (
+        known is not None
+        and not _OVERRIDES
+        and all(path.is_file() and path.stat().st_mtime_ns == stamp for path, stamp in known[0])
+    ):
+        if isinstance(known[1], ContractError):
+            raise ContractError(f"{where}: {known[1]}")
+        return None if known[1] is None else list(known[1])
+    _FEATURE_TRAIL.clear()
+    try:
+        answer = _test_features(root, test)
+    except ContractError as error:
+        answer = error
+    if not _OVERRIDES:
+        _TEST_FEATURES[key] = (
+            [(path, path.stat().st_mtime_ns) for path in sorted(_FEATURE_TRAIL) if path.is_file()],
+            answer,
+        )
+    if isinstance(answer, ContractError):
+        raise ContractError(f"{where}: {answer}")
+    return None if answer is None else list(answer)
+
+
+def _test_features(root: Path, test: dict) -> list | None:
+    where = "features"
+    file = root / test["path"]
+    crate = _crate_of(root, file)
+    if crate is None:
+        return None
+    _FEATURE_TRAIL.add(file)
+    chain = _chain_gates(crate, file, frozenset())
+    if chain is None:
+        # A declaration reaches the file (`unreachable_test_file` is asked first), but
+        # none that a test build compiles: `#[cfg(not(test))] include!("..")`.
+        raise ContractError(
+            f"test `{test['name']}` is in {test['path']}, which no declaration that a test "
+            "build compiles joins to a target of its crate: it never runs"
+        )
+    predicates, required = list(chain[0]), set(chain[1])
+    source = _read(root, test["path"], where)
+    for match in re.finditer(rf"\bfn\s+{re.escape(test['name'])}\s*\(", source):
+        head = LINE_COMMENT.sub("", source[max(0, match.start() - 6000) : match.start()])
+        head = head[max(head.rfind("}"), head.rfind(";"), head.rfind("{")) + 1 :]
+        if TEST_ATTRIBUTE.search(head):
+            predicates += cfg_predicates(head)
+            # The usual gate of a Rust test is on the inline module around it:
+            # `#[cfg(all(test, feature = ".."))] mod tests { .. }`.
+            predicates += _block_gates(enclosing_heads(source, match.start()))
+            break
+    for predicate in predicates:
+        required |= _cfg_requirement(predicate)
+    declared = _manifest_features(crate)
+    for entry in sorted(required):
+        for name in re.split(r"[|+]", entry):
+            if name not in declared:
+                raise ContractError(
+                    f"test `{test['name']}` in {test['path']} is compiled only with "
+                    f"feature `{name}`, which is not a feature of its crate: it never runs"
+                )
+    minimal = {
+        entry
+        for entry in required
+        if not any(
+            other != entry and "|" not in other and entry in _implied_features(crate, other)
+            for other in required
+        )
+    }
+    # The command that runs the test turns on the default features and the recorded
+    # ones. A gate that is false under exactly those (`not(feature = "std")` with `std`
+    # a default feature, `not(test)`, `all(test, any())`) compiles the test out.
+    enabled = _implied_features(crate, "default") if "default" in declared else set()
+    alternatives = set()
+    for entry in minimal:
+        if "|" in entry:
+            alternatives.update(re.split(r"[|+]", entry))
+        else:
+            enabled |= _implied_features(crate, entry)
+    for predicate in predicates:
+        if _cfg_value(_cfg_node(predicate), True, enabled, frozenset(alternatives - enabled)) is False:
+            raise ContractError(
+                f"test `{test['name']}` in {test['path']} is behind "
+                f"`#[cfg({' '.join(predicate.split())})]`, which is false with the default "
+                f"features and {sorted(minimal)}: it never runs"
+            )
+    return sorted(minimal)
+
+
 def _check_sites(
     root: Path,
     record: dict,
@@ -809,6 +1781,27 @@ def _check_sites(
                     f"{where}: test `{test['name']}` is in {test['path']}, which no "
                     "`mod`, `include!`, `#[path]` or test target of its crate reaches"
                 )
+            # A test behind a Cargo feature runs only when that feature is enabled: the
+            # contract records which, so the command that runs it can be stated.
+            needed = test_features(root, test, where)
+            if needed is not None:
+                recorded = test.get("features")
+                if refresh:
+                    if needed:
+                        test["features"] = needed
+                    else:
+                        test.pop("features", None)
+                    if (recorded or []) != needed and notes is not None:
+                        notes.append(
+                            f"{where}: test `{test['name']}` needs features {needed}, "
+                            f"was {recorded or []}"
+                        )
+                elif (recorded or []) != needed or recorded == []:
+                    raise ContractError(
+                        f"{where}: test `{test['name']}` in {test['path']} is compiled "
+                        f"with features {needed}; the contract records "
+                        f"{recorded if recorded is not None else 'none'} in `features`"
+                    )
         except ContractError as error:
             problems.append(str(error))
     for observation in record.get("observations", []):
@@ -1166,18 +2159,864 @@ def _module_block(source: str, anchors: list, where: str) -> str:
     return source[start:end]
 
 
+def inline_test_modules(source: str) -> tuple:
+    """`(start, open)` of every inline module that only a test build compiles.
+
+    `open` is the `{` of `mod name {` and `start` is where the attributes in front of it
+    begin. The module is a test module when one of its `cfg` gates holds only in a test
+    build, in any order and nesting the attribute is written in: `#[cfg(test)]`,
+    `#[cfg(all(test, feature = ".."))]`, `#[cfg(all(feature = "..", test))]`, an
+    attribute that spans lines. Other attributes and doc comments may stand between.
+    """
+    return _TEXTS.get(source, "inline_test_modules", lambda: _inline_test_modules(source))
+
+
+def _inline_test_modules(source: str) -> tuple:
+    found = []
+    for match in INLINE_MODULE.finditer(source):
+        # The attributes of the item: the text after the previous item or block ends,
+        # with its line comments blanked in place so offsets stay those of the source.
+        low = max(0, match.start() - 2000)
+        window = LINE_COMMENT.sub(lambda comment: " " * len(comment.group(0)), source[low : match.start()])
+        head = max(window.rfind(";"), window.rfind("}"), window.rfind("{")) + 1
+        if cfg_requires_test(window[head:]):
+            start = low + head
+            while start < match.start() and source[start] in " \t\n":
+                start += 1
+            found.append((start, match.end() - 1))
+    return tuple(found)
+
+
 def _without_inline_tests(source: str) -> str:
-    """Remove every inline `#[cfg(test)] mod name { ... }` block."""
+    """Remove every inline test module (`inline_test_modules`; computed once per text)."""
+    return _TEXTS.derive(source, "without_inline_tests", lambda: _strip_inline_tests(source))
+
+
+def _strip_inline_tests(source: str) -> str:
     kept = []
     position = 0
-    for match in INLINE_TEST_MODULE.finditer(source):
-        if match.start() < position:
+    # The block of a module is read on the code mask: a brace or a quote inside a
+    # character literal, a raw string or a block comment of the tests does not move its end.
+    mask = source_mask(source)
+    for start, opening in inline_test_modules(source):
+        if start < position:
             continue
-        end = _block_end(source, match.end() - 1)
-        kept.append(source[position : match.start()])
+        end = _mask_block_end(mask, opening)
+        kept.append(source[position:start])
         position = len(source) if end < 0 else end
     kept.append(source[position:])
     return "".join(kept)
+
+
+# ---------------------------------------------------------------------------
+# Limits that their name does not mark
+# ---------------------------------------------------------------------------
+#
+# A scope with `comparisons` is read a second way, by what the code compares:
+#
+# * an integer constant (or immutable integer `static`) of any name that takes part in a
+#   relational comparison (`<`, `<=`, `>`, `>=`, also written `.lt(..)`, `.le(..)`,
+#   `.gt(..)`, `.ge(..)`), in a capping call (`.min(..)`, `.max(..)`, `.clamp(..)`,
+#   `.take(..)`, `.truncate(..)`), in either called as a function behind any path, or in
+#   a range tested with `.contains(..)` is a limit like one named MAX, and so is an
+#   integer constant that the defining expression of a scanned limit names (a term of
+#   it). A call compares its arguments and, for `.min`, `.max`, `.clamp` and the
+#   comparison methods, its receiver: the whole method chain in front of the call
+#   (`_receiver_start`). A tested range compares its ends and the value it tests;
+# * a function without parameters whose name marks a limit (`max_..`, `.._limit`,
+#   `.._budget`, `.._cap`, ..) and that returns an integer, an `Option` of one or a
+#   `Result` of one is a limit written as a function;
+# * an integer literal of `minimum` or more that is compared, capped with or the end of a
+#   tested range is a limit without a name: a literal site. So is one that is only a part
+#   of what is compared (`MAX + 1024`, `len / 2 >= MAX`, `Duration::from_secs(30)`, a
+#   factor in a capped receiver chain): its site is the whole comparison, capping call
+#   or tested range. Constants and literals are read from the same text.
+#
+# The reading is textual, on rustfmt-formatted code (a comparison operator has whitespace
+# on both sides; a generic bracket has none).
+
+INTEGER_TYPE = r"(?:[ui](?:8|16|32|64|128|size)|(?:(?:core|std)::num::)?NonZero[A-Za-z0-9]+)"
+# An integer `const` or `static` item: the type is followed by `=` (its value) or `;` (a
+# trait constant). A const generic parameter (`const N: usize,`) is not an item.
+INTEGER_ITEM = re.compile(
+    r"(?:^|[{;])[ \t]*(?:pub(?:\([^)]*\))?[ \t]+)?(?:const|static)[ \t]+([A-Z][A-Z0-9_]*)[ \t]*:"
+    r"[ \t]*" + INTEGER_TYPE + r"\b[ \t]*(?=[=;\n])(?!\n[ \t]*[,>])",
+    re.MULTILINE,
+)
+# Names that mark a function as a limit, the lower-case form of `LIMIT_NAME`.
+LIMIT_FN_NAME = re.compile(
+    r"(?:^|_)(?:max|maximum)(?:_|$)|limit|budget|ceiling|overhead|reserve"
+    r"|(?:^|_)cap(?:acity)?(?:_|$)"
+)
+# The return type of a limit written as a function: an integer, or one inside `Option`
+# or as the value of a `Result` (a limit that may be absent or may fail to be read).
+LIMIT_FN_RETURN = (
+    r"(?:" + INTEGER_TYPE + r"|Option<\s*" + INTEGER_TYPE + r"\s*>"
+    r"|(?:[A-Za-z_][A-Za-z_0-9]*::)*Result<\s*" + INTEGER_TYPE + r"\s*(?:,[^{;]*)?>)"
+)
+LIMIT_FN_DEFINITION = re.compile(
+    r"\bfn[ \t]+([a-z_][a-z0-9_]*)[ \t]*\(\s*\)\s*->\s*" + LIMIT_FN_RETURN + r"\s*\{"
+)
+_INTEGER = (
+    r"(?:0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|[0-9][0-9_]*)"
+    r"(?:_?[ui](?:8|16|32|64|128|size))?"
+)
+_INTEGER_TERM = re.compile(_INTEGER)
+# A literal bound: integer literals joined by `*` or `<<` (`4 * 1024 * 1024`, `1 << 20`).
+LITERAL_EXPRESSION = re.compile(rf"{_INTEGER}(?:\s*(?:\*|<<)\s*{_INTEGER})*")
+RELATIONAL = re.compile(r"(?<=\s)(?:<=|>=|<|>)(?=\s)")
+# A cap written as a method (`a.min(b)`, `a.clamp(low, high)`, `items.take(n)`,
+# `buffer.truncate(n)`) and a comparison written as one (`a.lt(&b)`, `.le`, `.gt`, `.ge`).
+CAP_CALL = re.compile(r"\.\s*(min|max|clamp|take|truncate|lt|le|gt|ge)\s*\(")
+# The calls that compare their receiver with their arguments. `.take(n)` and
+# `.truncate(n)` bound a collection: only `n` is compared there.
+COMPARED_RECEIVER = frozenset(("min", "max", "clamp", "lt", "le", "gt", "ge"))
+# The same cap or comparison written as a function, bare or behind any path:
+# `min(a, b)`, `cmp::min(a, b)`, `u64::max(a, b)`, `core::cmp::Ord::max(a, b)`,
+# `NonZeroU32::min(a, b)`, `<u64 as Ord>::max(a, b)`, `u32::clamp(n, 2, 64)`,
+# `PartialOrd::lt(&a, &b)`. The definition of such a function (`fn max(..)`) is none.
+CAP_FUNCTION = re.compile(
+    r"(?<![A-Za-z0-9_.:>])(?<!\bfn )(?:(?:[A-Za-z_][A-Za-z_0-9]*|<[^<>()]*>)::)*"
+    r"(?:min|max|clamp|lt|le|gt|ge)\s*\("
+)
+RANGE_TEST = re.compile(r"\)\s*\.\s*contains\s*\(")
+# One integer literal inside a larger expression: no part of a name, of a float
+# (`0.5`, `1e9`, `2f64`) or of a tuple field (`pair.0`); a range end (`..31`) is one.
+_PART_LITERAL = re.compile(rf"(?<![A-Za-z0-9_])(?<![^.]\.){_INTEGER}(?![A-Za-z0-9_]|\.[0-9])")
+# What may stand in front of a compared clause without being part of it: a keyword or
+# the head of a closure (`|x|`).
+_CLAUSE_HEAD = re.compile(r"(?:(?:else\s+)?if|while|return|match|move)\b\s*|\|[^|\n]*\|\s*")
+# A name written in upper case: a constant (also one of a single letter; a generic
+# parameter of that form names no integer item and is dropped when names are attributed).
+_CONSTANT_NAME = re.compile(r"(?<![A-Za-z0-9_])([A-Z][A-Z0-9_]*)\b(?![ \t]*(?:::|\(|!|\{))")
+_CLAUSE_WINDOW = 600
+# How many constants deep a chain of terms is followed (`_compared`); a longer one fails.
+_TERM_ROUNDS = 16
+
+
+def literal_value(text: str) -> int | None:
+    """The value of a literal bound (`LITERAL_EXPRESSION`), or None when it is not one."""
+    if not LITERAL_EXPRESSION.fullmatch(text.strip()):
+        return None
+
+    def number(match: re.Match) -> str:
+        digits = re.sub(r"_?[ui](?:8|16|32|64|128|size)$", "", match.group(0)).replace("_", "")
+        prefix = digits[:2].lower()
+        base = {"0x": 16, "0b": 2, "0o": 8}.get(prefix, 10)
+        return str(int(digits[2:] if base != 10 else digits, base))
+
+    try:
+        value = safe_eval(_INTEGER_TERM.sub(number, text.strip()), "literal")
+    except (ContractError, ValueError, OverflowError):
+        return None
+    return value if type(value) is int else None
+
+
+def _mask_block_end(mask: str, open_index: int) -> int:
+    """Index just past the block whose `{` is at `open_index` in a code mask, or -1."""
+    depth = 0
+    for match in _BRACE.finditer(mask, open_index):
+        depth += 1 if match.group(0) == "{" else -1
+        if depth == 0:
+            return match.end()
+    return -1
+
+
+def production_mask(source: str) -> str:
+    """The code mask of `source` with every inline test module blanked as well.
+
+    Offsets are those of `source`. What remains is the code a non-test build compiles.
+    """
+    mask = source_mask(source)
+    pieces = []
+    position = 0
+    for start, opening in inline_test_modules(source):
+        if start < position:
+            continue
+        end = _mask_block_end(mask, opening)
+        end = len(mask) if end < 0 else end
+        pieces.append(mask[position:start])
+        pieces.append(_NOT_NEWLINE.sub(" ", mask[start:end]))
+        position = end
+    pieces.append(mask[position:])
+    return "".join(pieces)
+
+
+def _clause_start(mask: str, index: int) -> int:
+    """Start of the clause that ends at `index`: after the previous `;`, `,`, brace, `&&`,
+    `||`, assignment or the bracket that is still open."""
+    depth = 0
+    floor = max(0, index - _CLAUSE_WINDOW)
+    position = index
+    while position > floor:
+        char = mask[position - 1]
+        if char in ")]":
+            depth += 1
+        elif char in "([":
+            if depth == 0:
+                break
+            depth -= 1
+        elif depth == 0:
+            if char in ";{},":
+                break
+            pair = mask[position - 2 : position]
+            if pair in ("&&", "||"):
+                break
+            if char == "=" and mask[position - 2 : position - 1] not in ("=", "!", "<", ">") and (
+                mask[position : position + 1] != "="
+            ):
+                break
+        position -= 1
+    return position
+
+
+def _clause_end(mask: str, index: int) -> int:
+    """End of the clause that starts at `index`: before the next `;`, `,`, brace, `&&`,
+    `||`, `=>` or the bracket that closes an enclosing group."""
+    depth = 0
+    ceiling = min(len(mask), index + _CLAUSE_WINDOW)
+    position = index
+    while position < ceiling:
+        char = mask[position]
+        if char in "([":
+            depth += 1
+        elif char in ")]":
+            if depth == 0:
+                break
+            depth -= 1
+        elif depth == 0:
+            if char in ";{},":
+                break
+            if mask[position : position + 2] in ("&&", "||", "=>"):
+                break
+        position += 1
+    return position
+
+
+def _operand_start(mask: str, end: int, hops: int = 6) -> int:
+    """Start of the operand that ends at `end`.
+
+    An operand is one run without whitespace outside brackets (`self.items.len()`,
+    `u64::from(count)`); a method chain broken across lines and an `as` cast in front of
+    the operator are followed back, at most `hops` runs.
+    """
+    index = end
+    for hop in range(hops):
+        while index > 0 and mask[index - 1] in " \t\n":
+            index -= 1
+        stop = index
+        depth = 0
+        while index > 0:
+            char = mask[index - 1]
+            if char in ")]":
+                depth += 1
+            elif char in "([":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif depth == 0 and char in " \t\n,;{}":
+                break
+            index -= 1
+        chunk = mask[index:stop]
+        if not chunk:
+            return stop
+        before = index
+        while before > 0 and mask[before - 1] in " \t\n":
+            before -= 1
+        cast = mask[max(0, before - 3) : before] == " as" or mask[max(0, before - 3) : before] == "\nas"
+        if chunk[0] in ".?":
+            continue
+        if cast:
+            index = before - 2
+            continue
+        # Arithmetic in front of the run belongs to the operand: `offset + 1 < 32`.
+        if (
+            hop + 1 < hops
+            and before < index
+            and mask[before - 1 : before] in ("+", "-", "*", "/", "%")
+            and mask[before - 2 : before - 1] in (" ", "\t", "\n")
+        ):
+            index = before - 1
+            continue
+        return index
+    return index
+
+
+def _run_start(mask: str, end: int) -> tuple:
+    """`(start, stop)` of the run without whitespace outside brackets in front of `end`.
+
+    `stop` is `end` without the blanks in front of it; the run is empty (`start == stop`)
+    when a separator, a brace or an opening bracket stands there.
+    """
+    stop = end
+    while stop > 0 and mask[stop - 1] in " \t\n":
+        stop -= 1
+    index = stop
+    depth = 0
+    while index > 0:
+        char = mask[index - 1]
+        if char in ")]":
+            depth += 1
+        elif char in "([":
+            if depth == 0:
+                break
+            depth -= 1
+        elif depth == 0 and char in " \t\n,;{}":
+            break
+        index -= 1
+    return index, stop
+
+
+def _receiver_start(mask: str, end: int) -> int:
+    """Start of the receiver of the method call whose `.` is at `end`.
+
+    The receiver is the whole method chain in front of the call, however many lines
+    rustfmt breaks it into: every element that starts with `.` or `?` on a line of its
+    own is followed back, up to the head of the chain (a name, a path, a call, a
+    literal, a parenthesised expression). Arithmetic in front of the head is no part of
+    the receiver: in `a + b.min(c)` it is `b`. A head that the mask blanked (a string or
+    character literal: `"ab".len().min(4)`) ends the chain where it stood, and so does a
+    block (`match kind { .. }.min(cap)`): what a block yields is not read.
+    """
+    index = end
+    while True:
+        start, stop = _run_start(mask, index)
+        if start == stop:
+            return index
+        index = start
+        if mask[start] not in ".?" or "\n" not in mask[_run_start(mask, start)[1] : start]:
+            return start
+
+
+def _operand_end(mask: str, start: int, hops: int = 6) -> int:
+    """End of the operand that starts at `start` (the mirror of `_operand_start`)."""
+    index = start
+    length = len(mask)
+    for _ in range(hops):
+        while index < length and mask[index] in " \t\n":
+            index += 1
+        depth = 0
+        while index < length:
+            char = mask[index]
+            if char in "([":
+                depth += 1
+            elif char in ")]":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif depth == 0 and char in " \t\n,;{}":
+                break
+            index += 1
+        ahead = index
+        while ahead < length and mask[ahead] in " \t\n":
+            ahead += 1
+        if mask[ahead : ahead + 1] == "." and mask[ahead : ahead + 2] != "..":
+            index = ahead
+            continue
+        return index
+    return index
+
+
+def _compared_clause(mask: str, start: int, end: int) -> tuple:
+    """`(left, right)` of the comparison whose operator is `mask[start:end]`, both operands whole.
+
+    The clause of `_clause_start` and `_clause_end` without the blanks around it and
+    without what stands in front of a comparison and is no part of it: the `=>` of a
+    match arm, a keyword (`if`, `while`, `return`, `match`, `move`) and the head of a
+    closure (`|x|`). An operand longer than the clause window is cut at a blank, so no
+    name or literal is read in part. `left == start` when nothing is compared (the `>`
+    that closes a generic list on a line of its own).
+    """
+    left = _clause_start(mask, start)
+    right = _clause_end(mask, end)
+    if start - left >= _CLAUSE_WINDOW:
+        while left < start and mask[left] not in " \t\n":
+            left += 1
+    if right - end >= _CLAUSE_WINDOW:
+        while right > end and mask[right - 1] not in " \t\n":
+            right -= 1
+    if mask[left : left + 1] == ">" and mask[left - 1 : left] == "=":
+        left += 1
+    while True:
+        while left < start and mask[left] in " \t\n":
+            left += 1
+        head = _CLAUSE_HEAD.match(mask, left, start)
+        if head is None or head.end() == left:
+            break
+        left = head.end()
+    while right > end and mask[right - 1] in " \t\n":
+        right -= 1
+    return left, right
+
+
+def _literal_after(mask: str, index: int) -> tuple | None:
+    """`(start, end)` of a literal bound that is the whole operand after `index`."""
+    start = index
+    while start < len(mask) and mask[start] in " \t\n":
+        start += 1
+    match = LITERAL_EXPRESSION.match(mask, start)
+    if match is None:
+        return None
+    # What follows the literal is read past every blank: the expression may go on in the
+    # next line at any depth of indentation, and the literal may end the text.
+    ahead = match.end()
+    while ahead < len(mask) and mask[ahead] in " \t\n":
+        ahead += 1
+    first, pair = mask[ahead : ahead + 1], mask[ahead : ahead + 2]
+    # The literal is the operand only when nothing continues the expression.
+    if first and (first in "*/+-%.^([<>" or first.isalnum() or first == "_"):
+        return None
+    if first and first in "&|" and pair not in ("&&", "||"):
+        return None
+    return match.start(), match.end()
+
+
+def _literal_before(mask: str, index: int) -> tuple | None:
+    """`(start, end)` of a literal bound that is the whole operand before `index`."""
+    end = index
+    while end > 0 and mask[end - 1] in " \t\n":
+        end -= 1
+    window = mask[max(0, end - 96) : end]
+    match = re.search(rf"(?:{LITERAL_EXPRESSION.pattern})$", window)
+    if match is None:
+        return None
+    start = end - len(window) + match.start()
+    # The literal is the operand only when nothing in front of it continues an expression:
+    # it follows an opening bracket, a separator, an assignment or a keyword.
+    # Read back past every blank, for the same reason as in `_literal_after`.
+    behind = start
+    while behind > 0 and mask[behind - 1] in " \t\n":
+        behind -= 1
+    before = mask[max(0, behind - 24) : behind]
+    if before[-1:] and before[-1:] not in "([{,;=&|!:":
+        if re.search(r"(?:\bif|\bwhile|\breturn|\bin|\belse|\bmatch|=>)$", before) is None:
+            return None
+    return start, end
+
+
+def _top_level_parts(text: str) -> list:
+    """`(start, end)` of every comma-separated part of `text` outside brackets."""
+    parts = []
+    depth = 0
+    start = 0
+    for index, char in enumerate(text):
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif char == "," and depth == 0:
+            parts.append((start, index))
+            start = index + 1
+    parts.append((start, len(text)))
+    return parts
+
+
+def comparison_scan(source: str) -> dict:
+    """What the production code of one source compares, read once per text.
+
+    * `uses`: names of constants that take part in a relational comparison, in the
+      arguments or the compared receiver of a capping or comparison call, or in a
+      tested range and the value it tests;
+    * `integers`: the integer constants and immutable integer statics the text defines;
+    * `items`: every constant and static the text defines, of any type;
+    * `functions`: limit-named functions without parameters that return an integer, with
+      the span of each body;
+    * `sites`: literal sites whose literal is a whole operand, argument or range end, as
+      `(text_start, text_end, literal_start, literal_end, value)`;
+    * `regions`: every compared clause, capping call and tested range that holds an
+      integer literal of 2 or more, as `(text_start, text_end, wide_start, literals)` with
+      `literals` as `(start, end, value)`; `wide_start`, when it lies before `text_start`,
+      is where a compared receiver begins that is longer than the text of a site: the
+      head of its method chain.
+    """
+    return _TEXTS.get(source, "comparison_scan", lambda: _comparison_scan(source))
+
+
+def _comparison_scan(source: str) -> dict:
+    """`comparison_scan` of one text, read from its production mask."""
+    mask = production_mask(source)
+    uses: set = set()
+    sites: list = []
+    for match in RELATIONAL.finditer(mask):
+        left = _clause_start(mask, match.start())
+        right = _clause_end(mask, match.end())
+        uses.update(_CONSTANT_NAME.findall(mask[left:right]))
+        after = _literal_after(mask, match.end())
+        before = _literal_before(mask, match.start())
+        if (after is None) == (before is None):
+            # No literal operand, or a comparison of two literals: nothing is bounded.
+            continue
+        if after is not None:
+            value = literal_value(mask[after[0] : after[1]])
+            start = _operand_start(mask, match.start())
+            if value is not None and start < match.start():
+                sites.append((start, after[1], after[0], after[1], value))
+        else:
+            value = literal_value(mask[before[0] : before[1]])
+            end = _operand_end(mask, match.end())
+            if value is not None and end > match.end():
+                sites.append((before[0], end, before[0], before[1], value))
+    # Capping calls, as a method and as a function. `regions` keeps, for the part
+    # literals read below, the text each one compares: `(start, end, search, wide)`.
+    # Literals are looked for from `search`; `wide`, when it lies before `start`, is
+    # where a receiver too long for the text of the site begins.
+    regions: list = []
+    for pattern in (CAP_CALL, CAP_FUNCTION):
+        for match in pattern.finditer(mask):
+            close = _group_end(mask, match.end() - 1, "(", ")")
+            if close < 0:
+                continue
+            arguments = mask[match.end() : close - 1]
+            uses.update(_CONSTANT_NAME.findall(arguments))
+            receiver = search = wide = match.start()
+            if pattern is CAP_CALL:
+                whole = _run_start(mask, match.start())[0]
+                literal_receiver = literal_value(mask[whole : match.start()]) is not None
+                if match.start() - whole <= 48 or literal_receiver:
+                    receiver = whole
+                # Otherwise a long receiver (a chain element with a closure) is no part
+                # of the site: the text starts at the call.
+                if match.group(1) in COMPARED_RECEIVER or literal_receiver:
+                    # `a.min(b)` compares both values, so a constant or a literal in `a`
+                    # is compared too. `a` is the whole method chain in front of the
+                    # call, on one line or on several.
+                    search, wide = receiver, _receiver_start(mask, match.start())
+                    uses.update(_CONSTANT_NAME.findall(mask[wide : match.start()]))
+                else:
+                    search = match.end()
+            regions.append((receiver, close, search, wide))
+            for start, end in _top_level_parts(arguments):
+                part = arguments[start:end]
+                value = literal_value(part)
+                if value is not None:
+                    lead = len(part) - len(part.lstrip())
+                    literal = match.end() + start + lead
+                    sites.append((receiver, close, literal, literal + len(part.strip()), value))
+    for match in RANGE_TEST.finditer(mask):
+        # The range in the parentheses that close at the match: `(1..=31).contains(&x)`.
+        depth = 0
+        opening = match.start()
+        while opening >= 0:
+            if mask[opening] == ")":
+                depth += 1
+            elif mask[opening] == "(":
+                depth -= 1
+                if depth == 0:
+                    break
+            opening -= 1
+        close = _group_end(mask, match.end() - 1, "(", ")")
+        if opening < 0 or close < 0:
+            continue
+        inside = mask[opening + 1 : match.start()]
+        dots = inside.find("..")
+        if dots < 0 or match.start() - opening > _CLAUSE_WINDOW:
+            continue
+        # The range and the value it tests: `(MIN..=MAX).contains(&WIDTH)`.
+        uses.update(_CONSTANT_NAME.findall(mask[opening:close]))
+        regions.append((opening, close, opening, opening))
+        upper = inside[dots + 2 :].lstrip("=")
+        value = literal_value(upper)
+        if value is not None:
+            lead = len(upper) - len(upper.lstrip())
+            literal = match.start() - len(upper) + lead
+            sites.append((opening, close, literal, literal + len(upper.strip()), value))
+    # Part literals. A literal that is only a part of what is compared (`MAX + 1024`,
+    # `2 * MAX`, `len / 2 >= MAX`, `height.saturating_add(1_000_000)`,
+    # `Duration::from_secs(30)`, `(1 << 12)`) moves the limit like one that is the whole
+    # operand. Every compared clause, capping call and tested range is kept with the
+    # integer literals it holds; `literal_sites` makes a site of those that the text of
+    # no other site holds. Capping calls and ranges come first, so a comparison around
+    # one records only the literals that are left.
+    for match in RELATIONAL.finditer(mask):
+        left, right = _compared_clause(mask, match.start(), match.end())
+        if left < match.start():
+            regions.append((left, right, left, left))
+    compared = []
+    for start, end, search, wide in regions:
+        literals = tuple(
+            (literal.start(), literal.end(), value)
+            for literal in _PART_LITERAL.finditer(mask, min(search, wide), end)
+            if (literal.start() >= search or literal.start() < start)
+            and (value := literal_value(literal.group(0))) is not None
+            and value >= 2
+        )
+        if literals:
+            compared.append((start, end, wide, literals))
+    functions: dict = {}
+    for match in LIMIT_FN_DEFINITION.finditer(mask):
+        if LIMIT_FN_NAME.search(match.group(1)):
+            end = _mask_block_end(mask, match.end() - 1)
+            functions.setdefault(match.group(1), []).append(
+                (match.end(), (len(mask) if end < 0 else end) - 1)
+            )
+    return {
+        "uses": frozenset(uses),
+        "integers": tuple(dict.fromkeys(match.group(1) for match in INTEGER_ITEM.finditer(mask))),
+        "items": frozenset(match.group(1) for match in _ITEM_DEFINITION.finditer(mask)),
+        "functions": functions,
+        "sites": tuple(sorted(set(sites))),
+        "regions": tuple(compared),
+    }
+
+
+def literal_sites(source: str, minimum: int) -> dict:
+    """Literal sites of one source: normalized text -> the literal spans that show it.
+
+    Only literals of `minimum` or more count. A site whose literal is a whole operand
+    has as its text the operand, the operator and the literal as the source writes them
+    (`value.len() > 128`), so the same text is what an enforcement site of a bound
+    contains when the bound owns the comparison. A literal that is only a part of what
+    is compared (`value.len() > MAX + 1024`) is a site whose text is the whole
+    comparison, capping call or tested range, unless the text of another site holds it
+    already. Each span is `(literal_start, literal_end, value)`: every literal the text
+    of the site holds, so one text has several spans when it occurs more than once or
+    holds more than one literal.
+    """
+    return _literal_sites(source, minimum)[0]
+
+
+def literal_occurrences(source: str, minimum: int) -> dict:
+    """Literal sites of one source: normalized text -> how many times the text occurs as a site.
+
+    A comparison that holds two literals (`.clamp(2, 64)`, `len < 37 + 16`) is one
+    occurrence of its text.
+    """
+    return _literal_sites(source, minimum)[1]
+
+
+def _literal_sites(source: str, minimum: int) -> tuple:
+    """`(literal_sites, literal_occurrences)` of one source, read once per text and minimum."""
+
+    def read() -> tuple:
+        scan = comparison_scan(source)
+        found: dict = {}
+        for start, end, literal_start, literal_end, value in scan["sites"]:
+            if value >= minimum:
+                found.setdefault((start, end), []).append((literal_start, literal_end, value))
+        # Texts that hold a literal, shortest first: a literal belongs to the innermost.
+        held = sorted(found, key=lambda span: (span[1] - span[0], span))
+        for start, end, wide, literals in scan["regions"]:
+            loose = []
+            for literal in literals:
+                if literal[2] < minimum:
+                    continue
+                holder = next(
+                    (span for span in held if span[0] <= literal[0] < span[1]), None
+                )
+                if holder is None:
+                    loose.append(literal)
+                elif not any(low <= literal[0] < high for low, high, _ in found[holder]):
+                    # The text of that site pins this literal too: the sweep changes it.
+                    found[holder].append(literal)
+            if loose:
+                if any(low < start for low, _, _ in loose):
+                    # A literal in a compared receiver too long for the usual text.
+                    start = wide
+                # From here on the text of this site holds its literals: a site around
+                # it adds none of them again.
+                found.setdefault((start, end), []).extend(loose)
+                held = sorted(found, key=lambda span: (span[1] - span[0], span))
+        spans: dict = {}
+        occurrences: dict = {}
+        for (start, end), literals in sorted(found.items()):
+            text = normalize(source[start:end])
+            spans.setdefault(text, []).extend(sorted(set(literals)))
+            occurrences[text] = occurrences.get(text, 0) + 1
+        return spans, occurrences
+
+    return _TEXTS.get(source, ("literal_sites", minimum), read)
+
+
+def function_body_spans(source: str, symbol: str) -> list:
+    """`(start, end)` of the body of every `fn symbol() -> .. { .. }` in `source`."""
+    spans = []
+    for match in re.finditer(rf"\bfn\s+{re.escape(symbol)}\s*\(\s*\)\s*->\s*[^{{;]+\{{", source):
+        end = _block_end(source, match.end() - 1)
+        if end > 0:
+            spans.append((match.end(), end - 1))
+    return spans
+
+
+def _crate_prefix(path: str) -> str:
+    """`crates/<name>` of a repository path (the path itself when it has no such prefix)."""
+    parts = path.split("/")
+    return "/".join(parts[:2]) if len(parts) > 2 else path
+
+
+_REFERENCED_NAME = re.compile(
+    r"(?<![A-Za-z0-9_])((?:[A-Za-z_][A-Za-z_0-9]*::)*)([A-Z][A-Z0-9_]*)\b(?![ \t]*(?:::|\(|!|\{))"
+)
+
+
+_PRIMITIVE_TYPE = re.compile(r"(?:[ui](?:8|16|32|64|128|size)|f32|f64|char|bool|str)")
+
+
+def referenced_constants(expression: str) -> set:
+    """Names of the constants an expression refers to by a bare name or a module path.
+
+    An associated constant of a type (`Header::SIZE`, `u64::MAX`, `u32::BITS`) is not
+    resolved by its name and is left out; `Self::NAME` is a constant of the same file
+    and counts.
+    """
+    names = set()
+    # A name inside a string literal or a comment of the expression is text, not a constant.
+    for match in _REFERENCED_NAME.finditer(code_mask(expression)):
+        qualifier = match.group(1)[:-2].rsplit("::", 1)[-1]
+        if (qualifier[:1].isupper() and qualifier != "Self") or _PRIMITIVE_TYPE.fullmatch(qualifier):
+            continue
+        names.add(match.group(2))
+    return names
+
+
+def _attributed(scans: dict, mentions: dict) -> dict:
+    """Path -> the integer constants of that file that `mentions` (path -> names) refer to.
+
+    A name refers to the constant of its own file; from a file that defines no item of
+    that name, to the constants of that name in the scanned files of its crate; and from
+    a crate that defines no integer constant of the name, to those of the other crates
+    (an import).
+    """
+    external: dict = {}
+    defined: dict = {}
+    for path, scan in scans.items():
+        crate = _crate_prefix(path)
+        external.setdefault(crate, set()).update(mentions.get(path, set()) - scan["items"])
+        defined.setdefault(crate, set()).update(scan["integers"])
+    imported: set = set()
+    for crate, names in external.items():
+        imported |= names - defined.get(crate, set())
+    return {
+        path: [
+            name
+            for name in scan["integers"]
+            if name in mentions.get(path, ())
+            or name in external.get(_crate_prefix(path), ())
+            or name in imported
+        ]
+        for path, scan in scans.items()
+    }
+
+
+def _refers_to(scans: dict, defined: dict, user: str, name: str, target: str) -> bool:
+    """Whether `name` written in file `user` is the integer constant `name` of file `target`.
+
+    The rule of `_attributed`, for one name and one pair of files.
+    """
+    if user == target:
+        return True
+    if name in scans[user]["items"]:
+        return False
+    if _crate_prefix(user) == _crate_prefix(target):
+        return True
+    return name not in defined.get(_crate_prefix(user), ())
+
+
+def compared_symbols(root: Path, scopes: list) -> dict:
+    """Path -> the limits of each `comparisons` scope that their name does not mark.
+
+    In source order: the integer constants whose name takes part in a comparison
+    (`_attributed`), then the limit-named functions without parameters, then the terms:
+    integer constants that the defining expression of a scanned limit of these scopes
+    names (`referenced_constants`), followed until no new one appears. A term is part of
+    the value of the limit that names it.
+    """
+    return _compared(root, scopes)[0]
+
+
+def limit_terms(root: Path, scopes: list) -> dict:
+    """Path -> each term of that file with the limits that name it.
+
+    A term is an integer constant that is a limit neither by its name nor by a
+    comparison of its own: it is scanned only because the defining expression of a
+    scanned limit names it. The value is the sorted list of those limits, each written
+    `path: SYMBOL`. An exclusion of a term records this list as `term_of`.
+    """
+    return _compared(root, scopes)[1]
+
+
+def _compared(root: Path, scopes: list) -> tuple:
+    """`(compared_symbols, limit_terms)` of the `comparisons` scopes, read in one pass."""
+    scans: dict = {}
+    whole: dict = {}
+    # Each source is read once for the whole pass.
+    sources: dict = {}
+    for scope in scopes:
+        if scope.get("comparisons") and scope.get("kind") == "const" and not scope.get("module"):
+            path = scope["path"]
+            if path not in scans:
+                try:
+                    sources[path] = _read(root, path, f"completeness {path}")
+                except ContractError:
+                    continue
+                scans[path] = comparison_scan(sources[path])
+                whole[path] = scope
+    used = _attributed(scans, {path: scan["uses"] for path, scan in scans.items()})
+    found: dict = {}
+    for path, scan in scans.items():
+        names = [name for name in used[path] if not LIMIT_NAME.search(name)]
+        names.extend(scan["functions"])
+        found[path] = names
+    # Terms: read the expression of every scanned limit once, and of every term it adds.
+    pending = {}
+    for path in scans:
+        pending[path] = (
+            scope_symbols(sources[path], whole[path], f"completeness {path}") + found[path]
+        )
+    mentions: dict = {path: set() for path in scans}
+    named_by: dict = {}
+    terms_of: dict = {}
+    for _ in range(_TERM_ROUNDS):
+        for path, symbols in pending.items():
+            where = f"completeness {path}"
+            source = sources[path]
+            for symbol in symbols:
+                for name in referenced_constants(
+                    scope_expression(source, whole[path], symbol, where)
+                ):
+                    mentions[path].add(name)
+                    named_by.setdefault(name, set()).add((path, symbol))
+        pending = {}
+        for path, names in _attributed(scans, mentions).items():
+            known = set(found[path])
+            terms = [
+                name for name in names if name not in known and not LIMIT_NAME.search(name)
+            ]
+            if terms:
+                found[path].extend(terms)
+                terms_of.setdefault(path, {}).update(dict.fromkeys(terms))
+                pending[path] = terms
+        if not pending:
+            break
+    else:
+        raise ContractError(
+            f"completeness: a chain of terms is longer than {_TERM_ROUNDS} constants; "
+            "raise `_TERM_ROUNDS`"
+        )
+    defined: dict = {}
+    for path, scan in scans.items():
+        defined.setdefault(_crate_prefix(path), set()).update(scan["integers"])
+    for path, terms in terms_of.items():
+        for term in terms:
+            terms[term] = sorted(
+                f"{user}: {symbol}"
+                for user, symbol in named_by.get(term, ())
+                if (user, symbol) != (path, term) and _refers_to(scans, defined, user, term, path)
+            )
+    return found, terms_of
+
+
+def scanned_symbols(source: str, scope: dict, where: str, compared: dict | None = None) -> list:
+    """Every limit of one scope: those its name marks, then those the code compares."""
+    symbols = scope_symbols(source, scope, where)
+    for name in (compared or {}).get(scope.get("path"), ()) if scope.get("comparisons") else ():
+        if name not in symbols:
+            symbols.append(name)
+    return symbols
+
+
+def _is_function_symbol(scope: dict, symbol: str) -> bool:
+    """Whether a scanned symbol is a function: a default of a module, or a lower-case name."""
+    return scope.get("kind") == "default_fn" or not symbol[:1].isupper()
 
 
 def scope_symbols(source: str, scope: dict, where: str) -> list:
@@ -1188,13 +3027,8 @@ def scope_symbols(source: str, scope: dict, where: str) -> list:
     finds every zero-argument default of a committed-parameter module. Inline test
     modules are not scanned.
     """
-    key = (len(source), hash(source), json.dumps(scope, sort_keys=True))
-    if key not in _SCOPE_SYMBOLS:
-        _SCOPE_SYMBOLS[key] = _scope_symbols(source, scope, where)
-    return list(_SCOPE_SYMBOLS[key])
-
-
-_SCOPE_SYMBOLS: dict = {}
+    key = ("scope_symbols", json.dumps(scope, sort_keys=True))
+    return list(_TEXTS.get(source, key, lambda: _scope_symbols(source, scope, where)))
 
 
 def _scope_symbols(source: str, scope: dict, where: str) -> list:
@@ -1210,12 +3044,175 @@ def _scope_symbols(source: str, scope: dict, where: str) -> list:
                     f"{where}: a scope with its own `matching` pattern states `why`"
                 )
             pattern = re.compile(scope["matching"])
-        names = [name for name in CONST_DEFINITION.findall(source) if pattern.search(name)]
+        found = [(match.start(), match.group(1)) for match in CONST_DEFINITION.finditer(source)]
+        found.extend(
+            (match.start(), match.group(1))
+            for match in STATIC_DEFINITION.finditer(source)
+            if not _static_holds_state(match)
+        )
+        names = [name for _, name in sorted(found) if pattern.search(name)]
     elif kind == "default_fn":
         names = DEFAULT_FN_DEFINITION.findall(source)
     else:
         raise ContractError(f"{where}: unknown scope kind {kind!r}")
     return list(dict.fromkeys(names))
+
+
+def _skip_literal(source: str, index: int) -> int:
+    """Index just past the string or character literal that starts at `index`, else `index`."""
+    char = source[index]
+    if char == '"':
+        index += 1
+        while index < len(source) and source[index] != '"':
+            index += 2 if source[index] == "\\" else 1
+        return index + 1
+    if char == "'":
+        # A character literal (`'x'`, `'\\n'`); a lifetime (`'static`) has no closing quote.
+        if source[index + 1 : index + 2] == "\\":
+            closing = source.find("'", index + 2)
+            return closing + 1 if 0 < closing <= index + 12 else index
+        if source[index + 2 : index + 3] == "'":
+            return index + 3
+    return index
+
+
+def definition_spans(source: str, symbol: str) -> list:
+    """`(start, end)` of the defining expression of every `const` or `static` item `symbol`.
+
+    The expression runs from the `=` after the item's type to the `;` that ends the item;
+    brackets, blocks, literals and line comments in between are skipped, so an array type
+    (`[u8; 4]`) and a block expression are read whole. An item without a value (a trait
+    constant) has the empty span at its `;`.
+    """
+    return list(_all_definition_spans(source).get(symbol, ()))
+
+
+_ITEM_DEFINITION = re.compile(r"\b(?:const|static)\s+([A-Za-z_][A-Za-z_0-9]*)\s*:")
+
+
+def _all_definition_spans(source: str) -> dict:
+    """`definition_spans` of every `const` and `static` item of a text, read in one pass."""
+    return _TEXTS.get(source, "definition_spans", lambda: _read_definition_spans(source))
+
+
+def _read_definition_spans(source: str) -> dict:
+    found: dict = {}
+    length = len(source)
+    for match in _ITEM_DEFINITION.finditer(source):
+        spans = found.setdefault(match.group(1), [])
+        index = match.end()
+        depth = 0
+        start = -1
+        while index < length:
+            char = source[index]
+            if char in "([<{":
+                depth += 1
+            elif char in ")]}" or (char == ">" and source[index - 1] != "-"):
+                depth -= 1
+            elif depth <= 0 and char == ";":
+                break
+            elif depth <= 0 and char == "=":
+                start = index + 1
+                break
+            index += 1
+        if start < 0:
+            spans.append((index, index))
+            continue
+        index = start
+        depth = 0
+        while index < length:
+            char = source[index]
+            if char in "\"'":
+                skipped = _skip_literal(source, index)
+                if skipped > index:
+                    index = skipped
+                    continue
+            elif char == "/" and source.startswith("//", index):
+                newline = source.find("\n", index)
+                index = length if newline < 0 else newline
+                continue
+            elif char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+            elif char == ";" and depth <= 0:
+                break
+            index += 1
+        spans.append((start, index))
+    return found
+
+
+_DEFAULT_FN_BODY = r"\bfn\s+{symbol}\s*\(\s*\)\s*->\s*[^{{;]+\{{(?P<expr>.*?)\}}"
+
+
+def _scope_region(source: str, scope: dict, where: str) -> tuple:
+    """`(start, end)` of the part of `source` a scope scans: the file, or its module block."""
+    start = 0
+    anchors = list(scope.get("module") or ())
+    if not anchors:
+        return 0, len(source)
+    for anchor in anchors:
+        position = source.find(anchor, start)
+        if position < 0:
+            raise ContractError(f"{where}: module `{anchor}` is not in the file")
+        start = position + len(anchor)
+    end = _block_end(source, start - 1)
+    if end < 0:
+        raise ContractError(f"{where}: module `{anchors[-1]}` is not closed")
+    return start, end
+
+
+def _symbol_spans(source: str, scope: dict, symbol: str, where: str) -> list:
+    """Spans, in `source`, of the defining expressions of one limit inside its scope."""
+    key = ("symbol_spans", scope.get("kind"), tuple(scope.get("module") or ()), symbol)
+    return _TEXTS.get(source, key, lambda: _find_symbol_spans(source, scope, symbol, where))
+
+
+def _find_symbol_spans(source: str, scope: dict, symbol: str, where: str) -> list:
+    start, end = _scope_region(source, scope, where)
+    if scope.get("kind") == "default_fn":
+        pattern = _DEFAULT_FN_BODY.format(symbol=re.escape(symbol))
+        spans = [match.span("expr") for match in re.finditer(pattern, source, re.DOTALL)]
+    elif _is_function_symbol(scope, symbol):
+        spans = function_body_spans(source, symbol)
+    else:
+        spans = definition_spans(source, symbol)
+    return [span for span in spans if start <= span[0] and span[1] <= end]
+
+
+def scope_expression(source: str, scope: dict, symbol: str, where: str) -> str:
+    """The defining expression of one scanned limit as the contract pins it.
+
+    Every definition of the name the scope scans counts (inline test modules excepted);
+    several are joined by ` | ` in source order, so a second definition of the same
+    name is a change as well.
+    """
+
+    def read() -> str:
+        text = _without_inline_tests(source)
+        return " | ".join(
+            normalize(text[start:end]) for start, end in _symbol_spans(text, scope, symbol, where)
+        )
+
+    return _TEXTS.get(
+        source, ("scope_expression", json.dumps(scope, sort_keys=True), symbol), read
+    )
+
+
+def mutate_limit(source: str, scope: dict, symbol: str, where: str) -> str | None:
+    """`source` with every defining expression of one scanned limit set to another value.
+
+    Returns None when the scope holds no definition with a value (a trait constant
+    declared without one), which nothing can change.
+    """
+    spans = [span for span in _symbol_spans(source, scope, symbol, where) if span[0] < span[1]]
+    if not spans:
+        return None
+    changed = source
+    for start, end in reversed(spans):
+        replacement = " 2" if normalize(source[start:end]) == "1" else " 1"
+        changed = changed[:start] + replacement + changed[end:]
+    return changed
 
 
 def _owner_anchors(owner: dict) -> list:
@@ -1234,16 +3231,36 @@ def expand_scopes(root: Path, section: dict, problems: list) -> list:
 
     A `tree` scope scans every Rust source below a directory except test, bench,
     example and fixture files and the paths it lists under `skip` with a reason, so a
-    new file of the directory is scanned too. A file that also has its own scope
-    without a module keeps that scope.
+    new file of the directory is scanned too. A file whose name looks like a test or
+    fixture file is still scanned when its crate compiles it outside test builds
+    (`compiled_outside_tests`). A file that also has its own scope without a module
+    keeps that scope. `comparisons` of the tree is passed on to each file that a
+    non-test build compiles: a file every declaration gates by `cfg(test)` is scanned by
+    name like the others, but has no production comparison to read.
     """
     scopes = []
+    _SCAN_EPOCH[0] += 1
     explicit = {
         scope.get("path") for scope in section["scopes"] if "path" in scope and not scope.get("module")
     }
     trees = set()
+    # A file with its own whole-file scope is compared like the tree it lies in.
+    compared_trees = [
+        scope["tree"] + "/"
+        for scope in section["scopes"]
+        if "tree" in scope and scope.get("comparisons") is True
+    ]
     for scope in section["scopes"]:
         if "tree" not in scope:
+            path = scope.get("path")
+            if (
+                scope.get("kind") == "const"
+                and not scope.get("module")
+                and isinstance(path, str)
+                and any(path.startswith(tree) for tree in compared_trees)
+                and not compiled_only_in_tests(root, path)
+            ):
+                scope = {**scope, "comparisons": True}
             scopes.append(scope)
             continue
         where = f"completeness tree {scope['tree']}"
@@ -1267,15 +3284,22 @@ def expand_scopes(root: Path, section: dict, problems: list) -> list:
             ).startswith(scope["tree"] + "/"):
                 problems.append(f"{where}: skipped path {skip.get('path')!r} is not below the tree")
             skipped.append(skip.get("path", ""))
-        extra = {key: scope[key] for key in ("matching", "why") if key in scope}
+        extra = {key: scope[key] for key in ("matching", "why", "comparisons") if key in scope}
+        if "comparisons" in scope and scope["comparisons"] is not True:
+            problems.append(f"{where}: `comparisons` is `true` or absent")
         for file in sorted(directory.rglob("*.rs")):
             relative = file.relative_to(root).as_posix()
             inner = relative[len(scope["tree"]) + 1 :]
-            if TEST_FILE.search(inner) or relative in explicit:
+            if relative in explicit:
+                continue
+            if TEST_FILE.search(inner) and not compiled_outside_tests(root, relative):
                 continue
             if any(relative == path or relative.startswith(path + "/") for path in skipped):
                 continue
-            scopes.append({"path": relative, "kind": "const", "tree": scope["tree"], **extra})
+            flags = dict(extra)
+            if flags.get("comparisons") and compiled_only_in_tests(root, relative):
+                del flags["comparisons"]
+            scopes.append({"path": relative, "kind": "const", "tree": scope["tree"], **flags})
     return scopes
 
 
@@ -1308,38 +3332,69 @@ def check_completeness(
     refresh: bool = False,
     notes: list | None = None,
     unlisted: list | None = None,
+    scopes: list | None = None,
 ) -> None:
     """Every limit an owner file defines is a listed bound or excluded with a reason.
 
+    An excluded term (`limit_terms`) records under `term_of` the limits whose expressions
+    name it, and no other exclusion carries a `term_of` entry: a term is classified by
+    the limit it is a part of, so its record says which limit that is.
+
     With `refresh`, an exclusion that matches no scanned limit is removed and reported
-    in `notes` instead of failing. `unlisted` receives `(scope, symbol)` of every limit
-    that is neither listed nor excluded, for `--propose`.
+    in `notes` instead of failing, and `term_of` is rewritten from the source.
+    `unlisted` receives `(scope, symbol)` of every limit that is neither listed nor
+    excluded, for `--propose`.
     """
     section = contract.get("completeness")
     if not isinstance(section, dict) or not section.get("scopes"):
         problems.append("completeness: the contract lists the owner files it scans")
         return
     owners = [bound.get("owner", {}) for bound in contract["bounds"]]
+    by_name: dict = {}
+    for owner in owners:
+        by_name.setdefault((owner.get("path"), owner.get("symbol"), owner.get("kind")), []).append(owner)
 
     def inside(scope: dict, owner: dict) -> bool:
         module = list(scope.get("module") or ())
         return owner.get("path") == scope["path"] and _owner_anchors(owner)[: len(module)] == module
 
-    def listed(scope: dict, symbol: str) -> bool:
-        kind = "fn" if scope["kind"] == "default_fn" else "const"
-        return any(
-            owner.get("symbol") == symbol and owner.get("kind") == kind and inside(scope, owner)
-            for owner in owners
+    def listings(scope: dict, symbol: str) -> int:
+        kind = "fn" if _is_function_symbol(scope, symbol) else "const"
+        return sum(
+            1 for owner in by_name.get((scope["path"], symbol, kind), ()) if inside(scope, owner)
         )
+
+    def listed(scope: dict, symbol: str) -> bool:
+        return listings(scope, symbol) > 0
 
     entries = _exclusion_entries(section, problems)
     excluded: dict = {}
+    holders: dict = {}
     for holder, path, module, symbol in entries:
         key = ((path, module), symbol)
         if key in excluded:
             problems.append(f"completeness exclusion in {path}: `{symbol}` is excluded twice")
         excluded[key] = False
-    scopes = expand_scopes(root, section, problems)
+        holders[key] = holder
+    for group in section.get("excluded", []):
+        for holder in group["files"] if "files" in group else [group]:
+            for record in ("exprs", "term_of"):
+                for symbol in holder.get(record, {}):
+                    if symbol not in holder.get("symbols", []):
+                        if refresh:
+                            continue
+                        problems.append(
+                            f"completeness exclusion in {holder.get('path')}: `{record}` records "
+                            f"`{symbol}`, which the group does not exclude"
+                        )
+    if scopes is None:
+        scopes = expand_scopes(root, section, problems)
+    try:
+        compared, terms = _compared(root, scopes)
+    except ContractError as error:
+        problems.append(str(error))
+        return
+    excluded_in_modules = {(path, symbol) for (path, module), symbol in excluded if module}
     seen = set()
     for scope in scopes:
         where = f"completeness {scope.get('path')}"
@@ -1350,16 +3405,98 @@ def check_completeness(
             if (_scope_key(scope), scope["kind"]) in seen:
                 raise ContractError(f"{where}: the scope is listed twice")
             seen.add((_scope_key(scope), scope["kind"]))
-            symbols = scope_symbols(_read(root, scope["path"], where), scope, where)
+            source = _read(root, scope["path"], where)
+            named = scope_symbols(source, scope, where)
+            symbols = scanned_symbols(source, scope, where, compared)
             for symbol in symbols:
                 key = (_scope_key(scope), symbol)
+                if symbol not in named and (scope["path"], symbol) in excluded_in_modules:
+                    # Found by its use in the whole file; a module scope of the same file
+                    # already classifies it and pins its expression.
+                    continue
                 if listed(scope, symbol):
                     if key in excluded:
                         problems.append(f"{where}: `{symbol}` is both listed and excluded")
                         excluded[key] = True
+                    # A second definition of a listed name (another nested module, a
+                    # shadowing item) is a limit nothing classifies.
+                    if scope["kind"] == "const" and not _is_function_symbol(scope, symbol):
+                        defined = len(
+                            _symbol_spans(_without_inline_tests(source), scope, symbol, where)
+                        )
+                        if defined > listings(scope, symbol):
+                            problems.append(
+                                f"{where}: `{symbol}` is defined {defined} times in the scope "
+                                f"and {listings(scope, symbol)} bound(s) list it; anchor a bound "
+                                "at each definition"
+                            )
                     continue
                 if key in excluded:
                     excluded[key] = True
+                    # The defining expression of an excluded limit is pinned: its reason
+                    # was written for that value, so a change is reviewed again.
+                    holder = holders[key]
+                    observed = scope_expression(source, scope, symbol, where)
+                    recorded = holder.get("exprs", {}).get(symbol)
+                    if refresh:
+                        if recorded != observed:
+                            holder.setdefault("exprs", {})[symbol] = observed
+                            if recorded is not None and notes is not None:
+                                notes.append(
+                                    f"{where}: the excluded limit `{symbol}` is now `{observed}`, "
+                                    f"was `{recorded}`; confirm its exclusion still holds"
+                                )
+                    elif recorded is None:
+                        problems.append(
+                            f"{where}: the exclusion of `{symbol}` records no defining "
+                            "expression in `exprs`; run --refresh"
+                        )
+                    elif recorded != observed:
+                        problems.append(
+                            f"{where}: the excluded limit `{symbol}` is now `{observed}`; the "
+                            f"contract records `{recorded}`. Review the reason of its "
+                            "exclusion, then run --refresh"
+                        )
+                    # A term names the limits it is a part of; nothing else does.
+                    part_of = None
+                    if symbol not in named and not scope.get("module"):
+                        part_of = terms.get(scope["path"], {}).get(symbol)
+                    stated = holder.get("term_of", {}).get(symbol)
+                    if refresh:
+                        if part_of is None:
+                            if stated is not None:
+                                del holder["term_of"][symbol]
+                                if notes is not None:
+                                    notes.append(
+                                        f"{where}: `{symbol}` is a limit of its own now, no term; "
+                                        "`term_of` removed, confirm the reason of its exclusion"
+                                    )
+                        elif stated != part_of:
+                            holder.setdefault("term_of", {})[symbol] = part_of
+                            if stated is not None and notes is not None:
+                                notes.append(
+                                    f"{where}: the term `{symbol}` is now part of "
+                                    f"{', '.join(part_of)}, was {', '.join(stated)}; confirm its "
+                                    "exclusion still holds"
+                                )
+                    elif part_of is None:
+                        if stated is not None:
+                            problems.append(
+                                f"{where}: `{symbol}` records `term_of`, but it is a limit by "
+                                "its own name or by a comparison of its own; classify it as "
+                                "one, then run --refresh"
+                            )
+                    elif stated is None:
+                        problems.append(
+                            f"{where}: `{symbol}` is excluded as a term of "
+                            f"{', '.join(part_of)} and records no `term_of`; run --refresh"
+                        )
+                    elif stated != part_of:
+                        problems.append(
+                            f"{where}: the term `{symbol}` is part of {', '.join(part_of)}; "
+                            f"the contract records {', '.join(stated)}. Review the reason "
+                            "of its exclusion, then run --refresh"
+                        )
                     continue
                 problems.append(
                     f"{where}: `{symbol}` is neither a listed bound nor excluded with a reason"
@@ -1384,6 +3521,16 @@ def check_completeness(
             problems.append(text)
     if refresh:
         for group in section.get("excluded", []):
+            for holder in group["files"] if "files" in group else [group]:
+                # Keep one pinned expression per excluded symbol, in the order of `symbols`.
+                pinned = holder.get("exprs", {})
+                holder["exprs"] = {
+                    name: pinned[name] for name in holder.get("symbols", []) if name in pinned
+                }
+                parts = holder.pop("term_of", {})
+                parts = {name: parts[name] for name in holder.get("symbols", []) if name in parts}
+                if parts:
+                    holder["term_of"] = parts
             if "files" in group:
                 group["files"] = [holder for holder in group["files"] if holder.get("symbols")]
         section["excluded"] = [
@@ -1391,6 +3538,7 @@ def check_completeness(
             for group in section.get("excluded", [])
             if (group.get("files") if "files" in group else group.get("symbols"))
         ]
+    check_literals(root, contract, problems, refresh, notes, unlisted, scopes)
     # Listing a bound extends the scan: a constant owner lies inside a scanned scope.
     for bound in contract["bounds"]:
         owner = bound.get("owner", {})
@@ -1401,6 +3549,189 @@ def check_completeness(
                 f"{bound.get('id')}: its owner in {owner.get('path')} is outside every "
                 "completeness scope"
             )
+
+
+def _site_records(contract: dict) -> list:
+    """Every record of the contract that may name enforcement sites."""
+    records = list(contract.get("bounds", []))
+    for key in ("derived", "declared", "relations", "stage_tests", "behaviors"):
+        records.extend(contract.get(key, []))
+    return records
+
+
+def literal_scopes(scopes: list) -> list:
+    """The paths of the `comparisons` scopes, each once, in scope order."""
+    paths = [
+        scope["path"]
+        for scope in scopes
+        if scope.get("comparisons") and scope.get("kind") == "const" and not scope.get("module")
+    ]
+    return list(dict.fromkeys(paths))
+
+
+def _held_whole(contains: str, text: str) -> int:
+    """How often the enforcement text `contains` holds the comparison `text` whole.
+
+    An occurrence counts when no name, number or method chain runs on at either end:
+    `len > 128` is not held by `len > 1280`, and `o.len() > 128` is not held by
+    `foo.len() > 128`. So a site of a bound owns the comparison it quotes and no
+    shorter one that happens to be a part of its text.
+    """
+    count = 0
+    start = contains.find(text)
+    while start >= 0:
+        end = start + len(text)
+        before, after = contains[start - 1 : start] if start else "", contains[end : end + 1]
+        head_joined = (text[0].isalnum() or text[0] == "_") and (
+            before.isalnum() or before in ("_", ".")
+        )
+        tail_joined = (text[-1].isalnum() or text[-1] == "_") and (after.isalnum() or after == "_")
+        if not head_joined and not tail_joined:
+            count += 1
+        start = contains.find(text, start + 1)
+    return count
+
+
+def check_literals(
+    root: Path,
+    contract: dict,
+    problems: list,
+    refresh: bool = False,
+    notes: list | None = None,
+    unlisted: list | None = None,
+    scopes: list | None = None,
+) -> None:
+    """Every literal site of a `comparisons` scope belongs to a bound or is pinned with a reason.
+
+    A literal site (`comparison_scan`) is covered when an enforcement site of a listed
+    record of the same file holds its text whole (`_held_whole`); the bound's own site
+    check then pins it.
+    Every other occurrence is recorded under `completeness.literals`, in a group with a
+    reason, as `text: count` of its file. A site that is not recorded, a recorded text
+    that occurs a different number of times and a recorded text that is gone each fail.
+    With `refresh`, counts are rewritten and vanished texts removed, both reported in
+    `notes`; a new site is never added, because it needs a reason. `unlisted` receives
+    `(path, text, count)` of every site that is not recorded, for `--propose`.
+    """
+    section = contract.get("completeness") or {}
+    if scopes is None:
+        scopes = expand_scopes(root, section, [])
+    paths = literal_scopes(scopes)
+    literals = section.get("literals")
+    if not paths:
+        if literals is not None:
+            problems.append("completeness literals: no scope sets `comparisons`")
+        return
+    if not isinstance(literals, dict):
+        problems.append(
+            "completeness: a scope sets `comparisons`; `literals` records the literal "
+            "comparisons that no bound owns"
+        )
+        return
+    minimum = literals.get("minimum")
+    if type(minimum) is not int or minimum < 2 or not literals.get("why"):
+        problems.append(
+            "completeness literals: `minimum` is an integer of 2 or more and `why` states "
+            "why a smaller literal is not a limit"
+        )
+        return
+    pinned: dict = {}
+    for group in literals.get("groups", []):
+        holders = group.get("files", [])
+        where = f"completeness literals in {holders[0].get('path') if holders else None}"
+        if not group.get("reason"):
+            problems.append(f"{where}: a group states its reason")
+        if not holders:
+            problems.append(f"{where}: a group names its files")
+        for holder in holders:
+            path = holder.get("path")
+            sites = holder.get("sites")
+            if not path or not isinstance(sites, dict) or not sites:
+                problems.append(f"{where}: a file names its `path` and its `sites`")
+                continue
+            if path not in paths:
+                problems.append(
+                    f"completeness literals in {path}: the file is not in a `comparisons` scope"
+                )
+                continue
+            for text, count in sites.items():
+                if (path, text) in pinned:
+                    problems.append(f"completeness literals in {path}: `{text}` is recorded twice")
+                if type(count) is not int or count < 1:
+                    problems.append(
+                        f"completeness literals in {path}: the count of `{text}` is a positive integer"
+                    )
+                pinned[(path, text)] = holder
+    owned: dict = {}
+    for record in _site_records(contract):
+        for site in record.get("enforcement", []):
+            if "path" in site and "contains" in site:
+                owned.setdefault(site["path"], []).append(
+                    (normalize(site["contains"]), site.get("count", 1))
+                )
+    matched = set()
+    for path in paths:
+        where = f"completeness literals in {path}"
+        try:
+            source = _read(root, path, where)
+        except ContractError as error:
+            problems.append(str(error))
+            continue
+        for text, occurrences in literal_occurrences(source, minimum).items():
+            covered = sum(
+                count * _held_whole(contains, text) for contains, count in owned.get(path, ())
+            )
+            free = occurrences - covered
+            holder = pinned.get((path, text))
+            if free <= 0:
+                if holder is not None:
+                    matched.add((path, text))
+                    if refresh:
+                        del holder["sites"][text]
+                        if notes is not None:
+                            notes.append(f"{where}: `{text}` is a site of a listed bound; removed")
+                    else:
+                        problems.append(
+                            f"{where}: `{text}` is a site of a listed bound and recorded here too"
+                        )
+                continue
+            if holder is None:
+                problems.append(
+                    f"{where}: the literal comparison `{text}` ({free} time(s)) is neither a "
+                    "site of a listed bound nor recorded with a reason"
+                )
+                if unlisted is not None:
+                    unlisted.append((path, text, free))
+                continue
+            matched.add((path, text))
+            recorded = holder["sites"][text]
+            if recorded != free:
+                if refresh:
+                    holder["sites"][text] = free
+                    if notes is not None:
+                        notes.append(
+                            f"{where}: `{text}` now occurs {free} time(s), was {recorded}; "
+                            "confirm the change was meant"
+                        )
+                else:
+                    problems.append(
+                        f"{where}: `{text}` occurs {free} time(s) outside the sites of listed "
+                        f"bounds; the contract records {recorded}"
+                    )
+    for (path, text), holder in pinned.items():
+        if (path, text) in matched or path not in paths:
+            continue
+        message = f"completeness literals in {path}: `{text}` matches no literal comparison"
+        if refresh:
+            holder["sites"].pop(text, None)
+            if notes is not None:
+                notes.append(message + "; removed")
+        else:
+            problems.append(message)
+    if refresh:
+        for group in literals.get("groups", []):
+            group["files"] = [holder for holder in group.get("files", []) if holder.get("sites")]
+        literals["groups"] = [group for group in literals.get("groups", []) if group.get("files")]
 
 
 def _group_end(source: str, open_index: int, opening: str, closing: str) -> int:
@@ -1572,9 +3903,6 @@ def struct_field_tree(source: str, name: str, where: str, seen: tuple = ()) -> l
     return fields
 
 
-_CATALOG_FIELDS: dict = {}
-
-
 def catalog_fields(source: str, catalog: dict, where: str) -> list:
     """Return the field names an authoritative typed catalog binds, in source order.
 
@@ -1583,10 +3911,8 @@ def catalog_fields(source: str, catalog: dict, where: str) -> list:
     and, when a `function` is named, checks that the function builds that struct.
     """
     reader = {key: catalog.get(key) for key in ("field_form", "function", "struct", "path")}
-    key = (len(source), hash(source), json.dumps(reader, sort_keys=True), where)
-    if key not in _CATALOG_FIELDS:
-        _CATALOG_FIELDS[key] = _catalog_fields(source, catalog, where)
-    return list(_CATALOG_FIELDS[key])
+    key = ("catalog_fields", json.dumps(reader, sort_keys=True), where)
+    return list(_TEXTS.get(source, key, lambda: _catalog_fields(source, catalog, where)))
 
 
 def _catalog_fields(source: str, catalog: dict, where: str) -> list:
@@ -1607,6 +3933,108 @@ def _catalog_fields(source: str, catalog: dict, where: str) -> list:
     if form == "policy_push":
         return _policy_push_fields(body, where)
     return _zk_policy_put_fields(body, where)
+
+
+ZK_VALIDITY_POLICY_SOURCE = "crates/iroha_data_model/src/zk_validity_policy.rs"
+_ZK_POLICY_COMMITTED_AS = re.compile(
+    r"^zk_validity_policy_v1 \(ZkValidityPolicyV1\.([a-z0-9_]+)\.([a-z0-9_]+)\)"
+)
+
+
+def zk_validity_policy_fields(source: str) -> dict:
+    """Section name -> field names of `ZkValidityPolicyV1`, read from its definition."""
+    top = re.search(r"pub struct ZkValidityPolicyV1 \{(.*?)\n\}", source, re.S)
+    if top is None:
+        return {}
+    section_type = dict(re.findall(r"pub ([a-z0-9_]+): ([A-Za-z0-9]+),", top.group(1)))
+    struct_fields: dict = {}
+    for block in re.finditer(r"policy_section! \{(.*?)\n\}", source, re.S):
+        body = re.sub(r"//[^\n]*", "", block.group(1))
+        name = re.search(r"\b(Zk[A-Za-z0-9]+)\s*\{", body)
+        if name is None:
+            continue
+        inner = body[name.end():]
+        struct_fields[name.group(1)] = re.findall(r"^\s*([a-z0-9_]+)\s*:", inner, re.M)
+    return {section: struct_fields.get(kind, []) for section, kind in section_type.items()}
+
+
+def check_zk_policy_committed_as(root: Path, contract: dict, problems: list) -> None:
+    """A bound committed as a field of the ZK validity policy names a field that exists."""
+    named = [
+        (bound, _ZK_POLICY_COMMITTED_AS.match(bound.get("committed_as") or ""))
+        for bound in contract["bounds"]
+        if str(bound.get("committed_as", "")).startswith("zk_validity_policy_v1")
+    ]
+    if not named:
+        return
+    try:
+        fields = zk_validity_policy_fields(
+            _read(root, ZK_VALIDITY_POLICY_SOURCE, "ZK validity policy")
+        )
+    except ContractError as error:
+        problems.append(str(error))
+        return
+    for bound, match in named:
+        where = f"bound {bound.get('id')}"
+        if match is None:
+            problems.append(
+                f"{where}: `committed_as` must start with "
+                "`zk_validity_policy_v1 (ZkValidityPolicyV1.<section>.<field>)`"
+            )
+            continue
+        section, field = match.groups()
+        if field not in fields.get(section, []):
+            problems.append(
+                f"{where}: `committed_as` names ZkValidityPolicyV1.{section}.{field}, which "
+                f"{ZK_VALIDITY_POLICY_SOURCE} does not define"
+            )
+
+
+PIPELINE_VALIDITY_POLICY_SOURCE = "crates/iroha_data_model/src/pipeline_validity_policy.rs"
+_PIPELINE_POLICY_COMMITTED_AS = re.compile(
+    r"^pipeline_validity_policy_v1 \(PipelineValidityPolicyV1\.([a-z0-9_]+)\)"
+)
+
+
+def pipeline_validity_policy_fields(source: str) -> list:
+    """Field names of `PipelineValidityPolicyV1`, read from its definition."""
+    block = re.search(r"\npipeline_policy! \{(.*?)\n\}", source, re.S)
+    if block is None:
+        return []
+    body = re.sub(r"//[^\n]*", "", block.group(1))
+    return re.findall(r"^\s*([a-z0-9_]+)\s*:", body, re.M)
+
+
+def check_pipeline_policy_committed_as(root: Path, contract: dict, problems: list) -> None:
+    """A bound committed as a field of the pipeline validity policy names a field that exists."""
+    named = [
+        (bound, _PIPELINE_POLICY_COMMITTED_AS.match(bound.get("committed_as") or ""))
+        for bound in contract["bounds"]
+        if str(bound.get("committed_as", "")).startswith("pipeline_validity_policy_v1")
+    ]
+    if not named:
+        return
+    try:
+        fields = pipeline_validity_policy_fields(
+            _read(root, PIPELINE_VALIDITY_POLICY_SOURCE, "pipeline validity policy")
+        )
+    except ContractError as error:
+        problems.append(str(error))
+        return
+    for bound, match in named:
+        where = f"bound {bound.get('id')}"
+        if match is None:
+            problems.append(
+                f"{where}: `committed_as` must start with "
+                "`pipeline_validity_policy_v1 (PipelineValidityPolicyV1.<field>)`"
+            )
+            continue
+        field = match.group(1)
+        if field not in fields:
+            problems.append(
+                f"{where}: `committed_as` names PipelineValidityPolicyV1.{field}, which "
+                f"{PIPELINE_VALIDITY_POLICY_SOURCE} does not define"
+            )
 
 
 def check_catalogs(
@@ -1944,6 +4372,8 @@ _UNCITED_KEYS = frozenset(
         "function",
         "struct",
         "matching",
+        "exprs",
+        "features",
     )
 )
 _CITED_ID = re.compile(
@@ -2011,6 +4441,8 @@ def check(
     # A file may have changed since the last run: the verdicts are per run.
     _REACHABLE.clear()
     _REFERENCES.clear()
+    _MANIFEST_TEXT.clear()
+    _SCAN_EPOCH[0] += 1
     if contract is None:
         contract = json.loads((root / CONTRACT.relative_to(ROOT)).read_text(encoding="utf-8"))
     if tasks is None:
@@ -2047,6 +4479,8 @@ def check(
     check_fixed(contract, values, problems)
     check_completeness(root, contract, problems, refresh, notes, limits)
     check_catalogs(root, contract, tasks, problems, fields)
+    check_zk_policy_committed_as(root, contract, problems)
+    check_pipeline_policy_committed_as(root, contract, problems)
     check_derived(root, contract, values, problems, refresh, notes)
     check_budgets(contract, values, tasks, problems, refresh)
     check_relations(contract, values, tasks, problems)
@@ -2059,6 +4493,185 @@ def check(
 def render(contract: dict) -> str:
     """The canonical text of the contract file."""
     return json.dumps(contract, indent=2, ensure_ascii=True) + "\n"
+
+
+def mutation_sweep(root: Path, contract: dict, prefixes: tuple = ()) -> tuple:
+    """Change every scanned limit in memory, one at a time, and report what goes unnoticed.
+
+    For each limit of each completeness scope (optionally only the scopes whose path
+    starts with one of `prefixes`) the source text is replaced in memory by a copy in
+    which the limit's defining expression is another value, and the owner and
+    completeness checks run against it. A listed bound must report a changed expression
+    or value, an excluded limit a changed pinned expression. In a `comparisons` scope
+    the limits the code compares are changed as well, and every recorded literal site
+    has its literal raised by one, which must be reported for that text. Nothing is
+    written to disk.
+
+    Returns `(changed, survivors, constant_only)`: how many limits and literals were
+    changed, the `path: symbol` (or `path: literal` with the site text) of each change no check
+    reported, and the limits that have no value to change in their scope (a trait
+    constant declared without one).
+    """
+    section = contract["completeness"]
+    baseline: list = []
+    verify_bounds(root, contract, baseline)
+    check_completeness(root, contract, baseline)
+    if baseline:
+        raise ContractError(
+            "the mutation sweep starts from a contract that matches the source; "
+            f"{len(baseline)} problem(s), first: {baseline[0]}"
+        )
+    changed = 0
+    survivors: list = []
+    constant_only: list = []
+    scopes = expand_scopes(root, section, [])
+    compared = compared_symbols(root, scopes)
+    minimum = (section.get("literals") or {}).get("minimum")
+    for path in literal_scopes(scopes) if type(minimum) is int else ():
+        if prefixes and not any(path.startswith(prefix) for prefix in prefixes):
+            continue
+        where = f"mutation {path}"
+        source = _read(root, path, where)
+        for text, spans in literal_sites(source, minimum).items():
+            for start, end, value in spans:
+                mutated = source[:start] + str(value + 1) + source[end:]
+                _OVERRIDES[path] = mutated
+                try:
+                    problems: list = []
+                    check_literals(root, contract, problems, scopes=scopes)
+                    _check_owned_sites(root, contract, path, problems)
+                finally:
+                    del _OVERRIDES[path]
+                    _TEXTS.forget(mutated)
+                changed += 1
+                if not any(f"`{text}`" in problem or text in problem for problem in problems):
+                    survivors.append(f"{path}: literal `{text}`")
+    for scope in scopes:
+        path = scope["path"]
+        if prefixes and not any(path.startswith(prefix) for prefix in prefixes):
+            continue
+        where = f"mutation {path}"
+        source = _read(root, path, where)
+        for symbol in scanned_symbols(source, scope, where, compared):
+            mutated = mutate_limit(source, scope, symbol, where)
+            label = f"{path}: {symbol}"
+            if scope.get("module"):
+                label += f" in `{' '.join(scope['module'])}`"
+            if mutated is None:
+                constant_only.append(label)
+                continue
+            _OVERRIDES[path] = mutated
+            try:
+                problems: list = []
+                verify_bounds(root, contract, problems)
+                check_completeness(root, contract, problems, scopes=scopes)
+            finally:
+                del _OVERRIDES[path]
+                _TEXTS.forget(mutated)
+            changed += 1
+            if not any(f"`{symbol}`" in problem for problem in problems):
+                survivors.append(label)
+    return changed, survivors, constant_only
+
+
+def _check_owned_sites(root: Path, contract: dict, path: str, problems: list) -> None:
+    """The site checks of every record that names an enforcement site in `path`."""
+    for record in _site_records(contract):
+        sites = [site for site in record.get("enforcement", []) if site.get("path") == path]
+        if sites:
+            where = str(record.get("id", record.get("stage", "<record>")))
+            _check_sites(root, {"enforcement": sites}, where, problems, record.get("owner"))
+
+
+def _package_name(crate: Path) -> str:
+    manifest = (crate / "Cargo.toml").read_text(encoding="utf-8")
+    name = re.search(r"^\[package\]\s*$.*?^name\s*=\s*\"([^\"]+)\"", manifest, re.MULTILINE | re.DOTALL)
+    return name.group(1) if name else crate.name
+
+
+def _test_target(crate: Path, file: Path, seen: frozenset = frozenset()) -> str | None:
+    """`--lib` or `--test NAME` for the crate target that compiles a test file."""
+    key = str(file)
+    if key in seen:
+        return None
+    seen = seen | {key}
+    parts = file.relative_to(crate).parts
+    manifest = (crate / "Cargo.toml").read_text(encoding="utf-8")
+    relative = "/".join(parts)
+    for block in re.split(r"^\[\[", manifest, flags=re.MULTILINE)[1:]:
+        kind = block.split("]]", 1)[0]
+        block = block.split("\n[", 1)[0]
+        if kind == "test" and re.search(rf"^path\s*=\s*\"{re.escape(relative)}\"", block, re.MULTILINE):
+            name = re.search(r"^name\s*=\s*\"([^\"]+)\"", block, re.MULTILINE)
+            return f"--test {name.group(1)}" if name else None
+    if parts[0] == "src" and len(parts) == 2 and parts[1] in ("lib.rs", "main.rs"):
+        return "--lib" if parts[1] == "lib.rs" else "--bins"
+    if (
+        parts[0] == "tests"
+        and len(parts) == 2
+        and not re.search(r"^\s*autotests\s*=\s*false", manifest, re.MULTILINE)
+    ):
+        return f"--test {file.stem}"
+    module, directory = file.stem, file.parent
+    if file.name == "mod.rs":
+        module, directory = directory.name, directory.parent
+    referrers = []
+    ancestor = directory
+    for _ in range(4):
+        if crate not in (ancestor, *ancestor.parents):
+            break
+        for parent in (
+            ancestor / "mod.rs",
+            ancestor.parent / f"{ancestor.name}.rs",
+            ancestor / "lib.rs",
+            ancestor / "main.rs",
+        ):
+            if parent != file and _declares_module(parent, module):
+                referrers.append(parent)
+        ancestor = ancestor.parent
+    referrers.extend(referrer for referrer in _referrers_by_path(crate, file) if referrer != file)
+    for referrer in referrers:
+        target = _test_target(crate, referrer, seen)
+        if target is not None:
+            return target
+    return None
+
+
+def test_commands(root: Path, contract: dict) -> list:
+    """One cargo command per crate target and feature set that runs every named Rust test.
+
+    The commands are derived from the test records and the source, like `features`.
+    """
+    groups: dict = {}
+
+    def walk(value) -> None:
+        if isinstance(value, dict):
+            tests = value.get("tests")
+            if isinstance(tests, list):
+                for test in tests:
+                    if isinstance(test, dict) and str(test.get("path", "")).endswith(".rs"):
+                        file = root / test["path"]
+                        crate = _crate_of(root, file)
+                        if crate is None or not file.is_file():
+                            continue
+                        target = _test_target(crate, file) or "--lib"
+                        features = ",".join(test.get("features", []))
+                        key = (_package_name(crate), target, features)
+                        groups.setdefault(key, set()).add(test["name"])
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(contract)
+    commands = []
+    for (package, target, features), names in sorted(groups.items()):
+        command = f"cargo test --locked -p {package}"
+        if features:
+            command += f" --features {features.replace('|', ',')}"
+        commands.append(f"{command} {target} -- {' '.join(sorted(names))}")
+    return commands
 
 
 # What marks a line as comparing or applying a limit, for `--propose`.
@@ -2099,7 +4712,7 @@ def propose_entry(
     owner's crate and in `search_in`. They are suggestions to review, not evidence.
     """
     where = f"{scope['path']}:{symbol}"
-    kind = "fn" if scope.get("kind") == "default_fn" else "const"
+    kind = "fn" if _is_function_symbol(scope, symbol) else "const"
     owner: dict = {"path": scope["path"], "symbol": symbol, "kind": kind}
     if scope.get("module"):
         owner["anchor"] = list(scope["module"])
@@ -2189,9 +4802,33 @@ def propose(
     unlisted: dict = {}
     notes: list = []
     check(root, working, tasks, True, notes, unlisted)
-    for scope, symbol in unlisted.get("limits", []):
+    sites: dict = {}
+    try:
+        terms = limit_terms(root, expand_scopes(root, working["completeness"], []))
+    except ContractError:
+        terms = {}
+    for entry in unlisted.get("limits", []):
+        if len(entry) == 3:
+            # A literal comparison: `(path, text, count)`.
+            sites.setdefault(entry[0], {})[entry[1]] = entry[2]
+            continue
+        scope, symbol = entry
         lines.append(f"# unlisted limit `{symbol}` in {scope['path']}: list it or exclude it")
+        part_of = None if scope.get("module") else terms.get(scope["path"], {}).get(symbol)
+        if part_of is not None and symbol not in scope_symbols(
+            _read(root, scope["path"], "propose"), scope, "propose"
+        ):
+            lines.append(
+                f"#   it is a term of {', '.join(part_of)}: an exclusion records that list as "
+                "`term_of` (--refresh writes it)"
+            )
         lines.append(json.dumps(propose_entry(root, scope, symbol, values, search_in), indent=2))
+    for path, texts in sites.items():
+        lines.append(
+            f"# literal comparisons of {path} that no bound owns: name them in an enforcement "
+            "site of a bound, or add this file to a group of `completeness.literals`"
+        )
+        lines.append(json.dumps({"path": path, "sites": texts}, indent=2))
     for catalog, field in unlisted.get("fields", []):
         lines.append(
             f"# catalog {catalog['id']}: field `{field}` is not recorded; map it to a bound "
@@ -2264,8 +4901,40 @@ def main(argv: list | None = None) -> int:
         help="with --propose-for: another identifier to search sites and tests for, "
         "for example the configuration field a default is read through (repeatable)",
     )
+    parser.add_argument(
+        "--mutate",
+        nargs="*",
+        metavar="PATH_PREFIX",
+        help="change every scanned limit in memory, one at a time, and fail when a change "
+        "goes unnoticed; with prefixes, only the limits of scopes below them; write nothing",
+    )
+    parser.add_argument(
+        "--test-commands",
+        action="store_true",
+        help="print one cargo command per crate target and feature set that runs every "
+        "Rust test the contract names; write nothing",
+    )
     arguments = parser.parse_args(argv)
     contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
+    if arguments.test_commands:
+        print("\n".join(test_commands(ROOT, contract)))
+        return 0
+    if arguments.mutate is not None:
+        try:
+            changed, survivors, constant_only = mutation_sweep(
+                ROOT, contract, tuple(arguments.mutate)
+            )
+        except ContractError as error:
+            print(f"error: {error}", file=sys.stderr)
+            return 1
+        for label in survivors:
+            print(f"error: changing {label} goes unnoticed", file=sys.stderr)
+        print(
+            f"{changed} scanned limits and recorded literal comparisons changed in memory, "
+            f"one at a time: {changed - len(survivors)} reported, {len(survivors)} unnoticed; "
+            f"{len(constant_only)} have no value to change in their scope"
+        )
+        return 1 if survivors else 0
     if arguments.propose or arguments.propose_for:
         lines = propose(
             ROOT,
@@ -2309,8 +4978,24 @@ def main(argv: list | None = None) -> int:
         f"{len(contract.get('declared', []))} declared items, "
         f"{sum(len(catalog['fields']) for catalog in contract.get('catalogs', []))} "
         f"catalog fields and {len(scopes)} scanned scopes match the source"
+        + (
+            f"; {recorded} recorded literal comparisons in {len(literal_scopes(scopes))} "
+            "compared sources"
+            if (recorded := _recorded_literals(contract))
+            else ""
+        )
     )
     return 0
+
+
+def _recorded_literals(contract: dict) -> int:
+    """How many literal comparisons `completeness.literals` records."""
+    literals = (contract.get("completeness") or {}).get("literals") or {}
+    return sum(
+        sum(holder.get("sites", {}).values())
+        for group in literals.get("groups", [])
+        for holder in group.get("files", [])
+    )
 
 
 if __name__ == "__main__":

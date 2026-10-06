@@ -3749,6 +3749,14 @@ Machine-checked companions:
 - `crates/iroha_core/src/state/authority_registry/keyed_commitment.rs` is the typed interface
   (`KeyedStateCommitment`, `StateSchema`, `KeyRange`, `Witness`, `KeyedStateRoot`) with its
   conformance suite (`conformance::check_contract`) and a test-only reference oracle.
+- `specs/state_commitment_candidates.json` is the G.2 comparison of four development-only
+  candidate constructions, each passing the conformance suite: measured natively under five hash
+  profiles and, for the three tree candidates under the Poseidon2 and Rescue-Prime sponge
+  profiles, in-circuit with the uncommitted B.1 reference (no committed proof exists until B.2).
+  It carries the benchmark identity, every number classified (measured, accounting model,
+  projection), and the decision criteria proposed for G.3. It records no selection.
+  `scripts/check_state_commitment_candidates.py` checks it against the prototype sources, which
+  it binds by digest.
 
 ### 16.1 Committed object, canonical order and schema descriptor
 
@@ -4061,17 +4069,26 @@ G.3 freezes the table identity and codec; G.4 defines ages, caps and the admissi
   construction scan reads every non-test source of `iroha_core` and `iroha_data_model`; the
   signature scan reads every non-test source of `iroha_core`; the carrier walk reads the
   declarations of the block header, the block payload and block result, the signed genesis
-  consensus parameters, `R` and the lane result with their nested records, and also those of
-  every Sumeragi wire message (`crates/iroha_sumeragi`, from its `WireMessage` enumeration),
-  of the peer handshake capabilities (`crates/iroha_p2p`) and of the node's network envelope
+  consensus parameters, `R`, the lane batch and the lane result with their nested records, and
+  also those of every Sumeragi wire message (`crates/iroha_sumeragi`, from its `WireMessage`
+  enumeration), of the peer handshake (`crates/iroha_p2p`: the hello record that peers
+  exchange with its consensus, confidential, crypto and trust metadata and its wire digest, the
+  identity binding that the hello signature covers, and the consensus, confidential and crypto
+  capabilities that a node compares them with) and of the node's network envelope
   (`iroha_core::NetworkMessage`, whose every variant is classified), and the inventory cites
-  the hashing of the Nexus/AMX context in `crates/iroha_config`. In the types that hold a
-  carrier's State digests (the block, its payload and its result, the header, `R`, the lane
-  result, the genesis context parameters, the epoch identity, the handshake capabilities and
-  the network envelope) every field is classified, so a new field fails the check whatever
-  its type (`protocol_carriers[*].every_field_classified`). The signature scan reads the whole
-  header of an `impl` or `trait` block, also of a literal block in a macro body; it does not
-  expand macros. Its reader types (`source_scan.state_reader_types`) are `State`, `World` and
+  the hashing of the Nexus/AMX context in `crates/iroha_config`. In the types listed under
+  `protocol_carriers[*].every_field_classified` every field is classified, so a new field
+  fails the check whatever its type. They are the block, its payload and its result, the
+  header with its confidential feature digest, the two records of `R`, the lane batch and the
+  lane result, the genesis context parameters, the epoch identity, every walked record of the
+  peer handshake, and the network envelope with its Sumeragi frame. In the other walked types
+  a new field fails only when its type is hash-bearing or names an unclassified nested type.
+  The signature scan reads the whole header of an `impl` or `trait` block, also of a literal
+  block in a macro body; it does not expand macros. It also matches a function that reads
+  State and returns a walked record of the peer handshake or of a lane block
+  (`source_scan.carried_records`), whatever the name of the record; it does not read the node
+  binary, which fills the handshake capabilities. Its reader types
+  (`source_scan.state_reader_types`) are `State`, `World` and
   the owners of the other registry fields (the transaction storage, the block-hash journal, the
   trigger set and the canonical runtime) with their handles and reader traits, and the table
   and cell handles. The inventory states the form of literal that it

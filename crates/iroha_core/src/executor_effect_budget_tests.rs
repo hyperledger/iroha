@@ -177,8 +177,7 @@ mod effect_budget {
     }
 
     fn contract_fixture() -> (State, Vec<u8>, ContractAddress, Hash) {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(r#"
 seiyaku ActualEffectGroups {
@@ -213,7 +212,13 @@ seiyaku ActualEffectGroups {
                 address.dataspace_id().unwrap(),
                 hash,
             ),
-            manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &ALICE_KEYPAIR).expect("sign bounded fixture manifest"),
+            manifest
+                .try_signed(
+                    manifest_signing.context(),
+                    manifest_signing.max_frame_bytes(),
+                    &ALICE_KEYPAIR,
+                )
+                .expect("sign bounded fixture manifest"),
         );
         setup.world.accounts.insert(
             address.subject_id(),
@@ -509,12 +514,15 @@ seiyaku ActualEffectGroups {
         let mut segment_cycles = Vec::new();
         let mut segment_gas = Vec::new();
         let mut successful_batch_gas = None;
-        let authored_gas = isi_gas::meter_instructions(&[SetKeyValue::account(
-            ALICE_ID.clone(),
-            "effect_authored".parse().unwrap(),
-            Json::new(true),
-        )
-        .into()]);
+        let authored_gas = isi_gas::meter_instructions(
+            &[SetKeyValue::account(
+                ALICE_ID.clone(),
+                "effect_authored".parse().unwrap(),
+                Json::new(true),
+            )
+            .into()],
+            &crate::gas::DEFAULT_ZK_GAS,
+        );
         assert!(authored_gas > 0);
         let mut refused_return_gas = None;
         for case in 0..5 {

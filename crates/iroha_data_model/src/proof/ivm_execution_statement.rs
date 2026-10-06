@@ -239,7 +239,9 @@ impl IvmExecutionStatementV1 {
         if self.abi_version != 1 {
             return Err(IvmExecutionStatementErrorV1::WrongAbi);
         }
-        if self.returns.initialized_word_count > 8_192 {
+        if usize::from(self.returns.initialized_word_count)
+            > crate::smart_contract::entrypoint::MAX_ENTRYPOINT_RETURN_WORDS
+        {
             return Err(IvmExecutionStatementErrorV1::ResultTableTooLarge);
         }
         if self.selector.is_empty() {

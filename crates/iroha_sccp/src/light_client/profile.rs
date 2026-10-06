@@ -558,7 +558,7 @@ impl SccpChainProfilesV1 {
 
 /// Keccak-256 commitment to the compiled chain profiles and verifier bounds.
 ///
-/// Core binds it into the consensus policy hash next to the `[zk.sccp]` limits.
+/// Core binds it into the consensus policy hash next to the committed `sccp` limits of the ZK validity policy.
 #[must_use]
 pub fn policy_hash_contribution() -> [u8; 32] {
     SccpChainProfilesV1::compiled().policy_hash()

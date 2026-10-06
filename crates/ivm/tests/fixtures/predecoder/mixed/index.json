@@ -1,7 +1,7 @@
 {
   "artifacts": [
     {
-      "artifact_sha256": "36f7b8a6f178c1db4078d59b170db3e61387a0e90ef404f0d5a24e21f29944bc",
+      "artifact_sha256": "428a8c736c5c527418372ac31cebad2601d3a7f15ba8728e9cc696169419f970",
       "file": "artifact_v1_1_mode00_vlen0_cycles0_abi1.to",
       "meta": {
         "abi_version": 1,
@@ -13,7 +13,7 @@
       }
     },
     {
-      "artifact_sha256": "94a2a1069e86061c1ae9b24db9acf2ab1e755afeafdd63773bf5dcddacfa8abf",
+      "artifact_sha256": "756709c2e62029f229338ffddad24a7adef041982776f196009cd5341bf1ad7f",
       "file": "artifact_v1_1_mode03_vlen8_cycles1000_abi1.to",
       "meta": {
         "abi_version": 1,

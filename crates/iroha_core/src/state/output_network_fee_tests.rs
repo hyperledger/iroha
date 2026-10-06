@@ -107,7 +107,7 @@ fn plain_and_batch_business_rejection_charge_the_same_actual_direct_basis() {
 fn fee_only_settlement_does_not_charge_completed_work_again_at_the_block_limit() {
     let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
     let body = failing_body();
-    let gas = crate::gas::meter_instructions(&body);
+    let gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS);
     assert!(gas > 0);
     for exact in [false, true] {
         let (state, asset) = priced_fixture(None);
@@ -198,7 +198,7 @@ fn actual_data_callback_failure_rolls_back_business_but_preserves_root_fee_basis
         setup.commit_world_overlay_for_testing().unwrap();
     }
     let body = vec![write("data_callback_event")];
-    let direct_gas = crate::gas::meter_instructions(&body);
+    let direct_gas = crate::gas::meter_instructions(&body, &crate::gas::DEFAULT_ZK_GAS);
     let source = carrier(&state, vec![input(&state, body, payment(&asset, 2), false)]);
     let (mut block, _recording) = recorded_network_block(&state, &source);
     let fragments = block.committed_fragment_count();

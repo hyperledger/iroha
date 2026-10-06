@@ -1,7 +1,13 @@
 seiyaku BothFrameReturns {
     state int trace;
-    hajimari() { trace = 0; }
-    fn pulse() { trace = trace + 1; }
+    hajimari() {
+        trace = 0;
+    }
+
+    fn pulse() {
+        trace = trace + 1;
+    }
+
     fn compute(int _ flag) -> (int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int) {
         let seed = trace;
         let a1 = seed + 1;
@@ -54,11 +60,17 @@ seiyaku BothFrameReturns {
         let a48 = seed + 48;
         let a49 = seed + 49;
         let a50 = seed + 50;
-        pulse(); pulse();
-        if flag == 0 { return (a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30, a31, a32, a33, a34, a35, a36, a37, a38, a39, a40, a41, a42, a43, a44, a45, a46, a47, a48, a49, a50, trace); }
+        pulse();
+        pulse();
+        if flag == 0 {
+            return (a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18, a19, a20, a21, a22, a23, a24, a25, a26, a27, a28, a29, a30, a31, a32, a33, a34, a35, a36, a37, a38, a39, a40, a41, a42, a43, a44, a45, a46, a47, a48, a49, a50, trace);
+        }
         return (a50, a49, a48, a47, a46, a45, a44, a43, a42, a41, a40, a39, a38, a37, a36, a35, a34, a33, a32, a31, a30, a29, a28, a27, a26, a25, a24, a23, a22, a21, a20, a19, a18, a17, a16, a15, a14, a13, a12, a11, a10, a9, a8, a7, a6, a5, a4, a3, a2, a1, trace);
     }
-    kotoage fn main() -> (int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int) authorize("WriteState") {
+
+    kotoage fn main() -> (int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int) authorize(
+        "WriteState"
+    ) {
         let left = compute(0);
         let right = compute(1);
         return (left.0, left.1, left.2, left.3, left.4, left.5, left.6, left.7, left.8, left.9, left.10, left.11, left.12, left.13, left.14, left.15, left.16, left.17, left.18, left.19, left.20, left.21, left.22, left.23, left.24, left.25, left.26, left.27, left.28, left.29, left.30, left.31, left.32, left.33, left.34, left.35, left.36, left.37, left.38, left.39, left.40, left.41, left.42, left.43, left.44, left.45, left.46, left.47, left.48, left.49, left.50, right.0, right.1, right.2, right.3, right.4, right.5, right.6, right.7, right.8, right.9, right.10, right.11, right.12, right.13, right.14, right.15, right.16, right.17, right.18, right.19, right.20, right.21, right.22, right.23, right.24, right.25, right.26, right.27, right.28, right.29, right.30, right.31, right.32, right.33, right.34, right.35, right.36, right.37, right.38, right.39, right.40, right.41, right.42, right.43, right.44, right.45, right.46, right.47, right.48, right.49, right.50);

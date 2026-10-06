@@ -708,3 +708,108 @@ fn zk_verify_batch_reports_first_error_for_dummy_payloads() {
     assert_eq!(vm.register(11), ivm::host::ERR_VERIFY);
     assert_eq!(vm.register(12), 0);
 }
+/// `halo2.max_k` of the committed ZK validity policy at its boundary: the host of a block
+/// accepts a verifying key whose circuit size exponent equals the committed limit and
+/// refuses it with `ERR_K` when the limit is one below, whatever limit the node installed.
+#[cfg(feature = "zk-halo2-ipa")]
+#[test]
+fn committed_halo2_max_k_accepts_a_circuit_of_exactly_max_k_and_rejects_one_above() {
+    use iroha_data_model::{parameter::Parameter, zk_validity_policy::ZkValidityPolicyV1};
+    let backend = "halo2/ipa";
+    let circuit_id = crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_CIRCUIT_ID;
+    let vk_bytes = canonical_confidential_transfer_vk_bytes();
+    let commitment = CoreHost::hash_vk_bytes(backend, &vk_bytes);
+    let public_inputs =
+        crate::zk::confidential_v2::CONFIDENTIAL_TRANSFER_V2_PUBLIC_INPUTS_SCHEMA_V1.to_vec();
+    let schema = schema_hash(&public_inputs);
+    let envelope = dummy_env(circuit_id, commitment, public_inputs, vec![0xAA; 16]);
+    let host_of = |zk: &iroha_config::parameters::actual::Zk| {
+        let mut host = CoreHost::new(fixture_account("alice"));
+        host.set_chain_id_bytes(b"chain".to_vec());
+        host.set_current_manifest_id(Some("core".to_string()));
+        let record = active_vk_record(
+            commitment,
+            schema,
+            backend,
+            circuit_id,
+            "transfer",
+            vk_bytes.clone(),
+        );
+        let mut map = BTreeMap::new();
+        map.insert(VerifyingKeyId::new(backend, "vk"), record);
+        host.set_verifying_keys(map).expect("set registry");
+        host.set_zk_config(zk);
+        host
+    };
+    let state_of = |max_k: u32, node_max_k: Option<u32>| {
+        let mut policy = ZkValidityPolicyV1::protocol_default();
+        policy.halo2.max_k = max_k;
+        policy
+            .validate()
+            .expect("a policy that differs in max_k is valid");
+        let world = crate::state::World::default();
+        {
+            let mut block = world.block();
+            block
+                .parameters
+                .get_mut()
+                .set_parameter(Parameter::Custom(policy.into_custom_parameter()));
+            block.commit();
+        }
+        let mut state = crate::state::State::new_for_testing(
+            world,
+            crate::kura::Kura::blank_kura_for_testing(),
+            crate::query::store::LiveQueryStore::start_test(),
+        );
+        if let Some(node_max_k) = node_max_k {
+            let mut node = crate::state::default_zk_config();
+            node.halo2.max_k = node_max_k;
+            state
+                .install_node_zk(node)
+                .expect("node ZK resources install");
+        }
+        state
+    };
+    let header = iroha_data_model::block::BlockHeader::new(
+        core::num::NonZeroU64::new(2).expect("nonzero"),
+        None,
+        None,
+        0,
+        0,
+    );
+    // The circuit size exponent of the fixture key, read from the prepared key.
+    let default_zk = crate::state::default_zk_config();
+    let (_, prepared) = host_of(&default_zk)
+        .enforce_zk_envelope(&envelope, "transfer")
+        .expect("the protocol default accepts the fixture key");
+    let k = prepared
+        .material
+        .as_ref()
+        .and_then(crate::zk::PreparedVerifyingKeyMaterialV1::ipa_k)
+        .expect("an IPA key states its circuit size");
+    assert!(k > 1, "the fixture circuit leaves room below its size");
+    for node_max_k in [None, Some(1), Some(30)] {
+        // Exactly at the committed limit.
+        let state = state_of(k, node_max_k);
+        let block = state.block(header);
+        assert_eq!(block.zk.halo2.max_k, k);
+        assert!(
+            host_of(&block.zk)
+                .enforce_zk_envelope(&envelope, "transfer")
+                .is_ok(),
+            "a circuit of exactly max_k is accepted (node {node_max_k:?})"
+        );
+        drop(block);
+        // The same circuit is one above a committed limit of k - 1.
+        let state = state_of(k - 1, node_max_k);
+        let block = state.block(header);
+        assert_eq!(block.zk.halo2.max_k, k - 1);
+        assert_eq!(
+            host_of(&block.zk)
+                .enforce_zk_envelope(&envelope, "transfer")
+                .err(),
+            Some(ivm::host::ERR_K),
+            "a circuit one above max_k is refused (node {node_max_k:?})"
+        );
+    }
+}

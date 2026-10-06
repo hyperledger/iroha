@@ -914,7 +914,7 @@ fn nexus_localnet_signed_genesis_uses_peer_config_da_proof_policies() {
     let parsed = actual::Root::from_toml_source(source).expect("config should parse");
     let expected_hash = iroha_core::da::proof_policy_bundle_hash(&parsed.nexus.lane_config);
     let expected_confidential_policy_hash =
-        iroha_core::state::compute_genesis_confidential_policy_hash(&parsed.zk);
+        iroha_core::state::default_genesis_confidential_policy_hash();
     let bytes = fs::read(temp.path().join("genesis.signed.nrt")).expect("read signed genesis");
     let block =
         decode_framed_signed_block(&bytes).expect("decode signed genesis from framed payload");
@@ -1687,16 +1687,12 @@ fn generated_nexus_localnet_keeps_fee_asset_convertible_for_taira_wallets() {
         &fs::read_to_string(temp.path().join("peer0.toml")).expect("read peer config"),
     )
     .expect("parse peer config");
-    assert_eq!(
-        peer_cfg
-            .get("zk")
-            .and_then(toml::Value::as_table)
-            .and_then(|zk| zk.get("halo2"))
-            .and_then(toml::Value::as_table)
-            .and_then(|halo2| halo2.get("enabled"))
-            .and_then(toml::Value::as_bool),
-        Some(true),
-        "generated TAIRA configs must enable Halo2 verification for shielded sends"
+    // Halo2 verification is chain policy (`zk_validity_policy_v1`, on by
+    // protocol default); a generated node configuration carries no ZK
+    // validity value.
+    assert!(
+        peer_cfg.get("zk").is_none(),
+        "generated TAIRA configs must not carry chain-policy ZK values"
     );
     let manifest = genesis_json_from_path(&temp.path().join("genesis.json"));
     let raw_genesis =

@@ -187,6 +187,9 @@ What stays linkable, by construction:
 - Reusing one program key for two different functions is not visible: the
   function commitment and the initializer commitment each differ for every
   class and tape.
+- Two function identities with the same class, tape and program key and
+  different query limits show the same function commitment and the same
+  initializer commitment; only the function identity differs.
 - Two policies that commit the same key, profile or relation bytes show the
   same commitment for it.
 - Executions with the same associated data show the same associated-data
@@ -398,8 +401,9 @@ bit set. No domain is a prefix of another.
 | Any byte string above | the domain of its role | `RamLfeOpaqueBytesInputV1`: `length`, `digest` |
 
 A byte string is committed through the last row: `length` is a u64 and `digest`
-is the plain Blake2b hash of the bytes. Every byte string except associated data
-must be nonempty. A key commitment covers the public form of its key. The
+is the Iroha Blake2b-256 `Hash` of the bytes, with the low bit of its last byte
+set (`Hash::new`); it is not the unmarked Blake2b output. Every byte string
+except associated data must be nonempty. A key commitment covers the public form of its key. The
 opening and PRF secrets never enter a commitment. Each role has its own type, so
 a commitment cannot be used in another role.
 
@@ -425,7 +429,7 @@ The **program key** is 32 uniformly random bytes. It blinds the tape commitment:
 a digest of the tape alone would let anyone test a guessed program. It also
 seeds the state lanes and the memory blinding. The initializer commitment takes
 the class and the function commitment as well as the key, so it is different
-for every function identity and a program key used for two functions is not
+for every class and tape and a program key used for two functions is not
 visible in it. It takes the function commitment and not the function identity,
 which contains the initializer itself.
 
@@ -543,8 +547,10 @@ These are not decided by this contract. Each names its owner in the
 ## Encryption replacement requirements
 
 The [implementation plan](ram_lfe_encryption_replacement.md) records the current
-rounded-path noise limit, genuine RNS ownership gap, packing constraints and
-ordered implementation steps. Existing arithmetic is not a selected replacement.
+rounded-path noise limit, the RNS-BGV starting candidate that now owns genuine
+RNS arithmetic in `iroha_fhe`, packing constraints and ordered implementation
+steps. Neither the existing BFV arithmetic nor that candidate is a selected
+replacement: no profile is qualified and nothing consumes the candidate.
 
 The replacement must protect both encrypted inputs and the hidden function.
 Ordinary HE input confidentiality does not by itself establish circuit privacy

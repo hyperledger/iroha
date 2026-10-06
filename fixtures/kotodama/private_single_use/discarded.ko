@@ -1,7 +1,14 @@
 seiyaku PrivateDiscarded {
     state int trace;
-    hajimari() { trace = 0; }
-    fn update(int _ value) -> int { trace = trace * 10 + value; return 99; }
+    hajimari() {
+        trace = 0;
+    }
+
+    fn update(int _ value) -> int {
+        trace = trace * 10 + value;
+        return 99;
+    }
+
     kotoage fn main() -> int authorize("WriteState") {
         update(7);
         return trace;

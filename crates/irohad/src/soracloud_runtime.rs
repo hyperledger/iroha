@@ -805,6 +805,7 @@ impl SoracloudRuntimeMutationSink for QueuedSoracloudRuntimeMutationSink {
                 &world,
                 &nexus,
                 &pipeline,
+                &self.state.zk_snapshot().gas,
                 &payload,
                 observation_time_ms,
                 next_block_height,

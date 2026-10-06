@@ -720,6 +720,13 @@ pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
         InitializationTrap: [NoritoInvalid],
         SyscallTrap: [NoritoInvalid],
     ),
+    // The admitted executable range is borrowed again from the artifact bytes before
+    // static analysis; a summary or image that no longer matches the admission seal is
+    // refused before any run.
+    producer!(
+        "crates/ivm_artifact_admission/src/admitted_program.rs",
+        PrepareRejection: [InvalidMetadata],
+    ),
     producer!(
         "crates/ivm_artifact_admission/src/decoded.rs",
         LocalDeferral: [AllocationDeferred, ExecutionDeferred],

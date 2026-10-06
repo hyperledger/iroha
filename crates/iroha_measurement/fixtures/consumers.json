@@ -16,6 +16,21 @@
         {
           "path": "crates/iroha_core_privacy/tests/fastpq_phase_tree_measurement.rs",
           "use": "Opt-in integration test (feature fastpq-replay-measurement): measures a genuine FASTPQ prove and verify flow at public-call granularity."
+        },
+        {
+          "path": "crates/iroha_core_privacy/tests/state_commitment_candidates_measurement.rs",
+          "use": "Opt-in integration test (feature fastpq-replay-measurement): records native and in-circuit costs of the development-only State commitment candidates of ZK delivery plan task G.2. Only construction, profile and population names and public counts are recorded."
+        }
+      ]
+    },
+    {
+      "dependency": "dev-dependencies",
+      "manifest": "crates/iroha_fhe/Cargo.toml",
+      "package": "iroha_fhe",
+      "sites": [
+        {
+          "path": "crates/iroha_fhe/tests/bgv_cost_measurement.rs",
+          "use": "Integration test: measures the equal RNS-BGV workload over the F257 sparse encoding and a fully splitting modulus phase by phase. Records static labels, sizes, operation counts, model work units and bit lengths of public noise bounds; no key, plaintext or coin."
         }
       ]
     }

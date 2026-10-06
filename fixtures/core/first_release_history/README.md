@@ -12,5 +12,11 @@ history; no earlier layout or execution fallback is accepted. Its digest is
 recorded in `specs/first_release_history_cutover.json`. No live network was
 reset or changed.
 
+Declared cutover: by that effect on the stored history this is the surface
+`execution_root` of the contract table (certified execution result), whose
+cutover is `fresh_genesis`. The regenerated manifest pins new frames, block
+hashes and certified result; the frame sizes and the complete World root are
+those of the previous pin.
+
 The producer, replay check and regeneration procedure are defined in
 [`specs/first_release_history_cutover.md`](../../../specs/first_release_history_cutover.md).

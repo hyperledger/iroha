@@ -2279,7 +2279,6 @@ async fn dynamic_and_helper_hidden_contract_writes_serialize_on_four_peers() -> 
         .with_block_cadence(Duration::from_secs(4))
         .with_config_layer(|layer| {
             layer
-                .write(["pipeline", "dynamic_prepass"], true)
                 .write(["pipeline", "parallel_overlay"], true)
                 .write(["pipeline", "parallel_apply"], true)
                 .write(["pipeline", "workers"], 2_i64);

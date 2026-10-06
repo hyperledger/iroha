@@ -19,7 +19,7 @@
 //!
 //! Frames travel as headered canonical Norito frames ([`proof`]) inside the data-model byte
 //! wrappers. The source-chain fork schedule and `supported_until` come from the compiled
-//! [`profile`], never from stored params. [`SccpVerifierWorkV1`] estimates the `[zk.sccp]` work
+//! [`profile`], never from stored params. [`SccpVerifierWorkV1`] estimates the committed `sccp` (ZK validity policy) work
 //! categories of every call before it runs, so core can meter and reject oversized work cheaply.
 
 pub mod bsc;
@@ -292,7 +292,7 @@ impl From<EthereumLcError> for SccpLcError {
     }
 }
 
-/// Verifier work of one call in the `[zk.sccp]` limit categories (§4.12.1 step 5).
+/// Verifier work of one call in the committed `sccp` limit categories of the ZK validity policy (§4.12.1 step 5).
 ///
 /// `proofs` counts inbound and void proofs only; `proof_bytes` counts every verified frame
 /// (proofs, advances and evidence). Core reserves the estimate per transaction and per block

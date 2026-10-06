@@ -169,7 +169,7 @@ fn non_vm_instructions_charge_fees() {
     let chain: ChainId = "test-chain".parse().unwrap();
     let mut state = new_state(world, kura, query_handle, chain.clone());
     // 2) Configure pipeline gas policy
-    let mut pipeline = state.pipeline.clone();
+    let mut pipeline = state.installed_pipeline().clone();
     pipeline.gas.tech_account_id = gas_id.to_string();
     pipeline.gas.accepted_assets = vec![asset_def_id.to_string()];
     let rate: u64 = 10; // minimal units per one gas
@@ -191,10 +191,13 @@ fn non_vm_instructions_charge_fees() {
     )
     .into();
     let exec = Executable::from(core::iter::once(instruction.clone()));
-    let used = isi_gas::meter_instructions(match &exec {
-        Executable::Instructions(v) => v.as_ref(),
-        _ => unreachable!(),
-    });
+    let used = isi_gas::meter_instructions(
+        match &exec {
+            Executable::Instructions(v) => v.as_ref(),
+            _ => unreachable!(),
+        },
+        &iroha_core::gas::DEFAULT_ZK_GAS,
+    );
     assert!(used > 0);
     let fee_payment = FeePaymentIntent::authority(
         vec![FeeChargeLimit::new(
@@ -290,7 +293,7 @@ fn non_vm_instructions_charge_restricted_gas_asset_on_current_route() {
     let query_handle = query::store::LiveQueryStore::start_test();
     let chain: ChainId = "test-chain".parse().unwrap();
     let mut state = new_state(world, kura, query_handle, chain.clone());
-    let mut pipeline = state.pipeline.clone();
+    let mut pipeline = state.installed_pipeline().clone();
     pipeline.gas.tech_account_id = gas_id.to_string();
     pipeline.gas.accepted_assets = vec![asset_def_id.to_string()];
     let rate: u64 = 10;
@@ -311,10 +314,13 @@ fn non_vm_instructions_charge_restricted_gas_asset_on_current_route() {
     )
     .into();
     let exec = Executable::from(core::iter::once(instruction.clone()));
-    let used = isi_gas::meter_instructions(match &exec {
-        Executable::Instructions(v) => v.as_ref(),
-        _ => unreachable!(),
-    });
+    let used = isi_gas::meter_instructions(
+        match &exec {
+            Executable::Instructions(v) => v.as_ref(),
+            _ => unreachable!(),
+        },
+        &iroha_core::gas::DEFAULT_ZK_GAS,
+    );
     assert!(used > 0);
     let fee_payment = FeePaymentIntent::authority(
         vec![FeeChargeLimit::new(
@@ -421,7 +427,7 @@ fn non_vm_instructions_can_charge_gas_to_fee_sponsor() {
     let mut state = new_state(world, kura, query_handle, chain.clone());
     state.nexus.get_mut().fees.sponsor_vault_custody_account_id = custody_id.clone();
     // 2) Configure pipeline gas policy.
-    let mut pipeline = state.pipeline.clone();
+    let mut pipeline = state.installed_pipeline().clone();
     pipeline.gas.tech_account_id = gas_id.to_string();
     pipeline.gas.accepted_assets = vec![asset_def_id.to_string()];
     let rate: u64 = 10; // minimal units per one gas
@@ -444,10 +450,13 @@ fn non_vm_instructions_can_charge_gas_to_fee_sponsor() {
     )
     .into();
     let exec = Executable::from(core::iter::once(instruction.clone()));
-    let used = isi_gas::meter_instructions(match &exec {
-        Executable::Instructions(v) => v.as_ref(),
-        _ => unreachable!(),
-    });
+    let used = isi_gas::meter_instructions(
+        match &exec {
+            Executable::Instructions(v) => v.as_ref(),
+            _ => unreachable!(),
+        },
+        &iroha_core::gas::DEFAULT_ZK_GAS,
+    );
     assert!(used > 0);
     let program_id = default_fee_sponsor_program_id(&sponsor_id);
     let fee_payment = FeePaymentIntent::sponsor(
@@ -656,7 +665,7 @@ fn non_vm_instructions_can_charge_gas_to_fee_sponsor_via_overlay_pipeline() {
             "setup block must enroll the authority in the exact sponsor program"
         );
     }
-    let mut pipeline = state.pipeline.clone();
+    let mut pipeline = state.installed_pipeline().clone();
     pipeline.gas.tech_account_id = gas_id.to_string();
     pipeline.gas.accepted_assets = vec![asset_def_id.to_string()];
     pipeline.gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
@@ -804,7 +813,7 @@ fn genesis_overlay_pipeline_transactions_remain_fee_free() {
     state
         .set_nexus_from_config(nexus)
         .expect("original configured fee asset");
-    let mut pipeline = state.pipeline.clone();
+    let mut pipeline = state.installed_pipeline().clone();
     pipeline.gas.tech_account_id = gas_id.to_string();
     pipeline.gas.accepted_assets = vec![asset_def_id.to_string()];
     pipeline.gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
@@ -822,7 +831,7 @@ fn genesis_overlay_pipeline_transactions_remain_fee_free() {
     )
     .into();
     let nexus = state.nexus_snapshot();
-    let pipeline = state.pipeline.clone();
+    let pipeline = state.installed_pipeline().clone();
     let mut config = iroha_core::sumeragi::test_chain::TestChainConfig::new(state.world, 0);
     config.genesis_key = alice_kp;
     config.genesis_instructions = vec![instruction];
@@ -899,10 +908,13 @@ fn non_vm_gas_limit_too_low_rejects() {
     )
     .into();
     let exec = Executable::from(core::iter::once(instruction));
-    let used = isi_gas::meter_instructions(match &exec {
-        Executable::Instructions(v) => v.as_ref(),
-        _ => unreachable!(),
-    });
+    let used = isi_gas::meter_instructions(
+        match &exec {
+            Executable::Instructions(v) => v.as_ref(),
+            _ => unreachable!(),
+        },
+        &iroha_core::gas::DEFAULT_ZK_GAS,
+    );
     assert!(used > 0);
     let gas_limit = NonZeroU64::new(used.saturating_sub(1))
         .expect("metered instruction usage must exceed one gas unit");
@@ -975,7 +987,7 @@ fn ivm_syscall_charges_fees() {
     let query_handle = query::store::LiveQueryStore::start_test();
     let chain: ChainId = "test-chain".parse().unwrap();
     let mut state = new_state(world, kura, query_handle, chain.clone());
-    let mut pipeline = state.pipeline.clone();
+    let mut pipeline = state.installed_pipeline().clone();
     pipeline.gas.tech_account_id = gas_id.to_string();
     pipeline.gas.accepted_assets = vec![asset_def_id.to_string()];
     pipeline.gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
@@ -1159,7 +1171,7 @@ fn ivm_gas_fees_transfer_exact_signed_asset_quantity() {
     let chain: ChainId = "test-chain".parse().unwrap();
     let mut state = new_state(world, kura, query_handle, chain.clone());
     // 2) Configure pipeline gas policy
-    let mut pipeline = state.pipeline.clone();
+    let mut pipeline = state.installed_pipeline().clone();
     pipeline.gas.tech_account_id = gas_id.to_string();
     pipeline.gas.accepted_assets = vec![asset_def_id.to_string()];
     pipeline.gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {
@@ -1266,10 +1278,13 @@ fn block_gas_rejection_rolls_back_actual_fee_and_business_effects() {
     )
     .into();
     let exec = Executable::from(core::iter::once(instruction));
-    let used = isi_gas::meter_instructions(match &exec {
-        Executable::Instructions(v) => v.as_ref(),
-        _ => unreachable!(),
-    });
+    let used = isi_gas::meter_instructions(
+        match &exec {
+            Executable::Instructions(v) => v.as_ref(),
+            _ => unreachable!(),
+        },
+        &iroha_core::gas::DEFAULT_ZK_GAS,
+    );
     assert!(used > 0);
     let rate: u64 = 10;
     let fee = u128::from(used) * u128::from(rate);
@@ -1281,7 +1296,7 @@ fn block_gas_rejection_rolls_back_actual_fee_and_business_effects() {
     let query_handle = query::store::LiveQueryStore::start_test();
     let chain: ChainId = "test-chain".parse().unwrap();
     let mut state = new_state(world, kura, query_handle, chain.clone());
-    let mut pipeline = state.pipeline.clone();
+    let mut pipeline = state.installed_pipeline().clone();
     pipeline.gas.tech_account_id = gas_id.to_string();
     pipeline.gas.accepted_assets = vec![asset_def_id.to_string()];
     pipeline.gas.units_per_gas = vec![iroha_config::parameters::actual::GasRate {

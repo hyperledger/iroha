@@ -21,7 +21,9 @@ use core::{
     str::FromStr,
 };
 use derive_more::Debug;
-use iroha_config::parameters::actual::{GasLiquidity, GasVolatility, NexusFees, Pipeline};
+use iroha_config::parameters::actual::{
+    ConfidentialGas, GasLiquidity, GasVolatility, NexusFees, Pipeline,
+};
 use iroha_crypto::Hash;
 #[cfg(test)]
 use iroha_data_model::nexus::{
@@ -3985,6 +3987,7 @@ pub(crate) fn compute_nexus_fee_amount(
 }
 fn fee_bound_for_admission_payload(
     payload: &TransactionPayload,
+    zk_gas: &ConfidentialGas,
 ) -> Result<(usize, usize, u64), NexusFeeAdmissionError> {
     let tx_bytes_len = norito::canonical_frame_len(payload).map_err(|err| {
         NexusFeeAdmissionError::ConfigInvalid(format!(
@@ -3994,7 +3997,7 @@ fn fee_bound_for_admission_payload(
     let (instruction_count, gas_used) = match &payload.instructions {
         Executable::Instructions(instructions) => (
             instructions.len(),
-            isi_gas::meter_instructions(instructions.as_ref()),
+            isi_gas::meter_instructions(instructions.as_ref(), zk_gas),
         ),
         Executable::ContractCall(_) | Executable::Ivm(_) => {
             let gas_limit = payload
@@ -4045,7 +4048,7 @@ fn fee_bound_for_admission_payload(
                         )
                     })?
             } else {
-                isi_gas::meter_instructions(&instructions)
+                isi_gas::meter_instructions(&instructions, zk_gas)
             };
             (instructions.len(), gas_used)
         }
@@ -4054,8 +4057,9 @@ fn fee_bound_for_admission_payload(
 }
 fn fee_bound_for_admission(
     transaction: &SignedTransaction,
+    zk_gas: &ConfidentialGas,
 ) -> Result<(usize, usize, u64), NexusFeeAdmissionError> {
-    fee_bound_for_admission_payload(transaction.payload())
+    fee_bound_for_admission_payload(transaction.payload(), zk_gas)
 }
 fn pipeline_gas_component_enabled(
     nexus: &iroha_config::parameters::actual::Nexus,
@@ -4224,6 +4228,7 @@ fn evaluate_nexus_fee_admission_payload(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
     pipeline: &Pipeline,
+    zk_gas: &ConfidentialGas,
     payload: &TransactionPayload,
     observation_time_ms: u64,
     next_block_height: u64,
@@ -4245,7 +4250,8 @@ fn evaluate_nexus_fee_admission_payload(
         )
         .into());
     }
-    let (tx_bytes_len, instruction_count, gas_used) = fee_bound_for_admission_payload(payload)?;
+    let (tx_bytes_len, instruction_count, gas_used) =
+        fee_bound_for_admission_payload(payload, zk_gas)?;
     let mut charges = Vec::with_capacity(2);
     let fee = compute_nexus_fee_amount(&fees, tx_bytes_len, instruction_count, gas_used)
         .map_err(validation_fail_to_nexus_fee_admission_error)?;
@@ -4358,6 +4364,7 @@ pub fn quote_nexus_fee_admission_payload(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
     pipeline: &Pipeline,
+    zk_gas: &ConfidentialGas,
     payload: &TransactionPayload,
     observation_time_ms: u64,
     next_block_height: u64,
@@ -4376,6 +4383,7 @@ pub fn quote_nexus_fee_admission_payload(
         world,
         nexus,
         pipeline,
+        zk_gas,
         payload,
         observation_time_ms,
         next_block_height,
@@ -4439,6 +4447,7 @@ pub fn quote_nexus_fee_admission_draft(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
     pipeline: &Pipeline,
+    zk_gas: &ConfidentialGas,
     payload: &TransactionPayload,
     observation_time_ms: u64,
     next_block_height: u64,
@@ -4464,6 +4473,7 @@ pub fn quote_nexus_fee_admission_draft(
             world,
             nexus,
             pipeline,
+            zk_gas,
             &candidate,
             observation_time_ms,
             next_block_height,
@@ -4477,6 +4487,7 @@ pub fn quote_nexus_fee_admission_draft(
                 world,
                 nexus,
                 pipeline,
+                zk_gas,
                 &candidate,
                 observation_time_ms,
                 next_block_height,
@@ -4503,6 +4514,7 @@ pub fn quote_nexus_fee_admission(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
     pipeline: &Pipeline,
+    zk_gas: &ConfidentialGas,
     transaction: &SignedTransaction,
     observation_time_ms: u64,
     next_block_height: u64,
@@ -4515,6 +4527,7 @@ pub fn quote_nexus_fee_admission(
         world,
         nexus,
         pipeline,
+        zk_gas,
         transaction.payload(),
         observation_time_ms,
         next_block_height,
@@ -4532,6 +4545,7 @@ pub(crate) fn quote_external_nexus_fee_admission(
     world: &impl WorldReadOnly,
     nexus: &iroha_config::parameters::actual::Nexus,
     pipeline: &Pipeline,
+    zk_gas: &ConfidentialGas,
     transaction: &SignedTransaction,
     observation_time_ms: u64,
     next_block_height: u64,
@@ -4549,6 +4563,7 @@ pub(crate) fn quote_external_nexus_fee_admission(
         world,
         nexus,
         pipeline,
+        zk_gas,
         transaction,
         observation_time_ms,
         next_block_height,
@@ -4582,6 +4597,7 @@ pub(crate) fn validate_transaction_fee_admission(
         &state_transaction.world,
         &state_transaction.nexus,
         &state_transaction.pipeline,
+        &state_transaction.zk.gas,
         transaction,
         state_transaction.block_unix_timestamp_ms(),
         state_transaction.block_height(),
@@ -4598,6 +4614,7 @@ pub(crate) fn validate_transaction_fee_admission(
 fn applied_overlay_base_gas(
     transaction: &SignedTransaction,
     overlay: &crate::pipeline::overlay::TxOverlay,
+    zk_gas: &ConfidentialGas,
 ) -> Result<(u64, usize), ValidationFail> {
     let gas_limit = transaction_gas_limit(transaction);
     let (gas_used, instruction_count, require_gas_limit) = match transaction.instructions() {
@@ -4611,7 +4628,7 @@ fn applied_overlay_base_gas(
             true,
         ),
         Executable::Instructions(_) => (
-            isi_gas::meter_instructions(overlay.instruction_slice()),
+            isi_gas::meter_instructions(overlay.instruction_slice(), zk_gas),
             overlay.instruction_count(),
             false,
         ),
@@ -4698,7 +4715,7 @@ fn charge_fees_for_applied_overlay_inner(
         .find(|limit| limit.kind == FeeChargeKind::PipelineGas)
         .map(|limit| limit.asset_definition_id.canonical_address());
     let pipeline_gas = &state_transaction.pipeline.gas;
-    let pipeline_gas_bound = fee_bound_for_admission(transaction)
+    let pipeline_gas_bound = fee_bound_for_admission(transaction, &state_transaction.zk.gas)
         .map_err(nexus_fee_admission_error_to_validation_fail)?
         .2;
     if !skip_nexus_fee
@@ -4720,7 +4737,8 @@ fn charge_fees_for_applied_overlay_inner(
             )));
         }
     }
-    let (gas_used, instruction_count) = applied_overlay_base_gas(transaction, overlay)?;
+    let (gas_used, instruction_count) =
+        applied_overlay_base_gas(transaction, overlay, &state_transaction.zk.gas)?;
     if gas_was_precharged {
         if state_transaction.last_tx_gas_used < gas_used {
             return Err(ValidationFail::InternalError(
@@ -5809,7 +5827,7 @@ impl Executor {
         // 1) Deterministically meter the instruction batch. Proved IVM transactions retain the
         // verified replay gas because the plain overlay does not account for VM execution cost.
         let used = ivm_proved_replay.as_ref().map_or_else(
-            || isi_gas::meter_instructions(&instructions),
+            || isi_gas::meter_instructions(&instructions, &state_transaction.zk.gas),
             |replay| replay.gas_used,
         );
         // 2) Enforce optional payer-provided gas limit (caps fee exposure).
@@ -5841,7 +5859,8 @@ impl Executor {
             )
             .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?;
         }
-        let confidential_delta = crate::gas::sum_confidential_gas_costs(instructions.iter());
+        let confidential_delta =
+            crate::gas::sum_confidential_gas_costs(instructions.iter(), &state_transaction.zk.gas);
         if confidential_delta > 0 {
             state_transaction.record_confidential_gas_delta(confidential_delta);
         }
@@ -6628,6 +6647,7 @@ impl Executor {
                     &state_transaction.world,
                     &state_transaction.nexus,
                     &state_transaction.pipeline,
+                    &state_transaction.zk.gas,
                     &transaction,
                     state_transaction.block_unix_timestamp_ms(),
                     state_transaction.block_height(),
@@ -6695,7 +6715,7 @@ impl Executor {
             .map(|limit| limit.asset_definition_id.canonical_address());
         let gas_limit_md = transaction_gas_limit(&transaction);
         let pipeline_gas = &state_transaction.pipeline.gas;
-        let pipeline_gas_bound = fee_bound_for_admission(&transaction)
+        let pipeline_gas_bound = fee_bound_for_admission(&transaction, &state_transaction.zk.gas)
             .map_err(nexus_fee_admission_error_to_validation_fail)?
             .2;
         if !skip_nexus_fee
@@ -7112,7 +7132,8 @@ impl Executor {
                         ExecutableBatchItem::ContractCall(_) => None,
                     })
                     .collect();
-                let explicit_gas = isi_gas::meter_instructions(&explicit_instructions);
+                let explicit_gas =
+                    isi_gas::meter_instructions(&explicit_instructions, &state_transaction.zk.gas);
                 if let Some(limit) = gas_limit
                     && explicit_gas > limit
                 {
@@ -7143,8 +7164,10 @@ impl Executor {
                 state_transaction.last_tx_gas_used = explicit_gas;
                 state_transaction
                     .record_execution_fee_instructions(explicit_instructions.len(), explicit_gas)?;
-                let confidential_delta =
-                    crate::gas::sum_confidential_gas_costs(explicit_instructions.iter());
+                let confidential_delta = crate::gas::sum_confidential_gas_costs(
+                    explicit_instructions.iter(),
+                    &state_transaction.zk.gas,
+                );
                 if confidential_delta > 0 {
                     state_transaction.record_confidential_gas_delta(confidential_delta);
                 }
@@ -9900,7 +9923,10 @@ mod tests {
             proof_b64: "AA==".to_owned(),
             public_inputs_json: "{}".to_owned(),
         });
-        let expected_gas = isi_gas::meter_instructions(core::slice::from_ref(&ballot));
+        let expected_gas = isi_gas::meter_instructions(
+            core::slice::from_ref(&ballot),
+            &crate::gas::DEFAULT_ZK_GAS,
+        );
         assert!(expected_gas > 0);
         let execute_rejected = |executable: Executable| {
             let account = Account::new(ALICE_ID.clone()).build(&ALICE_ID);
@@ -10025,7 +10051,10 @@ mod tests {
         };
         assert!(nested_ivm_gas > 0, "generic IVM trigger must consume gas");
         let execute_trigger = InstructionBox::from(ExecuteTrigger::new(trigger_id.clone()));
-        let direct_gas = isi_gas::meter_instructions(core::slice::from_ref(&execute_trigger));
+        let direct_gas = isi_gas::meter_instructions(
+            core::slice::from_ref(&execute_trigger),
+            &crate::gas::DEFAULT_ZK_GAS,
+        );
         let transaction = TransactionBuilder::new(
             *state.network_id_ref(),
             ALICE_ID.clone(),
@@ -10085,8 +10114,11 @@ mod tests {
             0,
         ));
         let execute_trigger = InstructionBox::from(ExecuteTrigger::new(trigger_id));
-        let direct_gas = isi_gas::meter_instructions(core::slice::from_ref(&execute_trigger));
-        let nested_gas = isi_gas::meter_instructions(&trigger_body);
+        let direct_gas = isi_gas::meter_instructions(
+            core::slice::from_ref(&execute_trigger),
+            &crate::gas::DEFAULT_ZK_GAS,
+        );
+        let nested_gas = isi_gas::meter_instructions(&trigger_body, &crate::gas::DEFAULT_ZK_GAS);
         let transaction = TransactionBuilder::new(
             *state.network_id_ref(),
             ALICE_ID.clone(),
@@ -15348,7 +15380,7 @@ mod tests {
                 )),
             ),
         )];
-        assert!(isi_gas::meter_instructions(&instructions) > 0);
+        assert!(isi_gas::meter_instructions(&instructions, &crate::gas::DEFAULT_ZK_GAS) > 0);
         let transaction = TransactionBuilder::new(
             state.network_id,
             authority.clone(),
@@ -15872,7 +15904,7 @@ mod tests {
             ),
             parameter_instruction("ivm_gas_units_per_gas", governed_rates),
         ];
-        let gas_used = isi_gas::meter_instructions(&instructions);
+        let gas_used = isi_gas::meter_instructions(&instructions, &crate::gas::DEFAULT_ZK_GAS);
         assert!(gas_used > 0);
         let expected_fee = Quantity::from(u128::from(gas_used));
         let transaction = TransactionBuilder::new(
@@ -16174,6 +16206,7 @@ mod tests {
             &world,
             nexus,
             pipeline,
+            &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             0,
             1,
@@ -16196,6 +16229,7 @@ mod tests {
             &world,
             nexus,
             pipeline,
+            &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             0,
             1,
@@ -16254,6 +16288,7 @@ mod tests {
             &world,
             &nexus,
             &pipeline,
+            &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             0,
             1,
@@ -16428,6 +16463,7 @@ mod tests {
             &world,
             &nexus,
             &pipeline,
+            &crate::gas::DEFAULT_ZK_GAS,
             &payload,
             0,
             1,
@@ -20560,8 +20596,7 @@ seiyaku TriggerArguments {
     }
     #[test]
     fn contract_call_enforces_entrypoint_and_hold_before_argument_decode() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         const REQUIRED_PERMISSION: &str = "CanInvokeContractEntrypoint";
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
@@ -20624,7 +20659,13 @@ seiyaku GuardedValue {
                 contract_address.dataspace_id().unwrap(),
                 code_hash,
             ),
-            manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &ALICE_KEYPAIR).expect("sign bounded fixture manifest"),
+            manifest
+                .try_signed(
+                    manifest_signing.context(),
+                    manifest_signing.max_frame_bytes(),
+                    &ALICE_KEYPAIR,
+                )
+                .expect("sign bounded fixture manifest"),
         );
         // The invoked contract's subject needs its own exact grant for caller metadata.
         world.account_permissions.insert(
@@ -21051,7 +21092,13 @@ seiyaku GuardedValueRebound {
                 contract_address.dataspace_id().unwrap(),
                 rebound_code_hash,
             ),
-            rebound_manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &ALICE_KEYPAIR).expect("sign bounded fixture manifest"),
+            rebound_manifest
+                .try_signed(
+                    manifest_signing.context(),
+                    manifest_signing.max_frame_bytes(),
+                    &ALICE_KEYPAIR,
+                )
+                .expect("sign bounded fixture manifest"),
         );
         state_tx
             .world
@@ -21197,8 +21244,7 @@ seiyaku GuardedValueRebound {
     }
     #[test]
     fn mixed_batch_observes_ordered_permission_state_and_rolls_back_on_failure() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
                 r#"
@@ -21256,7 +21302,13 @@ seiyaku OrderedBatchGuard {
                 contract_address.dataspace_id().unwrap(),
                 code_hash,
             ),
-            manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &ALICE_KEYPAIR).expect("sign bounded fixture manifest"),
+            manifest
+                .try_signed(
+                    manifest_signing.context(),
+                    manifest_signing.max_frame_bytes(),
+                    &ALICE_KEYPAIR,
+                )
+                .expect("sign bounded fixture manifest"),
         );
         // The invoked contract's subject needs its own exact grant for caller metadata.
         world.account_permissions.insert(
@@ -21345,7 +21397,8 @@ seiyaku OrderedBatchGuard {
             "the trailing revoke must remain visible after the call"
         );
         assert!(
-            state_tx.last_tx_gas_used > isi_gas::meter_instructions(&explicit_instructions),
+            state_tx.last_tx_gas_used
+                > isi_gas::meter_instructions(&explicit_instructions, &crate::gas::DEFAULT_ZK_GAS),
             "aggregate batch gas must include contract execution"
         );
         state_tx.apply();
@@ -21385,7 +21438,10 @@ seiyaku OrderedBatchGuard {
         );
         assert!(
             instruction_capped_state_tx.last_tx_gas_used
-                > isi_gas::meter_instructions(&explicit_instructions[..1]),
+                > isi_gas::meter_instructions(
+                    &explicit_instructions[..1],
+                    &crate::gas::DEFAULT_ZK_GAS
+                ),
             "overlay-cap rejection must retain the completed contract attempt"
         );
         drop(instruction_capped_state_tx);
@@ -21472,8 +21528,7 @@ seiyaku OrderedBatchGuard {
     }
     #[test]
     fn resolved_contract_invocation_releases_cache_and_records_vm_error_gas() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         let (program, manifest) = kotodama_lang::compiler::Compiler::new()
             .compile_source_with_manifest(
                 r#"
@@ -21512,7 +21567,13 @@ seiyaku MeteredFailure {
                 contract_address.dataspace_id().unwrap(),
                 code_hash,
             ),
-            manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &ALICE_KEYPAIR).expect("sign bounded fixture manifest"),
+            manifest
+                .try_signed(
+                    manifest_signing.context(),
+                    manifest_signing.max_frame_bytes(),
+                    &ALICE_KEYPAIR,
+                )
+                .expect("sign bounded fixture manifest"),
         );
         world.commit();
         bind_executor_test_contract_after_genesis(&state, &contract_address, &authority, code_hash);

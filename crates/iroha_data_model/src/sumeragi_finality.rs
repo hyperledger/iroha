@@ -1370,3 +1370,35 @@ mod configuration_fingerprint_tests {
         assert!(consensus_configuration_fingerprint(&tampered).is_err());
     }
 }
+
+#[cfg(test)]
+mod block_bound_tests {
+    use super::*;
+    use std::num::NonZeroU64;
+
+    /// The block bound of the portable proof reader is inclusive: a frame of exactly
+    /// [`MAX_FINALITY_BLOCK_BYTES`] is passed on to the block decoder, and a frame one byte
+    /// longer is refused for its length before any byte is decoded.
+    #[test]
+    fn finality_proof_block_of_exactly_the_bound_is_read_and_one_byte_more_is_refused() {
+        const REFUSAL: &str = "block frame exceeds its finite bound";
+        assert_eq!(MAX_FINALITY_BLOCK_BYTES, 32 * 1024 * 1024);
+        let proof = |length: usize| SumeragiFinalityProof {
+            block_header: BlockHeader::new(NonZeroU64::MIN, None, None, 0, 0),
+            block_wire: vec![0xA5; length],
+            committee: Vec::new(),
+        };
+        // The bytes are no block: at the bound the reader fails in the decoder, not at the
+        // length check.
+        let at_bound = proof(MAX_FINALITY_BLOCK_BYTES)
+            .decode_checked()
+            .expect_err("the filler bytes are no canonical block");
+        assert_ne!(at_bound.0, REFUSAL);
+        let over = proof(MAX_FINALITY_BLOCK_BYTES + 1)
+            .decode_checked()
+            .expect_err("one byte over the bound");
+        assert_eq!(over.0, REFUSAL);
+        let empty = proof(0).decode_checked().expect_err("an empty frame");
+        assert_eq!(empty.0, REFUSAL);
+    }
+}

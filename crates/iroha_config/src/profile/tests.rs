@@ -554,9 +554,12 @@ fn digests_are_pinned() {
     // The native Sumeragi hard cut removed block/queue geometry from both the
     // static profile and DerivedGeometryV1 (8a99f3f5ba). Pin the resulting first-
     // release shape; retaining the removed queue fields would change semantics.
+    // ZK delivery plan task F.4 removed `[static.zk.halo2] enabled = true`: ZK
+    // validity values are the committed `zk_validity_policy_v1` parameter, not
+    // node configuration, and the key no longer exists in the node schema.
     assert_eq!(
         profile.consensus_digest(4).unwrap().to_string(),
-        "5c692bfd005ade781836bc5bd6dccbb97e6fbaacf1c0fc5cbe82d70423b67efb"
+        "6dcc49948b24ea6675e4cfbfd3dfd963b5d91daa011f3d8b6eb4f00296c073fb"
     );
     assert_eq!(
         profile.policy_digest().unwrap().to_string(),

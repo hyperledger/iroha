@@ -1365,6 +1365,7 @@ fn funded_original_lane_slashing_scenario(complete_replacement: bool) {
             view.world(),
             view.nexus(),
             view.pipeline(),
+            &view.zk().gas,
             draft.payload(),
             created_at_ms,
             chain.height() + 1,

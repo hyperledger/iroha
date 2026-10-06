@@ -1805,14 +1805,16 @@ fn process_proof_attachment_in_view(
         let zk = &view.zk;
         match production_verify_backend_tag(backend_str) {
             Some(BackendTag::Halo2IpaPasta) if !zk.halo2.enabled => {
-                errors.push("halo2 verification is disabled in node configuration".into());
+                errors.push(
+                    "halo2 verification is disabled by the committed ZK validity policy".into(),
+                );
                 retryable = true;
             }
             Some(BackendTag::Halo2IpaPasta)
                 if attachment.proof.bytes.len() > zk.halo2.max_envelope_bytes =>
             {
                 errors.push(format!(
-                    "halo2 proof exceeds node-configured max_envelope_bytes {}",
+                    "halo2 proof exceeds the committed max_envelope_bytes {}",
                     zk.halo2.max_envelope_bytes
                 ));
                 retryable = true;
@@ -1825,21 +1827,23 @@ fn process_proof_attachment_in_view(
                     && envelope.proof_bytes.len() > zk.halo2.max_proof_bytes
                 {
                     errors.push(format!(
-                        "halo2 proof exceeds node-configured max_proof_bytes {}",
+                        "halo2 proof exceeds the committed max_proof_bytes {}",
                         zk.halo2.max_proof_bytes
                     ));
                     retryable = true;
                 }
             }
             Some(BackendTag::Stark) if !zk.stark.enabled => {
-                errors.push("stark verification is disabled in node configuration".into());
+                errors.push(
+                    "stark verification is disabled by the committed ZK validity policy".into(),
+                );
                 retryable = true;
             }
             Some(BackendTag::Stark)
                 if attachment.proof.bytes.len() > zk.stark.max_envelope_bytes =>
             {
                 errors.push(format!(
-                    "stark proof exceeds node-configured max_envelope_bytes {}",
+                    "stark proof exceeds the committed max_envelope_bytes {}",
                     zk.stark.max_envelope_bytes
                 ));
                 retryable = true;
@@ -1852,7 +1856,7 @@ fn process_proof_attachment_in_view(
                 {
                     if envelope.proof_bytes.len() > zk.stark.max_envelope_bytes {
                         errors.push(format!(
-                            "stark proof wrapper exceeds node-configured max_envelope_bytes {}",
+                            "stark proof wrapper exceeds the committed max_envelope_bytes {}",
                             zk.stark.max_envelope_bytes
                         ));
                         retryable = true;
@@ -1862,7 +1866,7 @@ fn process_proof_attachment_in_view(
                         && open.envelope_bytes.len() > zk.stark.max_proof_bytes
                     {
                         errors.push(format!(
-                            "stark proof exceeds node-configured max_proof_bytes {}",
+                            "stark proof exceeds the committed max_proof_bytes {}",
                             zk.stark.max_proof_bytes
                         ));
                         retryable = true;

@@ -101,6 +101,11 @@ simd = ["iroha_primitives/simd-accel", "iroha_core_privacy/simd"]
 profiling = []
 # Enable FASTPQ GPU helper paths used by the daemon feature of the same name.
 fastpq-gpu = ["fastpq_prover/fastpq-gpu"]
+# Non-shipping: compile the State commitment candidate adapters of ZK delivery
+# plan task G.2 into this crate's unit tests so the keyed-commitment conformance
+# suite runs on the prototypes of `fastpq_prover::state_commitment_prototypes`.
+# TODO(G.3): remove with the prototypes.
+state-commitment-prototypes = ["fastpq_prover/dev-tools"]
 # Enable benchmark-only helpers used by this crate's Criterion targets.
 bench = []
 # ZK verifier feature flags ship enabled by default.
