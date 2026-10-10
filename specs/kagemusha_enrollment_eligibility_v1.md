@@ -98,9 +98,12 @@ before returning canonical bytes. Errors and denials cannot become approval.
 The issuer rechecks current authority/routing after the response, verifies its exact retained
 request and current time, retains the original response and consumes the nonce at the named
 durable boundary. Repeated delivery requires a fresh observation, while returning the original
-E6 byte for byte. Eligibility cannot promise that a bank will never freeze an account after an
-observation; it is checked at each named online enrollment boundary. It adds no online call to
-offline Send/Receive.
+E6 byte for byte. A delivery-time `NotApproved`, `Frozen` or unavailable observation only
+withholds that delivery: the issued result, its exact E6 and its quota share stay retained, the
+attempt is neither refused nor abandoned, E1 is not restarted and nothing is signed again, and
+a later approving observation delivers the same E6 (design §2.4). Eligibility cannot promise
+that a bank will never freeze an account after an observation; it is checked at each named
+online enrollment boundary. It adds no online call to offline Send/Receive.
 
 ## Encoding
 

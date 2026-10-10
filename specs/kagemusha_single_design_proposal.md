@@ -4,10 +4,11 @@ Status: **canonical implementation target, revision 2026-10-10**. This revision
 applies the owner directive of 2026-10-10 that every phone whose payment key lives
 in a TEE, StrongBox or Secure Enclave can pay offline: one hardware-attestation
 admission rule for Android and iPhone, with a pinned root set, a named revocation
-source per root and an operator denylist, and no Play Integrity or other vendor
-service (§2.2); closed E1 refusal reasons (§2.4); the two abandonment forms of an
-unused enrollment (§3.2); and a pre-commit runtime capacity check in place of
-per-device-class lineage budgets (§§1.1, 5.3). The revision lands as one
+source per root and an operator denylist, and no Play Integrity, vendor user
+account, GMS/HMS or store-install dependency (§2.2); closed E1 refusal
+reasons (§2.4); the two abandonment forms of an unused enrollment (§3.2); and a
+pre-commit runtime capacity check in place of per-device-class lineage budgets
+(§§1.1, 5.3). The revision lands as one
 coordinated cutover (§9.1); until then the contract that the code of the
 validator baseline, Iroha `ff7ec9457c`, implements stays in force.
 It amends revision 2026-10-05, which applied the owner answers of 2026-10-05:
@@ -226,12 +227,18 @@ confirmation, §2.3), unlocked credential storage (retry), custody excluded from
 backup, and enough free storage and memory, checked before each commit (§5.3).
 
 Nothing else gates enrollment or offline payment: no Play Integrity or other
-vendor online verdict, Google account, Google Mobile Services, Huawei Mobile
-Services or other vendor service, app-store installation, exact app version,
-StrongBox-only selection, patch-level refusal, model or device allowlist,
-per-model budget, second attested key or periodic online check. StrongBox versus
-TEE and patch levels are recorded credential facts; they never refuse a phone.
-Registration, enrollment and payment require no vendor account or service.
+vendor online verdict, vendor user account (Google, Huawei or other), Google
+Mobile Services, Huawei Mobile Services, app-store installation, exact app
+version, StrongBox-only selection, patch-level refusal, model or device
+allowlist, per-model budget, second attested key or periodic online check.
+StrongBox versus TEE and patch levels are recorded credential facts; they never
+refuse a phone. Registration, enrollment and payment have no vendor user
+account, GMS/HMS or store-install dependency. They are not free of every vendor
+service: Apple enrollment uses Apple's App Attest service, and the issuer reads
+Google's attestation status list as the revocation source of the Google root
+families ([policy](kagemusha_wallet_enrollment_policy_v1.md) Android admission
+step 3). Those are enrollment attestation and issuer-side revocation inputs;
+offline payment uses neither.
 
 - **Android and compatible vendor APIs:** validate the KeyMint attestation
   chain against the policy's root set, under the reviewed adapter profile of
@@ -380,14 +387,22 @@ have distinct [backup and passcode behavior](https://support.apple.com/guide/sec
 ### 2.4 E1 outcomes and refusal reasons
 
 An E5 exchange has exactly two terminal outcomes, Issued and Refused. Only they
-are immutable: the issuer retains the terminal outcome with the exchange and
-returns it unchanged on every retry. Unavailable and Unknown are recovery
-states, never terminal outcomes; neither is retained as the exchange's answer.
+are immutable: the issuer retains the terminal outcome with the exchange, and no
+retry, later observation or outage changes it. The immutable outcome is distinct
+from current delivery authorization (Delivery of an Issued outcome, below): a
+Refused outcome is returned unchanged on every retry, while an Issued outcome's
+exact E6 is returned only when a fresh eligibility observation currently
+authorizes its delivery. Unavailable and Unknown are recovery states, never
+terminal outcomes; neither is retained as the exchange's answer.
 
-- **Issued:** the E6 result with the signed credential (§2.2).
-- **Refused(reason):** exactly one reason from the closed table below. The E1
-  challenge is consumed. Because the attestation binds that challenge, another
-  attempt needs a new challenge, slot and key, after abandoning this one (§3.2).
+- **Issued:** the E6 result with the signed credential (§2.2). The outcome is
+  fixed once the signed credential is retained; a later eligibility denial or
+  outage withholds its delivery but never turns it into Refused.
+- **Refused(reason):** exactly one reason from the closed table below, decided
+  before any credential is signed: at E5 verification or at the signing
+  boundary. The E1 challenge is consumed. Because the attestation binds that
+  challenge, another attempt needs a new challenge, slot and key, after
+  abandoning this one (§3.2).
 - **Unavailable (retryable, before any effect):** a revocation source, the
   operator denylist, the eligibility provider or issuer storage could not be
   read before the issuer decided, and no effect has taken place: no Apple
@@ -415,6 +430,23 @@ stored with that claim when the counter advances, so a retry of the same claim
 reuses that record and never fails the counter check against its own earlier
 advance.
 
+**Delivery of an Issued outcome.** Every E6 delivery, the first, a repeat and
+recovery alike, needs its own fresh eligibility observation at the delivery
+boundary, as the [eligibility contract](kagemusha_enrollment_eligibility_v1.md)
+requires; the E1 challenge lifetime does not apply to it. That observation
+decides only whether the retained E6 is delivered now. When the provider reports
+`NotApproved` or `Frozen`, the issuer withholds delivery and reports code 11 or
+12 as a withheld delivery, not as a Refused outcome. When the provider, issuer
+storage or current authority routing cannot be read, delivery is `Unavailable`.
+In either case the issuer keeps the Issued outcome, the exact retained E6 bytes
+and the exchange's quota share. It does not consume or abandon the exchange,
+sign again or restart E1, and the wallet keeps its slot, enrollment marker and
+retained E5 and retries delivery later. Once a fresh observation approves, the
+issuer returns the same E6 byte for byte, never a newly signed credential. A
+withheld delivery never forces abandonment; the holder may still choose the
+marker form (§3.2), and the quota share then stays reserved until that
+Abandonment's successful execution is finalized.
+
 | Code | Reason | Platform | Class | Cause |
 |---:|---|---|---|---|
 | 1 | KeyNotInSecureHardware | Android | Phone | The attestation or KeyMint security level is Software, the two levels differ, or attestation version 2 is not TEE. |
@@ -438,9 +470,14 @@ The class tells the wallet what the holder can do; the app owns the wording:
   then start again.
 - **Attempt:** abandon and start again with a new challenge. A repeat is a
   defect report, not a device verdict.
-- **Account:** the account's status, not the phone, blocks enrollment; start
-  again after it changes. An eligibility refusal at any online enrollment
-  boundary (pre-key permit, E5, signing or E6 delivery) uses codes 11 and 12.
+- **Account:** the account's status, not the phone, blocks enrollment. An
+  eligibility denial uses codes 11 and 12 at every online enrollment boundary,
+  with two meanings. At the pre-key permit, E5 verification or signing
+  boundary, before any credential exists, it refuses (at E5 or signing, the
+  terminal Refused outcome); start again after the status changes. At E6
+  delivery, after issuance, it only withholds delivery of the Issued outcome
+  (above); keep the slot and retry delivery after the status changes, without
+  abandoning or starting again.
 
 Codes are a closed `u16` set. Zero and unknown codes are protocol errors, never
 admission. Native exports the set; the issuer worker reports exactly one code
@@ -900,8 +937,14 @@ Bootstrap is selected, so it is never abandoned.
   generation-zero marker, so no credential or ledger record names it and there
   is nothing to submit. `abandon()` reports this local form and returns no
   ledger-control bytes. Before writing the record, local abandonment must:
-  1. authenticate the slot's selected pre-key originals (its intent and
-     selected enrollment scope);
+  1. authenticate the slot's retained pre-key Client, Accepted permit and Slot
+     originals and their selected enrollment scope. Authenticate the intent
+     when it is present or required (`IntentOnly`, and an intent whose key is
+     unknown): it must match the selected scope. A selected pre-E2 `Empty` slot
+     has no intent; for it, establish that the absence is legitimate (the
+     retained originals select the slot and its status is `Empty`) rather than
+     requiring an intent, which would exclude that form. A missing intent on
+     any other slot is a lost original and never counts as legitimate absence;
   2. establish, from durable custody it can read, that the slot has no
      enrollment marker, retained E5, E6 or credential record, or initialized
      state. Unavailable or uncertain storage, an unreadable record or a lost
@@ -1689,12 +1732,15 @@ evidence record, enrollment challenge and Abandonment frame keep their layouts;
 the 32-byte policy and evidence digests they carry name the new preimages. No
 ledger instruction, validation rule or state decodes a policy frame or E5/E6
 evidence. Fact bit 9 (`PLAY_INTEGRITY_SIGNAL`) stays defined in record
-validation and forbidden on Apple records. It is retired issuer output, zero in
-every newly issued credential, and a credential already issued with it stays
-valid. Removing it from either mask would reject those signed
-credentials, and renewal would not clear it, because a renewed credential keeps
-its historical enrollment evidence. That removal is not part of this design,
-and no compatibility decoder is needed.
+validation and forbidden on Apple records; both masks stay unchanged. It is
+retired issuer output: newly generated evidence never sets bit 9, and renewals
+preserve historical enrollment evidence unchanged, including bit 9, because
+credential replacement validation lets a renewal change only its fresh evidence,
+times and issuer certificate. A credential already issued with bit 9, and every
+renewal of it, therefore stays valid. Removing bit 9 from the defined-facts mask
+would reject that historical Android evidence; removing it from the
+Apple-forbidden mask would instead permit an invalid Apple fact. Neither
+removal is part of this design, and no compatibility decoder is needed.
 
 The validator baseline is Iroha `ff7ec9457c`: the Taira validators run it, and
 the KAGEMUSHA wallet artifacts, verifier pack, producer inventory and artifact
@@ -1740,7 +1786,9 @@ change, and the release driver builds and releases it:
    with no Play Integrity token or hardware selector; the E5 `PlatformEvidenceV1`
    and E6 `IssuerEvidenceV1` Android arms carrying the chain only; the closed
    §2.4 refusal codes, exported by Native and relayed unchanged by BPNG Core and
-   the Kotlin and Swift SDKs; and an issuer that never sets fact bit 9.
+   the Kotlin and Swift SDKs, which also keep a withheld E6 delivery distinct
+   from a terminal Refused outcome (§2.4); and an issuer that never sets fact
+   bit 9.
    - Native core replaces the old Model policy arms, the E5/E6 carriers, the
      issuer worker configuration, the worker's Play Integrity fact requirement
      and the hardware-selector coupling in the credential and pre-key owners,
@@ -1786,9 +1834,15 @@ approval ceremony (§10):
   certificate or duplicated, a provisioning information extension that is not
   immediately above the key description, and an unknown critical extension are
   refused.
-- Denylist: a listed serial or SPKI is refused with code 6; a missing,
-  unreadable, malformed or rolled-back denylist is `Unavailable`, never an
-  empty list.
+- Denylist: a listed serial or SPKI is refused with code 6. Two cases are
+  tested separately, as the [enrollment
+  policy](kagemusha_wallet_enrollment_policy_v1.md) update rules state. A
+  candidate update that fails authentication or is stale or altered (a lower
+  sequence, or the current sequence with other bytes) is rejected, and the
+  intact authenticated current denylist stays in force and keeps deciding
+  verifications. A missing, unreadable, malformed or inconsistent active
+  denylist custody or retained sequence record makes verification
+  `Unavailable`, never an empty list.
 - Signer and version boundaries: one and four signers, a signer outside the
   set, the minimum package version and one below it, every documented
   attestation and KeyMint version pair, an undocumented pair and attestation
@@ -1796,6 +1850,13 @@ approval ceremony (§10):
 - Outcomes: an outage before any effect resumes the same claim; an uncertain
   effect is Unknown and never yields a second credential or a second Apple
   counter consumption.
+- Delivery after issuance: an account freeze or `NotApproved` observed at E6
+  delivery, and an eligibility-provider or issuer-storage outage there, each
+  withhold delivery (code 11 or 12, or `Unavailable`) while the Issued outcome,
+  the exact retained E6 and the quota share stay retained. Neither forces
+  abandonment, restarts E1 or signs again, and the wallet keeps its slot and
+  marker. A later approving observation, including one after the E1 challenge
+  lifetime, returns the same E6 bytes.
 - Abandonment: a delayed generation result after local abandonment; unavailable
   or uncertain storage and a lost marker, which write no record; races between
   local abandonment and Bootstrap selection, marker installation or generation
@@ -1892,9 +1953,10 @@ genuine multi-hop proofs and physical carriers. It also covers:
 - crash and restore between commit and fold, and fold-witness loss;
 - duplicate delivery during a σ_recv re-prove;
 - the §9.1 cutover acceptance cases: E1 admission under each adapter profile,
-  denylist failures, the §2.4 recovery states, local abandonment races and
-  storage uncertainty, quota reservation, and capacity refusals with OS-kill
-  recovery.
+  rejected stale or altered denylist updates and unavailable active denylist
+  custody, the §2.4 recovery states, withheld delivery after issuance, local
+  abandonment races and storage uncertainty, quota reservation, and capacity
+  refusals with OS-kill recovery.
 
 Update the finite-state model to match this exchange; a model's provider
 assumption is not proof that a phone API implements it. Each result identifies

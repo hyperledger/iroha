@@ -322,12 +322,15 @@ StrongBox and 4 when the patch floor is met; on Apple bits 6, 7 and 8. It requir
 bit 10 on Android and bit 8 on Apple, and it never sets bit 9 or bit 11.
 REVOCATION_LIST_CLEAR means no chain certificate was listed by its root's
 revocation source or by the operator denylist at the check. Bit 9 is retired
-issuer output, zero in every newly issued credential, not a reserved-zero bit:
-it stays in the defined-facts and Apple-forbidden masks, so a credential issued
-with it under the validator baseline stays valid. Removing it from either mask
-would reject those signed credentials, and renewal would not clear it because a
-renewed credential keeps its historical enrollment evidence; that removal is not
-part of the design (proposal §9.1).
+issuer output, not a reserved-zero bit: newly generated evidence, E1 enrollment
+evidence and renewal fresh evidence alike, never sets bit 9, and renewals
+preserve historical enrollment evidence unchanged, including bit 9, as
+credential replacement validation requires. It stays in the defined-facts and
+Apple-forbidden masks, both unchanged, so a credential issued with it under the
+validator baseline, and each renewal of it, stays valid. Removing bit 9 from the
+defined-facts mask would reject that historical Android evidence; removing it
+from the Apple-forbidden mask would instead permit an invalid Apple fact.
+Neither removal is part of the design (proposal §9.1).
 
 ### 3.1.0 Ledger native verifier installation
 

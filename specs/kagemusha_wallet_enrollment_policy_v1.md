@@ -250,10 +250,13 @@ source or the operator denylist is `Unavailable`, never a refusal or an admissio
 An admitted Android evidence record carries facts HARDWARE_BACKED_KEY, BOOTLOADER_LOCKED,
 VERIFIED_BOOT, APP_SIGNING_IDENTITY and REVOCATION_LIST_CLEAR, plus STRONGBOX for StrongBox and
 PATCH_POLICY_MET when the floor is met. The issuer never sets fact bit 9
-(PLAY_INTEGRITY_SIGNAL). Bit 9 is retired issuer output, zero in every newly issued
-credential. It stays defined in record validation and forbidden on Apple records, so a
-credential already issued with it stays valid; record validation and its masks are unchanged
-(design §9.1).
+(PLAY_INTEGRITY_SIGNAL). Bit 9 is retired issuer output: newly generated evidence never sets
+bit 9, and renewals preserve historical enrollment evidence unchanged, including bit 9, as
+credential replacement validation requires. It stays defined in record validation and
+forbidden on Apple records, so a credential already issued with it, and each renewal of it,
+stays valid. Record validation and both masks are unchanged: removing bit 9 from the
+defined-facts mask would reject that historical Android evidence, and removing it from the
+Apple-forbidden mask would instead permit an invalid Apple fact (design §9.1).
 
 Nothing else is an Android admission input: no Play Integrity token or verdict, Google
 account, Google Mobile Services, Huawei Mobile Services, app-store installation, exact
@@ -273,14 +276,22 @@ SHA256 over a certificate's DER `SubjectPublicKeyInfo`; it matches any chain cer
 including the leaf. Duplicate members, unknown members and malformed values reject the whole
 original. An empty `entries` array is a deliberate operator statement.
 
-Updates are authenticated and rollback-protected. The issuer accepts an update only when it
-authenticates as the operator's genuine denylist original and its `sequence` is greater than
-the highest sequence the issuer has durably accepted, or equal with byte-identical content.
-The issuer retains that sequence and the accepted original's SHA256 durably, with the
-original. A failed authentication, a lower sequence or an equal sequence with other bytes is
-rejected and leaves the current denylist in force. The issuer applies its current denylist to
-every verification; a missing, unreadable or malformed denylist, or a lost or inconsistent
-retained sequence record, is `Unavailable`, never an empty list.
+Updates are authenticated and rollback-protected. The issuer accepts a candidate update only
+when it authenticates as the operator's genuine denylist original and its `sequence` is
+greater than the highest sequence the issuer has durably accepted, or equal with
+byte-identical content. The issuer retains that sequence and the accepted original's SHA256
+durably, with the original; together they are the active denylist custody. Two failure
+classes are distinct and each is tested (design §9.1):
+
+- A candidate update that fails authentication, carries a lower sequence or repeats the
+  current sequence with other bytes is stale or altered. It is rejected, and the intact
+  authenticated current denylist stays in force and keeps deciding verifications; the
+  rejection makes no verification `Unavailable`.
+- The active custody itself is checked at every verification: the retained original must be
+  present, readable and well formed, and its SHA256 and sequence must match the retained
+  sequence record. A missing, unreadable or malformed active denylist, or a lost or
+  inconsistent retained sequence record, makes that verification `Unavailable`, never an
+  empty list and never an admission.
 
 The operator's security owner supplies the compromise intelligence and retains each entry's
 provenance with the update that adds it: for example a vendor security advisory, a published
@@ -310,10 +321,14 @@ selected originals; request timestamps are never substitutes. A liveness check d
 consume a challenge. The durable owner must enforce single use, exact-result retries and
 permanent account/wallet activation claims before any HTTP result becomes visible. Only
 Issued and Refused are exact results. A refusal consumes the challenge, and a retry returns
-the same refusal reason. `Unavailable` and `Unknown` are recovery states, never retained as
-the answer: a retry after an outage before any effect resumes verification of the same
-claim, and recovery of an uncertain effect never verifies again as a first attempt, signs a
-second credential or consumes the Apple counter again (design §2.4).
+the same refusal reason. Delivery of an Issued result's E6 is authorized separately by a fresh
+eligibility observation at each delivery: a denial there withholds delivery (codes 11 and 12)
+and an outage makes it `Unavailable`, neither changes the Issued result, its exact E6 or its
+quota share, and a later approval returns the same E6 bytes (design §2.4). `Unavailable` and
+`Unknown` are recovery states, never retained as the answer: a retry after an outage before
+any effect resumes verification of the same claim, and recovery of an uncertain effect never
+verifies again as a first attempt, signs a second credential or consumes the Apple counter
+again (design §2.4).
 
 Existing regulatory bits and consistency rules are preserved. Zero permitted controls does
 not disable Kagemusha; it permits no extra blacklist/quota/lease restrictions. Lease lifetime
