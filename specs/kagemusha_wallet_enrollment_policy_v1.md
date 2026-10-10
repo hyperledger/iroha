@@ -13,8 +13,9 @@ field or any other vendor online verdict. This is a first-release replacement: t
 Android arms have no decoder, and the Model, Python projection, SDK consumers and shared
 vectors change together, in the coordinated cutover of design
 [§9.1](kagemusha_single_design_proposal.md#91-cutover-sequencing). Until that cutover the
-deployed contract of Iroha `67728cc6f3` stays in force. These are app-attestation and
-issuer-policy changes: the policy frames are issuer inputs that no ledger instruction,
+contract that the code of the validator baseline, Iroha `ff7ec9457c`, implements stays in
+force. These are app-attestation and issuer-policy changes: the policy frames are issuer
+inputs that no ledger instruction,
 validation rule or state decodes, and the E1 challenge and credential carry only their
 32-byte digests.
 
@@ -34,10 +35,14 @@ order is byte cap, canonical decode under payload-derived limits,
 version 1, independently selected scheme, then structural rules. Pair and E1 binding checks
 follow before verification or signing. The 1024 cap is an explicit conservative frame budget
 for small bounded policy objects; it is not an existing published ABI size. The largest
-Android enrollment-policy frame (eight Vendor roots with 16-byte adapter identifiers) must
-fit it; the Model asserts that case. The proposed Native roundtrip/byte-mutation controls
-must pass before adoption. Python consumes a private typed projection and computes
-transcripts; it does not introduce another policy wire codec.
+Android enrollment-policy frame (eight Vendor roots with 16-byte adapter identifiers) and the
+largest Android app-policy frame (a 255-byte package and four signers) must fit it. The
+transcript sizes below do not establish that: the complete frame adds the Norito header,
+u32 discriminants and field and sequence length prefixes. The Model's tests encode both
+maximal policies with the actual Norito encoder and assert each complete frame is at most
+1024 bytes; until that test passes, the cap is unverified for them. The proposed Native
+roundtrip/byte-mutation controls must pass before adoption. Python consumes a private typed
+projection and computes transcripts; it does not introduce another policy wire codec.
 
 Hash identity uses the existing wallet `H` construction:
 `SHA256("iroha:kagemusha:wallet:v1:" || ASCII(role) || 00 || LE64(body length) || body)`.
@@ -50,8 +55,10 @@ is invented.
 Transcript integers are fixed-width little endian. Digests/pins are raw nonzero 32-byte
 values. Text uses `LE32(UTF8 byte length) || exact UTF8 bytes`, preventing concatenation
 ambiguity; no Unicode normalization, case folding, alternate terminator or padding is used.
-Transcript tags below equal explicitly indexed Norito enum discriminants; Norito encodes
-the tag as u32 and each hash transcript as u8. Zero and undefined enum tags are rejected.
+Transcript tags below equal explicitly indexed Norito enum discriminants. The same number
+is a u32 discriminant in the Norito frame and a single u8 byte in the hash transcript; the
+two encodings are distinct and never substituted for each other. Zero and undefined enum
+tags are rejected.
 A count is one byte in the transcript and the Norito sequence length in the frame.
 
 The app-policy transcript starts `LE16(version) || scheme_id`, followed by exactly one arm:
@@ -71,8 +78,9 @@ The app-policy transcript starts `LE16(version) || scheme_id`, followed by exact
   Attest verifier. A new restrictive Team-ID grammar would be an additional protocol choice
   and is not assumed here. Production environment is mandatory and is not a selector.
 
-The largest app transcript is 431 bytes (Android with a 255-byte package and four signers);
-Apple is at most 294 bytes. App policy is historical enrollment identity. The credential
+An Android app transcript is `48 + package_bytes + 32 × signer_count` bytes, at most 431
+(a 255-byte package and four signers); an Apple app transcript is `39 + app_id_bytes`, at
+most 294. App policy is historical enrollment identity. The credential
 preserves its digest across renewals; an app update never requires re-enrollment. Raising the
 minimum version or changing the signer set changes only the policy that new E1 challenges
 name.
@@ -87,33 +95,99 @@ The enrollment-policy transcript begins
     key covers every re-issued certificate of that key.
   - family GoogleCa1 2, no fields: Google's ECDSA P-384 "Key Attestation CA1" root.
   - family Vendor 3: text `adapter_id`, 1–16 bytes matching `[a-z][a-z0-9-]*` (for example
-    `huawei`). It names an Android vendor whose own KeyMint attestation root a reviewed
-    policy original admits.
+    `huawei`). It names the implemented and qualified adapter profile (below) of an Android
+    vendor whose own attestation root a reviewed policy original admits. GoogleRsa and
+    GoogleCa1 entries use the `google` profile.
   - `spki_sha256`: SHA256 of the root certificate's DER `SubjectPublicKeyInfo`; nonzero and
     unique across entries.
   - `revocation_source`: GoogleAttestationStatus 1 (Google's attestation status list) or
     OperatorDenylist 2 (the operator denylist only). GoogleRsa and GoogleCa1 require 1;
     Vendor requires 2. A vendor-published revocation service would be a new source tag with
     its own reviewed adapter. The operator denylist is checked for every entry, whatever its
-    named source.
+    named source. For a Vendor entry it is the only revocation source, so admission proves
+    only that this operator had not listed the chain at the check: not comprehensive vendor
+    revocation and not a bounded detection window.
 - Apple tag 2: root DER SHA256. Production App Attest plus a durable fresh assertion binding
   E1 and the separately selected payment key are always required.
 
 Both arms end with the existing 20-byte inline regulatory-policy transcript:
 `LE32(permitted_controls) || LE64(blacklist_max_age_ms) || LE64(time_anchor_max_response_ms)`,
 then `LE64(challenge_lifetime_ms) || LE64(attestation_lease_lifetime_ms)`.
-An Android transcript is 174 bytes with one Google root and at most 572 bytes with eight
-Vendor roots; Apple is exactly 167. Order follows the E1 scope first, platform verification
-inputs second, and credential regulator/lifetime rules last. There is no field order
+An Android transcript is `140 + Σ root_entry_bytes`, where a Google entry is 34 bytes and a
+Vendor entry `38 + adapter_id_bytes`: 174 bytes with one Google root and at most 572 bytes
+with eight Vendor roots. Apple is exactly 167. Order follows the E1 scope first, platform
+verification inputs second, and credential regulator/lifetime rules last. There is no field order
 sorting, optional arm, extension map or compatibility decoder.
 
 Patch floor is a valid YYYYMM in years 1900–9999. Meeting it sets the PATCH_POLICY_MET fact;
 an unmet floor leaves that fact unset and never refuses E1. Apple gets no Android, patch, boot
 or local-compromise facts invented from App Attest.
 
-Adding a root, for example a `Vendor("huawei")` entry once a genuine device chain proves that
-root exists, is a reviewed policy-original change: data, not code. Removing a root or
-changing the signer set likewise affects only new E1 challenges.
+Adding a root, for example a `Vendor("huawei")` entry, is a reviewed policy-original change
+that is data-only after that adapter is implemented and qualified (Adapter profiles, below).
+The reviewer authenticates the manufacturer's ownership of every pinned root independently of
+any device: Google's roots from Google's published verification procedure, and a vendor root
+from the vendor's own published or signed statement or a channel the reviewer authenticates
+directly with the vendor. A self-signed root certificate that a device supplies proves
+nothing about who owns it and is never a pin's only evidence; a captured genuine chain shows
+only that the root is in use. Removing a root or changing the signer set likewise affects
+only new E1 challenges.
+
+## Adapter profiles
+
+Every Android root entry is validated under exactly one adapter profile: GoogleRsa and
+GoogleCa1 entries under `google`, and a Vendor entry under the profile its `adapter_id`
+names. A profile is reviewed code in the issuer verifier, not policy data. The issuer refuses
+to select a policy original that names an adapter identifier it does not implement or a
+profile that is not yet qualified. That is a configuration failure before any E1 challenge
+names the policy, never an E1 outcome. Once a profile is implemented and qualified, adding,
+removing or re-pinning its root entries is data only.
+
+Each profile fixes, and the issuer enforces:
+
+- Chain: the exact certificate order (leaf first, root last), the permitted signature
+  algorithms, and that each certificate is signed by the next.
+- Constraints: every issuing certificate is a CA under basic constraints, its key usage
+  permits certificate signing and every path-length constraint holds; the trusted
+  attestation certificate is not a CA and, where it carries key usage, permits digital
+  signatures. A documented vendor deviation is recorded in the profile explicitly; there is
+  no implicit leniency.
+- Extensions: each permitted attestation extension OID, its schema and the chain positions
+  where it may appear. A critical extension the profile does not name, a duplicated
+  extension within one certificate or a permitted extension in a forbidden position rejects.
+- Validity: which certificates have their validity periods evaluated at the issuer's trusted
+  verification time.
+- Revocation: the entry's named source plus the operator denylist; and the challenge, app,
+  key, boot and patch checks of Android admission steps 4–9, which every profile applies
+  unchanged.
+
+The `google` profile follows [Google's verification
+procedure](https://developer.android.com/privacy-and-security/security-key-attestation) and
+the [AOSP attestation schema](https://source.android.com/docs/security/features/keystore/attestation#schema).
+Its attestation extensions are the key description `1.3.6.1.4.1.11129.2.1.17` and the
+provisioning information `1.3.6.1.4.1.11129.2.1.30`. Only the key description of the
+certificate nearest the root that carries one is trusted; that certificate is the trusted
+attestation certificate. When the provisioning information extension is present, the
+trusted attestation certificate must be the certificate immediately below (toward the leaf)
+the certificate nearest the root that carries it. Every certificate's validity is evaluated
+except in a chain that the profile identifies as the documented factory-provisioned profile
+under the GoogleRsa root, whose expired certificates stay trustworthy unless revoked. The
+profile names the documented features that identify a factory-provisioned chain; a chain
+that carries the provisioning information extension, or that the profile cannot identify as
+factory-provisioned, is evaluated as remotely provisioned, including a chain to the RSA root.
+
+The `huawei` profile admits Huawei's own attestation root for Android phones running EMUI or
+HarmonyOS 2–4 with AndroidKeyStore, including post-2019 phones without Google Mobile
+Services. Huawei's published EMUI security documentation describes iTrustee hardware
+attestation and a Huawei root, device CA, device and key certificate hierarchy. That supports
+pinning a genuine Huawei root; it does not establish that every such phone emits the AOSP key
+description schema. The profile's chain shape, constraints, extension OIDs and positions are
+therefore fixed from genuine chains captured from such phones, and enrollment tests on them
+qualify it before its root entry is admitted. Where those chains carry the AOSP key
+description, steps 4–9 apply to it unchanged, and a phone whose attestation lacks a required
+field is refused for that evidence. No HarmonyOS NEXT or HUKS assumption applies: that
+platform runs no Android apps and needs its own adapter (design §2.2). An emulator chain
+ends at a software root and never qualifies a profile.
 
 ## Android admission
 
@@ -125,21 +199,28 @@ source or the operator denylist is `Unavailable`, never a refusal or an admissio
 1. Shape: 2–8 DER certificates, leaf first, each 1–16,384 bytes and at most 65,536 bytes in
    total [EvidenceInvalid].
 2. Root and path: the last certificate is self-signed and its SPKI SHA256 equals one root
-   entry. X.509 path validation from the leaf to that root succeeds, each certificate issued
-   and signed by the next. Under GoogleRsa no certificate validity period is evaluated, per
-   Google's guidance for factory-provisioned chains; revocation remains mandatory. Under
-   GoogleCa1 and Vendor every certificate is valid at the issuer's trusted verification time
-   [UntrustedAttestationRoot].
+   entry, which selects the adapter profile. X.509 path validation from the leaf to that root
+   succeeds under the profile: order and signatures, basic constraints, key usage, critical
+   extensions and validity as Adapter profiles states. Only the documented factory-provisioned
+   profile under GoogleRsa is exempt from validity evaluation; remotely provisioned chains,
+   including those to GoogleRsa, and every GoogleCa1 and Vendor chain are valid at the issuer's
+   trusted verification time. Revocation remains mandatory for all [UntrustedAttestationRoot].
 3. Revocation: no chain certificate is listed by the entry's revocation source, and none is
    listed by the operator denylist [AttestationRevoked]. The Google status list may be reused
    only within the freshness lifetime its HTTP `Cache-Control` states; otherwise it is fetched
    for the check. A missing, failed or malformed fetch is `Unavailable`.
-4. Key description: the Android key description of the certificate nearest the root that
-   carries one attests the leaf key, which is the E5 marker's payment key, and its challenge
-   equals the E1 `challenge_digest` [EvidenceInvalid]. Attestation version 1 (Keymaster 2)
-   has no app identity [AttestationWithoutAppIdentity]. Other attestation and KeyMint version
-   pairs are those AOSP documents: (2, 3), (3, 4), (4, 41) and equal KeyMint versions 100 and
-   above [EvidenceInvalid].
+4. Key description: the trusted attestation certificate is the certificate nearest the root
+   that carries key description `1.3.6.1.4.1.11129.2.1.17`. It is the leaf, its subject public
+   key equals the E5 marker's payment key, and, when the provisioning information extension
+   `1.3.6.1.4.1.11129.2.1.30` is present, it is the certificate immediately below the one
+   nearest the root that carries that extension. The key description's attestation
+   challenge equals the E1 `challenge_digest` [EvidenceInvalid]. Attestation version 1
+   (Keymaster 2) has no app identity [AttestationWithoutAppIdentity]. The other supported
+   attestation and KeyMint version pairs are exactly those AOSP documents: (2, 3), (3, 4),
+   (4, 41), (100, 100), (200, 200), (300, 300), (400, 400) and (500, 500). Any other pair,
+   including an undocumented equal pair, is [EvidenceInvalid]; a newly documented pair is
+   added by a reviewed adapter change with its schema, never accepted implicitly. The key
+   description decodes under its version's exact schema.
 5. Secure hardware: the attestation and KeyMint security levels are equal and
    TrustedEnvironment (1) or StrongBox (2); attestation version 2 is TrustedEnvironment only
    [KeyNotInSecureHardware]. The attested level, never a policy selector, gives the evidence
@@ -149,23 +230,30 @@ source or the operator denylist is `Unavailable`, never a refusal or an admissio
    and ALL_APPLICATIONS (600) are absent from both authorization lists. Unknown
    context-specific tags are ignored; a duplicate or out-of-order tag rejects
    [EvidenceInvalid].
-7. App identity: `attestationApplicationId` (709) appears exactly once, in either list. It
-   names exactly one package, equal to the app-policy package, and lists at least one signer
-   digest, every one in the signer set [AppIdentityMismatch]. The package version is at or
-   above `minimum_package_version` [AppVersionBelowMinimum].
-8. Boot, from the hardware-enforced RootOfTrust: `deviceLocked` is TRUE [BootloaderUnlocked];
-   `verifiedBootState` is Verified and `verifiedBootKey` is nonzero, and for KeyMint
-   (attestation version 100 and above) `verifiedBootHash` is 32 nonzero bytes
-   [BootNotVerified]. Before KeyMint the hash is recorded when present and never required.
+7. App identity: `attestationApplicationId` (709) is present [AttestationWithoutAppIdentity]
+   and appears exactly once, in either list [EvidenceInvalid]. It names exactly one package,
+   equal to the app-policy package, and lists at least one signer digest, every one in the
+   signer set [AppIdentityMismatch]. The package version is at or above
+   `minimum_package_version` [AppVersionBelowMinimum].
+8. Boot, from the hardware-enforced RootOfTrust, whose DER shape is its version's: attestation
+   version 2 has exactly the three fields `verifiedBootKey`, `deviceLocked` and
+   `verifiedBootState`; versions 3, 4 and every KeyMint version also carry
+   `verifiedBootHash`. A missing, extra or malformed field is [EvidenceInvalid].
+   `deviceLocked` is TRUE [BootloaderUnlocked]; `verifiedBootState` is Verified and
+   `verifiedBootKey` is nonzero, and for KeyMint (attestation version 100 and above)
+   `verifiedBootHash` is 32 nonzero bytes [BootNotVerified]. For versions 3 and 4 the hash is
+   recorded and its length and value are not required; that relaxation never admits a
+   malformed RootOfTrust.
 9. Patch: the hardware-enforced OS, vendor and boot patch levels are recorded; the floor sets
    only the PATCH_POLICY_MET fact.
 
 An admitted Android evidence record carries facts HARDWARE_BACKED_KEY, BOOTLOADER_LOCKED,
 VERIFIED_BOOT, APP_SIGNING_IDENTITY and REVOCATION_LIST_CLEAR, plus STRONGBOX for StrongBox and
 PATCH_POLICY_MET when the floor is met. The issuer never sets fact bit 9
-(PLAY_INTEGRITY_SIGNAL). That is issuer policy; record validation is unchanged here, and
-removing the bit from the Model's masks is the separate validator-facing change that design
-§9.1 schedules.
+(PLAY_INTEGRITY_SIGNAL). Bit 9 is retired issuer output, zero in every newly issued
+credential. It stays defined in record validation and forbidden on Apple records, so a
+credential already issued with it stays valid; record validation and its masks are unchanged
+(design §9.1).
 
 Nothing else is an Android admission input: no Play Integrity token or verdict, Google
 account, Google Mobile Services, Huawei Mobile Services, app-store installation, exact
@@ -176,15 +264,30 @@ patch levels are recorded facts that never refuse a phone.
 The operator denylist is one operator-owned original that the issuer selects and
 authenticates like the policy originals but holds outside them, because it changes without
 changing any policy digest. It is UTF-8 JSON with exactly the members `version` (the integer
-1) and `entries`, an array of at most 65,536 unique objects. Each entry has exactly one
-member. `serial` is a certificate serial number in lowercase hexadecimal without leading
-zeros, the spelling of Google's status list; it matches any chain certificate except the
+1), `sequence` (a positive integer at most 2^53 − 1) and `entries`, an array of at most
+65,536 unique objects. Each entry has exactly one member. `serial` is a certificate serial
+number in lowercase hexadecimal without leading zeros, the spelling of Google's status
+list; it matches any chain certificate except the
 leaf, whose serial the phone chooses. `spki_sha256` is 64 lowercase hexadecimal digits of
 SHA256 over a certificate's DER `SubjectPublicKeyInfo`; it matches any chain certificate,
 including the leaf. Duplicate members, unknown members and malformed values reject the whole
-original. The issuer applies its current denylist to every verification; a missing,
-unreadable or malformed denylist is `Unavailable`, never an empty list. An empty `entries`
-array is a deliberate operator statement.
+original. An empty `entries` array is a deliberate operator statement.
+
+Updates are authenticated and rollback-protected. The issuer accepts an update only when it
+authenticates as the operator's genuine denylist original and its `sequence` is greater than
+the highest sequence the issuer has durably accepted, or equal with byte-identical content.
+The issuer retains that sequence and the accepted original's SHA256 durably, with the
+original. A failed authentication, a lower sequence or an equal sequence with other bytes is
+rejected and leaves the current denylist in force. The issuer applies its current denylist to
+every verification; a missing, unreadable or malformed denylist, or a lost or inconsistent
+retained sequence record, is `Unavailable`, never an empty list.
+
+The operator's security owner supplies the compromise intelligence and retains each entry's
+provenance with the update that adds it: for example a vendor security advisory, a published
+leaked-key or compromised-batch report, or fork evidence the operator observes. No entry is
+added automatically. The denylist proves only that this operator had not listed a chain
+certificate at the check; it is not comprehensive vendor revocation and gives no bounded
+detection window.
 
 ## Apple admission
 
@@ -205,8 +308,12 @@ creation time and checked u64 addition. Duration has no newly invented wall-cloc
 The issuer must store creation time with the exact challenge, authenticated subject and
 selected originals; request timestamps are never substitutes. A liveness check does not
 consume a challenge. The durable owner must enforce single use, exact-result retries and
-permanent account/wallet activation claims before any HTTP result becomes visible. A refusal
-is an exact result: it consumes the challenge, and a retry returns the same refusal reason.
+permanent account/wallet activation claims before any HTTP result becomes visible. Only
+Issued and Refused are exact results. A refusal consumes the challenge, and a retry returns
+the same refusal reason. `Unavailable` and `Unknown` are recovery states, never retained as
+the answer: a retry after an outage before any effect resumes verification of the same
+claim, and recovery of an uncertain effect never verifies again as a first attempt, signs a
+second credential or consumes the Apple counter again (design §2.4).
 
 Existing regulatory bits and consistency rules are preserved. Zero permitted controls does
 not disable Kagemusha; it permits no extra blacklist/quota/lease restrictions. Lease lifetime

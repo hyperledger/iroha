@@ -8,8 +8,8 @@ source per root and an operator denylist, and no Play Integrity or other vendor
 service (§2.2); closed E1 refusal reasons (§2.4); the two abandonment forms of an
 unused enrollment (§3.2); and a pre-commit runtime capacity check in place of
 per-device-class lineage budgets (§§1.1, 5.3). The revision lands as one
-coordinated cutover (§9.1); until then the deployed contract of Iroha
-`67728cc6f3` stays in force.
+coordinated cutover (§9.1); until then the contract that the code of the
+validator baseline, Iroha `ff7ec9457c`, implements stays in force.
 It amends revision 2026-10-05, which applied the owner answers of 2026-10-05:
 the hash families, `credit_id` and
 `proof_digest` (§§3, 4.1, 5.1), the state core and head commitment (§3), the
@@ -63,7 +63,7 @@ implementation returns an explicit error rather than reporting a payment complet
 | ID | Requirement | Design rule |
 |---|---|---|
 | R1 | Offline payments | After enrollment and loading, peers need only each other (§5). |
-| R2 | Mainstream phones | Every stock Android phone (with or without Google services, including Huawei, Honor, Meizu, Xiaomi and Samsung) and every iPhone whose payment key is generated in its TEE, StrongBox or Secure Enclave and passes the one §2.2 admission rule; no custom applet, model list or vendor online service. Actual platform evidence and measurements are recorded separately. Every operation runs a pre-commit runtime capacity check on the phone itself (§5.3). |
+| R2 | Mainstream phones | Every stock Android phone (with or without Google services, including Huawei, Honor, Meizu, Xiaomi and Samsung) and every iPhone whose payment key is generated in its TEE, StrongBox or Secure Enclave and passes the one §2.2 admission rule; no custom applet, model list or vendor online service. This is the design target, not a qualified claim: a vendor's own attestation root is admitted only after its adapter profile is implemented and qualified with genuine device chains (§2.2), and a phone whose attestation carries no application identity is refused for that evidence (§2.4). Actual platform evidence and measurements are recorded separately. Every operation runs a pre-commit runtime capacity check on the phone itself (§5.3). |
 | R3 | Load from the ledger | A finalized reserve debit creates one wallet-bound ordinary Load receipt (§6). |
 | R4 | Final device-to-device value, unbounded hops | Send irreversibly transfers value to the bound receiver. Receive makes it immediately and durably owned by the receiver, subject only to the P4 burn exception (§3.2). The value becomes onward-spendable offline once the receiver's local lineage fold reaches its current head, which covers the crediting head; the fold needs no network, counterparty or approval. Only exact Payment replay can finish delivery; no refund or hop ceiling (§§3–5). |
 | R5 | Optional return online | Unload is the holder's choice, available from any folded head (§3.1). Remaining offline has no deadline unless an enabled regulatory control supplies one (§§6–7). |
@@ -209,13 +209,16 @@ issuer verifies at E1 a vendor hardware attestation proving four things:
    bootloader, Verified boot and a nonzero verified-boot key; the boot hash is
    required only from KeyMint (attestation version 100) on.
 4. The chain ends at a root of the policy's pinned root set, matched by SPKI,
-   and no certificate is listed by that root's named revocation source or by the
-   operator denylist.
+   whose manufacturer ownership was authenticated independently of any device
+   chain; the root's implemented and qualified adapter profile validates the
+   chain; and no certificate is listed by that root's named revocation source or
+   by the operator denylist.
 
 The [enrollment policy](kagemusha_wallet_enrollment_policy_v1.md) fixes the
-exact checks, root families, revocation sources and denylist format. Each
-failure has one closed refusal reason (§2.4). Attestation version 1 (Keymaster 2)
-carries no app identity and is refused for that evidence, never by model.
+exact checks, root families, adapter profiles, revocation sources and denylist
+format. Each failure has one closed refusal reason (§2.4). An attestation that
+carries no application identity, such as attestation version 1 (Keymaster 2),
+is refused for that evidence, never by model.
 
 The only on-device preconditions are conditions the holder can fix; they are
 not admission rules: a screen lock or passcode (custody class and Send/Unload
@@ -231,26 +234,43 @@ TEE and patch levels are recorded credential facts; they never refuse a phone.
 Registration, enrollment and payment require no vendor account or service.
 
 - **Android and compatible vendor APIs:** validate the KeyMint attestation
-  chain against the policy's root set. Google's RSA root key covers factory and
-  earlier remotely provisioned chains: certificate validity periods are not
-  evaluated under it, per Google's guidance, and revocation is mandatory.
-  Google's Key Attestation CA1 root has its validity evaluated. A vendor's own
-  root, such as Huawei's, is admitted by a reviewed `Vendor` root-set row with
-  its revocation source once a genuine device chain proves that root exists;
-  adding the row is data, not code. A Vendor root that names no published
+  chain against the policy's root set, under the reviewed adapter profile of
+  the matched root. The reviewer authenticates the manufacturer's ownership of
+  every pinned root independently of any device; a self-signed root that a
+  device supplies proves nothing about who owns it. Under Google's RSA root key,
+  certificate validity periods are not evaluated only for the documented
+  factory-provisioned profile, per Google's guidance that expired factory keys
+  stay trustworthy unless revoked; remotely provisioned chains, including those
+  that chain to the RSA root, keep their validity checks, and so do chains under
+  Google's Key Attestation CA1 root. Revocation is mandatory for every chain. A
+  vendor's own root, such as Huawei's, is admitted by a reviewed `Vendor`
+  root-set row naming that vendor's adapter profile. The profile is code: it is
+  implemented, reviewed and qualified with genuine device chains and enrollment
+  tests before its first row is admitted, and the `huawei` profile is
+  implemented in the cutover (§9.1). After that, adding or changing the row is
+  data only, with no code change. An unknown adapter identifier fails issuer
+  configuration; it never reaches E1. A Vendor root that names no published
   revocation service uses the operator denylist as its revocation source. Every
-  source is read at the time of the check (a leaked key passes until it is
-  listed; lists are not instantaneous). Check the challenge, hardware security
-  level, generated key properties, app identity, locked device and verified
+  source is read at the time of the check: a leaked key passes until it is
+  listed, lists are not instantaneous, and the denylist proves only that this
+  operator had not listed the chain, not comprehensive vendor revocation or a
+  bounded detection window. Check the challenge, hardware security level,
+  generated key properties, app identity, locked device and verified
   vendor boot; record the patch levels against the policy floor. Reject software
   keys, unlocked or unverified boot evidence, identity mismatches and roots
   outside the set. Keep TEE and StrongBox evidence distinct; the attested level
   chooses the kind. The adapter generates the key in StrongBox where the phone
   declares it and in the TEE otherwise, falling back to the TEE only when
   StrongBox definitively fails before creating a key; there is no policy-driven
-  selector or refusal plan. These fields describe the attested event, not a live
-  runtime examination of every payment. See the [AOSP attestation
-  contract](https://source.android.com/docs/security/features/keystore/attestation).
+  selector or refusal plan. The fallback never reuses the failed slot's
+  generation grant, alias or challenge: that slot is abandoned locally (§3.2),
+  and a fresh enrollment with a new challenge and slot carries forward only the
+  hardware-choice hint to generate in the TEE. These fields describe the
+  attested event, not a live runtime examination of every payment. See the
+  [AOSP attestation
+  contract](https://source.android.com/docs/security/features/keystore/attestation)
+  and [Google's verification
+  procedure](https://developer.android.com/privacy-and-security/security-key-attestation).
 - **iPhone:** create the payment key in the Secure Enclave. Verify App Attest
   and bind its fresh assertion transcript to that payment public key and the
   enrollment challenge. Reject when App Attest is unsupported, the attestation
@@ -278,14 +298,41 @@ compromise is absent. A detected compromise is outside the security assumption
 committed payments or reverse a Send. Preserve custody, delivery bytes and
 recovery access.
 
-Residual risk, stated plainly: a compromised phone holding a leaked factory
-attestation key that is not yet listed can forge TEE evidence for a software key
-and double-spend up to its offline balance until the key is listed. The
-mandatory revocation check at every E1 and the operator denylist bound that
-window; remotely provisioned attestation keys are not exposed to factory key
-leaks. An operator's online service may also decline new Activate and Load
-requests for a wallet whose retained E1 chain is later listed. It never refuses
-Unload and never affects offline acceptance or committed payments.
+Residual risk, stated plainly. Hardware custody holds only while the
+attestation authority, the secure hardware and the OS are trustworthy.
+Nonexportability keeps the payment key inside the phone; it does not prevent
+forks. Anti-forking still rests on the released wallet, its exclusive ownership
+of the wallet state, the durable markers and stock-OS storage isolation (§§2.1,
+4). On iPhone, App Attest binds the payment key the app supplies but does not
+independently attest that key's Secure Enclave provenance.
+
+Dropping Play Integrity gives up a fresh Google device-integrity verdict bound
+to E1 and the payment key, with its root, hook and emulator detection and,
+where configured, its recognized-distribution, licensing and STRONG-integrity
+patch signals. This revision also removes the earlier enrollment refusal on a
+positive local root or jailbreak check. The rule therefore admits cases the
+earlier rule rejected whenever the Google verdict or the local check caught
+them: hardware evidence forged with a leaked attestation key that neither its
+revocation source nor the operator denylist yet lists, and a runtime compromise
+on a phone whose recorded boot evidence is Verified. Whoever holds a cloned
+payment key and wallet state can spend the same balance on several forks, so the
+aggregate loss can exceed that wallet's balance. Listing a key or chain stops
+later E1 admission and, at the operator service, later Activate and Load; it
+does not end offline spending of value already issued. Remotely provisioned
+attestation keys are not exposed to factory key leaks. KYC, quotas and caps
+(§7) limit exposure where they are enabled; they are off by default and do not
+restore cryptographic anti-forking.
+
+The operator's online service must refuse new Activate and Load requests for a
+wallet whose retained E1 chain contains a certificate that its root's
+revocation source or the operator denylist later lists. It never refuses Unload
+and never affects offline acceptance or committed payments. This refusal is
+enforced only at the operator service, which holds the retained chain: the
+ledger's activation and load instructions do not consult retained attestation
+chains, revocation sources or the denylist, and this revision adds no such
+validator-facing check (§9.1). The refusal is ledger-wide only where an
+existing mandatory authorization gate makes the operator service unavoidable
+for that operation.
 
 Renewal, where the attestation lease is enabled, is not a repeat of enrollment:
 platforms attest a key only when it is generated. A renewal carries three
@@ -332,31 +379,53 @@ have distinct [backup and passcode behavior](https://support.apple.com/guide/sec
 
 ### 2.4 E1 outcomes and refusal reasons
 
-Every E5 verification ends in exactly one outcome. The issuer retains it with the
-exchange and returns it unchanged on every retry:
+An E5 exchange has exactly two terminal outcomes, Issued and Refused. Only they
+are immutable: the issuer retains the terminal outcome with the exchange and
+returns it unchanged on every retry. Unavailable and Unknown are recovery
+states, never terminal outcomes; neither is retained as the exchange's answer.
 
 - **Issued:** the E6 result with the signed credential (§2.2).
 - **Refused(reason):** exactly one reason from the closed table below. The E1
   challenge is consumed. Because the attestation binds that challenge, another
   attempt needs a new challenge, slot and key, after abandoning this one (§3.2).
-- **Unavailable:** a revocation source, the operator denylist, the eligibility
-  provider or issuer storage could not be read. Nothing is decided; the wallet
-  retries the exact retained E5 while E1 is live.
-- **Unknown:** the issuer claimed the exchange but holds no retained result;
-  recovery follows the [eligibility contract](kagemusha_enrollment_eligibility_v1.md)
-  Inspect rules.
+- **Unavailable (retryable, before any effect):** a revocation source, the
+  operator denylist, the eligibility provider or issuer storage could not be
+  read before the issuer decided, and no effect has taken place: no Apple
+  counter advance, credential signature, quota allocation or E6 retention.
+  Nothing is decided or consumed. When the exchange is already claimed, the
+  issuer records the typed outage on that claim, and a retry of the exact
+  retained E5 while E1 is live resumes verification of the same claim, whose
+  first dispatch time stays the time checked against the challenge lifetime;
+  otherwise the retry is the first dispatch.
+- **Unknown (uncertain, after a possible effect):** the issuer claimed the
+  exchange and an effect may have taken place, but it holds no terminal outcome.
+  Recovery never repeats an effect: it does not verify again as a new first
+  attempt, consume the Apple counter again or sign a second credential. It
+  returns a terminal outcome that retained effect records establish (a retained
+  signed credential completes as Issued), and otherwise follows the
+  [eligibility contract](kagemusha_enrollment_eligibility_v1.md) Inspect rules.
+  The issuer treats an Unknown exchange as possibly issued: if the wallet
+  abandons it, the wallet uses the marker form (§3.2), and the exchange's quota
+  share stays reserved until that Abandonment's successful execution is
+  finalized.
+
+Each effect is recorded durably, atomically with the claim state that names it,
+before it can become visible. The Apple counter value that a claim consumes is
+stored with that claim when the counter advances, so a retry of the same claim
+reuses that record and never fails the counter check against its own earlier
+advance.
 
 | Code | Reason | Platform | Class | Cause |
 |---:|---|---|---|---|
 | 1 | KeyNotInSecureHardware | Android | Phone | The attestation or KeyMint security level is Software, the two levels differ, or attestation version 2 is not TEE. |
-| 2 | AttestationWithoutAppIdentity | Android | Phone | Attestation version 1 (Keymaster 2) has no application identity. |
+| 2 | AttestationWithoutAppIdentity | Android | Phone | The attestation carries no application identity: attestation version 1 (Keymaster 2), or a later attestation without `attestationApplicationId`. |
 | 3 | BootloaderUnlocked | Android | Phone | The RootOfTrust records an unlocked bootloader. |
 | 4 | BootNotVerified | Android | Phone | Boot state is not Verified, the verified-boot key is zero, or a KeyMint boot hash is not 32 nonzero bytes. |
-| 5 | UntrustedAttestationRoot | Both | Phone | The chain does not validate to a root of the policy's root set (Android) or to Apple's App Attestation root (Apple). |
+| 5 | UntrustedAttestationRoot | Both | Phone | The chain does not validate under its root's adapter profile to a root of the policy's root set (Android), including signature, order, constraint, critical-extension and validity failures, or does not validate to Apple's App Attestation root (Apple). |
 | 6 | AttestationRevoked | Android | Phone | A chain certificate is listed by its root's revocation source or by the operator denylist. |
 | 7 | AppIdentityMismatch | Both | App | The package, a signer, the App ID or the App Attest environment differs from the app policy. |
 | 8 | AppVersionBelowMinimum | Android | App | The attested package version is below the app policy minimum. |
-| 9 | EvidenceInvalid | Both | Attempt | The evidence is malformed or does not match this attempt: shape, challenge, attested key, key properties, authorization tags (including 405 or 600), App Attest nonce, key identifier, counter or key-binding assertion. |
+| 9 | EvidenceInvalid | Both | Attempt | The evidence is malformed or does not match this attempt: shape, challenge, attested key (the trusted attestation certificate's subject key is not the payment key), attestation extension placement, an undocumented version pair, a RootOfTrust whose DER shape differs from its version's schema, key properties, authorization tags (including 405 or 600), App Attest nonce, key identifier, counter or key-binding assertion. |
 | 10 | ChallengeExpired | Both | Attempt | E5 verification began after the E1 challenge lifetime. |
 | 11 | AccountNotApproved | Both | Account | The eligibility provider reports `NotApproved`. |
 | 12 | AccountFrozen | Both | Account | The eligibility provider reports `Frozen`. |
@@ -830,10 +899,29 @@ Bootstrap is selected, so it is never abandoned.
   under it again. No E5 can name this slot, because E5 carries the durable
   generation-zero marker, so no credential or ledger record names it and there
   is nothing to submit. `abandon()` reports this local form and returns no
-  ledger-control bytes. Today Native writes that record only for an expired
-  challenge or a key found without a marker, and `abandon()` refuses a slot
-  without a marker. The holder form is new Native work that the Native owner
-  reviews before it is implemented (§9.1).
+  ledger-control bytes. Before writing the record, local abandonment must:
+  1. authenticate the slot's selected pre-key originals (its intent and
+     selected enrollment scope);
+  2. establish, from durable custody it can read, that the slot has no
+     enrollment marker, retained E5, E6 or credential record, or initialized
+     state. Unavailable or uncertain storage, an unreadable record or a lost
+     marker never counts as "no marker": abandonment then reports
+     `Unavailable` and writes nothing;
+  3. hold exclusive ownership of the slot across the check and the write, so that
+     generation recovery, marker installation, E5 retention and Bootstrap
+     selection cannot run concurrently with it or after it;
+  4. leave the slot terminal: once the record is durable, every later
+     recovery path, including reconciliation, recovery of a generation reply
+     and a delayed platform generation result, returns `SlotAbandoned` before
+     any key probe and never adopts that key.
+
+  On Android API 26–30 the one-shot generation grant stays spent and a missing
+  lookup result stays unknown; the abandoned alias is never regenerated or
+  reused. Today Native writes the abandoned-slot record only for an expired
+  challenge or a key found without a marker, `abandon()` requires an intent
+  and always returns a frame, and reconciliation runs generation recovery
+  before it looks for the abandoned-slot record. The holder form is new Native
+  work that the Native owner reviews before it is implemented (§9.1).
 - **Marker (Native `Enrollment`: the generation-zero marker is still
   current).** This includes an issuer refusal and an issued credential whose
   Bootstrap was never selected. Abandonment commits the terminal marker with
@@ -853,12 +941,17 @@ Bootstrap from this custody. Ledger acceptance of an Abandonment matters only
 for the old `wallet_id`: it permanently disables activation and loads even
 against a restored or compromised copy, and it is the terminal evidence that
 releasing an unused quota allocation requires; that release does not erase
-historical quota usage. Only the marker form can hold such an allocation, and
-only after an issued credential. Until the issuer authenticates finalized
-inclusion of the Abandonment, the old `wallet_id`'s quota share stays reserved
-(§7), so with quota controls enabled the issuer allocates the new wallet's
-share from the remaining allowance. The new enrollment itself still starts at
-once; the no-marker form holds no allocation and has nothing to wait for.
+historical quota usage. Only the marker form can hold such an allocation: an
+issued credential, or a claimed E5 whose outcome is Unknown and so may have
+been issued (§2.4). The issuer keeps every issued or potentially issued
+allocation reserved (§7) until it authenticates finalized successful execution
+of that `wallet_id`'s Abandonment; inclusion of a failed execution releases
+nothing. With quota controls enabled, the issuer allocates the new wallet's
+share atomically from the remaining allowance, in the same durable step that
+records the allocation, so two enrollments can never both receive the last
+share. Starting an enrollment promises no available quota. The new enrollment
+itself still starts at once; the no-marker form holds no allocation and has
+nothing to wait for.
 
 ### 3.3 Stable offline verification
 
@@ -1142,7 +1235,16 @@ refuses the operation before commit with a typed `NotEnoughStorage` or
 `NotEnoughMemory` result, never a device verdict: nothing is debited or
 credited, the receipt or Payment stays deliverable, and the holder retries after
 freeing storage or memory. Proving that runs out of memory before commit is
-reported the same way and leaves the head unchanged. There is no phone-model
+reported the same way and leaves the head unchanged. A phone cannot always
+return that typed result: the OS may kill the app for memory (the Android
+low-memory killer, iOS jetsam) during proving or commit. That is ordinary
+process death (§1.2) and is recovered at the next app start: an operation
+whose Advance did not commit leaves the head unchanged and is reported as
+interrupted, with its receipt or Payment still deliverable; an operation whose
+Advance committed completes from its retained outcome. An OS kill is never a
+device verdict, a refusal or a reason to discard a selected outcome. The
+capacity bounds stay derived from the installed relation descriptors, with no
+artifact change. There is no phone-model
 list, device class, roster or published per-model budget; per-phone latency,
 memory and energy measurements are recorded as evidence (§8), never as an
 admission list. Never rely on platform background-execution time for
@@ -1579,28 +1681,48 @@ fallback beyond that.
 ### 9.1 Cutover sequencing
 
 Revision 2026-10-10 changes E1 app attestation and issuer policy, the
-wallet–issuer E5/E6 exchange and mobile Native packaging. Its admission changes
-alter no validator-facing ledger wire, ISI or state format, no wallet relation
-or circuit, no artifact producer and no verifier-pack, producer-inventory or
-transport format. The credential, 56-byte evidence record, enrollment challenge
-and Abandonment frame keep their layouts; the 32-byte policy and evidence
-digests they carry name the new preimages. No ledger instruction, validation
-rule or state decodes a policy frame or E5/E6 evidence. The one validation
-change, retiring fact bit 9 (step 4), is scheduled separately with its own
-precondition.
+wallet–issuer E5/E6 exchange, the signed client runtime and mobile Native
+packaging. It alters no validator-facing ledger wire, ISI or state format, no
+validation rule, no wallet relation or circuit, no artifact producer and no
+verifier-pack, producer-inventory or transport format. The credential, 56-byte
+evidence record, enrollment challenge and Abandonment frame keep their layouts;
+the 32-byte policy and evidence digests they carry name the new preimages. No
+ledger instruction, validation rule or state decodes a policy frame or E5/E6
+evidence. Fact bit 9 (`PLAY_INTEGRITY_SIGNAL`) stays defined in record
+validation and forbidden on Apple records. It is retired issuer output, zero in
+every newly issued credential, and a credential already issued with it stays
+valid. Removing it from either mask would reject those signed
+credentials, and renewal would not clear it, because a renewed credential keeps
+its historical enrollment evidence. That removal is not part of this design,
+and no compatibility decoder is needed.
 
-Until the cutover, the deployed contract of Iroha source `67728cc6f3` stays in
-force. That contract is bridge ABI 28; the signed v7 runtime with its
-`firstDeviceAuthentication` selection; and an issuer that requires a Play
-Integrity token and sets fact bit 9 on Android. Nothing in this revision is
-deployed piecemeal. The cutover is one coordinated change, and the release
-driver builds and releases it:
+The validator baseline is Iroha `ff7ec9457c`: the Taira validators run it, and
+the KAGEMUSHA wallet artifacts, verifier pack, producer inventory and artifact
+transport for that genesis are produced from it. Until the cutover, the contract
+that its code implements stays in force: bridge ABI 28; the signed v7 runtime
+with its `firstDeviceAuthentication` selection; and an issuer that requires a
+Play Integrity token and sets fact bit 9 on Android. The mobile baseline is the
+ABI 28 mobile Native that the release driver builds for the deployed apps. This
+document names no separate mobile source commit: if the release driver builds
+that Native from a commit other than `ff7ec9457c`, its signed build record names
+that commit as the mobile baseline. Among signed release objects, the cutover
+changes only the signed client runtime and the mobile Native. It neither
+changes nor re-signs the frozen verifier pack, producer inventory or artifact
+transport, and the signed runtime change is released separately from them.
+
+Nothing in this revision is deployed piecemeal. The cutover is one coordinated
+change, and the release driver builds and releases it:
 
 1. **Bridge ABI 28 → 29.** `connect_norito_bridge` deletes the first-device
    authentication-key C/JNI exports (`first_device_auth_key_v1.rs` and its JNI
    adapter), its enrollment `prepare_request` takes the Android chain only, and
-   the runtime capacity results of §5.3 become typed. The export inventory
-   changes accordingly. ABI 29 artifacts refuse ABI 28 callers; there is no
+   the runtime capacity results of §5.3 become typed. Abandonment returns an
+   explicit result, `LocalAbandoned` for the §3.2 no-marker form or
+   `Abandonment(frame)` with the exact retained frame for the marker form;
+   today Abandon always returns frame bytes. Refusals carry the closed §2.4
+   codes. The first-device authentication and Play Integrity token inputs leave
+   every startup consumer together (step 2). The export inventory changes
+   accordingly. ABI 29 artifacts refuse ABI 28 callers; there is no
    compatibility export.
 2. **`firstDeviceAuthentication` is removed everywhere at once.** That selection
    carries a Google OAuth client, a Play Integrity cloud project and a second
@@ -1618,30 +1740,82 @@ driver builds and releases it:
    with no Play Integrity token or hardware selector; the E5 `PlatformEvidenceV1`
    and E6 `IssuerEvidenceV1` Android arms carrying the chain only; the closed
    §2.4 refusal codes, exported by Native and relayed unchanged by BPNG Core and
-   the Kotlin and Swift SDKs; and an issuer that never sets fact bit 9. The
-   issuer owner selects the reviewed policy originals (the Google RSA and CA1 SPKI
-   pins, signer set, minimum version and patch floor; the Apple root and App ID)
-   and the operator denylist in this step. The Iroha READMEs that still describe
-   Play Integrity change with their code.
-4. **Fact bit 9 in record validation.** Removing `PLAY_INTEGRITY_SIGNAL` from the
-   Model's defined-facts and Apple-forbidden masks changes the credential
-   validation that every consumer, validators included, performs. It lands only
-   in this cutover's validator release, and only where no credential on that
-   ledger carries bit 9: either none was issued under the deployed issuer, or the
-   cutover resets that network's KAGEMUSHA state (a testnet reset is its cutover,
-   §9). Otherwise bit 9 stays defined in validation, and unset by the issuer,
-   until those credentials are gone.
-5. **Mobile Native rebuild.** The release driver rebuilds Native for the three
+   the Kotlin and Swift SDKs; and an issuer that never sets fact bit 9.
+   - Native core replaces the old Model policy arms, the E5/E6 carriers, the
+     issuer worker configuration, the worker's Play Integrity fact requirement
+     and the hardware-selector coupling in the credential and pre-key owners,
+     and implements the §3.2 local abandonment safeguards and atomic quota
+     accounting.
+   - The Python verifier implements root and adapter-profile dispatch (the
+     `google` and `huawei` profiles), the rollback-protected operator denylist,
+     the revised chain checks of the enrollment policy, the exact chain-only
+     evidence digest, persisted typed refusals and the §2.4 recovery states.
+     Today the worker commits its claim before verification and then treats a
+     missing result as Unknown, so an outage cannot resume verification as
+     §2.4 requires.
+   - The Kotlin SDK replaces the token-taking `prepareRequest` and the
+     byte-only `abandon` with the chain-only request and the explicit
+     abandonment result. Its StrongBox fallback carries only the
+     hardware-choice hint into a freshly authorized slot under a new challenge
+     and never reuses the old generation grant (§2.2); today that hint
+     requires the same challenge.
+
+   The issuer owner selects the reviewed policy originals (the Google RSA and
+   CA1 SPKI pins, signer set, minimum version and patch floor; the Apple root and
+   App ID) and the operator denylist in this step. The `huawei` root row follows
+   as a data-only policy change once genuine chains qualify it (§2.2). The Iroha
+   READMEs that still describe Play Integrity change with their code.
+4. **Mobile Native rebuild.** The release driver rebuilds Native for the three
    Android ABIs and the Apple xcframework from the cutover source, and the
    Android and iOS apps bind ABI 29. No other work package builds, promotes or
    deploys mobile natives.
 
+**Cutover acceptance.** Each case below passes against the cutover source and
+is recorded in the [checklist](kagemusha_evidence_gate.md) with its chain or
+device provenance. These are acceptance tests of the cutover, not a release
+approval ceremony (§10):
+
+- Huawei: the `huawei` profile is qualified, and its root row admitted, only
+  when a genuine chain from a post-2019 Huawei phone without Google Mobile
+  Services enrolls under it. Until then no Huawei root is pinned, and a chain
+  to an unpinned root, Huawei's included, is refused with code 5.
+- Validity: an expired certificate in a remotely provisioned chain is refused,
+  including one that chains to the Google RSA root; an expired certificate in a
+  documented factory-provisioned chain under that root is accepted.
+- Injected extensions: a key description outside the trusted attestation
+  certificate or duplicated, a provisioning information extension that is not
+  immediately above the key description, and an unknown critical extension are
+  refused.
+- Denylist: a listed serial or SPKI is refused with code 6; a missing,
+  unreadable, malformed or rolled-back denylist is `Unavailable`, never an
+  empty list.
+- Signer and version boundaries: one and four signers, a signer outside the
+  set, the minimum package version and one below it, every documented
+  attestation and KeyMint version pair, an undocumented pair and attestation
+  version 1.
+- Outcomes: an outage before any effect resumes the same claim; an uncertain
+  effect is Unknown and never yields a second credential or a second Apple
+  counter consumption.
+- Abandonment: a delayed generation result after local abandonment; unavailable
+  or uncertain storage and a lost marker, which write no record; races between
+  local abandonment and Bootstrap selection, marker installation or generation
+  recovery; the API 26–30 spent grant and unknown lookup; concurrent
+  enrollments against the last quota share; and quota release only on finalized
+  successful Abandonment.
+- Capacity: `NotEnoughStorage` and `NotEnoughMemory` before commit, and an OS
+  kill during proving and during commit, each recovered at the next app start
+  as §5.3 states.
+- Frame cap: the maximal app and enrollment policies, encoded with the actual
+  Norito encoder, fit the 1,024-byte frame cap of the enrollment policy.
+
 Before Native implements this revision, the Native owner reviews it. The
 review covers the §3.2 no-marker abandonment, which is abandonment from Native
 progress `EnrollmentProgressV1::Pending` (local, no ledger bytes, a
-holder-abandoned reason); the rule that a fresh slot does not wait for ledger
-acceptance of an Abandonment; and the quota-share reservation that lasts until
-that acceptance. Until the review signs off, these rules are the proposed
+holder-abandoned reason), with its four safeguards and a reconciliation order
+that checks the abandoned-slot record before any generation recovery; the rule
+that a fresh slot does not wait for ledger acceptance of an Abandonment; and the
+reservation of every issued or potentially issued quota share until finalized
+successful Abandonment. Until the review signs off, these rules are the proposed
 design and no Native code implements them.
 
 ## 10. Goals and execution order
@@ -1716,7 +1890,11 @@ genuine multi-hop proofs and physical carriers. It also covers:
 - a σ successor root that differs from the authenticated store, a stale native
   store against the head roots, and a receipt that fails self-verification;
 - crash and restore between commit and fold, and fold-witness loss;
-- duplicate delivery during a σ_recv re-prove.
+- duplicate delivery during a σ_recv re-prove;
+- the §9.1 cutover acceptance cases: E1 admission under each adapter profile,
+  denylist failures, the §2.4 recovery states, local abandonment races and
+  storage uncertainty, quota reservation, and capacity refusals with OS-kill
+  recovery.
 
 Update the finite-state model to match this exchange; a model's provider
 assumption is not proof that a phone API implements it. Each result identifies
