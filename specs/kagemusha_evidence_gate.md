@@ -281,7 +281,14 @@ Expected invariants:
   unavailable or uncertain, or lose the marker: abandonment writes no record and
   reports `Unavailable`. Race local abandonment against Bootstrap selection,
   marker installation and generation recovery; exactly one wins. On Android API
-  26–30 the spent grant and an unknown lookup never regenerate the alias. With
+  26–30 the spent grant and an unknown lookup never regenerate the alias. Also
+  on API 26–30, crash after Slot publication and before intent creation, then
+  abandon locally: the authenticated pre-E2 evidence and readable absence of
+  intent, generation-attempt, marker, E5, E6 and initialized-state records
+  admit abandonment while the null lookup stays unknown; the slot reconciles to
+  `SlotAbandoned`, no grant is issued and the alias is never regenerated. Lose
+  a required Client, Accepted permit or Slot original, or make one of those
+  records unreadable: abandonment reports `Unavailable` and writes nothing. With
   quota controls enabled, race two enrollments for the last share; one fails,
   and the old share is released only on finalized successful Abandonment.
 - Time anchors: delay the issuer's response to near the response-age bound and

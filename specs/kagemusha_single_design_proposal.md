@@ -64,7 +64,7 @@ implementation returns an explicit error rather than reporting a payment complet
 | ID | Requirement | Design rule |
 |---|---|---|
 | R1 | Offline payments | After enrollment and loading, peers need only each other (§5). |
-| R2 | Mainstream phones | Every stock Android phone (with or without Google services, including Huawei, Honor, Meizu, Xiaomi and Samsung) and every iPhone whose payment key is generated in its TEE, StrongBox or Secure Enclave and passes the one §2.2 admission rule; no custom applet, model list or vendor online service. This is the design target, not a qualified claim: a vendor's own attestation root is admitted only after its adapter profile is implemented and qualified with genuine device chains (§2.2), and a phone whose attestation carries no application identity is refused for that evidence (§2.4). Actual platform evidence and measurements are recorded separately. Every operation runs a pre-commit runtime capacity check on the phone itself (§5.3). |
+| R2 | Mainstream phones | Every stock Android phone (with or without Google services, including Huawei, Honor, Meizu, Xiaomi and Samsung) and every iPhone whose payment key is generated in its TEE, StrongBox or Secure Enclave and passes the one §2.2 admission rule; no custom applet, model list, vendor user account, GMS/HMS or store-install dependency; enrollment and issuer-side vendor-service inputs are described in §2.2. This is the design target, not a qualified claim: a vendor's own attestation root is admitted only after its adapter profile is implemented and qualified with genuine device chains (§2.2), and a phone whose attestation carries no application identity is refused for that evidence (§2.4). Actual platform evidence and measurements are recorded separately. Every operation runs a pre-commit runtime capacity check on the phone itself (§5.3). |
 | R3 | Load from the ledger | A finalized reserve debit creates one wallet-bound ordinary Load receipt (§6). |
 | R4 | Final device-to-device value, unbounded hops | Send irreversibly transfers value to the bound receiver. Receive makes it immediately and durably owned by the receiver, subject only to the P4 burn exception (§3.2). The value becomes onward-spendable offline once the receiver's local lineage fold reaches its current head, which covers the crediting head; the fold needs no network, counterparty or approval. Only exact Payment replay can finish delivery; no refund or hop ceiling (§§3–5). |
 | R5 | Optional return online | Unload is the holder's choice, available from any folded head (§3.1). Remaining offline has no deadline unless an enabled regulatory control supplies one (§§6–7). |
@@ -918,18 +918,24 @@ slot's durable state. The names below are Native's slot statuses
 (`KagemushaWalletSlotStatusV1`). Two different Native names say Pending. The
 enrollment progress `EnrollmentProgressV1::Pending`, which Native reports for
 slot status `Empty` or `IntentOnly`, is the no-marker form below; "abandon from
-Pending" means that form. The slot status `Pending(marker)` is a selected head
+Pending" means that form. The same form covers a selected slot whose key lookup
+is unknown, which Native reports as `Unavailable` rather than as a progress
+value. The slot status `Pending(marker)` is a selected head
 waiting for its receipt, and Native reports it as progress `BootstrapSelected`:
 Bootstrap is selected, so it is never abandoned.
 
-- **No marker (Native `Empty` or `IntentOnly`, or an intent whose key is
-  unknown).** No enrollment marker exists. Either the slot was selected but no
-  key was generated under it (`Empty`, or `IntentOnly` with the key
-  definitively absent), or key generation was interrupted and the platform
-  cannot establish whether a key exists. The unknown case has no slot status of
-  its own: on Android API 26–30 a missing lookup result is unknown and the
-  one-shot generation grant is spent, so Native reconciliation of that slot
-  reports `Unavailable`, and the slot can neither continue nor adopt a key.
+- **No marker (Native `Empty` or `IntentOnly`, or a selected slot whose key
+  lookup is unknown).** No enrollment marker exists. Either the slot was
+  selected but no key was generated under it (`Empty`, or `IntentOnly` with the
+  key definitively absent), or the platform cannot establish whether a key
+  exists. The unknown case has no slot status of its own: on Android API 26–30 a
+  missing lookup result is unknown, so Native reconciliation of that slot
+  reports `Unavailable`. It arises in two windows. A selected pre-E2 slot has a
+  durable Slot original but no intent yet, because slot selection is durable
+  before E2 and before intent creation; reconciliation reaches `Empty` only
+  through a key probe, which on API 26–30 cannot report absence. An interrupted
+  generation after the intent has spent its one-shot generation grant, so that
+  slot can neither continue nor adopt a key.
   Abandonment is local: the provider durably writes the abandoned-slot record
   with a holder-abandoned reason. The slot then reconciles to `SlotAbandoned`
   without a key probe, and no key is ever generated, adopted or initialized
@@ -940,11 +946,18 @@ Bootstrap is selected, so it is never abandoned.
   1. authenticate the slot's retained pre-key Client, Accepted permit and Slot
      originals and their selected enrollment scope. Authenticate the intent
      when it is present or required (`IntentOnly`, and an intent whose key is
-     unknown): it must match the selected scope. A selected pre-E2 `Empty` slot
-     has no intent; for it, establish that the absence is legitimate (the
-     retained originals select the slot and its status is `Empty`) rather than
-     requiring an intent, which would exclude that form. A missing intent on
-     any other slot is a lost original and never counts as legitimate absence;
+     unknown after generation began): it must match the selected scope. A slot
+     selected before E2 has no intent. Its absent intent is legitimate when
+     authenticated durable pre-E2 phase and custody evidence establishes it:
+     the authenticated retained originals select the slot and place the attempt
+     before E2 and intent creation, and readable custody shows no intent,
+     generation-attempt record, enrollment marker, retained E5 or E6, or
+     initialized state. This evidence does not require a key-probe-derived
+     `Empty`, so it also covers the API 26–30 pre-E2 slot whose lookup is
+     unknown. A missing required original (the Client, Accepted permit or Slot,
+     or the intent of a slot whose retained originals or generation-attempt
+     record place it at or after intent creation) is a lost original, never
+     legitimate absence: abandonment reports `Unavailable` and writes nothing;
   2. establish, from durable custody it can read, that the slot has no
      enrollment marker, retained E5, E6 or credential record, or initialized
      state. Unavailable or uncertain storage, an unreadable record or a lost
@@ -958,13 +971,17 @@ Bootstrap is selected, so it is never abandoned.
      and a delayed platform generation result, returns `SlotAbandoned` before
      any key probe and never adopts that key.
 
-  On Android API 26–30 the one-shot generation grant stays spent and a missing
-  lookup result stays unknown; the abandoned alias is never regenerated or
+  On Android API 26–30 local abandonment, in either unknown window, never
+  turns a missing lookup result into absence: it stays unknown, a spent
+  one-shot generation grant stays spent, no generation grant is ever issued
+  for the abandoned slot, and the abandoned alias is never regenerated or
   reused. Today Native writes the abandoned-slot record only for an expired
   challenge or a key found without a marker, `abandon()` requires an intent
-  and always returns a frame, and reconciliation runs generation recovery
-  before it looks for the abandoned-slot record. The holder form is new Native
-  work that the Native owner reviews before it is implemented (§9.1).
+  and always returns a frame, reconciliation runs generation recovery before
+  it looks for the abandoned-slot record, and a selected slot without an intent
+  reaches `Empty` only through a key probe, which reports `Unavailable` on API
+  26–30. The holder form is new Native work that the Native owner reviews
+  before it is implemented (§9.1).
 - **Marker (Native `Enrollment`: the generation-zero marker is still
   current).** This includes an issuer refusal and an issued credential whose
   Bootstrap was never selected. Abandonment commits the terminal marker with
@@ -1860,9 +1877,15 @@ approval ceremony (§10):
 - Abandonment: a delayed generation result after local abandonment; unavailable
   or uncertain storage and a lost marker, which write no record; races between
   local abandonment and Bootstrap selection, marker installation or generation
-  recovery; the API 26–30 spent grant and unknown lookup; concurrent
-  enrollments against the last quota share; and quota release only on finalized
-  successful Abandonment.
+  recovery; the API 26–30 spent grant and unknown lookup; an API 26–30 crash
+  after Slot publication and before intent creation, which local abandonment
+  accepts from its authenticated pre-E2 evidence while the null lookup stays
+  unknown: the slot reconciles to `SlotAbandoned`, no grant is issued and the
+  alias is never regenerated, and the same window with a missing Client,
+  Accepted permit or Slot original, or an unreadable generation-attempt,
+  marker, E5, E6 or initialized-state record, reports `Unavailable` and writes
+  nothing; concurrent enrollments against the last quota share; and quota
+  release only on finalized successful Abandonment.
 - Capacity: `NotEnoughStorage` and `NotEnoughMemory` before commit, and an OS
   kill during proving and during commit, each recovered at the next app start
   as §5.3 states.
@@ -1871,8 +1894,10 @@ approval ceremony (§10):
 
 Before Native implements this revision, the Native owner reviews it. The
 review covers the §3.2 no-marker abandonment, which is abandonment from Native
-progress `EnrollmentProgressV1::Pending` (local, no ledger bytes, a
-holder-abandoned reason), with its four safeguards and a reconciliation order
+progress `EnrollmentProgressV1::Pending` or from a no-marker slot whose key
+lookup is unknown (local, no ledger bytes, a holder-abandoned reason), with its
+four safeguards, including authenticated pre-E2 evidence in place of a
+key-probe-derived `Empty`, and a reconciliation order
 that checks the abandoned-slot record before any generation recovery; the rule
 that a fresh slot does not wait for ledger acceptance of an Abandonment; and the
 reservation of every issued or potentially issued quota share until finalized
@@ -1955,7 +1980,8 @@ genuine multi-hop proofs and physical carriers. It also covers:
 - the §9.1 cutover acceptance cases: E1 admission under each adapter profile,
   rejected stale or altered denylist updates and unavailable active denylist
   custody, the §2.4 recovery states, withheld delivery after issuance, local
-  abandonment races and storage uncertainty, quota reservation, and capacity
+  abandonment races and storage uncertainty, the API 26–30 crash between Slot
+  publication and intent creation, quota reservation, and capacity
   refusals with OS-kill recovery.
 
 Update the finite-state model to match this exchange; a model's provider
