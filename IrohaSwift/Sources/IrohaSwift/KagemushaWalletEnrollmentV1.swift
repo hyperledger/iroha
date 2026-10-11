@@ -16,9 +16,28 @@ public struct KagemushaWalletEnrollmentTargetV1: Sendable {
 /// Enrollment progress; unavailable storage remains a thrown native error, never pending/absent.
 public enum KagemushaWalletEnrollmentProgressV1: Sendable {
   case evidence(KagemushaWalletEnrollmentTargetV1)
+  /// No enrollment marker yet. ``KagemushaWalletEnrollmentV1/abandon()`` takes the local form.
   case pending
   case abandoned
+  /// Bootstrap is selected: never abandon; recover this incarnation instead.
   case bootstrapSelected
+}
+/// Design §3.2 result of permanently abandoning an unused enrollment. Native chooses the form
+/// from the slot's durable state. Neither form is a ledger acknowledgement, and a fresh
+/// enrollment (new issuer challenge, slot and key) may start as soon as this returns: it never
+/// waits for ledger acceptance of an Abandonment.
+public enum KagemushaWalletEnrollmentAbandonmentV1: Equatable, Sendable {
+  /// No enrollment marker existed. Native durably recorded the holder-abandoned slot; no key is
+  /// ever generated, adopted or initialized under it again. No E5 names this slot, so there is
+  /// nothing to submit and the issuer holds no quota share for it.
+  case localAbandoned
+  /// The generation-zero marker was current, including after an issuer refusal or an issued
+  /// credential whose Bootstrap was never selected. Native committed the terminal marker and
+  /// returns the exact retained Abandonment frame signed by the payment key, byte for byte on
+  /// every retry. The holder's account submits it in an ordinary transaction and resubmits the
+  /// exact bytes until finalized inclusion is authenticated; finalized successful execution
+  /// permanently disables activation and loads for that wallet and releases its quota share.
+  case abandonment(Data)
 }
 /// Existing-account authorization or the exact already-retained network request.
 public enum KagemushaWalletEnrollmentRequestV1: Sendable {
@@ -61,6 +80,8 @@ struct KagemushaWalletEnrollmentInputV1 {
   }
 }
 /// Bounded sensitive originals. Authentication belongs exclusively to the installed Native owner.
+/// `attestationRootDER` is the exact selected Apple App Attestation root; Native checks it
+/// against the authenticated product selection.
 public struct KagemushaWalletEnrollmentSessionOriginalsV1: Sendable, CustomStringConvertible {
   public var description: String { "KagemushaWalletEnrollmentSessionOriginalsV1(originals=[REDACTED])" }
   let originals: [Data]
@@ -108,7 +129,7 @@ public final class KagemushaWalletEnrollmentV1: KagemushaWalletCleanupResourceV1
     case 6: expected = [25]
     case 7: expected = [26]
     case 9: expected = [18]
-    case 10: expected = [28]
+    case 10: expected = [28, 58]
     case 13: expected = [38]
     case 14,15,17,19: expected = [39]
     case 16: expected = [20,24]
@@ -253,11 +274,20 @@ public final class KagemushaWalletEnrollmentV1: KagemushaWalletCleanupResourceV1
     try KagemushaWalletInstalledRuntimeV1.requireNoUnreleasedAdmissions()
     return KagemushaWalletInstalledRuntimeV1.adoptEnrolled(try loadRuntime())
   }
-  /// Permanently abandon the unused enrollment and return exact retained signed ledger bytes.
-  /// Native refuses after Bootstrap commits. This is not a ledger acknowledgement.
-  public func abandon() throws -> Data {
+  /// Permanently abandon the unused enrollment, for example after an E1 refusal or an
+  /// interruption that cannot resume. Native refuses once Bootstrap is selected. Unavailable or
+  /// uncertain storage is a thrown error that wrote nothing, never the local form.
+  public func abandon() throws -> KagemushaWalletEnrollmentAbandonmentV1 {
     lock.lock(); defer { lock.unlock() }
-    return try exact(KagemushaWalletEnrollmentInputV1(10),28)
+    return try Self.abandonment(call(KagemushaWalletEnrollmentInputV1(10)))
+  }
+  /// Exact projection of Native's Abandon result: kind 58 without bytes or kind 28 with the frame.
+  static func abandonment(_ reply: KagemushaWalletCallV1) throws -> KagemushaWalletEnrollmentAbandonmentV1 {
+    switch reply.status {
+    case 58 where reply.bytes.isEmpty: return .localAbandoned
+    case 28 where (1...1024).contains(reply.bytes.count): return .abandonment(Data([UInt8](reply.bytes)))
+    default: throw KagemushaWalletErrorV1.invalidNativeOutput
+    }
   }
   public func close() throws {
     lock.lock(); defer { lock.unlock() }

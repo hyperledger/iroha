@@ -110,7 +110,7 @@ def test_resealed_content_cannot_replace_an_original_join(tmp_path, template, ca
         elif mutation == "report": members["child-report.json"] += b"\n"
         elif mutation == "native_manifest":
             value = json.loads(originals["native.json"]); value["artifact_sha256"] = "d" * 64
-            raw = canonical_json(value); originals["native.json"] = members["inputs/native-abi28.json"] = raw; manifest["native_manifest"] = adapter.identity(raw)
+            raw = canonical_json(value); originals["native.json"] = members["inputs/native-abi29.json"] = raw; manifest["native_manifest"] = adapter.identity(raw)
         elif mutation == "runtime_bundle":
             originals["runtime.bundle"] += b"extra"; manifest["runtime_bundle"] = adapter.identity(originals["runtime.bundle"])
         elif mutation == "missing_role": originals.pop("idna.whl")

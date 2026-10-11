@@ -11,7 +11,8 @@ import org.junit.jupiter.api.Test
 /**
  * Pins the KAGEMUSHA source surface of the three published Kotlin SDK modules.
  *
- * Only the KAGEMUSHA wallet V1 wire, typed ordinary Activate/IssueLoad constructors, account originals, enrollment binding, P-256 codec,
+ * Only the KAGEMUSHA wallet V1 wire, typed ordinary Activate/IssueLoad constructors, account originals, enrollment binding,
+ * E1 policy originals and the closed E1 refusal table, P-256 codec,
  * Eligibility middleware, native installation/admission and operation owners, ledger and output
  * projections, platform adapter, and private native replies remain. The retired coordinator,
  * ordinary-runtime, device-lifecycle, probe, provider and
@@ -96,6 +97,13 @@ class OfflinePackageSurfaceV1Test {
             "core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/core/model/instructions/KagemushaWalletIssueLoadInstructionV1Test.kt",
             "$CORE_MAIN/KagemushaP256Codec.kt",
             "$CORE_MAIN/KagemushaWalletWireV1.kt",
+            "$CORE_MAIN/KagemushaWalletEnrollmentRefusalV1.kt",
+            "$CORE_MAIN/KagemushaWalletPolicyV1.kt",
+            "core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/offline/KagemushaWalletEnrollmentRefusalV1Test.kt",
+            "core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/offline/KagemushaWalletPolicyV1Test.kt",
+            "$WALLET/main/java/$WALLET_PACKAGE/KagemushaWalletEpochSyncV1.kt",
+            "$WALLET/test/kotlin/$WALLET_PACKAGE/KagemushaWalletEpochSyncV1Test.kt",
+            "$WALLET/test/kotlin/$WALLET_PACKAGE/KagemushaWalletLoadOriginalHostNativeV1Test.kt",
             "core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/offline/KagemushaWalletVectorsV1Test.kt",
             "$WALLET/main/java/$WALLET_PACKAGE/KagemushaWalletAndroidEnvironmentV1.kt",
             "$WALLET/main/java/$WALLET_PACKAGE/KagemushaWalletAndroidKeyStoreV1.kt",

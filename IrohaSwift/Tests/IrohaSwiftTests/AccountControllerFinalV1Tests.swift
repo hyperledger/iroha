@@ -39,7 +39,7 @@ final class AccountControllerFinalV1Tests: XCTestCase {
 
   func testNativeAdmissionRejectsMalformedCurvePoints() throws {
     XCTAssertTrue(NoritoNativeBridge.shared.isAccountAddressCodecAvailable,
-                  "The final SDK requires the real ABI-28 address validator.")
+                  "The final SDK requires the real ABI-29 address validator.")
     var cases: [(UInt8, Data)] = [
       (1, Data([1]) + Data(repeating: 0, count: 31)),
       (1, Data(repeating: 255, count: 32)),
@@ -183,7 +183,7 @@ final class AccountControllerFinalV1Tests: XCTestCase {
 
   func testCompactControllerReencodingUsesU16CountAcrossByteBoundary() throws {
     XCTAssertTrue(NoritoNativeBridge.shared.isAccountAddressCodecAvailable,
-                  "The count regression requires the real ABI-28 address validator.")
+                  "The count regression requires the real ABI-29 address validator.")
     let publicKeys = try keys(256)
     for count in [1, 2, 255, 256] {
       let members = publicKeys.prefix(count).map { ($0, UInt16(1)) }
@@ -201,7 +201,7 @@ final class AccountControllerFinalV1Tests: XCTestCase {
 
   func testCompactControllerRejectsEmptyOversizedAndTruncatedMemberCounts() {
     XCTAssertTrue(NoritoNativeBridge.shared.isAccountAddressCodecAvailable,
-                  "The final SDK requires the real ABI-28 address validator.")
+                  "The final SDK requires the real ABI-29 address validator.")
     for count: UInt64 in [0, 65_535, 65_536, UInt64.max] {
       var members = CompactNoritoWriter()
       members.writeUInt64LE(count)

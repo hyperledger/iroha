@@ -2114,7 +2114,7 @@ printf '%s\n' \
   'if [[ "${1:-}" == "-I" && "${2:-}" == "-c" ]]; then' \
   '  case "${3:-}" in *"version(\"maturin\")"*) python_invocation_kind=probe:maturin-version ;; *) python_invocation_kind=probe:python-version ;; esac' \
   'elif [[ "${1:-}" == "-I" && "${2:-}" == "--version" ]]; then python_invocation_kind=probe:python-version-output' \
-  'elif [[ "${1:-}" == "-I" && "${2:-}" == "-S" && "${3:-}" == */check_native_sdk_artifact.py ]]; then python_invocation_kind=abi28-checker' \
+  'elif [[ "${1:-}" == "-I" && "${2:-}" == "-S" && "${3:-}" == */check_native_sdk_artifact.py ]]; then python_invocation_kind=abi29-checker' \
   'elif [[ "${1:-}" == "-I" && "${2:-}" == "-B" && "${3:-}" == */verify_privacy_python_wheel.py ]]; then python_invocation_kind=verifier' \
   'elif [[ "${1:-}" == "-I" && "${2:-}" == "-B" && "${3:-}" == */python_native_source_delivery.py ]]; then python_invocation_kind=source-pin' \
   'elif [[ "${1:-}" == "-I" && "${2:-}" == "-B" && "${3:-}" == "-m" ]]; then python_invocation_kind="module:${4:-}"' \
@@ -2176,11 +2176,11 @@ printf '%s\n' \
   '  manifest=""' \
   '  previous=""' \
   '  for argument in "$@"; do if [[ "${previous}" == "--manifest" ]]; then manifest="${argument}"; fi; previous="${argument}"; done' \
-  '  [[ -n "${manifest}" ]] || { echo "ABI28 checker did not receive a manifest" >&2; exit 121; }' \
+  '  [[ -n "${manifest}" ]] || { echo "ABI29 checker did not receive a manifest" >&2; exit 121; }' \
   '  case "${action}" in' \
   '    record) printf "%s\n" "{\"fake\":true}" >"${manifest}" ;;' \
-  '    verify) [[ -f "${manifest}" ]] || { echo "ABI28 manifest is unavailable" >&2; exit 122; } ;;' \
-  '    *) echo "unexpected ABI28 checker action" >&2; exit 123 ;;' \
+  '    verify) [[ -f "${manifest}" ]] || { echo "ABI29 manifest is unavailable" >&2; exit 122; } ;;' \
+  '    *) echo "unexpected ABI29 checker action" >&2; exit 123 ;;' \
   '  esac' \
   '  exit 0' \
   'fi' \
@@ -3933,10 +3933,10 @@ expected_kinds = [
     "verifier",
     "module:pip",
     "verifier",
-    "abi28-checker",
-    "abi28-checker",
+    "abi29-checker",
+    "abi29-checker",
     "module:pytest",
-    "abi28-checker",
+    "abi29-checker",
 ]
 if [group["kind"] for group in groups] != expected_kinds:
     raise SystemExit(
@@ -4122,9 +4122,9 @@ record = arguments(10)
 first_verify = arguments(11)
 final_verify = arguments(13)
 if record[:4] != ["-I", "-S", str(checker), "record"]:
-    raise SystemExit(f"ABI28 record transcript drifted: {record!r}")
+    raise SystemExit(f"ABI29 record transcript drifted: {record!r}")
 if "--manifest" not in record or "--artifact" not in record:
-    raise SystemExit("ABI28 record omitted its manifest or artifact binding")
+    raise SystemExit("ABI29 record omitted its manifest or artifact binding")
 manifest = record[record.index("--manifest") + 1]
 artifact = record[record.index("--artifact") + 1]
 expected_verify = [
@@ -4142,7 +4142,7 @@ expected_verify = [
     str(venv / "bin/python"),
 ]
 if first_verify != expected_verify or final_verify != expected_verify:
-    raise SystemExit("ABI28 verification transcript drifted")
+    raise SystemExit("ABI29 verification transcript drifted")
 
 if arguments(12) != [
     "-I",

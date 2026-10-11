@@ -10,7 +10,8 @@ pub struct WalletResult {
     /// 6 idle, 7 caught up, 8 checkpoint, 9 folded, 10 CreditStatus, 11 preparing;
     /// setup only: 12 original, 13 owned time challenge, 14 time exchange retained.
     /// Open: 15 account challenge,16 admitted handle;17 retained Activation.
-    /// Enrollment18..28 are typed challenge/evidence/retained-original/runtime statuses.
+    /// Enrollment18..28 are typed challenge/evidence/retained-original/runtime statuses;
+    /// 58 is a local no-marker enrollment abandonment (nothing to submit).
     /// CloseLoads30; FeeClaim31/absent32; selected ledger tip33/absent34; fee payout acknowledged35.
     /// FeeClaim transport36; enrollment selection37/Apple originals38/custody acknowledgement39.
     /// Ledger instruction40/Unload confirmation42; retired result kinds41/43 are rejected.
@@ -29,7 +30,8 @@ pub struct WalletResult {
     pub sequence_low: u64,
     /// High 64 bits of the sequence.
     pub sequence_high: u64,
-    /// Checkpoint ordinal; for not-performed: 0 stale head, 1 capacity, 2 invalid.
+    /// Checkpoint ordinal; for not-performed: 0 stale head, 2 invalid. A storage or memory
+    /// shortfall is the typed failure `NOT_ENOUGH_STORAGE` (-12) or `NOT_ENOUGH_MEMORY` (-14).
     pub detail: u32,
     /// Canonical result bytes; null for an empty result. Release with `connect_norito_free`.
     pub bytes: *mut u8,
@@ -1169,7 +1171,7 @@ pub struct WalletEnrollmentItem {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct WalletEnrollmentRequest {
-    /// 0 begin(E1/account/asset),1 authorize(signature),2 status,3 Android(token+chain),
+    /// 0 begin(E1/account/asset),1 authorize(signature),2 status,3 Android(`KeyMint` chain only),
     /// 4 Apple(keyid/attestation/assertion),5 retain E5(signature),6 E6(result),7 load runtime,8 original open from retained E5/E6.
     pub selector: u32,
     /// First exact original according to selector.
@@ -1192,6 +1194,8 @@ pub struct WalletEnrollmentRequest {
 /// Drive original enrollment under a native-provisioned exclusive owner.
 /// Results18 local challenge32,19 target161(slot32,key65,challenge32,binding32),20 pending,
 /// 21 abandoned,22 Bootstrap selected,23 E5 challenge32,24 exact E5,25 exact E6,26 runtime ready.
+/// Abandon10 returns 58 for the local no-marker form (nothing to submit) or 28 with the exact
+/// retained signed Abandonment frame for the marker form.
 /// The same opaque runtime handle is returned in sequence. E6 does not imply ledger activation.
 /// # Safety
 /// Request and each bounded item/input must be readable; output writable and unallocated.
@@ -1246,4 +1250,20 @@ pub unsafe extern "C" fn connect_norito_kagemusha_wallet_enrollment_v1(
             enrollment::call(runtime, action)
         })
     }
+}
+/// Holder class of one relayed closed E1 refusal code (design §2.4): 1 Phone, 2 App,
+/// 3 Attempt, 4 Account. `android` is 1 for Android evidence and 0 for Apple evidence. Zero,
+/// unknown and platform-inapplicable codes, and any other `android` value, return `INVALID`.
+/// Pure table lookup: no handle, state, allocation, I/O or admission verdict.
+#[unsafe(no_mangle)]
+pub extern "C" fn connect_norito_kagemusha_wallet_enrollment_refusal_v1(
+    code: u16,
+    android: u8,
+) -> i32 {
+    let android = match android {
+        0 => false,
+        1 => true,
+        _ => return INVALID,
+    };
+    enrollment::refusal_class(code, android).unwrap_or_else(|failure| failure.status)
 }

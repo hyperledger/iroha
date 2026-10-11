@@ -22,7 +22,7 @@ public enum PrivacyProtocolIdV1 : uint
     PqMaspStarkV1 = 11,
 }
 
-/// <summary>Stable ABI-28 result of validating one typed local compiled-profile catalog.</summary>
+/// <summary>Stable ABI-29 result of validating one typed local compiled-profile catalog.</summary>
 public enum PrivacyCompiledProfileCatalogValidationStatusV1
 {
     Valid = 0,
@@ -36,7 +36,7 @@ public enum PrivacyCompiledProfileCatalogValidationStatusV1
     InvalidCatalog = 8,
 }
 
-/// <summary>Stable ABI-28 result of validating the Rust-derived exact-12 fixture bundle.</summary>
+/// <summary>Stable ABI-29 result of validating the Rust-derived exact-12 fixture bundle.</summary>
 public enum PrivacyExact12FixtureValidationStatusV1
 {
     Valid = 0,
@@ -219,7 +219,7 @@ public static class PrivacyNative
     public const int PrivacyCompiledProfileCatalogArchiveMaxBytes = 256 * 1024;
     public const int PrivacyExact12FixtureBundleMaxBytes =
         PrivacyExact12FixtureCodecV1.MaxArchiveBytes;
-    public const uint RequiredBridgeAbiVersion = 28;
+    public const uint RequiredBridgeAbiVersion = 29;
     private const string LibraryName = "connect_norito_bridge";
     private static readonly bool Available = DetectAvailability();
     private delegate int NativeArchiveQuery(out IntPtr output, out UIntPtr outputLength);

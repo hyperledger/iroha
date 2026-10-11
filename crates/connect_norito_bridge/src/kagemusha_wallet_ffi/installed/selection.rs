@@ -266,6 +266,25 @@ fn raw(map: &Map, key: &str, maximum: usize) -> Result<Vec<u8>> {
     }
     Ok(bytes)
 }
+/// The Apple App Attestation root pin of an Apple policy. Android policies pin roots by SPKI
+/// in their root set and select no root DER original.
+pub(super) fn apple_root_pin(policy: &KagemushaWalletEnrollmentPolicyV1) -> Result<[u8; 32]> {
+    match &policy.platform {
+        KagemushaWalletEnrollmentPlatformV1::Apple {
+            attestation_root_sha256,
+        } => Ok(*attestation_root_sha256),
+        KagemushaWalletEnrollmentPlatformV1::Android { .. } => Err(invalid()),
+    }
+}
+/// Unknown and unqualified vendor adapter identifiers fail configuration (policy spec).
+pub(super) fn require_qualified_adapters(
+    platform: &KagemushaWalletEnrollmentPlatformV1,
+) -> Result<()> {
+    iroha_core_zk::kagemusha_wallet_enrollment_v1::issuer_worker::require_qualified_android_adapters_v1(
+        platform,
+    )
+    .map_err(|_| invalid())
+}
 fn signed_app(trust: &RuntimeTrust, manifest: &[u8], envelope: &[u8]) -> Result<Value> {
     bounded(manifest, APP_MANIFEST_MAX)?;
     let (schema, domain, signature_field, encoding) = match trust.authority {
@@ -342,44 +361,6 @@ fn signed_app(trust: &RuntimeTrust, manifest: &[u8], envelope: &[u8]) -> Result<
         }
     };
     Ok(manifest)
-}
-
-// This public selection is signed DATA; admission still authenticates the complete originals.
-fn first_device_authentication(app: &Map, expected_schema: &str) -> Result<()> {
-    let selection = exact(
-        field(app, "firstDeviceAuthentication")?,
-        &[
-            "schema",
-            "googleOAuthClientId",
-            "googleOAuthIssuer",
-            "integrityCloudProjectNumber",
-            "originalAuthPolicySha256",
-            "verifierConfigurationSha256",
-            "googlePolicySha256",
-        ],
-    )?;
-    let client = text(selection, "googleOAuthClientId")?;
-    if text(selection, "schema")? != expected_schema
-        || !(1..=1024).contains(&client.len())
-        || !client.bytes().all(|byte| (b'!'..=b'~').contains(&byte))
-        || !matches!(
-            text(selection, "googleOAuthIssuer")?,
-            "accounts.google.com" | "https://accounts.google.com"
-        )
-        || !field(selection, "integrityCloudProjectNumber")?
-            .as_u64()
-            .is_some_and(|value| (1..=9_007_199_254_740_991).contains(&value))
-    {
-        return Err(invalid());
-    }
-    for name in [
-        "originalAuthPolicySha256",
-        "verifierConfigurationSha256",
-        "googlePolicySha256",
-    ] {
-        sha(text(selection, name)?)?;
-    }
-    Ok(())
 }
 
 impl std::ops::Deref for Selection {
@@ -603,7 +584,11 @@ impl Selection {
             ];
             if trust.authority == RuntimeAuthority::BpngTairaV7 {
                 fields.push("verifier_configuration_path");
-                fields.push("attestation_root_der_base64");
+                // Android roots are pinned by SPKI in the policy and a KeyMint chain carries
+                // its own root; only the Apple App Attestation root is a selected DER original.
+                if name == "apple" {
+                    fields.push("attestation_root_der_base64");
+                }
             }
             let platform = exact(field(runtime, name)?, &fields)?;
             if trust.authority == RuntimeAuthority::BpngTairaV7
@@ -624,18 +609,12 @@ impl Selection {
                 KagemushaWalletEnrollmentPolicyV1::decode_canonical(&original, &scheme.scheme_id())
                     .map_err(|_| invalid())?;
             enrollment.validate_for_app(&app).map_err(|_| invalid())?;
-            if trust.authority == RuntimeAuthority::BpngTairaV7 {
+            // A policy naming an unimplemented or unqualified vendor adapter fails
+            // configuration here, before any session or challenge can select it.
+            require_qualified_adapters(&enrollment.platform)?;
+            if trust.authority == RuntimeAuthority::BpngTairaV7 && name == "apple" {
                 let root = raw(platform, "attestation_root_der_base64", 16_384)?;
-                let expected = match enrollment.platform {
-                    KagemushaWalletEnrollmentPlatformV1::Android {
-                        attestation_root_sha256,
-                        ..
-                    }
-                    | KagemushaWalletEnrollmentPlatformV1::Apple {
-                        attestation_root_sha256,
-                    } => attestation_root_sha256,
-                };
-                if BlobV1::of(&root).sha256 != expected {
+                if BlobV1::of(&root).sha256 != apple_root_pin(&enrollment)? {
                     return Err(invalid());
                 }
             }
@@ -646,7 +625,7 @@ impl Selection {
                 || Some(enrollment.challenge_lifetime_ms)
                     != field(runtime, "challenge_lifetime_ms")?.as_u64()
                 || !matches!(
-                    (name, enrollment.platform),
+                    (name, &enrollment.platform),
                     (
                         "android",
                         KagemushaWalletEnrollmentPlatformV1::Android { .. }
@@ -670,28 +649,31 @@ impl Selection {
                 "irohaBuildSha256",
             ],
         )?;
-        let consensus = exact(
-            field(app, "consensus")?,
-            &[
-                "mode",
-                "protocolVersion",
-                "networkId",
-                "genesisBlockHash",
-                "signedGenesisSha256",
-                "genesisPublicKey",
-                "finalityVerifierSha256",
-                "validators",
-                "checkpointSha256",
-                "checkpointHeight",
-                "checkpointContextId",
-            ],
-        )?;
+        let mut consensus_fields = vec![
+            "mode",
+            "protocolVersion",
+            "networkId",
+            "genesisBlockHash",
+            "signedGenesisSha256",
+            "genesisPublicKey",
+            "validators",
+            "checkpointSha256",
+            "checkpointHeight",
+            "checkpointContextId",
+        ];
+        // BPNG carries no finality-verifier pin: Native verifies finality itself from the
+        // authenticated genesis roster, and Core's finality path reads no such pin. The CBSI
+        // release format keeps its signed field as unread DATA.
+        if trust.authority == RuntimeAuthority::CbsiReleaseV1 {
+            consensus_fields.push("finalityVerifierSha256");
+        }
+        let consensus = exact(field(app, "consensus")?, &consensus_fields)?;
         sha(text(consensus, "signedGenesisSha256")?)?;
         sha(text(consensus, "genesisBlockHash")?)?;
-        sha(text(consensus, "finalityVerifierSha256")?)?;
         if trust.authority == RuntimeAuthority::BpngTairaV7 {
             bpng::checkpoint(consensus)?;
         } else {
+            sha(text(consensus, "finalityVerifierSha256")?)?;
             sha(text(consensus, "checkpointSha256")?)?;
             sha(text(consensus, "checkpointContextId")?)?;
             if field(consensus, "checkpointHeight")?
@@ -807,7 +789,6 @@ impl Selection {
             } => session::authorities(
                 field(app, "fiSessionEnrollment")?,
                 service_release_scope,
-                &android.1,
                 &apple.1,
             )?,
             ApplicationBinding::BpngTairaV7 { .. } => Vec::new(),
@@ -817,18 +798,11 @@ impl Selection {
             ApplicationBinding::BpngTairaV7 { .. } => Some(session::bpng_authority(
                 field(runtime, "enrollment_session")?,
                 input.app_manifest,
-                [
-                    raw(
-                        object(field(runtime, "android")?)?,
-                        "attestation_root_der_base64",
-                        16_384,
-                    )?,
-                    raw(
-                        object(field(runtime, "apple")?)?,
-                        "attestation_root_der_base64",
-                        16_384,
-                    )?,
-                ],
+                raw(
+                    object(field(runtime, "apple")?)?,
+                    "attestation_root_der_base64",
+                    16_384,
+                )?,
             )?),
             ApplicationBinding::CbsiReleaseV1 { .. } => None,
             ApplicationBinding::ApplicationReleaseV1 { .. } => return Err(invalid()),

@@ -4,6 +4,11 @@ Initialization is an operator installation action for a genuinely new store. It 
 inferred from missing storage by a serving verifier. The durable generation original is
 created first; an interrupted initialization remains unavailable and cannot silently reset
 an old register. Privileged rollback of the whole directory remains outside this primitive.
+
+A claimed attempt records its first dispatch time and exactly one outcome state: in flight
+(NULL, unknown after any interruption), ``unavailable`` (a typed outage before any effect,
+resumable while E1 is live), ``evidence`` (the retained verified projection) or ``refused``
+(one closed refusal code). Only ``evidence`` and ``refused`` are terminal.
 """
 from contextlib import closing
 import os
@@ -15,7 +20,7 @@ from .attestation import DurableAppleAssertionCounterStore, VerificationUnavaila
 
 _DATABASE = "wallet-e1.sqlite3"
 _GENERATION = "wallet-e1.generation"
-_PREFIX = b"iroha.wallet-e1.store.v1\x00"
+_PREFIX = b"iroha.wallet-e1.store.v2\x00"
 _SCHEMA = {
     "apple_keys": """CREATE TABLE apple_keys (
         key_id BLOB PRIMARY KEY NOT NULL,
@@ -36,13 +41,23 @@ _SCHEMA = {
         key_binding BLOB UNIQUE,
         original BLOB,
         account_signature BLOB,
+        first_dispatch BLOB,
+        outcome TEXT,
         result BLOB,
+        refusal_code INTEGER,
         CHECK ((request_sha256 IS NULL AND key_binding IS NULL AND original IS NULL
-                AND account_signature IS NULL AND result IS NULL)
+                AND account_signature IS NULL AND first_dispatch IS NULL AND outcome IS NULL
+                AND result IS NULL AND refusal_code IS NULL)
             OR (request_sha256 IS NOT NULL AND length(request_sha256) = 32
                 AND key_binding IS NOT NULL AND length(key_binding) = 32
                 AND original IS NOT NULL
-                AND account_signature IS NOT NULL AND length(account_signature) = 64))
+                AND account_signature IS NOT NULL AND length(account_signature) = 64
+                AND first_dispatch IS NOT NULL AND length(first_dispatch) = 8)),
+        CHECK ((outcome IS NULL AND result IS NULL AND refusal_code IS NULL)
+            OR (outcome IS 'unavailable' AND result IS NULL AND refusal_code IS NULL)
+            OR (outcome IS 'evidence' AND result IS NOT NULL AND refusal_code IS NULL)
+            OR (outcome IS 'refused' AND result IS NULL AND typeof(refusal_code) IS 'integer'
+                AND refusal_code >= 1 AND refusal_code <= 10))
     )""",
     "wallet_e1_store": """CREATE TABLE wallet_e1_store (
         singleton INTEGER PRIMARY KEY NOT NULL CHECK(singleton = 1),

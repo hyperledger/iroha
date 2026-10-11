@@ -4,7 +4,7 @@ import XCTest
 
 final class KagemushaWalletEnrollmentV1Tests: XCTestCase {
   func testEnrollmentOutputBoundsAndShapesKeepPaymentLimit() throws {
-    for (status,count) in [(18,32),(19,161),(20,0),(21,0),(22,0),(23,32),(24,131072),(25,262144),(26,0),(27,16384),(28,1024)] {
+    for (status,count) in [(18,32),(19,161),(20,0),(21,0),(22,0),(23,32),(24,131072),(25,262144),(26,0),(27,16384),(28,1024),(58,0)] {
       let reply = try KagemushaWalletCallV1(status:Int32(status),sequenceLow:7,sequenceHigh:0,detail:0,bytes:Data(repeating:5,count:count))
       XCTAssertEqual(reply.bytes.count,count)
       XCTAssertThrowsError(try reply.completion())
@@ -85,7 +85,36 @@ final class KagemushaWalletEnrollmentV1Tests: XCTestCase {
     XCTAssertThrowsError(try reply.completion())
     XCTAssertThrowsError(try KagemushaWalletCallV1(status:39,sequenceLow:0,sequenceHigh:0,detail:0,bytes:Data()))
   }
-  func testAppleExplicitlyRefusesAndroidTeeProfile() {
-    XCTAssertNil(KagemushaWalletAppleKeyProfileV1(rawValue:3))
+  func testAbandonProjectsLocalAndMarkerFormsExactly() throws {
+    func reply(_ status: Int32, _ bytes: Data) throws -> KagemushaWalletCallV1 {
+      try KagemushaWalletCallV1(status:status,sequenceLow:7,sequenceHigh:0,detail:0,bytes:bytes)
+    }
+    XCTAssertEqual(try KagemushaWalletEnrollmentV1.abandonment(reply(58,Data())), .localAbandoned)
+    var frame = Data((0..<1024).map { UInt8(truncatingIfNeeded: $0 &+ 1) })
+    let marker = try KagemushaWalletEnrollmentV1.abandonment(reply(28,frame))
+    frame[0] = 0
+    guard case .abandonment(let retained) = marker else { return XCTFail("marker form expected") }
+    XCTAssertEqual(retained.count,1024)
+    XCTAssertEqual(retained.first,1)
+    XCTAssertEqual(try KagemushaWalletEnrollmentV1.abandonment(reply(28,Data([9]))), .abandonment(Data([9])))
+    // The local form never carries bytes, the marker form always carries 1...1024 bytes, and the
+    // native envelope binds both to the same enrollment owner.
+    XCTAssertThrowsError(try reply(58,Data([1])))
+    XCTAssertThrowsError(try reply(28,Data()))
+    XCTAssertThrowsError(try reply(28,Data(count:1025)))
+    XCTAssertThrowsError(try KagemushaWalletCallV1(status:58,sequenceLow:0,sequenceHigh:0,detail:0,bytes:Data()))
+    XCTAssertThrowsError(try KagemushaWalletCallV1(status:58,sequenceLow:7,sequenceHigh:1,detail:0,bytes:Data()))
+    XCTAssertThrowsError(try KagemushaWalletCallV1(status:58,sequenceLow:7,sequenceHigh:0,detail:1,bytes:Data()))
+    XCTAssertThrowsError(try KagemushaWalletCallV1(status:59,sequenceLow:7,sequenceHigh:0,detail:0,bytes:Data()))
+    XCTAssertThrowsError(try reply(58,Data()).completion())
+    // No other enrollment status is an abandonment result.
+    for status: Int32 in [20,21,22,26] {
+      XCTAssertThrowsError(try KagemushaWalletEnrollmentV1.abandonment(reply(status,Data())))
+    }
+    XCTAssertThrowsError(try KagemushaWalletEnrollmentV1.abandonment(reply(25,Data([1]))))
+  }
+  func testAppleHasOnlyTheSecureEnclaveProfile() {
+    XCTAssertEqual(KagemushaWalletAppleKeyProfileV1(rawValue:1), .secureElement)
+    for tag: UInt8 in [0,2,3,255] { XCTAssertNil(KagemushaWalletAppleKeyProfileV1(rawValue:tag)) }
   }
 }

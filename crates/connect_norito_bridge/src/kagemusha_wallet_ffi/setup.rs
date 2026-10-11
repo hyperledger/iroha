@@ -602,7 +602,7 @@ where
             Setup::ConfirmCustodyDeletion { token } => return self.confirm_deletion(token),
             Setup::ResumeCustodyDeletion => return self.resume_deletion(),
             Setup::DiscardCustodyDeletion { token } => return self.discard_deletion(token),
-            Setup::Bootstrap => return Ok(completion(Some(self.wallet.bootstrap()?))),
+            Setup::Bootstrap => return completion(Some(self.wallet.bootstrap()?)),
             Setup::CloseLoads { id } => {
                 return Ok(Response {
                     kind: 30,
@@ -622,7 +622,7 @@ where
                 self.wallet.request(id, &offer, fee.map(|value| *value))?
             }
             Setup::Credited(bytes) => {
-                return Ok(completion(Some(self.wallet.accept_credited(&bytes)?)));
+                return completion(Some(self.wallet.accept_credited(&bytes)?));
             }
             Setup::BoundCredited {
                 send_request,
@@ -639,13 +639,13 @@ where
                             kind: 11,
                             ..Response::default()
                         },
-                        state::RequestStatusV1::Outcome(value) => completion(Some(value)),
+                        state::RequestStatusV1::Outcome(value) => completion(Some(value))?,
                     }
                 } else {
                     completion(Some(
                         self.wallet
                             .accept_credited_for_send(&send_request, &original)?,
-                    ))
+                    ))?
                 });
             }
             Setup::CreditProjection { id, anchor, newer } => {

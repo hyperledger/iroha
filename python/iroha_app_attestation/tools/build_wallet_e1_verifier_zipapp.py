@@ -12,8 +12,7 @@ import zipfile
 from contextlib import ExitStack
 from pathlib import Path
 
-SOURCES = ("__init__.py", "attestation.py", "revocation.py", "play_integrity.py",
-           "google_oauth.py", "openssl_private_rsa.py", "native_time_interval.py",
+SOURCES = ("__init__.py", "attestation.py", "revocation.py", "native_time_interval.py",
            "wallet_policy.py", "wallet_enrollment.py", "wallet_enrollment_store.py",
            "wallet_enrollment_worker.py")
 

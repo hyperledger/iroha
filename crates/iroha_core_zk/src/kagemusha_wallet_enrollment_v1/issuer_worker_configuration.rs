@@ -8,15 +8,42 @@ use super::*;
 const CONFIG_SCHEMA: &str = "iroha.kagemusha.wallet-e1-verifier-config.v1";
 const MAX_CONFIG: usize = 128 * 1024;
 const MAX_ROOT: usize = 16 * 1024;
-const MAX_GOOGLE_POLICY: usize = 16 * 1024;
 
-/// Independently selected public Google decoder original and its exact SHA-256 pin.
-/// Construction alone grants no permission to use an OAuth credential or call Google.
-pub struct GoogleDecoderOriginalV1<'a> {
-    /// Exact governed public decoder JSON, never a mobile-supplied projection.
-    pub original: &'a [u8],
-    /// Pin supplied by the admitted operator selection, not inferred as approval.
-    pub sha256: [u8; 32],
+/// Android vendor adapter profiles this Native issuer knows, with their qualification state.
+/// A profile is reviewed issuer code (enrollment policy, Adapter profiles); it is qualified
+/// only by genuine device chains and enrollment tests, in a reviewed release. Every vendor
+/// adapter that is unknown here, or known but unqualified, fails issuer configuration.
+pub const ANDROID_VENDOR_ADAPTER_PROFILES_V1: &[(&str, bool)] = &[
+    // Implemented in the issuer verifier; no genuine post-2019 no-GMS chain has qualified it.
+    ("huawei", false),
+];
+
+/// Refuse a platform selection that names a vendor adapter which is not implemented and
+/// qualified. Google root families use the implemented `google` profile. This is a
+/// configuration failure before any E1 challenge can name the policy, never an E1 outcome;
+/// every owner that selects a policy (issuer configuration, Native installed selection and the
+/// operator service) calls it before creating a challenge.
+/// # Errors
+/// An unknown or unqualified vendor adapter identifier.
+pub fn require_qualified_android_adapters_v1(
+    platform: &KagemushaWalletEnrollmentPlatformV1,
+) -> Result<(), Error> {
+    let KagemushaWalletEnrollmentPlatformV1::Android { root_set, .. } = platform else {
+        return Ok(());
+    };
+    for root in root_set {
+        if let KagemushaWalletAndroidRootFamilyV1::Vendor { adapter_id } = &root.family {
+            match ANDROID_VENDOR_ADAPTER_PROFILES_V1
+                .iter()
+                .find(|(known, _)| *known == adapter_id.as_str())
+            {
+                Some((_, true)) => {}
+                Some((_, false)) => return Err(Error("unqualified Android adapter profile")),
+                None => return Err(Error("unknown Android adapter profile")),
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Public runtime locations already selected by the node's private process owner.
@@ -54,42 +81,50 @@ fn linux_path(value: &str) -> Result<(), Error> {
     Ok(())
 }
 
+fn root_projection(root: &KagemushaWalletAndroidRootV1) -> Value {
+    let source = match root.revocation_source {
+        KagemushaWalletRevocationSourceV1::GoogleAttestationStatus => "google_attestation_status",
+        KagemushaWalletRevocationSourceV1::OperatorDenylist => "operator_denylist",
+    };
+    let spki = hex::encode(root.spki_sha256);
+    match &root.family {
+        KagemushaWalletAndroidRootFamilyV1::GoogleRsa => norito::json!({
+            "family": "google_rsa", "spki_sha256": (spki), "revocation_source": (source),
+        }),
+        KagemushaWalletAndroidRootFamilyV1::GoogleCa1 => norito::json!({
+            "family": "google_ca1", "spki_sha256": (spki), "revocation_source": (source),
+        }),
+        KagemushaWalletAndroidRootFamilyV1::Vendor { adapter_id } => norito::json!({
+            "family": "vendor", "adapter_id": (adapter_id.clone()), "spki_sha256": (spki),
+            "revocation_source": (source),
+        }),
+    }
+}
+
 impl VerifierConfigurationV1 {
     /// Derive the sole private worker projection from selected policy and public originals.
-    /// Root and decoder pins are checked before encoding; the actual chain, Google decoder
-    /// principal and runtime originals must still pass the private worker's verifiers.
+    /// Android selects no root original: its chain carries its root, matched by SPKI against
+    /// the policy's root set. Apple requires its selected root DER, checked against the pin.
+    /// The operator denylist is not configuration: it changes without a policy digest change,
+    /// and the worker authenticates its active custody at every verification.
     /// # Errors
-    /// Rejects invalid/mismatched policies, roots, decoder pins, platform arms, path spelling,
-    /// zero runtime pins or oversized configuration. It never reads secrets or a filesystem.
+    /// Rejects invalid/mismatched policies, an unqualified vendor adapter, a root original on
+    /// Android or a missing/substituted Apple root, path spelling, zero runtime pins or
+    /// oversized configuration. It never reads secrets or a filesystem.
     pub fn from_selected(
         app: &KagemushaWalletAppPolicyV1,
         policy: &KagemushaWalletEnrollmentPolicyV1,
-        root_original: &[u8],
-        google: Option<GoogleDecoderOriginalV1<'_>>,
+        apple_root_original: Option<&[u8]>,
         runtime: VerifierRuntimeSelectionV1<'_>,
     ) -> Result<Self, Error> {
         policy
             .validate_for_app(app)
             .map_err(|_| Error("selected policy binding"))?;
+        require_qualified_android_adapters_v1(&policy.platform)?;
         linux_path(runtime.openssl_path)?;
         linux_path(runtime.store_directory)?;
         if runtime.openssl_sha256 == [0; 32] {
             return Err(Error("empty runtime pin"));
-        }
-        let root_pin = match policy.platform {
-            KagemushaWalletEnrollmentPlatformV1::Android {
-                attestation_root_sha256,
-                ..
-            }
-            | KagemushaWalletEnrollmentPlatformV1::Apple {
-                attestation_root_sha256,
-            } => attestation_root_sha256,
-        };
-        if root_original.is_empty()
-            || root_original.len() > MAX_ROOT
-            || <[u8; 32]>::from(Sha256::digest(root_original)) != root_pin
-        {
-            return Err(Error("selected root original"));
         }
         let regulator = norito::json!({
             "permitted_controls": (policy.regulatory_policy.permitted_controls),
@@ -99,70 +134,59 @@ impl VerifierConfigurationV1 {
         let mut selected = norito::json!({
             "scheme_id_hex": (hex::encode(policy.scheme_id)),
             "asset_digest_hex": (hex::encode(policy.asset_digest)),
-            "root_base64": (STANDARD.encode(root_original)),
-            "root_sha256": (hex::encode(root_pin)),
             "regulatory_policy": (regulator),
             "challenge_lifetime_ms": (policy.challenge_lifetime_ms),
             "attestation_lease_lifetime_ms": (policy.attestation_lease_lifetime_ms),
         });
         let object = selected.as_object_mut().ok_or(Error("policy projection"))?;
-        let platform = match (&app.identity, policy.platform, google) {
+        let platform = match (&app.identity, &policy.platform, apple_root_original) {
             (
                 KagemushaWalletAppIdentityV1::Apple { app_id },
-                KagemushaWalletEnrollmentPlatformV1::Apple { .. },
-                None,
+                KagemushaWalletEnrollmentPlatformV1::Apple {
+                    attestation_root_sha256,
+                },
+                Some(root),
             ) => {
+                if root.is_empty()
+                    || root.len() > MAX_ROOT
+                    || <[u8; 32]>::from(Sha256::digest(root)) != *attestation_root_sha256
+                {
+                    return Err(Error("selected root original"));
+                }
+                object.insert("root_base64".into(), Value::from(STANDARD.encode(root)));
+                object.insert(
+                    "root_sha256".into(),
+                    Value::from(hex::encode(attestation_root_sha256)),
+                );
                 object.insert("app_id".into(), Value::from(app_id.clone()));
                 "apple"
             }
             (
                 KagemushaWalletAppIdentityV1::Android {
                     package_name,
-                    package_version,
-                    app_signing_certificate_sha256,
+                    minimum_package_version,
+                    signer_set,
                 },
                 KagemushaWalletEnrollmentPlatformV1::Android {
-                    hardware,
+                    root_set,
                     patch_floor_yyyymm,
-                    play_integrity_maximum_age_ms,
-                    require_play_recognized,
-                    require_licensed,
-                    minimum_device_integrity,
-                    ..
                 },
-                Some(google),
+                None,
             ) => {
-                if google.original.is_empty()
-                    || google.original.len() > MAX_GOOGLE_POLICY
-                    || google.sha256 == [0; 32]
-                    || <[u8; 32]>::from(Sha256::digest(google.original)) != google.sha256
-                {
-                    return Err(Error("selected Google decoder original"));
-                }
-                let levels: Vec<u8> = match hardware {
-                    KagemushaWalletAndroidHardwareV1::Tee => vec![1],
-                    KagemushaWalletAndroidHardwareV1::StrongBox => vec![2],
-                    KagemushaWalletAndroidHardwareV1::TeeOrStrongBox => vec![1, 2],
-                };
-                let minimum = match minimum_device_integrity {
-                    KagemushaWalletPlayIntegrityLevelV1::Device => "MEETS_DEVICE_INTEGRITY",
-                    KagemushaWalletPlayIntegrityLevelV1::Strong => "MEETS_STRONG_INTEGRITY",
-                };
                 let extra = norito::json!({
-                    "package_name": (package_name), "package_version": (package_version),
-                    "app_certificate_sha256": (hex::encode(app_signing_certificate_sha256)),
-                    "security_levels": (levels), "patch_floor_yyyymm": (patch_floor_yyyymm),
-                    "google_policy_base64": (STANDARD.encode(google.original)),
-                    "google_policy_sha256": (hex::encode(google.sha256)),
-                    "maximum_evidence_age_ms": (play_integrity_maximum_age_ms),
-                    "require_play_recognized": (require_play_recognized),
-                    "require_licensed": (require_licensed),
-                    "minimum_device_integrity": (minimum),
+                    "package_name": (package_name.clone()),
+                    "minimum_package_version": (*minimum_package_version),
+                    "app_signer_sha256": (signer_set.iter().map(hex::encode).collect::<Vec<_>>()),
+                    "roots": (root_set.iter().map(root_projection).collect::<Vec<_>>()),
+                    "patch_floor_yyyymm": (*patch_floor_yyyymm),
                 });
                 for (name, value) in extra.as_object().ok_or(Error("policy projection"))? {
                     object.insert(name.clone(), value.clone());
                 }
                 "android"
+            }
+            (_, KagemushaWalletEnrollmentPlatformV1::Android { .. }, Some(_)) => {
+                return Err(Error("Android root original"));
             }
             _ => return Err(Error("selected verifier platform")),
         };
@@ -181,7 +205,7 @@ impl VerifierConfigurationV1 {
             digest: Sha256::digest(&original).into(),
             original,
             app: app.clone(),
-            policy: *policy,
+            policy: policy.clone(),
         })
     }
 

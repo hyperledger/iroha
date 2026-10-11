@@ -10,7 +10,7 @@ APIs using the JDK 21 toolchain. Run the Norito consumer suite with:
 ./gradlew :core-jvm:test --tests 'org.hyperledger.iroha.sdk.norito.*' --console=plain
 ```
 
-Account and public-key admission requires the ABI-28 `connect_norito_bridge`
+Account and public-key admission requires the ABI-29 `connect_norito_bridge`
 native library, including `nativeValidateAccountAddressCanonical`. Address
 construction and parsing use Rust to validate every key and complete multisig
 policy, then require identical canonical bytes. The V1 identity catalog includes
@@ -41,7 +41,7 @@ choice-free conviction update to Kotlin and Java callers. It emits the registere
 transaction encoding reject direction fields, noncanonical selectors, account
 addresses, quantities, durations, and malformed frames. The focused
 `UpdatePlainConviction*` Kotlin/Java-source tests compiled on 2026-09-24, but
-execution still requires a same-source ABI-28 native bridge for account
+execution still requires a same-source ABI-29 native bridge for account
 admission. This SDK slice does not establish Rust fixture parity or complete
 private standalone elections.
 
@@ -255,11 +255,12 @@ wallet's backup and device-transfer set must stay empty. A host that declares
 these attributes (`tools:replace` / `tools:remove`), must not ship resources named
 `kagemusha_wallet_v1_data_extraction_rules` or `kagemusha_wallet_v1_full_backup_content`,
 and must not declare a backup agent. `KagemushaWalletAndroidPlatformV1.create(context)`
-refuses below API 31 (keystore1 reports Keystore errors as absent keys), with backup
-allowed, with a backup agent, with non-exclude-only rule resources, or with a
-device-protected context. It cannot detect a replaced rules attribute. The returned
-handle has no public operation: only the Rust provider's role-checked signers reach
-the payment key through it.
+refuses below API 26, with backup allowed, with a backup agent, with non-exclude-only
+rule resources, or with a device-protected context. On API 26–30 a null key lookup stays
+unknown and initial generation needs Native's one-shot fresh-slot grant. It cannot detect
+a replaced rules attribute. The handle's only public operation, `enrollmentEvidence`,
+exports the E5 chain of the native-selected payment key with the adapter's own pre-E5
+check; only the Rust provider's role-checked signers reach the payment key through it.
 
 ### Android Keystore existence decisions
 
@@ -1368,23 +1369,58 @@ The Java SDK required defensive null checks at every Kotlin call site (`!!`, `?:
 
 
 `KagemushaWalletEnrollmentV1` is the thin Android E2–E6 handle registered by trusted
-native startup. `begin` retains the retry identity and returns native-selected issuer dispatch
-DATA; `acceptPermit` verifies the rooted signed pre-key permit before returning the
-existing-account challenge. Native rechecks the same-boot elapsed deadline at hardware
-generation and preserves the original server attempt on retry. `KagemushaWalletAndroidPlatformV1.enrollmentCertificates(target)`
-exports the original DER for the exact native-selected payment key without a
-hardware verdict or signing operation. Enrollment supplies that chain and the opaque Play Integrity token;
-the issuer obtains and verifies its own Google response. Native creates/selects the
-hardware slot, binds existing-account authorization to exact E5 originals, and retains
-E5/E6 before returning bytes. TEE-only policy uses the TEE even on StrongBox devices.
+native startup. `KagemushaWalletEnrollmentSessionOriginalsV1(accessToken, dpopProof)`
+carries no attestation root: the KeyMint chain carries its own root, pinned by SPKI in
+the enrollment policy. `begin` retains the retry identity and returns native-selected
+issuer dispatch DATA; `acceptPermit` verifies the rooted signed pre-key permit before
+returning the existing-account challenge. Native rechecks the same-boot elapsed deadline
+at hardware generation and preserves the original server attempt on retry.
+
+The payment key has one hardware plan (design §2.2): StrongBox where the phone declares
+it, otherwise the TEE. There is no policy-driven selector, StrongBox-only profile or
+refusal plan, so a TEE-only phone enrolls in its TEE. A StrongBox failure before key
+creation spends that slot (its alias is never generated again, on API 26–30 and API 31+
+alike); the app abandons the attempt, and only an in-memory hardware-choice hint carries
+into a fresh slot under a new challenge, which generates in the TEE.
+
+`KagemushaWalletAndroidPlatformV1.enrollmentEvidence(target, policy)` exports the original
+leaf-first DER of the exact native-selected payment key and applies the adapter's own
+pre-E5 check (design §2.4) right after generation. `policy` is
+`AndroidAttestationE1PolicyV1.fromPolicyOriginals(app, enrollment)`, decoded from the exact
+canonical E1 policy originals (`KagemushaWalletAppPolicyV1`,
+`KagemushaWalletEnrollmentPolicyV1`, checked against `fixtures/kagemusha/wallet_enrollment_policy_v1_vectors.json`).
+The check follows the enrollment policy's Android admission order: chain shape, pinned
+root and path, key description placement and the documented attestation/KeyMint version
+pairs, secure hardware, key properties, the app identity (`attestationApplicationId` in
+either list, the package, every signer in the signer set, the version floor) and the
+locked, Verified RootOfTrust. It returns `Eligible(certificates)` or `Ineligible(refusal)`
+with the closed `KagemushaWalletEnrollmentRefusalV1` reason; attestation version 1
+(Keymaster 2) is `ATTESTATION_WITHOUT_APP_IDENTITY`. Revocation and trusted-time validity
+stay with the issuer, which remains authoritative. `prepareRequest(certificates)` sends
+that chain and nothing else: there is no Play Integrity token, vendor verdict or second
+attested key. Native creates/selects the hardware slot, binds existing-account
+authorization to exact E5 originals, and retains E5/E6 before returning bytes.
 `loadRuntime()` performs complete native artifact qualification and transfers to
 `KagemushaWalletRuntimeV1.beginEnrolled()` for a fresh account challenge. This does not
 establish issuer-service, ledger activation or phone qualification. `activation()`
 returns exact retained Activate bytes for ledger submission after Bootstrap.
 
+Issuer refusals carry one closed `u16` code (design §2.4), relayed unchanged:
+`KagemushaWalletEnrollmentRefusalV1.relayed(code, android = true)` names it and its holder
+class (Phone, App, Attempt, Account); zero and unknown codes are protocol errors. The
+host-native test pins this table to Native's `enrollmentRefusal` export.
+`KagemushaWalletEnrollmentOutcomeV1.fromHeaders` reads an Iroha enrollment service
+response and keeps a terminal `Refused` outcome distinct from `DeliveryWithheld` (codes
+11/12 at E6 delivery: keep the slot, marker and retained E5 and retry delivery) and
+`OutcomeUnknown` (recover; never restart as fresh).
+
 The enrollment handle's explicit `abandon` action permanently closes an unused enrollment
-before runtime handoff and returns its exact retained signed ledger control. Native refuses
-once Bootstrap commits. Closing the handle only releases ownership. Abandon output is published
-before an immutable digest selection, and nothing is returned until both are durable; a missing
-selected original is refused. Recovery may complete a missing selection for a present valid
-original. This local mechanism does not establish protection against complete filesystem rollback.
+before runtime handoff (design §3.2) and returns an explicit result: `LocalAbandoned` when
+no marker exists (the slot is abandoned on the phone and nothing is submitted) or
+`Abandonment(frame)` with the exact retained signed frame, byte for byte on every retry,
+which the account submits until finalized inclusion is authenticated. A fresh enrollment
+may start as soon as either returns. Native refuses once Bootstrap is selected. Closing the
+handle only releases ownership. The marker frame is published before an immutable digest
+selection, and nothing is returned until both are durable; a missing selected original is
+refused. Recovery may complete a missing selection for a present valid original. This local
+mechanism does not establish protection against complete filesystem rollback.

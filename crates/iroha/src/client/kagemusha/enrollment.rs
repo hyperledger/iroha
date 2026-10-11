@@ -11,6 +11,7 @@ use crate::{
 };
 use iroha_torii_shared::kagemusha_enrollment::{
     ENROLLMENT_SERVICE_RESPONSE_MAX_BYTES_V1, ENROLLMENT_SERVICE_ROUTE_V1,
+    EnrollmentServiceOutcomeV1,
 };
 
 const OP: &str = "kagemusha.wallet.enrollment";
@@ -30,8 +31,10 @@ impl Kagemusha<'_> {
     /// The service independently checks current provider eligibility at each boundary.
     ///
     /// # Errors
-    /// Rejects invalid envelopes, witness-based signing, elapsed deadlines, HTTP/transport
-    /// failures, invalid canonical responses or a response for a different action.
+    /// [`Error::EnrollmentOutcome`] for a closed refusal, withheld delivery or unknown outcome
+    /// (identical statuses carry different outcomes); rejects invalid envelopes, witness-based
+    /// signing, elapsed deadlines, HTTP/transport failures, malformed outcome headers, invalid
+    /// canonical responses or a response for a different action.
     pub async fn enrollment(&self, request: &EnrollmentServiceRequestV1) -> Result<Response> {
         let client = &self.account.context;
         if client.account.controller.single_signatory() != Some(client.key_pair.public_key())
@@ -63,6 +66,25 @@ impl Kagemusha<'_> {
             .replace_header(http::header::CONTENT_TYPE, MIME)
             .max_response_bytes(ENROLLMENT_SERVICE_RESPONSE_MAX_BYTES_V1);
         let response = dispatch::send(client, OP, builder, MIME).await?;
+        // Outcome headers are read on every response: a success carrying one, a malformed one
+        // or one whose status differs is a decode failure, never success or generic HTTP.
+        let outcome = EnrollmentServiceOutcomeV1::from_headers(
+            response.status().as_u16(),
+            response
+                .headers()
+                .iter()
+                .map(|(name, value)| (name.as_str(), value.as_bytes())),
+        )
+        .map_err(|error| Error::Decode {
+            operation: OP,
+            details: error.to_string(),
+        })?;
+        if let Some(outcome) = outcome {
+            return Err(Error::EnrollmentOutcome {
+                operation: OP,
+                outcome,
+            });
+        }
         if response.status() != StatusCode::OK {
             return Err(Error::Http {
                 operation: OP,

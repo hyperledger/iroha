@@ -223,14 +223,15 @@ fn load_with_registration(
         KagemushaWalletAppPolicyV1,
         KagemushaWalletEnrollmentPolicyV1,
     )> {
-        let selected = exact(
-            field(runtime, name)?,
-            &[
-                "app_policy_original_base64",
-                "enrollment_template_original_base64",
-                "attestation_root_der_base64",
-            ],
-        )?;
+        // Android pins roots by SPKI in its policy; only Apple selects a root DER original.
+        let mut fields = vec![
+            "app_policy_original_base64",
+            "enrollment_template_original_base64",
+        ];
+        if name == "apple" {
+            fields.push("attestation_root_der_base64");
+        }
+        let selected = exact(field(runtime, name)?, &fields)?;
         let app = KagemushaWalletAppPolicyV1::decode_canonical(
             &raw(selected, "app_policy_original_base64", 1024)?,
             &scheme.scheme_id(),
@@ -242,18 +243,22 @@ fn load_with_registration(
         )
         .map_err(|_| invalid())?;
         template.validate_for_app(&app).map_err(|_| invalid())?;
-        let pinned = match template.platform {
-            KagemushaWalletEnrollmentPlatformV1::Android {
-                attestation_root_sha256,
-                ..
-            } if name == "android" => attestation_root_sha256,
-            KagemushaWalletEnrollmentPlatformV1::Apple {
-                attestation_root_sha256,
-            } if name == "apple" => attestation_root_sha256,
+        require_qualified_adapters(&template.platform)?;
+        match (&template.platform, name) {
+            (KagemushaWalletEnrollmentPlatformV1::Android { .. }, "android") => {}
+            (
+                KagemushaWalletEnrollmentPlatformV1::Apple {
+                    attestation_root_sha256,
+                },
+                "apple",
+            ) => {
+                if BlobV1::of(&raw(selected, "attestation_root_der_base64", 16_384)?).sha256
+                    != *attestation_root_sha256
+                {
+                    return Err(invalid());
+                }
+            }
             _ => return Err(invalid()),
-        };
-        if BlobV1::of(&raw(selected, "attestation_root_der_base64", 16_384)?).sha256 != pinned {
-            return Err(invalid());
         }
         Ok((app, template.for_asset(&asset).map_err(|_| invalid())?))
     };

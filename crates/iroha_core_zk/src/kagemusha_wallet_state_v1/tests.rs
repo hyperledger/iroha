@@ -435,6 +435,8 @@ pub(super) struct TestCustody {
     status_unavailable_at: Option<usize>,
     checkpoint_calls: usize,
     checkpoint_replacement: Option<(usize, ([u8; 32], Vec<u8>))>,
+    pub(super) resources: crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1,
+    pub(super) resource_queries: usize,
 }
 impl TestCustody {
     fn new() -> Self {
@@ -454,10 +456,22 @@ impl TestCustody {
             status_unavailable_at: None,
             checkpoint_calls: 0,
             checkpoint_replacement: None,
+            resources: crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1 {
+                storage_bytes: u64::MAX / 2,
+                memory_bytes: Some(u64::MAX / 2),
+            },
+            resource_queries: 0,
         }
     }
 }
 impl Custody for TestCustody {
+    fn runtime_resources(
+        &mut self,
+    ) -> Result<crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1, ProviderError>
+    {
+        self.resource_queries += 1;
+        Ok(self.resources)
+    }
     fn collect_capsule(
         &mut self,
         generation: u128,
@@ -665,6 +679,7 @@ pub(super) struct TestProofs {
     capsule_writes: Option<Arc<AtomicUsize>>,
     expire_during_publication: bool,
     fold_pause: Option<Arc<folding_preemption_tests::Pause>>,
+    pub(super) capacity: crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeCapacityV1,
 }
 
 mod folding_preemption_tests;
@@ -708,6 +723,12 @@ impl NativeProofs for TestProofs {
                 "wallet-test-chain".into(),
             )
         }))
+    }
+
+    fn runtime_capacity(
+        &self,
+    ) -> Result<crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeCapacityV1, Error> {
+        Ok(self.capacity)
     }
 
     fn fold_schedule(

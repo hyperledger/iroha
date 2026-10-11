@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-#define CONNECT_NORITO_BRIDGE_ABI_VERSION 28
+#define CONNECT_NORITO_BRIDGE_ABI_VERSION 29
 
 #define CONNECT_NORITO_ERR_ACCOUNT_ADDRESS -200
 #define CONNECT_NORITO_ERR_UNSUPPORTED_ALGORITHM -21
@@ -1807,8 +1807,15 @@ int32_t connect_norito_acceleration_state_get_v1(connect_norito_acceleration_sta
  * Outputs own canonical Norito/exact retained bytes; free them with connect_norito_free.
  * Failure: -1 input, -2 closed, -3 capacity, -4 artifacts, -5 unavailable, -6 uncertain,
  * -7 custody lost, -8 fold required, -9 proof rejected, -10 cancelled, -11 conflict,
- * -12 no space, -13 terminal/key lost, -100 internal (outcome must be reconciled).
+ * -12 not enough storage, -13 terminal/key lost, -14 not enough memory,
+ * -100 internal (outcome must be reconciled).
  */
+/* Design §5.3 runtime capacity results, checked on this phone before proving and before
+ * commit against bounds derived from the installed relations: the operation is refused before
+ * commit, nothing is debited or credited, the receipt or Payment stays deliverable, and the
+ * holder retries after freeing storage or memory. Never a device verdict. */
+#define CONNECT_NORITO_KAGEMUSHA_WALLET_NOT_ENOUGH_STORAGE -12
+#define CONNECT_NORITO_KAGEMUSHA_WALLET_NOT_ENOUGH_MEMORY -14
 typedef struct {
     uint32_t tag; /* 0 success, 1 absent, 2 unavailable/not performed, 3 exists,
                      4 uncertain, 5 destination absent; interpreted per operation. */
@@ -1846,7 +1853,7 @@ typedef struct {
     int32_t platform_code;
     uint64_t sequence_low;
     uint64_t sequence_high;
-    uint32_t detail; /* checkpoint ordinal or not-performed reason0/1/2 */
+    uint32_t detail; /* checkpoint ordinal or not-performed reason: 0 stale head, 2 invalid */
     uint8_t* bytes;
     size_t length;
 } connect_norito_kagemusha_wallet_result_v1;
@@ -2068,8 +2075,8 @@ int32_t connect_norito_kagemusha_wallet_account_original_v1(const uint8_t* liter
 int32_t connect_norito_kagemusha_wallet_account_display_v1(const uint8_t* original, size_t length, uint16_t prefix, connect_norito_kagemusha_wallet_result_v1* out);
 
 /* Enrollment originals only. Native startup selects approved policy/root and owns custody.
- * Actions:0 requestId32/account/asset,1 account signature,2 progress,3 Android(token+DER chain),
- * 4 Apple(keyid32/attestation/assertion),5 E5 account signature,6 exact E6 result,7 load runtime,8 begin original open from retained E5/E6,9 signed pre-key permit<=2048,10 permanently abandon unused enrollment,11 installed-session JWT<=16384/DPoP<=4096/rootDER<=16384,12 persisted E6<=262144/account<=4096 (Native-selected asset, ordinary original open),
+ * Actions:0 requestId32/account/asset,1 account signature,2 progress,3 Android(leaf-first KeyMint DER chain only; first/second/third empty),
+ * 4 Apple(keyid32/attestation/assertion),5 E5 account signature,6 exact E6 result,7 load runtime,8 begin original open from retained E5/E6,9 signed pre-key permit<=2048,10 permanently abandon unused enrollment,11 installed-session JWT<=16384/DPoP<=4096/rootDER<=16384 (Apple: the selected App Attestation root; Android: empty),12 persisted E6<=262144/account<=4096 (Native-selected asset, ordinary original open),
  * 13 retained Apple vendor originals,14 consume stage1..3 one-dispatch authorization,
  * 15 retain actual stage1..3 vendor return,16 read retained E5,17 final Apple collection live check,
  * 18 read/adopt exact durable E6 (25 original or20 verified absence),
@@ -2079,10 +2086,12 @@ int32_t connect_norito_kagemusha_wallet_account_display_v1(const uint8_t* origin
  * Selectors13/16/17/18 have no inputs; unavailable, lost or malformed custody remains an error.
  * Apple originals result38 is three u32-BE length-prefixed DATA originals (keyID UTF8<=4096,
  * attestation<=65536, assertion<=4096); result39 acknowledges custody, never monetary success.
- * Unused buffers/count must be zero. Android chain2..8, each item1..16384 bytes.
+ * Unused buffers/count must be zero. Android chain2..8, each item1..16384 bytes, total<=65536.
  * Output:18 local challenge32,19 fixed FFI target161(slot32,key65,challenge32,binding32),
  * 20 pending,21 abandoned,22 Bootstrap selected,23 E5 challenge32,24 exact E5<=524288,
  * 25 exact E6<=262144,26 complete-source runtime ready,27 issuer dispatch DATA<=16384,28 exact signed Abandon<=1024,37 authenticated selection(scale:u32BE + asset original<=1024). All carry the same handle in sequence.
+ * Abandon10 returns 58 (empty) for the local no-marker form, which has nothing to submit, or 28
+ * with the exact retained signed Abandonment frame (marker form) for the holder's account to submit.
  * E6 is not ledger activation. Payment bounds remain10000. */
 typedef struct connect_norito_kagemusha_wallet_enrollment_item_v1 {
     const uint8_t* bytes;
@@ -2100,6 +2109,10 @@ typedef struct connect_norito_kagemusha_wallet_enrollment_request_v1 {
     size_t certificate_count;
 } connect_norito_kagemusha_wallet_enrollment_request_v1;
 int32_t connect_norito_kagemusha_wallet_enrollment_v1(uint64_t runtime, const connect_norito_kagemusha_wallet_enrollment_request_v1* request, connect_norito_kagemusha_wallet_result_v1* out);
+/* Closed E1 refusal table (design 2.4). Returns the holder class of a relayed issuer code:
+ * 1 Phone, 2 App, 3 Attempt, 4 Account. android is 1 (Android) or 0 (Apple). Zero, unknown and
+ * platform-inapplicable codes, and any other android value, return -1. Pure: no handle or state. */
+int32_t connect_norito_kagemusha_wallet_enrollment_refusal_v1(uint16_t code, uint8_t android);
 
 int32_t connect_norito_kagemusha_wallet_execute_v1(uint64_t handle, const connect_norito_kagemusha_wallet_operation_request_v1* request, connect_norito_kagemusha_wallet_result_v1* out);
 // Result11=preparing (no Advance selected); result2=pending (irreversible Advance selected).

@@ -98,10 +98,10 @@ final class NativeBridgeLoaderTests: XCTestCase {
         XCTAssertEqual(NativeBridgeError.fromStatus(-311), .unknown(-311))
     }
 
-    func testExpectedBridgeAbiVersionIsTwentySevenForPackagedArtifacts() {
-        XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: "macos-arm64_x86_64"), 28)
-        XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: "ios-arm64"), 28)
-        XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: "ios-arm64_x86_64-simulator"), 28)
+    func testExpectedBridgeAbiVersionIsTwentyNineForPackagedArtifacts() {
+        XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: "macos-arm64_x86_64"), 29)
+        XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: "ios-arm64"), 29)
+        XCTAssertEqual(NoritoBridgeLoader.expectedBridgeAbiVersion(for: "ios-arm64_x86_64-simulator"), 29)
         XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(20, for: "macos-arm64_x86_64"))
         XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(18, for: "macos-arm64_x86_64"))
         XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(19, for: "macos-arm64_x86_64"))
@@ -113,7 +113,12 @@ final class NativeBridgeLoaderTests: XCTestCase {
         XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(25, for: "macos-arm64_x86_64"))
         XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(26, for: "macos-arm64_x86_64"))
         XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(27, for: "macos-arm64_x86_64"))
-        XCTAssertTrue(NoritoBridgeLoader.isSupportedBridgeAbiVersion(28, for: "macos-arm64_x86_64"))
+        // ABI 29 artifacts refuse ABI 28 callers and ABI 28 artifacts are refused here; there
+        // is no compatibility export in either direction.
+        XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(28, for: "macos-arm64_x86_64"))
+        XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(28, for: "ios-arm64"))
+        XCTAssertFalse(NoritoBridgeLoader.isSupportedBridgeAbiVersion(30, for: "macos-arm64_x86_64"))
+        XCTAssertTrue(NoritoBridgeLoader.isSupportedBridgeAbiVersion(29, for: "macos-arm64_x86_64"))
         XCTAssertEqual(
             NoritoBridgeLoader.parliamentTimedOvnWalletRequiredSymbols,
             [
@@ -419,7 +424,7 @@ final class NativeBridgeLoaderTests: XCTestCase {
         let manifest = """
         {
           "version": "\(NoritoBridgeLoader.expectedVersion)",
-          "native_bridge_abi_version": 28,
+          "native_bridge_abi_version": 29,
           "hashes": {
             "\(original.identifier)": "\(hashHex)"
           }
@@ -461,7 +466,7 @@ final class NativeBridgeLoaderTests: XCTestCase {
         )
         XCTAssertEqual(
             status,
-            .abiMismatch(path: bridgeURL.path, expected: 28, actual: 19)
+            .abiMismatch(path: bridgeURL.path, expected: 29, actual: 19)
         )
     }
 
@@ -489,7 +494,7 @@ final class NativeBridgeLoaderTests: XCTestCase {
         let manifest = """
         {
           "version": "\(NoritoBridgeLoader.expectedVersion)",
-          "native_bridge_abi_version": 28,
+          "native_bridge_abi_version": 29,
           "hashes": {
             "\(original.identifier)": "\(hashHex)"
           }

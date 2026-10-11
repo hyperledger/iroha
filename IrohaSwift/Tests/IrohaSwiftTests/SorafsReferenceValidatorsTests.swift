@@ -15,7 +15,7 @@ final class SorafsReferenceValidatorsTests: XCTestCase {
     }
 
     private static let nativeValidationRequiredMessage =
-        "ABI-28 connect_norito_bridge with Governance DAG symbols is required."
+        "ABI-29 connect_norito_bridge with Governance DAG symbols is required."
     private static let referenceFixtureGeneratedAtUnix: UInt64 = 1_700_001_234
     private static let referenceBundleProfiles: [FixtureBundleProfile] = [
         FixtureBundleProfile(
@@ -747,7 +747,7 @@ final class SorafsReferenceValidatorsTests: XCTestCase {
 
     func testAppealFinanceCancelAssetLockValidationProfiles() throws {
         guard SorafsReferenceValidators.isAppealFinanceNativeAvailable else {
-            return XCTFail("ABI-28 appeal-finance reference bridge is required")
+            return XCTFail("ABI-29 appeal-finance reference bridge is required")
         }
         let profiles: [(path: String, status: String, code: String, category: String)] = [
             (

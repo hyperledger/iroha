@@ -3,6 +3,15 @@
 use super::*;
 
 impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
+    /// A retained worker refusal, verified against its retained original, answers every other
+    /// operation unchanged.
+    fn require_not_rejected(&self, session: &EnrollmentIssuerSessionV1) -> Result<()> {
+        match self.journal.verified_worker_refusal(&session.attempt)? {
+            Some(reason) => Err(Refused(reason)),
+            None => Ok(()),
+        }
+    }
+
     fn configuration(
         &mut self,
         session: &EnrollmentIssuerSessionV1,
@@ -78,6 +87,7 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
     /// observations, malformed signatures or uncertain publication. No error permits phone keygen.
     pub fn pre_key_permit(&mut self, session: &mut EnrollmentIssuerSessionV1) -> Result<Vec<u8>> {
         self.require_session(session)?;
+        self.require_not_rejected(session)?;
         let current = self.current(&session.dispatch)?;
         self.prepare_worker(session, &current.provider)?;
         let operation =
@@ -151,6 +161,19 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
     ) -> Result<()> {
         self.require_session(session)?;
         let request = RequestV1::decode(request_original).map_err(|_| Invalid)?;
+        // A retained worker refusal answers the identical E5 unchanged from the journal alone,
+        // before any live provider, worker or signer dependency is required.
+        if session.attempt.worker_refusal().is_some() {
+            let (retained, _, _) = session.attempt.verification().ok_or(Selection)?;
+            if retained != request_original {
+                return Err(Selection);
+            }
+            let reason = self
+                .journal
+                .verified_worker_refusal(&session.attempt)?
+                .ok_or(Invalid)?;
+            return Err(Refused(reason));
+        }
         let mut selected = self.current(&session.dispatch)?;
         let mut configuration = self.configuration(session, &selected.provider)?;
         let mut authorization_expires = None;
@@ -198,7 +221,13 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
                         .retained_worker_evidence(&session.attempt, configuration.digest())?;
                     return Ok(());
                 }
-                Phase::Rejected => return Err(Rejected),
+                Phase::Rejected => {
+                    return Err(Refused(
+                        self.journal
+                            .verified_worker_refusal(&session.attempt)?
+                            .ok_or(Invalid)?,
+                    ));
+                }
                 Phase::Verifying => {
                     if self.now()? >= session.attempt.selection().expires_at_ms {
                         // The passive action cannot claim an unprocessed row. It may only
@@ -243,8 +272,9 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
         self.unchanged(&session.dispatch, &selected)?;
         match outcome {
             OutcomeV1::Evidence(_) => Ok(()),
-            OutcomeV1::Rejected => Err(Rejected),
-            OutcomeV1::OutcomeUnknown | OutcomeV1::Unavailable => Err(Pending),
+            OutcomeV1::Refused(reason) => Err(Refused(reason)),
+            OutcomeV1::Unavailable => Err(Pending),
+            OutcomeV1::OutcomeUnknown => Err(OutcomeUnknown),
         }
     }
 
@@ -255,10 +285,16 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
     /// worker/signer or uncertain publication. Verified recovery is not expired by the old E1.
     pub fn issue_credential(&mut self, session: &mut EnrollmentIssuerSessionV1) -> Result<()> {
         self.require_session(session)?;
+        self.require_not_rejected(session)?;
         if session.attempt.phase() == Phase::Issued {
             // Do not re-sign or consume another signing authorization. Delivery has its own
             // fresh current-provider boundary and checks the retained original again.
             return Ok(());
+        }
+        if self.journal.signing_dispatched(&session.attempt) {
+            // The signer may already have produced a credential whose E6 was not retained.
+            // Recovery never signs a second credential.
+            return Err(OutcomeUnknown);
         }
         let current = self.current(&session.dispatch)?;
         let configuration = self.configuration(session, &current.provider)?;
@@ -286,32 +322,42 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
             return Err(Selection);
         }
         self.finish_boundary(session, &selected, expires)?;
-        let signature = self
-            .runtime
-            .sign_enrollment(&selected.provider, &body.signing_message())?;
-        let credential = KagemushaWalletCredentialV1::sign(
-            body,
-            &selected.provider.certificate,
-            KagemushaWalletSignerOutputV1::Der(&signature),
-        )
-        .map_err(|_| Invalid)?;
-        let certificates =
-            KagemushaWalletCertificateSetV1::new(vec![selected.provider.certificate])
-                .map_err(|_| Invalid)?;
-        let original = ResultV1 {
-            version: 1,
-            credential: credential.to_canonical_bytes().map_err(|_| Invalid)?,
-            certificates: norito::encode_canonical(&certificates).map_err(|_| Invalid)?,
-            evidence: evidence.originals,
+        self.journal.mark_signing_dispatched(&mut session.attempt)?;
+        // From the signer call until the exact E6 is durably Issued, any failure may follow a
+        // completed signature: the outcome is unknown, never a retryable unavailability.
+        let issued = (|| {
+            let signature = self
+                .runtime
+                .sign_enrollment(&selected.provider, &body.signing_message())?;
+            let credential = KagemushaWalletCredentialV1::sign(
+                body,
+                &selected.provider.certificate,
+                KagemushaWalletSignerOutputV1::Der(&signature),
+            )
+            .map_err(|_| Invalid)?;
+            let certificates =
+                KagemushaWalletCertificateSetV1::new(vec![selected.provider.certificate])
+                    .map_err(|_| Invalid)?;
+            let original = ResultV1 {
+                version: 1,
+                credential: credential.to_canonical_bytes().map_err(|_| Invalid)?,
+                certificates: norito::encode_canonical(&certificates).map_err(|_| Invalid)?,
+                evidence: evidence.originals,
+            }
+            .encode()
+            .map_err(|_| Invalid)?;
+            self.journal.retain_credential(
+                &mut session.attempt,
+                &session.dispatch,
+                configuration.digest(),
+                original,
+            )?;
+            Ok::<(), EnrollmentIssuerErrorV1>(())
+        })();
+        if issued.is_err() && session.attempt.issued().is_none() {
+            return Err(OutcomeUnknown);
         }
-        .encode()
-        .map_err(|_| Invalid)?;
-        self.journal.retain_credential(
-            &mut session.attempt,
-            &session.dispatch,
-            configuration.digest(),
-            original,
-        )?;
+        issued?;
         self.finish_boundary(session, &selected, expires)
     }
 
@@ -324,6 +370,7 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
         session: &mut EnrollmentIssuerSessionV1,
     ) -> Result<Vec<u8>> {
         self.require_session(session)?;
+        self.require_not_rejected(session)?;
         let original = session.attempt.issued().ok_or(Pending)?.to_vec();
         let operation = operation_digest(b"deliver-credential", &original)?;
         let (selected, expires) = self.authorize(

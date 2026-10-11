@@ -74,16 +74,16 @@ fn template_original_is_bounded_canonical_and_distinct_from_concrete_policy() {
 fn template_does_not_relax_platform_asset_clock_or_regulatory_validation() {
     let (app, policy) = policy_fixture(false);
     let template = policy.template();
-    let mut invalid = template;
+    let mut invalid = template.clone();
     invalid.version = 2;
     assert!(invalid.for_asset(&test_asset()).is_err());
-    invalid = template;
+    invalid = template.clone();
     invalid.challenge_lifetime_ms = 0;
     assert!(invalid.validate().is_err());
-    invalid = template;
+    invalid = template.clone();
     invalid.app_policy = [9; 32];
     assert!(invalid.validate_for_app(&app).is_err());
-    invalid = template;
+    invalid = template.clone();
     invalid.attestation_lease_lifetime_ms = 1;
     assert!(invalid.validate().is_err());
     let mut bad_asset = test_asset();

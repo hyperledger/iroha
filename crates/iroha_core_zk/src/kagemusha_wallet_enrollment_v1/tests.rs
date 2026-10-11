@@ -45,25 +45,23 @@ fn fixture() -> Fixture {
         scheme_id: scheme.scheme_id(),
         identity: KagemushaWalletAppIdentityV1::Android {
             package_name: "org.example.wallet".into(),
-            package_version: 7,
-            app_signing_certificate_sha256: [5; 32],
+            minimum_package_version: 7,
+            signer_set: vec![[5; 32]],
         },
     };
     // Opaque DATA originals test byte custody only; no attestation verifier admits these.
-    let root = b"component root original".to_vec();
     let policy = KagemushaWalletEnrollmentPolicyV1 {
         version: 1,
         scheme_id: scheme.scheme_id(),
         asset_digest: asset.asset_digest(),
         app_policy: app.policy_digest().unwrap(),
         platform: KagemushaWalletEnrollmentPlatformV1::Android {
-            attestation_root_sha256: Sha256::digest(&root).into(),
-            hardware: KagemushaWalletAndroidHardwareV1::Tee,
+            root_set: vec![KagemushaWalletAndroidRootV1 {
+                family: KagemushaWalletAndroidRootFamilyV1::GoogleRsa,
+                spki_sha256: *Hash::new(b"component root key").as_ref(),
+                revocation_source: KagemushaWalletRevocationSourceV1::GoogleAttestationStatus,
+            }],
             patch_floor_yyyymm: 202608,
-            play_integrity_maximum_age_ms: 120000,
-            require_play_recognized: true,
-            require_licensed: true,
-            minimum_device_integrity: KagemushaWalletPlayIntegrityLevelV1::Device,
         },
         regulatory_policy: KagemushaWalletRegulatoryPolicyV1::default(),
         challenge_lifetime_ms: 120000,
@@ -80,7 +78,6 @@ fn fixture() -> Fixture {
     };
     let evidence = norito::encode_canonical(&PlatformEvidenceV1::Android {
         certificates: vec![b"original leaf".to_vec(), b"original CA".to_vec()],
-        play_integrity_token: b"opaque token".to_vec(),
     })
     .unwrap();
     let enrollment_certificate = enrollment_certificate(&scheme);
@@ -100,7 +97,7 @@ fn fixture() -> Fixture {
             scheme,
             app,
             policy,
-            attestation_root_der: root,
+            attestation_root_der: None,
         },
         challenge,
         account_key,
@@ -238,7 +235,7 @@ fn enrollment_owner_requires_exact_account_before_hardware_and_consumes_failed_c
         assert_eq!(s.generate_calls, 1);
         assert_eq!(
             s.last_generation.unwrap().profile,
-            KagemushaWalletKeyProfileV1::AndroidTee
+            KagemushaWalletKeyProfileV1::SecureElementOrTee
         );
     });
     let third = begin(&f, &mut owner);
@@ -305,43 +302,38 @@ fn enrollment_unavailable_never_becomes_absence_or_a_second_key_attempt() {
     assert!(owner.retained_result().is_err());
 }
 #[test]
-fn enrollment_issuer_evidence_digest_uses_original_google_response_not_mobile_token() {
+fn enrollment_issuer_evidence_digest_is_the_exact_e5_chain_only() {
     let f = fixture();
     let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 71);
     let mut owner = enrolled(&f, &d);
     let requested = RequestV1::decode(&request(&f, &mut owner)).unwrap();
     let proof = IssuerEvidenceV1::Android {
         certificates: vec![b"original leaf".to_vec(), b"original CA".to_vec()],
-        google_response: b"original Google HTTPS response".to_vec(),
     };
+    for kind in [
+        KagemushaWalletEvidenceKindV1::AndroidKeyMintTee,
+        KagemushaWalletEvidenceKindV1::AndroidKeyMintStrongBox,
+    ] {
+        assert_eq!(
+            proof.digest(&requested.body, kind).unwrap(),
+            kagemusha_wallet_evidence_digest_v1(kind, &[b"original leaf", b"original CA"]).unwrap()
+        );
+    }
     let kind = KagemushaWalletEvidenceKindV1::AndroidKeyMintTee;
-    assert_eq!(
-        proof.digest(&requested.body, kind).unwrap(),
-        kagemusha_wallet_evidence_digest_v1(
-            kind,
-            &[
-                b"original leaf",
-                b"original CA",
-                b"original Google HTTPS response"
-            ]
-        )
-        .unwrap()
-    );
-    let mut changed = proof.clone();
-    if let IssuerEvidenceV1::Android {
-        google_response, ..
-    } = &mut changed
-    {
-        google_response[0] ^= 1;
+    for change in 0..3 {
+        let mut changed = proof.clone();
+        let IssuerEvidenceV1::Android { certificates } = &mut changed else {
+            unreachable!()
+        };
+        match change {
+            0 => certificates[0][0] ^= 1,
+            1 => certificates.push(b"appended original".to_vec()),
+            _ => {
+                certificates.pop();
+            }
+        }
+        assert!(changed.digest(&requested.body, kind).is_err());
     }
-    assert_ne!(
-        proof.digest(&requested.body, kind).unwrap(),
-        changed.digest(&requested.body, kind).unwrap()
-    );
-    if let IssuerEvidenceV1::Android { certificates, .. } = &mut changed {
-        certificates[0][0] ^= 1;
-    }
-    assert!(changed.digest(&requested.body, kind).is_err());
     assert!(
         proof
             .digest(
@@ -378,7 +370,6 @@ fn issuer_result(f: &Fixture, request: &RequestV1) -> ResultV1 {
     .unwrap();
     let evidence = IssuerEvidenceV1::Android {
         certificates: vec![b"original leaf".to_vec(), b"original CA".to_vec()],
-        google_response: b"original Google HTTPS response".to_vec(),
     };
     let kind = KagemushaWalletEvidenceKindV1::AndroidKeyMintTee;
     let event = KagemushaWalletEvidenceV1 {
@@ -434,11 +425,8 @@ fn enrollment_e6_retains_full_signed_result_and_never_recreates_lost_selected_or
     let result = issuer_result(&f, &requested);
     let bytes = result.encode().unwrap();
     let mut altered = result.clone();
-    if let IssuerEvidenceV1::Android {
-        google_response, ..
-    } = &mut altered.evidence
-    {
-        google_response[0] ^= 1;
+    if let IssuerEvidenceV1::Android { certificates } = &mut altered.evidence {
+        certificates[1][0] ^= 1;
     }
     assert!(owner.accept_credential(&altered.encode().unwrap()).is_err());
     assert_eq!(owner.accept_credential(&bytes).unwrap(), bytes);
@@ -471,86 +459,141 @@ fn enrollment_e6_retains_full_signed_result_and_never_recreates_lost_selected_or
     assert!(restored.retained_result().is_err());
 }
 #[test]
-fn enrollment_approved_native_configuration_cannot_silently_replace_original_root() {
-    let mut f = fixture();
-    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 83);
-    let provider = KagemushaWalletProviderV1::open(
-        d.fs.clone(),
-        d.platform.clone(),
-        f.config.scheme.scheme_id(),
-        test_options(),
-    )
-    .unwrap();
-    f.config.attestation_root_der[0] ^= 1;
-    let (provider, error) = match EnrollmentOwnerV1::new(provider, f.config) {
-        Ok(_) => panic!("wrong root accepted"),
-        Err(parts) => parts,
-    };
-    assert!(matches!(error, Error::Original("approved root original")));
-    assert!(provider.slots().unwrap().is_empty());
-    d.platform.with(|s| assert_eq!(s.generate_calls, 0));
+fn enrollment_approved_native_configuration_cannot_select_an_android_root_original() {
+    for substitute in [Some(b"component root original".to_vec()), Some(Vec::new())] {
+        let mut f = fixture();
+        let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 83);
+        let provider = KagemushaWalletProviderV1::open(
+            d.fs.clone(),
+            d.platform.clone(),
+            f.config.scheme.scheme_id(),
+            test_options(),
+        )
+        .unwrap();
+        f.config.attestation_root_der = substitute;
+        let (provider, error) = match EnrollmentOwnerV1::new(provider, f.config) {
+            Ok(_) => panic!("Android root original accepted"),
+            Err(parts) => parts,
+        };
+        assert!(matches!(error, Error::Original("approved root original")));
+        assert!(provider.slots().unwrap().is_empty());
+        d.platform.with(|s| assert_eq!(s.generate_calls, 0));
+    }
 }
 
 #[test]
-fn enrollment_google_original_and_complete_e6_bounds_cover_exact_maximal_encoding() {
+fn enrollment_apple_configuration_requires_its_exact_pinned_root_original() {
+    let f = apple_collection_fixture();
+    for (root, accepted) in [
+        (f.config.attestation_root_der.clone(), true),
+        (None, false),
+        (Some(Vec::new()), false),
+        (Some(b"substituted root".to_vec()), false),
+        (Some(vec![1; 16_385]), false),
+    ] {
+        let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 84);
+        let provider = KagemushaWalletProviderV1::open(
+            d.fs.clone(),
+            d.platform.clone(),
+            f.config.scheme.scheme_id(),
+            test_options(),
+        )
+        .unwrap();
+        let mut config = f.config.clone();
+        config.attestation_root_der = root;
+        assert_eq!(EnrollmentOwnerV1::new(provider, config).is_ok(), accepted);
+    }
+}
+
+#[test]
+fn enrollment_owner_refuses_unknown_or_unqualified_vendor_adapter_before_any_challenge() {
+    for adapter in ["huawei", "unknown-vendor"] {
+        let mut f = fixture();
+        let KagemushaWalletEnrollmentPlatformV1::Android { root_set, .. } =
+            &mut f.config.policy.platform
+        else {
+            unreachable!()
+        };
+        root_set.push(KagemushaWalletAndroidRootV1 {
+            family: KagemushaWalletAndroidRootFamilyV1::Vendor {
+                adapter_id: adapter.into(),
+            },
+            spki_sha256: [0xff; 32],
+            revocation_source: KagemushaWalletRevocationSourceV1::OperatorDenylist,
+        });
+        f.config.policy.validate_for_app(&f.config.app).unwrap();
+        let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 85);
+        let provider = KagemushaWalletProviderV1::open(
+            d.fs.clone(),
+            d.platform.clone(),
+            f.config.scheme.scheme_id(),
+            test_options(),
+        )
+        .unwrap();
+        let Err((provider, error)) = EnrollmentOwnerV1::new(provider, f.config) else {
+            panic!("{adapter} adapter accepted")
+        };
+        assert!(matches!(
+            error,
+            Error::Original("approved Android adapter profile")
+        ));
+        assert!(provider.slots().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn enrollment_android_chain_and_complete_e6_bounds_cover_exact_maximal_encoding() {
     let f = fixture();
     let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 89);
     let mut owner = enrolled(&f, &d);
     let mut requested = RequestV1::decode(&request(&f, &mut owner)).unwrap();
-    let mut certificates = vec![vec![7; 16_384]; 8];
-    // Find the exact largest allowed chain in a canonical mobile evidence frame with the
-    // smallest token; a larger token only reduces available DER payload.
-    let mut low = 1;
-    let mut high = 16_384;
-    while low < high {
-        let length = (low + high + 1) / 2;
-        certificates[7] = vec![7; length];
-        let encoded = norito::encode_canonical(&PlatformEvidenceV1::Android {
-            certificates: certificates.clone(),
-            play_integrity_token: vec![9],
-        })
-        .unwrap();
-        if encoded.len() <= EVIDENCE_MAX_BYTES {
-            low = length;
-        } else {
-            high = length - 1;
-        }
-    }
-    certificates[7] = vec![7; low];
+    // The largest admitted chain: eight certificates totalling 65,536 bytes.
+    let certificates =
+        vec![vec![7; ANDROID_CHAIN_MAX_BYTES / ANDROID_CHAIN_MAX]; ANDROID_CHAIN_MAX];
     requested.body.evidence = norito::encode_canonical(&PlatformEvidenceV1::Android {
         certificates: certificates.clone(),
-        play_integrity_token: vec![9],
     })
     .unwrap();
+    assert!(requested.body.evidence.len() <= EVIDENCE_MAX_BYTES);
+    PlatformEvidenceV1::decode(&requested.body.evidence, &requested.body.policy).unwrap();
     let kind = KagemushaWalletEvidenceKindV1::AndroidKeyMintTee;
-    for length in [65_537, 131_072] {
-        let evidence = IssuerEvidenceV1::Android {
-            certificates: certificates.clone(),
-            google_response: vec![3; length],
-        };
-        assert!(evidence.digest(&requested.body, kind).is_ok());
-        let result = ResultV1 {
-            version: 1,
-            credential: vec![1; KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1],
-            certificates: vec![2; KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1],
-            evidence,
-        };
-        let encoded = result.encode().unwrap();
-        eprintln!(
-            "ENROLLMENT_BOUND google={length} mobile={} result={} limit={RESULT_MAX_BYTES}",
-            requested.body.evidence.len(),
-            encoded.len()
-        );
-        assert_eq!(ResultV1::decode(&encoded).unwrap(), result);
-    }
-    assert!(
-        IssuerEvidenceV1::Android {
-            certificates,
-            google_response: vec![3; 131_073]
-        }
-        .digest(&requested.body, kind)
-        .is_err()
+    let evidence = IssuerEvidenceV1::Android {
+        certificates: certificates.clone(),
+    };
+    assert!(evidence.digest(&requested.body, kind).is_ok());
+    let result = ResultV1 {
+        version: 1,
+        credential: vec![1; KAGEMUSHA_WALLET_CREDENTIAL_MAX_BYTES_V1],
+        certificates: vec![2; KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1],
+        evidence,
+    };
+    let encoded = result.encode().unwrap();
+    eprintln!(
+        "ENROLLMENT_BOUND mobile={} result={} limit={RESULT_MAX_BYTES}",
+        requested.body.evidence.len(),
+        encoded.len()
     );
+    assert_eq!(ResultV1::decode(&encoded).unwrap(), result);
+    let mut over_total = certificates.clone();
+    over_total[0].push(7);
+    let one = vec![vec![7; 16]];
+    let nine = vec![vec![7; 16]; ANDROID_CHAIN_MAX + 1];
+    let oversized = vec![vec![7; ANDROID_CERTIFICATE_MAX_BYTES + 1], vec![7; 16]];
+    let empty = vec![vec![7; 16], Vec::new()];
+    for chain in [over_total, one, nine, oversized, empty] {
+        let bytes = norito::encode_canonical(&PlatformEvidenceV1::Android {
+            certificates: chain.clone(),
+        })
+        .unwrap();
+        assert!(PlatformEvidenceV1::decode(&bytes, &requested.body.policy).is_err());
+        assert!(
+            IssuerEvidenceV1::Android {
+                certificates: chain
+            }
+            .digest(&requested.body, kind)
+            .is_err()
+        );
+    }
 }
 
 #[test]
@@ -912,8 +955,11 @@ fn enrollment_signed_abandonment_is_explicit_terminal_and_exact_across_restart()
     let f = fixture();
     let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 163);
     let mut current = enrolled(&f, &d);
-    let original = current.abandon().unwrap();
-    assert!(original.len() <= KAGEMUSHA_WALLET_ABANDONMENT_MAX_BYTES_V1);
+    let EnrollmentAbandonmentV1::Abandonment(frame) = current.abandon().unwrap() else {
+        panic!("a current enrollment marker uses the signed marker form")
+    };
+    let original = EnrollmentAbandonmentV1::Abandonment(frame.clone());
+    assert!(frame.len() <= KAGEMUSHA_WALLET_ABANDONMENT_MAX_BYTES_V1);
     let calls = d.platform.with(|state| state.sign_calls);
     assert_eq!(current.abandon().unwrap(), original);
     assert!(matches!(
@@ -931,6 +977,1298 @@ fn enrollment_signed_abandonment_is_explicit_terminal_and_exact_across_restart()
     );
     d.platform.with(|state| assert_eq!(state.sign_calls, calls));
 }
+fn begin_with_id(f: &Fixture, owner: &mut Owner, id: [u8; 32]) -> [u8; 32] {
+    let dispatch = PreKeyDispatchV1::decode(
+        &owner
+            .begin(
+                &id,
+                &norito::encode_canonical(&f.account).unwrap(),
+                &norito::encode_canonical(&f.asset).unwrap(),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    owner
+        .accept_permit(&permit(f, &dispatch).encode_canonical().unwrap())
+        .unwrap()
+}
+
+/// Every file name in every slot directory, read from the simulated filesystem only (the
+/// owner under test keeps exclusive custody, so no second provider is opened).
+fn slot_names(d: &DeviceV1) -> Vec<String> {
+    d.fs.visible_names(&super::layout::kagemusha_wallet_slots_dir_v1())
+        .iter()
+        .filter_map(|name| KagemushaWalletSlotIdV1::parse(name))
+        .flat_map(|slot| {
+            d.fs.visible_names(&super::layout::kagemusha_wallet_slot_dir_v1(&slot))
+        })
+        .collect()
+}
+
+#[test]
+fn local_abandonment_from_pending_returns_no_ledger_bytes_and_never_probes_an_unknown_key() {
+    // Pre-E2 (Slot published, no intent) and intent-only slots. An unknown lookup is the
+    // fresh-generation-only platform (Android API 26–30), where a missing result is unknown.
+    // The durable phase decides, so local abandonment never probes a key.
+    for intent_only in [false, true] {
+        for unknown_lookup in [false, true] {
+            for restart in [false, true] {
+                let mut f = fixture();
+                let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 211);
+                if unknown_lookup {
+                    d.platform.with(|s| {
+                        s.generation_policy =
+                            KagemushaWalletKeyGenerationPolicyV1::FreshEnrollmentOnly;
+                    });
+                }
+                let mut current = interrupted_prekey_before_marker(&f, &d, intent_only);
+                d.platform.with(|s| s.probe_unavailable = unknown_lookup);
+                if restart {
+                    drop(current.into_provider());
+                    d.fs.restart();
+                    current = owner(&f, &d);
+                    dispatch(&f, &mut current);
+                }
+                let probes = d.platform.with(|s| s.probe_calls);
+                if intent_only && unknown_lookup {
+                    assert!(matches!(current.progress(), Err(Error::Provider(_))));
+                } else if !intent_only {
+                    // `PreIntent` proves that no key exists: no probe, still pending.
+                    assert!(matches!(
+                        current.progress().unwrap(),
+                        EnrollmentProgressV1::Pending
+                    ));
+                    d.platform.with(|s| assert_eq!(s.probe_calls, probes));
+                }
+                let probes = d.platform.with(|s| s.probe_calls);
+                assert_eq!(
+                    current.abandon().unwrap(),
+                    EnrollmentAbandonmentV1::LocalAbandoned
+                );
+                let expected_probes = probes;
+                d.platform
+                    .with(|s| assert_eq!(s.probe_calls, expected_probes, "probes"));
+                assert_eq!(
+                    current.abandon().unwrap(),
+                    EnrollmentAbandonmentV1::LocalAbandoned,
+                    "an existing local abandonment stands"
+                );
+                assert!(matches!(
+                    current.progress().unwrap(),
+                    EnrollmentProgressV1::Abandoned
+                ));
+                assert!(current.prepare_request(&f.evidence).is_err());
+                d.platform.with(|s| {
+                    assert_eq!(
+                        s.probe_calls, expected_probes,
+                        "an abandoned slot reconciles without a key probe"
+                    );
+                    assert_eq!(s.generate_calls, 0);
+                    assert_eq!(s.sign_calls, 0, "no ledger-control bytes are signed");
+                });
+                // The same attempt never resumes or regenerates under the abandoned slot.
+                drop(current.into_provider());
+                d.fs.restart();
+                let mut reopened = owner(&f, &d);
+                let resumed = dispatch(&f, &mut reopened);
+                let message = reopened
+                    .accept_permit(&permit(&f, &resumed).encode_canonical().unwrap())
+                    .unwrap();
+                assert!(matches!(
+                    reopened.authorize(&sign(&f, &message)).unwrap(),
+                    EnrollmentProgressV1::Abandoned
+                ));
+                d.platform.with(|s| {
+                    assert_eq!(s.generate_calls, 0);
+                    assert_eq!(s.fresh_generation_calls, 0);
+                });
+                // A fresh enrollment needs no ledger acceptance: a new challenge, request
+                // identity, slot and key start at once.
+                d.platform.with(|s| s.probe_unavailable = false);
+                f.challenge.issuer_nonce = [48; 32];
+                let message = begin_with_id(&f, &mut reopened, [12; 32]);
+                assert!(matches!(
+                    reopened.authorize(&sign(&f, &message)).unwrap(),
+                    EnrollmentProgressV1::Evidence { .. }
+                ));
+                d.platform.with(|s| assert_eq!(s.generate_calls, 1));
+            }
+        }
+    }
+}
+
+#[test]
+fn local_abandonment_after_a_spent_fresh_grant_drops_the_retained_reply_without_adoption() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 213);
+    d.platform
+        .with(|s| s.generation_policy = KagemushaWalletKeyGenerationPolicyV1::FreshEnrollmentOnly);
+    let mut current = owner(&f, &d);
+    let message = begin(&f, &mut current);
+    // The vendor created the key, but its reply was lost: the one-shot grant is spent.
+    d.platform.with(|s| {
+        s.generate_unavailable = Some(true);
+        s.probe_unavailable = true;
+    });
+    assert!(matches!(
+        current.authorize(&sign(&f, &message)),
+        Err(Error::Provider(_))
+    ));
+    d.platform.with(|s| {
+        assert_eq!(s.fresh_generation_calls, 1);
+        s.generate_unavailable = None;
+    });
+    let probes = d.platform.with(|s| s.probe_calls);
+    assert_eq!(
+        current.abandon().unwrap(),
+        EnrollmentAbandonmentV1::LocalAbandoned
+    );
+    d.platform.with(|s| assert_eq!(s.probe_calls, probes));
+    // The key now answers, but the abandoned slot never adopts it or publishes a marker.
+    d.platform.with(|s| s.probe_unavailable = false);
+    assert!(matches!(
+        current.progress().unwrap(),
+        EnrollmentProgressV1::Abandoned
+    ));
+    assert!(current.prepare_request(&f.evidence).is_err());
+    let mut provider = current.into_provider();
+    let slot = provider.slots().unwrap()[0];
+    assert_eq!(
+        provider.status(&slot).unwrap(),
+        KagemushaWalletSlotStatusV1::SlotAbandoned
+    );
+    assert!(!provider.has_retained_generation(&slot));
+    assert!(!provider.has_enrollment_marker(&slot).unwrap());
+    assert_eq!(
+        provider.read_abandoned_record(&slot).unwrap(),
+        KagemushaWalletSlotAbandonReasonV1::HolderAbandoned
+    );
+    d.platform.with(|s| {
+        assert_eq!(s.generate_calls, 1);
+        assert_eq!(
+            s.fresh_generation_calls, 1,
+            "the spent grant is never reissued"
+        );
+    });
+}
+
+#[test]
+fn local_abandonment_refuses_lost_originals_and_uncertain_storage_and_writes_nothing() {
+    for intent_only in [false, true] {
+        // A missing Client, Accepted permit or Slot original is lost custody.
+        for role in ["client", "accepted", "slot"] {
+            let f = fixture();
+            let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 215);
+            let mut current = interrupted_prekey_before_marker(&f, &d, intent_only);
+            let root = KagemushaWalletCustodyDirV1::root();
+            let name =
+                d.fs.visible_names(&root)
+                    .into_iter()
+                    .find(|name| {
+                        name.starts_with("prekey-") && name.ends_with(&format!("-{role}.norito"))
+                    })
+                    .unwrap();
+            d.fs.unlink(&root, &name).unwrap();
+            let before = slot_names(&d);
+            assert!(current.abandon().is_err(), "{role}");
+            assert_eq!(slot_names(&d), before, "{role}: nothing written");
+        }
+        // Unavailable protected storage never counts as "no marker".
+        let f = fixture();
+        let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 217);
+        let mut current = interrupted_prekey_before_marker(&f, &d, intent_only);
+        d.platform
+            .with(|s| s.storage = Err(KagemushaWalletUnavailableV1::BeforeFirstUnlock));
+        assert!(matches!(current.abandon(), Err(Error::Provider(_))));
+        d.platform.with(|s| s.storage = Ok(()));
+        assert!(!slot_names(&d).contains(&"abandoned.norito".to_owned()));
+        // A filesystem read fault is unavailable, never absence; a later clean call succeeds.
+        d.fs.inject(d.fs.steps(), KagemushaWalletSimFaultV1::Error);
+        assert!(current.abandon().is_err());
+        d.fs.clear_faults();
+        assert!(!slot_names(&d).contains(&"abandoned.norito".to_owned()));
+        assert_eq!(
+            current.abandon().unwrap(),
+            EnrollmentAbandonmentV1::LocalAbandoned
+        );
+    }
+}
+
+#[test]
+fn a_lost_selected_intent_is_restored_from_the_phase_and_never_regenerates_a_key() {
+    for policy in [
+        KagemushaWalletKeyGenerationPolicyV1::DefinitiveAbsence,
+        KagemushaWalletKeyGenerationPolicyV1::FreshEnrollmentOnly,
+    ] {
+        for expired in [false, true] {
+            let f = fixture();
+            let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 219);
+            d.platform.with(|s| s.generation_policy = policy);
+            let mut current = owner(&f, &d);
+            let message = begin(&f, &mut current);
+            d.platform.with(|s| s.generate_unavailable = Some(false));
+            assert!(current.authorize(&sign(&f, &message)).is_err());
+            d.platform.with(|s| {
+                s.generate_unavailable = None;
+                s.probe_unavailable = true;
+                if expired {
+                    // The issuer challenge (created 1000, lifetime 120000) has elapsed.
+                    s.monotonic = Ok(130_000);
+                }
+            });
+            let generated = d
+                .platform
+                .with(|s| (s.generate_calls, s.fresh_generation_calls));
+            let slot = current.into_provider().slots().unwrap()[0];
+            d.fs.restart();
+            let dir = super::layout::kagemusha_wallet_slot_dir_v1(&slot);
+            let intent = d.fs.visible_file(&dir, "intent.norito").unwrap();
+            d.fs.unlink(&dir, "intent.norito").unwrap();
+            // The selected intent is rebuilt from the authenticated phase, checked against its
+            // exact digest and restored create-new, also after E1 expiry; no generation grant
+            // or key effect follows from it.
+            let mut current = owner(&f, &d);
+            dispatch(&f, &mut current);
+            let probes = d.platform.with(|s| s.probe_calls);
+            assert_eq!(
+                current.abandon().unwrap(),
+                EnrollmentAbandonmentV1::LocalAbandoned,
+                "{policy:?} expired {expired}"
+            );
+            assert_eq!(d.fs.visible_file(&dir, "intent.norito").unwrap(), intent);
+            d.platform.with(|s| {
+                assert_eq!(s.probe_calls, probes);
+                assert_eq!(
+                    (s.generate_calls, s.fresh_generation_calls),
+                    generated,
+                    "no new generation or fresh grant"
+                );
+            });
+        }
+    }
+}
+
+#[test]
+fn a_selected_slot_without_its_durable_phase_is_lost_custody_never_pre_intent() {
+    for intent_only in [false, true] {
+        let f = fixture();
+        let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 233);
+        let mut current = interrupted_prekey_before_marker(&f, &d, intent_only);
+        let root = KagemushaWalletCustodyDirV1::root();
+        let name =
+            d.fs.visible_names(&root)
+                .into_iter()
+                .find(|name| name.starts_with("prekey-") && name.ends_with("-phase.norito"))
+                .unwrap();
+        d.fs.unlink(&root, &name).unwrap();
+        let before = slot_names(&d);
+        assert!(matches!(
+            current.abandon(),
+            Err(Error::Provider(
+                KagemushaWalletProviderErrorV1::UnavailableCustodyData { .. }
+            ))
+        ));
+        assert_eq!(slot_names(&d), before);
+        drop(current.into_provider());
+        d.fs.restart();
+        let mut reopened = owner(&f, &d);
+        let resumed = dispatch(&f, &mut reopened);
+        let message = reopened
+            .accept_permit(&permit(&f, &resumed).encode_canonical().unwrap())
+            .unwrap();
+        assert!(reopened.authorize(&sign(&f, &message)).is_err());
+        d.platform.with(|s| assert_eq!(s.generate_calls, 0));
+    }
+}
+
+#[test]
+fn abandonment_after_bootstrap_selection_or_with_a_marker_never_takes_the_local_form() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 221);
+    let mut current = enrolled(&f, &d);
+    let mut provider = current.into_provider();
+    let slot = provider.slots().unwrap()[0];
+    assert!(provider.has_enrollment_marker(&slot).unwrap());
+    // The provider itself refuses a local abandonment of a marked slot.
+    assert!(matches!(
+        provider.abandon_unmarked_enrollment(&slot, &[11; 32]),
+        Err(KagemushaWalletProviderErrorV1::Invalid {
+            field: "abandon.marker"
+        })
+    ));
+    assert!(
+        !d.fs
+            .visible_names(&super::layout::kagemusha_wallet_slot_dir_v1(&slot))
+            .contains(&"abandoned.norito".to_owned())
+    );
+    current = EnrollmentOwnerV1::new(provider, f.config.clone())
+        .unwrap_or_else(|(_, error)| panic!("{error}"));
+    dispatch(&f, &mut current);
+    assert!(matches!(
+        current.abandon().unwrap(),
+        EnrollmentAbandonmentV1::Abandonment(_)
+    ));
+}
+
+#[test]
+fn local_abandonment_never_treats_a_lost_marker_as_no_marker() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 225);
+    let slot = enrolled(&f, &d).into_provider().slots().unwrap()[0];
+    let mut current = enrolled_again(&f, &d);
+    // The generation-zero marker disappears after this owner verified it.
+    let markers = super::layout::kagemusha_wallet_markers_dir_v1(&slot);
+    for name in d.fs.visible_names(&markers) {
+        d.fs.unlink(&markers, &name).unwrap();
+    }
+    // The committed phase proves the marker existed: never absence, never reconstructed.
+    for _ in 0..2 {
+        assert!(matches!(
+            current.abandon(),
+            Err(Error::Provider(
+                KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                    object: "committed enrollment marker"
+                }
+            ))
+        ));
+        assert!(current.progress().is_err());
+    }
+    drop(current.into_provider());
+    d.fs.restart();
+    let mut reopened = owner(&f, &d);
+    dispatch(&f, &mut reopened);
+    assert!(reopened.abandon().is_err());
+    assert!(reopened.progress().is_err());
+    assert!(
+        !d.fs
+            .visible_names(&super::layout::kagemusha_wallet_slot_dir_v1(&slot))
+            .contains(&"abandoned.norito".to_owned())
+    );
+    d.platform.with(|s| assert_eq!(s.sign_calls, 0));
+}
+
+/// Reopen the same device and select its existing attempt again (Resume dispatch).
+fn enrolled_again(f: &Fixture, d: &DeviceV1) -> Owner {
+    let mut current = owner(f, d);
+    let resumed = dispatch(f, &mut current);
+    let message = current
+        .accept_permit(&permit(f, &resumed).encode_canonical().unwrap())
+        .unwrap();
+    assert!(matches!(
+        current.authorize(&sign(f, &message)).unwrap(),
+        EnrollmentProgressV1::Evidence { .. }
+    ));
+    current
+}
+
+#[test]
+fn a_tombstone_only_pre_e2_slot_does_not_break_a_later_attempts_recovery() {
+    let mut f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 227);
+    let mut current = interrupted_prekey_before_marker(&f, &d, false);
+    assert_eq!(
+        current.abandon().unwrap(),
+        EnrollmentAbandonmentV1::LocalAbandoned
+    );
+    // Attempt B accepts its permit, then the process stops before B's Slot publication.
+    f.challenge.issuer_nonce = [49; 32];
+    begin_with_id(&f, &mut current, [13; 32]);
+    drop(current.into_provider());
+    d.fs.restart();
+    let mut reopened = owner(&f, &d);
+    let resumed = PreKeyDispatchV1::decode(
+        &reopened
+            .begin(
+                &[13; 32],
+                &norito::encode_canonical(&f.account).unwrap(),
+                &norito::encode_canonical(&f.asset).unwrap(),
+            )
+            .unwrap(),
+    )
+    .unwrap();
+    assert!(resumed.previous_permit.is_some());
+    let probes = d.platform.with(|s| s.probe_calls);
+    assert_eq!(reopened.retained_request().unwrap(), None);
+    d.platform.with(|s| assert_eq!(s.probe_calls, probes));
+}
+
+#[test]
+fn a_cached_marker_beside_an_abandoned_slot_record_is_conflicting_custody() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 235);
+    let mut provider = enrolled(&f, &d).into_provider();
+    let slot = provider.slots().unwrap()[0];
+    assert!(matches!(
+        provider.status(&slot).unwrap(),
+        KagemushaWalletSlotStatusV1::Enrollment(_)
+    ));
+    provider
+        .abandon_slot(&slot, KagemushaWalletSlotAbandonReasonV1::KeyWithoutMarker)
+        .unwrap();
+    assert!(matches!(
+        provider.status(&slot),
+        Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+            object: "abandoned slot custody conflict"
+        })
+    ));
+}
+
+#[test]
+fn an_abandoned_slot_record_beside_a_marker_is_conflicting_custody() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 229);
+    let mut provider = enrolled(&f, &d).into_provider();
+    let slot = provider.slots().unwrap()[0];
+    provider
+        .abandon_slot(&slot, KagemushaWalletSlotAbandonReasonV1::KeyWithoutMarker)
+        .unwrap();
+    drop(provider);
+    d.fs.restart();
+    let mut provider: KagemushaWalletProviderV1<KagemushaWalletSimFsV1, FakePlatformV1> =
+        KagemushaWalletProviderV1::open(
+            d.fs.clone(),
+            d.platform.clone(),
+            f.config.scheme.scheme_id(),
+            test_options(),
+        )
+        .unwrap();
+    assert!(matches!(
+        provider.status(&slot),
+        Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+            object: "abandoned slot custody conflict"
+        })
+    ));
+}
+
+#[test]
+fn an_uncertain_local_abandonment_record_is_terminal_only_once_it_is_durable() {
+    use super::store::{KagemushaWalletSimFaultV1, KagemushaWalletSimStepV1};
+    // Learn the deterministic step trace of one successful local abandonment.
+    let trace = {
+        let f = fixture();
+        let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 231);
+        let mut current = interrupted_prekey_before_marker(&f, &d, true);
+        let from = d.fs.steps();
+        current.abandon().unwrap();
+        d.fs.trace_since(from)
+    };
+    let rename = trace
+        .iter()
+        .rposition(|step| *step == KagemushaWalletSimStepV1::RenameNoReplace)
+        .unwrap();
+    let sync = rename
+        + trace[rename..]
+            .iter()
+            .position(|step| *step == KagemushaWalletSimStepV1::SyncDir)
+            .unwrap();
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 231);
+    let mut current = interrupted_prekey_before_marker(&f, &d, true);
+    let from = d.fs.steps();
+    // The record becomes visible, but its directory sync fails: not yet terminal.
+    d.fs.inject(
+        from + u64::try_from(sync).unwrap(),
+        KagemushaWalletSimFaultV1::Error,
+    );
+    assert!(current.abandon().is_err());
+    d.fs.clear_faults();
+    // The next observation makes that exact record durable before reporting it terminal.
+    let syncs = d.fs.steps();
+    assert!(matches!(
+        current.progress().unwrap(),
+        EnrollmentProgressV1::Abandoned
+    ));
+    assert!(
+        d.fs.trace_since(syncs)
+            .contains(&KagemushaWalletSimStepV1::SyncDir)
+    );
+    assert_eq!(
+        current.abandon().unwrap(),
+        EnrollmentAbandonmentV1::LocalAbandoned
+    );
+    d.platform.with(|s| assert_eq!(s.generate_calls, 0));
+}
+
+/// Durable phase of the fixture attempt (request identity `[11; 32]`) as custody shows it now.
+fn fixture_phase(
+    provider: &KagemushaWalletProviderV1<KagemushaWalletSimFsV1, FakePlatformV1>,
+) -> Option<KagemushaWalletEnrollmentPhaseStateV1> {
+    provider.enrollment_phase(&[11; 32]).unwrap()
+}
+
+/// Every visible slot original is named by the durable phase: an intent by its exact selected
+/// digest, a marker by a selected marker phase.
+fn assert_phase_covers_custody(
+    provider: &mut KagemushaWalletProviderV1<KagemushaWalletSimFsV1, FakePlatformV1>,
+    label: &str,
+) {
+    let phase = fixture_phase(provider);
+    for slot in provider.slots().unwrap() {
+        if provider.is_abandoned_without_marker(&slot).unwrap() {
+            continue;
+        }
+        let state = phase
+            .as_ref()
+            .filter(|state| state.binding.slot == slot.0)
+            .unwrap_or_else(|| panic!("{label}: a slot without its phase"));
+        if let Some(intent) = provider.read_intent(&slot).unwrap() {
+            assert_eq!(
+                state.phase.intent_digest(),
+                Some(super::enrollment_phase::kagemusha_wallet_intent_digest_v1(&intent).unwrap()),
+                "{label}: intent named by the phase"
+            );
+        }
+        if provider.has_enrollment_marker(&slot).unwrap() {
+            assert!(
+                state.phase.marker_selected(),
+                "{label}: marker named by the phase"
+            );
+        }
+    }
+}
+
+#[test]
+fn prekey_phase_crash_matrix_keeps_every_selected_original_and_the_abandonment_form() {
+    use super::store::{
+        KagemushaWalletSimFaultV1 as Fault, KagemushaWalletSimPowerLossV1 as PowerLoss,
+        KagemushaWalletSimStepV1 as Step,
+    };
+    let f = fixture();
+    let mut cases = 0_usize;
+    for (anchor, policy, seed) in [
+        (
+            KagemushaWalletAnchorPolicyV1::NotRequired,
+            KagemushaWalletKeyGenerationPolicyV1::DefinitiveAbsence,
+            241,
+        ),
+        (
+            KagemushaWalletAnchorPolicyV1::Keychain,
+            KagemushaWalletKeyGenerationPolicyV1::DefinitiveAbsence,
+            242,
+        ),
+        (
+            KagemushaWalletAnchorPolicyV1::NotRequired,
+            KagemushaWalletKeyGenerationPolicyV1::FreshEnrollmentOnly,
+            243,
+        ),
+    ] {
+        let base = DeviceV1::new(anchor, seed);
+        base.platform.with(|s| s.generation_policy = policy);
+        // Every mutating step of one authorization: the binding and Slot selection, every
+        // phase transition and publication, generation, the marker, its commit and the anchor.
+        let trace = {
+            let d = base.fork();
+            let mut current = owner(&f, &d);
+            let message = begin(&f, &mut current);
+            let from = d.fs.steps();
+            assert!(matches!(
+                current.authorize(&sign(&f, &message)).unwrap(),
+                EnrollmentProgressV1::Evidence { .. }
+            ));
+            d.fs.trace_since(from)
+        };
+        for (at, step) in trace.iter().enumerate() {
+            if matches!(step, Step::Read | Step::List | Step::Statvfs | Step::Lock) {
+                continue;
+            }
+            // A crash just after the step with power loss (only durable state survives), an
+            // uncertain step answered by a restart, a lost writeback with power loss, and a lost
+            // writeback followed by a successful same-process retry and only then power loss
+            // (what the retry relied on must have been made durable again).
+            for (fault, power_loss, retry) in [
+                (Fault::CrashAfter, true, false),
+                (Fault::Error, false, false),
+                (Fault::LostWriteback, true, false),
+                (Fault::LostWriteback, true, true),
+            ] {
+                {
+                    let label = format!(
+                        "{anchor:?}/{policy:?} step {at} {step:?} {fault:?} power loss {power_loss} retry {retry}"
+                    );
+                    let d = base.fork();
+                    let mut current = owner(&f, &d);
+                    let message = begin(&f, &mut current);
+                    d.fs.inject(d.fs.steps() + u64::try_from(at).unwrap(), fault);
+                    let _ = current.authorize(&sign(&f, &message));
+                    d.fs.clear_faults();
+                    if retry && !d.fs.crashed() {
+                        let resumed = dispatch(&f, &mut current);
+                        if let Ok(message) =
+                            current.accept_permit(&permit(&f, &resumed).encode_canonical().unwrap())
+                        {
+                            let _ = current.authorize(&sign(&f, &message));
+                        }
+                    }
+                    drop(current.into_provider());
+                    if power_loss {
+                        d.power_loss(PowerLoss::DropUnsynced, super::test_support::BOOT_B);
+                    } else {
+                        d.fs.restart();
+                    }
+                    // Recovery: custody stays consistent with the phase, the attempt resumes
+                    // without lost-custody errors, and abandonment takes the form the phase
+                    // demands.
+                    let mut provider = owner(&f, &d).into_provider();
+                    assert_phase_covers_custody(&mut provider, &label);
+                    let mut current = EnrollmentOwnerV1::new(provider, f.config.clone())
+                        .unwrap_or_else(|(_, error)| panic!("{label}: {error}"));
+                    let resumed = dispatch(&f, &mut current);
+                    let message = current
+                        .accept_permit(&permit(&f, &resumed).encode_canonical().unwrap())
+                        .unwrap_or_else(|error| panic!("{label}: accept {error}"));
+                    match current.authorize(&sign(&f, &message)) {
+                        Ok(_)
+                        | Err(Error::Provider(KagemushaWalletProviderErrorV1::Unavailable(_))) => {}
+                        Err(error) => panic!("{label}: authorize {error:?}"),
+                    }
+                    let mut provider = current.into_provider();
+                    assert_phase_covers_custody(&mut provider, &label);
+                    let marked =
+                        fixture_phase(&provider).is_some_and(|state| state.phase.marker_selected());
+                    let mut current = EnrollmentOwnerV1::new(provider, f.config.clone())
+                        .unwrap_or_else(|(_, error)| panic!("{label}: {error}"));
+                    dispatch(&f, &mut current);
+                    match current.abandon() {
+                        Ok(EnrollmentAbandonmentV1::Abandonment(_)) => {
+                            assert!(marked, "{label}: marker form without a selected marker");
+                        }
+                        Ok(EnrollmentAbandonmentV1::LocalAbandoned) => {
+                            assert!(!marked, "{label}: local form after a selected marker");
+                        }
+                        Err(error) => panic!("{label}: abandon {error:?}"),
+                    }
+                    assert!(
+                        matches!(current.progress(), Ok(EnrollmentProgressV1::Abandoned)),
+                        "{label}"
+                    );
+                    d.platform.with(|s| {
+                        // Generation only into an intent-only, unmarked, unabandoned slot
+                        // without a key (the platform's signing and deletion guards decode the
+                        // simulator's own scheme, not this fixture's, so only this one applies).
+                        assert!(
+                            !s.violations.iter().any(|v| v.starts_with("key generated")),
+                            "{label}: {:?}",
+                            s.violations
+                        );
+                        assert!(s.fresh_generation_calls <= 1, "{label}: one fresh grant");
+                    });
+                    cases += 1;
+                }
+            }
+        }
+    }
+    assert!(cases > 300, "{cases} cases");
+}
+
+/// Stop an authorization immediately before the generation-zero marker's own publication: the
+/// durable phase is `MarkerSelected`, the key exists and no marker is visible.
+fn marker_selected_without_marker(
+    f: &Fixture,
+    anchor: KagemushaWalletAnchorPolicyV1,
+    seed: u8,
+) -> (DeviceV1, KagemushaWalletSlotIdV1) {
+    use super::store::{KagemushaWalletSimFaultV1 as Fault, KagemushaWalletSimStepV1 as Step};
+    let base = DeviceV1::new(anchor, seed);
+    let trace = {
+        let d = base.fork();
+        let mut current = owner(f, &d);
+        let message = begin(f, &mut current);
+        let from = d.fs.steps();
+        current.authorize(&sign(f, &message)).unwrap();
+        d.fs.trace_since(from)
+    };
+    for (at, step) in trace.iter().enumerate() {
+        if *step != Step::RenameNoReplace {
+            continue;
+        }
+        let d = base.fork();
+        let mut current = owner(f, &d);
+        let message = begin(f, &mut current);
+        d.fs.inject(
+            d.fs.steps() + u64::try_from(at).unwrap(),
+            Fault::CrashBefore,
+        );
+        let _ = current.authorize(&sign(f, &message));
+        d.fs.clear_faults();
+        drop(current.into_provider());
+        d.fs.restart();
+        let provider = owner(f, &d).into_provider();
+        let selected = fixture_phase(&provider).is_some_and(|state| {
+            matches!(
+                state.phase,
+                KagemushaWalletEnrollmentPhaseV1::MarkerSelected { .. }
+            )
+        });
+        let slots = provider.slots().unwrap();
+        if selected && !provider.has_enrollment_marker(&slots[0]).unwrap() {
+            assert!(d.platform.key_of(&slots[0]).is_some());
+            return (d, slots[0]);
+        }
+    }
+    panic!("no marker-selected boundary");
+}
+
+#[test]
+fn a_selected_marker_lost_before_publication_is_restored_only_with_its_exact_present_key() {
+    let f = fixture();
+    for case in ["matching", "absent", "different", "unavailable", "abandon"] {
+        let (d, slot) =
+            marker_selected_without_marker(&f, KagemushaWalletAnchorPolicyV1::NotRequired, 245);
+        match case {
+            "absent" => d.platform.with(|s| {
+                s.keys.remove(&slot);
+            }),
+            "different" => d.platform.with(|s| {
+                s.keys.insert(slot, signing_key(99));
+            }),
+            "unavailable" => d.platform.with(|s| s.probe_unavailable = true),
+            _ => {}
+        }
+        let mut current = owner(&f, &d);
+        dispatch(&f, &mut current);
+        let generated = d.platform.with(|s| s.generate_calls);
+        let before = slot_names(&d);
+        if case == "abandon" {
+            // Either marker phase prohibits the local form: the restored marker signs the frame.
+            assert!(matches!(
+                current.abandon().unwrap(),
+                EnrollmentAbandonmentV1::Abandonment(_)
+            ));
+            continue;
+        }
+        let progress = current.progress();
+        match case {
+            "matching" => {
+                assert!(
+                    matches!(progress, Ok(EnrollmentProgressV1::Evidence { .. })),
+                    "{progress:?}"
+                );
+                let provider = current.into_provider();
+                assert!(matches!(
+                    fixture_phase(&provider).unwrap().phase,
+                    KagemushaWalletEnrollmentPhaseV1::MarkerCommitted { .. }
+                ));
+            }
+            "absent" | "different" => {
+                assert!(
+                    matches!(
+                        progress,
+                        Err(Error::Provider(KagemushaWalletProviderErrorV1::KeyLost))
+                    ),
+                    "{case}: {progress:?}"
+                );
+                assert!(current.abandon().is_err(), "{case}: never the local form");
+                assert_eq!(slot_names(&d), before, "{case}: nothing published");
+            }
+            _ => {
+                assert!(
+                    matches!(
+                        progress,
+                        Err(Error::Provider(
+                            KagemushaWalletProviderErrorV1::Unavailable(_)
+                        ))
+                    ),
+                    "{progress:?}"
+                );
+                assert_eq!(slot_names(&d), before, "unavailable: nothing published");
+                d.platform.with(|s| s.probe_unavailable = false);
+                assert!(matches!(
+                    current.progress(),
+                    Ok(EnrollmentProgressV1::Evidence { .. })
+                ));
+            }
+        }
+        d.platform
+            .with(|s| assert_eq!(s.generate_calls, generated, "{case}: no generation"));
+    }
+}
+
+#[test]
+fn a_named_anchor_never_authorizes_restoring_a_selected_marker() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::Keychain, 247);
+    let slot = enrolled(&f, &d).into_provider().slots().unwrap()[0];
+    d.fs.restart();
+    // A phase that reads `MarkerSelected` (never committed) and no marker file: the raised
+    // keychain anchor still binds the exact lost marker file, so nothing may replace it.
+    let root = KagemushaWalletCustodyDirV1::root();
+    let name =
+        d.fs.visible_names(&root)
+            .into_iter()
+            .find(|name| name.ends_with("-phase.norito"))
+            .unwrap();
+    let mut state = super::enrollment_phase::test_decode_phase_record(
+        &d.fs.visible_file(&root, &name).unwrap(),
+    );
+    let KagemushaWalletEnrollmentPhaseV1::MarkerCommitted {
+        intent_digest,
+        marker_digest,
+        payment_key,
+        ..
+    } = state.phase
+    else {
+        panic!("committed phase");
+    };
+    state.phase = KagemushaWalletEnrollmentPhaseV1::MarkerSelected {
+        intent_digest,
+        marker_digest,
+        payment_key,
+    };
+    d.fs.unlink(&root, &name).unwrap();
+    d.fs.place_unsynced(
+        &root,
+        &name,
+        &super::enrollment_phase::test_phase_record(&state),
+    );
+    let markers = super::layout::kagemusha_wallet_markers_dir_v1(&slot);
+    for name in d.fs.visible_names(&markers) {
+        d.fs.unlink(&markers, &name).unwrap();
+    }
+    for restart in [false, true] {
+        if restart {
+            d.fs.restart();
+        }
+        let mut current = owner(&f, &d);
+        dispatch(&f, &mut current);
+        assert!(matches!(
+            current.progress(),
+            Err(Error::Provider(
+                KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                    object: "anchored enrollment marker"
+                }
+            ))
+        ));
+        assert!(current.abandon().is_err());
+        assert!(d.fs.visible_names(&markers).is_empty(), "never republished");
+        drop(current.into_provider());
+    }
+}
+
+#[test]
+fn corrupt_or_foreign_phase_records_are_unavailable_custody_everywhere() {
+    for intent_only in [false, true] {
+        for mutation in ["corrupt", "foreign"] {
+            let f = fixture();
+            let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 249);
+            let mut current = interrupted_prekey_before_marker(&f, &d, intent_only);
+            let root = KagemushaWalletCustodyDirV1::root();
+            let name =
+                d.fs.visible_names(&root)
+                    .into_iter()
+                    .find(|name| name.starts_with("prekey-") && name.ends_with("-phase.norito"))
+                    .unwrap();
+            let bytes = d.fs.visible_file(&root, &name).unwrap();
+            let replacement = if mutation == "foreign" {
+                // A well-formed phase of this request whose binding names another slot: a
+                // scope mismatch against the authenticated Slot selection.
+                let mut state = super::enrollment_phase::test_decode_phase_record(&bytes);
+                state.binding.slot = [9; 32];
+                super::enrollment_phase::test_phase_record(&state)
+            } else {
+                let mut corrupt = bytes;
+                let last = corrupt.len() - 1;
+                corrupt[last] ^= 1;
+                corrupt
+            };
+            d.fs.unlink(&root, &name).unwrap();
+            d.fs.place_unsynced(&root, &name, &replacement);
+            let before = slot_names(&d);
+            let label = format!("{mutation} intent_only {intent_only}");
+            // Repeated abandonment, intervening reconciliation and a restart all fail closed.
+            for round in 0..3 {
+                if round == 2 {
+                    drop(current.into_provider());
+                    d.fs.restart();
+                    current = owner(&f, &d);
+                    dispatch(&f, &mut current);
+                }
+                let abandoned = current.abandon();
+                assert!(
+                    matches!(
+                        abandoned,
+                        Err(Error::Provider(
+                            KagemushaWalletProviderErrorV1::UnavailableCustodyData { .. }
+                        ))
+                    ),
+                    "{label} round {round}: {abandoned:?}"
+                );
+                assert!(
+                    matches!(
+                        current.progress(),
+                        Err(Error::Provider(
+                            KagemushaWalletProviderErrorV1::UnavailableCustodyData { .. }
+                        ))
+                    ),
+                    "{label} round {round}"
+                );
+                assert_eq!(slot_names(&d), before, "{label}: nothing written");
+            }
+            d.platform.with(|s| {
+                assert_eq!(s.generate_calls, 0);
+                assert_eq!(s.sign_calls, 0);
+            });
+        }
+    }
+}
+
+#[test]
+fn a_lost_phase_never_downgrades_custody_to_absence_or_reconstruction() {
+    // After E2 (intent and key effect pending) and after E4 (committed marker), losing the
+    // mandatory phase together with the original it witnesses fails closed.
+    for after_marker in [false, true] {
+        let f = fixture();
+        let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 251);
+        let current = if after_marker {
+            enrolled(&f, &d)
+        } else {
+            interrupted_prekey_before_marker(&f, &d, true)
+        };
+        let slot = current.into_provider().slots().unwrap()[0];
+        d.fs.restart();
+        let root = KagemushaWalletCustodyDirV1::root();
+        let phase =
+            d.fs.visible_names(&root)
+                .into_iter()
+                .find(|name| name.ends_with("-phase.norito"))
+                .unwrap();
+        d.fs.unlink(&root, &phase).unwrap();
+        let dir = super::layout::kagemusha_wallet_slot_dir_v1(&slot);
+        let markers = super::layout::kagemusha_wallet_markers_dir_v1(&slot);
+        if after_marker {
+            for name in d.fs.visible_names(&markers) {
+                d.fs.unlink(&markers, &name).unwrap();
+            }
+        } else {
+            d.fs.unlink(&dir, "intent.norito").unwrap();
+        }
+        let before = slot_names(&d);
+        let mut current = owner(&f, &d);
+        dispatch(&f, &mut current);
+        for _ in 0..2 {
+            assert!(current.abandon().is_err(), "after marker {after_marker}");
+            assert!(current.progress().is_err(), "after marker {after_marker}");
+        }
+        let mut provider = current.into_provider();
+        assert!(provider.status(&slot).is_err());
+        assert_eq!(slot_names(&d), before, "nothing restored or abandoned");
+        assert!(d.fs.visible_names(&markers).is_empty() || !after_marker);
+        d.platform
+            .with(|s| assert_eq!(s.generate_calls, usize::from(after_marker)));
+    }
+}
+
+#[test]
+fn a_retained_reply_never_republishes_a_committed_marker() {
+    use super::test_support::AnchorWriteV1;
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::Keychain, 253);
+    let mut current = owner(&f, &d);
+    let message = begin(&f, &mut current);
+    // E4 and its commit succeed; raising the keychain anchor fails, so this owner keeps the
+    // actual generation reply.
+    // Anchor writes: the unnamed anchor at E2, then the raise after the committed E4.
+    d.platform
+        .with(|s| s.anchor_fault_at = Some((s.anchor_writes + 1, AnchorWriteV1::Refused)));
+    assert!(current.authorize(&sign(&f, &message)).is_err());
+    let mut provider = current.into_provider();
+    let slot = provider.slots().unwrap()[0];
+    assert!(provider.has_retained_generation(&slot));
+    assert!(matches!(
+        fixture_phase(&provider).unwrap().phase,
+        KagemushaWalletEnrollmentPhaseV1::MarkerCommitted { .. }
+    ));
+    let markers = super::layout::kagemusha_wallet_markers_dir_v1(&slot);
+    for name in d.fs.visible_names(&markers) {
+        d.fs.unlink(&markers, &name).unwrap();
+    }
+    for _ in 0..2 {
+        assert!(matches!(
+            provider.status(&slot),
+            Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                object: "committed enrollment marker"
+            })
+        ));
+        assert!(
+            d.fs.visible_names(&markers).is_empty(),
+            "generation zero is never republished"
+        );
+    }
+    let mut current = EnrollmentOwnerV1::new(provider, f.config.clone())
+        .unwrap_or_else(|(_, error)| panic!("{error}"));
+    dispatch(&f, &mut current);
+    assert!(current.progress().is_err());
+    assert!(current.abandon().is_err());
+    assert!(d.fs.visible_names(&markers).is_empty());
+}
+
+#[test]
+fn phase_corruption_is_caught_with_a_populated_cache_and_after_restart() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 65);
+    let mut current = enrolled(&f, &d);
+    // Populate the verified cache.
+    for _ in 0..2 {
+        assert!(matches!(
+            current.progress().unwrap(),
+            EnrollmentProgressV1::Evidence { .. }
+        ));
+    }
+    let root = KagemushaWalletCustodyDirV1::root();
+    let name =
+        d.fs.visible_names(&root)
+            .into_iter()
+            .find(|name| name.ends_with("-phase.norito"))
+            .unwrap();
+    let mut corrupt = d.fs.visible_file(&root, &name).unwrap();
+    let last = corrupt.len() - 1;
+    corrupt[last] ^= 1;
+    d.fs.unlink(&root, &name).unwrap();
+    d.fs.place_unsynced(&root, &name, &corrupt);
+    let mut provider = current.into_provider();
+    let slot = provider.slots().unwrap()[0];
+    for _ in 0..2 {
+        assert!(matches!(
+            provider.status(&slot),
+            Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData { .. })
+        ));
+    }
+    drop(provider);
+    d.fs.restart();
+    let mut current = owner(&f, &d);
+    dispatch(&f, &mut current);
+    assert!(current.progress().is_err());
+    assert!(current.abandon().is_err());
+}
+
+#[test]
+fn a_missing_accepted_permit_stops_selected_marker_restoration_before_any_write() {
+    let f = fixture();
+    let (d, slot) =
+        marker_selected_without_marker(&f, KagemushaWalletAnchorPolicyV1::NotRequired, 61);
+    let root = KagemushaWalletCustodyDirV1::root();
+    let accepted =
+        d.fs.visible_names(&root)
+            .into_iter()
+            .find(|name| name.starts_with("prekey-") && name.ends_with("-accepted.norito"))
+            .unwrap();
+    d.fs.unlink(&root, &accepted).unwrap();
+    let before = slot_names(&d);
+    let mut provider = owner(&f, &d).into_provider();
+    assert!(matches!(
+        provider.status(&slot),
+        Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+            object: "selected pre-key originals"
+        })
+    ));
+    let mut current = EnrollmentOwnerV1::new(provider, f.config.clone())
+        .unwrap_or_else(|(_, error)| panic!("{error}"));
+    // The owner cannot even resume the attempt without its accepted permit.
+    assert!(
+        current
+            .begin(
+                &[11; 32],
+                &norito::encode_canonical(&f.account).unwrap(),
+                &norito::encode_canonical(&f.asset).unwrap(),
+            )
+            .is_err()
+    );
+    assert!(current.progress().is_err());
+    assert!(current.abandon().is_err());
+    assert_eq!(slot_names(&d), before, "no marker is restored");
+}
+
+#[test]
+fn a_valid_but_foreign_intent_is_never_probed_or_abandoned_under() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 63);
+    let current = interrupted_prekey_before_marker(&f, &d, true);
+    let mut provider = current.into_provider();
+    let slot = provider.slots().unwrap()[0];
+    // A well-formed intent of the same slot with other dates, and a key under the slot.
+    let mut foreign = provider.read_intent(&slot).unwrap().unwrap();
+    foreign.dates.expires_at_ms += 1;
+    let dir = super::layout::kagemusha_wallet_slot_dir_v1(&slot);
+    d.fs.unlink(&dir, "intent.norito").unwrap();
+    d.fs.place_unsynced(
+        &dir,
+        "intent.norito",
+        &super::encode_envelope_v1(
+            &foreign,
+            super::enrollment::KAGEMUSHA_WALLET_INTENT_MAX_BYTES_V1,
+        )
+        .unwrap(),
+    );
+    d.platform.with(|s| {
+        s.keys.insert(slot, signing_key(5));
+    });
+    let probes = d.platform.with(|s| s.probe_calls);
+    let before = slot_names(&d);
+    for _ in 0..2 {
+        assert!(matches!(
+            provider.status(&slot),
+            Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                object: "enrollment phase intent"
+            })
+        ));
+    }
+    let mut current = EnrollmentOwnerV1::new(provider, f.config.clone())
+        .unwrap_or_else(|(_, error)| panic!("{error}"));
+    dispatch(&f, &mut current);
+    assert!(current.abandon().is_err());
+    assert_eq!(
+        slot_names(&d),
+        before,
+        "never KeyWithoutMarker, never a local abandonment"
+    );
+    d.platform.with(|s| assert_eq!(s.probe_calls, probes));
+}
+
+#[test]
+fn a_replaced_client_before_the_first_authorization_has_no_effect() {
+    for foreign in [false, true] {
+        let f = fixture();
+        let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 67);
+        let mut current = owner(&f, &d);
+        let message = begin(&f, &mut current);
+        let root = KagemushaWalletCustodyDirV1::root();
+        let name =
+            d.fs.visible_names(&root)
+                .into_iter()
+                .find(|name| name.starts_with("prekey-") && name.ends_with("-client.norito"))
+                .unwrap();
+        let bytes = d.fs.visible_file(&root, &name).unwrap();
+        let replacement = if foreign {
+            // A well-formed Fresh dispatch of the same request with another client nonce.
+            let mut other = PreKeyDispatchV1::decode(&bytes).unwrap();
+            other.client_nonce = [77; 32];
+            other.encode().unwrap()
+        } else {
+            let mut malformed = bytes;
+            let last = malformed.len() - 1;
+            malformed[last] ^= 1;
+            malformed
+        };
+        d.fs.unlink(&root, &name).unwrap();
+        d.fs.place_unsynced(&root, &name, &replacement);
+        assert!(
+            current.authorize(&sign(&f, &message)).is_err(),
+            "foreign {foreign}"
+        );
+        let names = d.fs.visible_names(&root);
+        assert!(
+            !names
+                .iter()
+                .any(|name| name.ends_with("-phase.norito") || name.ends_with("-slot.norito")),
+            "foreign {foreign}: no phase or Slot selection: {names:?}"
+        );
+        assert!(
+            slot_names(&d).is_empty(),
+            "foreign {foreign}: no slot custody"
+        );
+        d.platform.with(|s| {
+            assert_eq!(s.generate_calls, 0);
+            assert_eq!(s.fresh_generation_calls, 0);
+        });
+    }
+}
+
+#[test]
+fn a_lost_slot_selection_of_an_enrolled_attempt_is_never_rebuilt() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 69);
+    let slot = enrolled(&f, &d).into_provider().slots().unwrap()[0];
+    d.fs.restart();
+    let root = KagemushaWalletCustodyDirV1::root();
+    let name =
+        d.fs.visible_names(&root)
+            .into_iter()
+            .find(|name| name.starts_with("prekey-") && name.ends_with("-slot.norito"))
+            .unwrap();
+    d.fs.unlink(&root, &name).unwrap();
+    for _ in 0..2 {
+        let mut current = owner(&f, &d);
+        let resumed = dispatch(&f, &mut current);
+        let message = current
+            .accept_permit(&permit(&f, &resumed).encode_canonical().unwrap())
+            .unwrap();
+        assert!(matches!(
+            current.authorize(&sign(&f, &message)),
+            Err(Error::Provider(
+                KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                    object: "selected pre-key slot"
+                }
+            ))
+        ));
+        assert!(
+            !d.fs.visible_names(&root).contains(&name),
+            "the Slot selection is never republished"
+        );
+        let mut provider = current.into_provider();
+        assert!(provider.status(&slot).is_err());
+        drop(provider);
+        d.fs.restart();
+    }
+    d.platform.with(|s| assert_eq!(s.generate_calls, 1));
+}
+
+#[test]
+fn retained_generation_recovery_authenticates_originals_before_asking_the_platform() {
+    for reply in [false, true] {
+        let f = fixture();
+        let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 71);
+        d.platform.with(|s| {
+            s.generation_policy = KagemushaWalletKeyGenerationPolicyV1::FreshEnrollmentOnly;
+        });
+        let mut current = owner(&f, &d);
+        let message = begin(&f, &mut current);
+        if reply {
+            // The actual reply is retained: storage locks right after the vendor returns.
+            d.platform.with(|s| s.lock_after_generation = true);
+        } else {
+            // Only the dispatch is retained: the vendor created the key, its reply was lost.
+            d.platform.with(|s| s.generate_unavailable = Some(true));
+        }
+        assert!(current.authorize(&sign(&f, &message)).is_err());
+        d.platform.with(|s| {
+            s.lock_after_generation = false;
+            s.generate_unavailable = None;
+            s.storage = Ok(());
+            // Any platform recovery call would answer Busy instead of the custody refusal.
+            s.generation_readback_unavailable = true;
+        });
+        let mut provider = current.into_provider();
+        let slot = provider.slots().unwrap()[0];
+        assert!(provider.has_retained_generation(&slot), "reply {reply}");
+        let root = KagemushaWalletCustodyDirV1::root();
+        let accepted =
+            d.fs.visible_names(&root)
+                .into_iter()
+                .find(|name| name.starts_with("prekey-") && name.ends_with("-accepted.norito"))
+                .unwrap();
+        d.fs.unlink(&root, &accepted).unwrap();
+        let probes = d.platform.with(|s| s.probe_calls);
+        let before = slot_names(&d);
+        for _ in 0..2 {
+            assert!(
+                matches!(
+                    provider.status(&slot),
+                    Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                        object: "selected pre-key originals"
+                    })
+                ),
+                "reply {reply}"
+            );
+        }
+        d.platform
+            .with(|s| assert_eq!(s.probe_calls, probes, "reply {reply}: no probe"));
+        assert_eq!(slot_names(&d), before, "reply {reply}: nothing published");
+        assert!(
+            provider.has_retained_generation(&slot),
+            "reply {reply}: retained"
+        );
+    }
+}
+
 #[test]
 #[ignore = "requires the independently pinned, complete generated wallet catalog and finality metadata"]
 fn persisted_complete_sources_open_real_bootstrap_and_reopen_exact_output() {
@@ -1406,9 +2744,11 @@ fn apple_collection_fixture() -> Fixture {
         app_id: "TEAM123456.org.example.wallet".into(),
     };
     f.config.policy.app_policy = f.config.app.policy_digest().unwrap();
+    let root = b"component Apple root original".to_vec();
     f.config.policy.platform = KagemushaWalletEnrollmentPlatformV1::Apple {
-        attestation_root_sha256: Sha256::digest(&f.config.attestation_root_der).into(),
+        attestation_root_sha256: Sha256::digest(&root).into(),
     };
+    f.config.attestation_root_der = Some(root);
     f.challenge.app_policy = f.config.policy.app_policy;
     f.challenge.enrollment_policy = f.config.policy.policy_digest().unwrap();
     f
@@ -1587,11 +2927,20 @@ fn selected_pre_e5_absence_preserves_unavailable_storage_and_key_answers() {
         let mut current = interrupted_prekey_before_marker(&f, &d, intent_only);
         dispatch(&f, &mut current);
         d.platform.with(|state| state.probe_unavailable = true);
-        assert!(matches!(
-            current.retained_request(),
-            Err(Error::Provider(_))
-        ));
-        assert!(matches!(current.retained_result(), Err(Error::Provider(_))));
+        if intent_only {
+            assert!(matches!(
+                current.retained_request(),
+                Err(Error::Provider(_))
+            ));
+            assert!(matches!(current.retained_result(), Err(Error::Provider(_))));
+        } else {
+            // A durable `PreIntent` phase proves that no key exists: nothing is probed.
+            let probes = d.platform.with(|state| state.probe_calls);
+            assert!(current.retained_request().unwrap().is_none());
+            assert!(current.retained_result().unwrap().is_none());
+            d.platform
+                .with(|state| assert_eq!(state.probe_calls, probes));
+        }
         d.platform.with(|state| {
             state.probe_unavailable = false;
             state.storage = Err(KagemushaWalletUnavailableV1::Locked);
@@ -1701,7 +3050,7 @@ fn session_renewal_rejects_every_changed_immutable_selection_without_consuming_c
         |c| c.scheme.network_id[0] ^= 1,
         |c| c.app.version += 1,
         |c| c.policy.version += 1,
-        |c| c.attestation_root_der.push(1),
+        |c| c.attestation_root_der = Some(b"substituted root".to_vec()),
         |c| c.installation.manifest_digest[0] ^= 1,
         |c| c.enrollment_certificate.body.serial += 1,
         |c| c.service_origin.push(1),

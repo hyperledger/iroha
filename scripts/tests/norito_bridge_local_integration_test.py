@@ -195,7 +195,7 @@ class LocalAppleIntegrationTests(unittest.TestCase):
 
     def payload(self, dirty=False):
         return {
-            'version': '0.1.0', 'native_bridge_abi_version': 28,
+            'version': '0.1.0', 'native_bridge_abi_version': 29,
             'privacy_production_enabled': True, 'cargo_features': ['privacy-production-enabled'],
             'build_environment': {}, 'source_commit': '1' * 40, 'embedded_source_commit': '1' * 40,
             'source_tree_dirty': dirty, 'source_fingerprint_sha256': '2' * 64,
@@ -293,13 +293,13 @@ class LocalAppleIntegrationTests(unittest.TestCase):
         lockfile.write_bytes(b'version = 4\n')
         header = self.root / 'crates/connect_norito_bridge/include/connect_norito_bridge.h'
         header.parent.mkdir(parents=True)
-        header.write_text('#define CONNECT_NORITO_BRIDGE_ABI_VERSION 28\n')
+        header.write_text('#define CONNECT_NORITO_BRIDGE_ABI_VERSION 29\n')
         bridge = self.root / 'crates/connect_norito_bridge/src/lib.rs'
         bridge.parent.mkdir(parents=True)
         bridge.write_text('const CONNECT_NORITO_BRIDGE_ABI_VERSION: u32 = PRIVACY_BRIDGE_ABI_VERSION_V1;\n')
         protocol = self.root / 'crates/iroha_data_model/src/privacy/protocol.rs'
         protocol.parent.mkdir(parents=True)
-        protocol.write_text('pub const PRIVACY_BRIDGE_ABI_VERSION_V1: u32 = 28;\n')
+        protocol.write_text('pub const PRIVACY_BRIDGE_ABI_VERSION_V1: u32 = 29;\n')
         payload = self.payload()
         payload['cargo_lock_sha256'] = hashlib.sha256(lockfile.read_bytes()).hexdigest()
         payload['bridge_header_sha256'] = hashlib.sha256(header.read_bytes()).hexdigest()

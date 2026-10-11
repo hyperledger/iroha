@@ -6,6 +6,15 @@ public enum KagemushaWalletErrorV1: Error, Equatable, Sendable {
   case native(status: Int32, reason: Int32, platformCode: Int32)
 }
 
+public extension KagemushaWalletErrorV1 {
+  /// Design §5.3: free custody storage does not cover the operation. Refused before commit;
+  /// nothing debited or credited. Retry after freeing storage.
+  static let notEnoughStorageStatus: Int32 = -12
+  /// Design §5.3: available memory does not cover the installed relations' peak proving memory.
+  /// Refused before commit; nothing debited or credited. Never a device verdict.
+  static let notEnoughMemoryStatus: Int32 = -14
+}
+
 /// Explicit custody result with original canonical bytes.
 public struct KagemushaWalletCallV1: Sendable {
   /// Unknown0, complete1, pending2, not performed3, archived4, delivery loss5,
@@ -17,12 +26,14 @@ public struct KagemushaWalletCallV1: Sendable {
   /// activationNotStarted46, creditProjection47, unloadClaimTransport48, activationRejected49;
   /// collectionIdle50, collectionProgress51, collected52, deletionReview53, deleted54,
   /// deletionReviewDiscarded55, notDeleted56, epochProgress57. Retired kinds41/43 are rejected.
-  /// Enrollment18...28 is projected by the separate enrollment owner.
-  static let statusRange: ClosedRange<Int32> = 0...57
+  /// Enrollment18...28 and localAbandoned58 (the no-marker enrollment abandonment, which has
+  /// nothing to submit) are projected by the separate enrollment owner.
+  static let statusRange: ClosedRange<Int32> = 0...58
   public let status: Int32
   public let sequenceLow: UInt64
   public let sequenceHigh: UInt64
-  /// Checkpoint ordinal; for not-performed: stale0, capacity1, invalid2.
+  /// Checkpoint ordinal; for not-performed: stale0, invalid2. A storage or memory shortfall is the
+  /// typed failure `notEnoughStorageStatus` or `notEnoughMemoryStatus`.
   public let detail: UInt32
   /// Exact retained bytes for complete1, CreditStatus10, setup12, timeChallenge13,
   /// accountChallenge15, activation17, closure30 and enrollment originals18/19/23/24/25/27/28.
@@ -32,7 +43,7 @@ public struct KagemushaWalletCallV1: Sendable {
     guard Self.statusRange.contains(status), ![41, 43].contains(status), bytes.count <= kagemushaWalletOutputBoundV1(status),
       [1, 10, 12, 13, 15, 17, 18, 19, 23, 24, 25, 27, 28, 30, 31, 33, 36, 37, 38, 40, 42, 44, 45, 47, 48, 49, 53, 54, 57].contains(status) ? !bytes.isEmpty : bytes.isEmpty,
       ![12, 14, 17, 30, 31, 32, 34, 35, 36, 40, 46, 47, 48, 50, 54, 55, 56].contains(status) || (sequenceLow == 0 && sequenceHigh == 0 && detail == 0),
-      !([13, 15, 16, 53].contains(status) || (18...28).contains(status) || (37...39).contains(status))
+      !([13, 15, 16, 53, 58].contains(status) || (18...28).contains(status) || (37...39).contains(status))
         || (sequenceLow > 0 && sequenceLow <= UInt64(Int64.max) && sequenceHigh == 0 && detail == 0),
       !(50...52).contains(status) || detail == 0,
       ![13, 15, 18, 23].contains(status) || bytes.count == 32,
@@ -755,7 +766,7 @@ func kagemushaWalletOutputBoundV1(_ status: Int32) -> Int {
   case 47: return 10_092
   case 53: return 254
   case 54: return 32
-  case 55, 56: return 0
+  case 55, 56, 58: return 0
   case 57: return 16
   default: return 10_000
   }

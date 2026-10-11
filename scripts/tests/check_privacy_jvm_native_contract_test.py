@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Freeze the fail-closed ABI-28 Kotlin privacy owner and Java consumers."""
+"""Freeze the fail-closed ABI-29 Kotlin privacy owner and Java consumers."""
 
 from __future__ import annotations
 
@@ -141,8 +141,8 @@ class PrivacyJvmNativeContractTests(unittest.TestCase):
     def test_jvm_runner_authenticates_the_only_loadable_bridge(self) -> None:
         source = read("ci/check_privacy_jvm_sdk.sh")
         for marker in (
-            'ABI28_CHECKER="${ROOT_DIR}/scripts/check_native_sdk_artifact.py"',
-            '"${PYTHON_BIN}" -I -S "${ABI28_CHECKER}" verify',
+            'ABI29_CHECKER="${ROOT_DIR}/scripts/check_native_sdk_artifact.py"',
+            '"${PYTHON_BIN}" -I -S "${ABI29_CHECKER}" verify',
             'export IROHA_NATIVE_LIBRARY_PATH="${NATIVE_LIBRARY_DIR}"',
             'export LD_LIBRARY_PATH="${NATIVE_LIBRARY_DIR}"',
             '-Djava.library.path="${NATIVE_LIBRARY_DIR}"',
@@ -160,10 +160,10 @@ class PrivacyJvmNativeContractTests(unittest.TestCase):
         )
         for marker in (
             "PRIVACY_JVM_SDK_PYTHON_BIN: ${{ steps.privacy-jvm-python.outputs.python-path }}",
-            "PRIVACY_JVM_NATIVE_EXPORT_DIR: ${{ runner.temp }}/privacy-jvm-native-abi28",
+            "PRIVACY_JVM_NATIVE_EXPORT_DIR: ${{ runner.temp }}/privacy-jvm-native-abi29",
             "run: ci/check_privacy_jvm_sdk.sh",
-            "Upload source-bound privacy JVM native ABI28 input",
-            "privacy-jvm-native-abi28-${{ github.sha }}",
+            "Upload source-bound privacy JVM native ABI29 input",
+            "privacy-jvm-native-abi29-${{ github.sha }}",
         ):
             self.assertIn(marker, job)
         self.assertNotIn("IROHA_REQUIRE_PRIVACY_EXACT12_NATIVE", job)

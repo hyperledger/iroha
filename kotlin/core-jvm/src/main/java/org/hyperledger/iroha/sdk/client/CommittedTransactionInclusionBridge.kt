@@ -48,7 +48,7 @@ class VerifiedCommittedTransaction internal constructor(
 class CommittedTransactionInclusionBridge private constructor() {
     companion object {
         private const val LIBRARY_NAME = "connect_norito_bridge"
-        private const val REQUIRED_ABI_VERSION = 28
+        private const val REQUIRED_ABI_VERSION = 29
         private const val REQUIRED_CONTRACT_VERSION = 1
         private val nativeAvailable: Boolean = try {
             System.loadLibrary(LIBRARY_NAME)

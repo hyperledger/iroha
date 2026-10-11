@@ -16,7 +16,7 @@ import java.util.List;
  */
 public final class SorafsReferenceValidators {
   private static final String LIBRARY_NAME = "connect_norito_bridge";
-  public static final int REQUIRED_BRIDGE_ABI_VERSION = 28;
+  public static final int REQUIRED_BRIDGE_ABI_VERSION = 29;
   /** Canonical maximum byte length for a V1 orderbook owner account. */
   public static final int ORDERBOOK_OWNER_ACCOUNT_MAX_BYTES_V1 = 256;
   /** Maximum complete-root or checkpoint-tail window accepted by one head validation. */

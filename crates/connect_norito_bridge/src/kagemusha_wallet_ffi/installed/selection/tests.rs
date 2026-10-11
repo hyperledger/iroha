@@ -33,10 +33,8 @@ fn mobile_mut(value: &mut Value) -> &mut Map {
 fn mutate(value: &mut Value, key: &str, replacement: Value) {
     if value.as_object().is_some_and(|map| {
         map.get("schema").and_then(Value::as_str) == Some("cbsi.iroha-application-release.v1")
-    }) && matches!(
-        key,
-        "ledger" | "consensus" | "asset" | "firstDeviceAuthentication"
-    ) {
+    }) && matches!(key, "ledger" | "consensus" | "asset")
+    {
         native_installation_mut(value).insert(key.into(), replacement);
         return;
     }
@@ -182,6 +180,38 @@ fn g1_sign(key: &SigningKey, bytes: &[u8]) -> KagemushaWalletSignerOutputV1<'sta
 const TEST_PACK: &[u8] = b"PUBLIC_SOFTWARE_DATA_UNADMITTED_PACK";
 const TEST_CATALOG: &[u8] = b"PUBLIC_SOFTWARE_DATA_UNADMITTED_CATALOG";
 const TEST_ROOT: &[u8] = b"/unadmitted/metadata-only";
+/// Public placeholder SPKI pins ordered as the policy requires; they name no genuine root.
+fn google_roots() -> Vec<KagemushaWalletAndroidRootV1> {
+    vec![
+        KagemushaWalletAndroidRootV1 {
+            family: KagemushaWalletAndroidRootFamilyV1::GoogleCa1,
+            spki_sha256: [0x3e; 32],
+            revocation_source: KagemushaWalletRevocationSourceV1::GoogleAttestationStatus,
+        },
+        KagemushaWalletAndroidRootV1 {
+            family: KagemushaWalletAndroidRootFamilyV1::GoogleRsa,
+            spki_sha256: [0xfe; 32],
+            revocation_source: KagemushaWalletRevocationSourceV1::GoogleAttestationStatus,
+        },
+    ]
+}
+fn android_platform(
+    root_set: Vec<KagemushaWalletAndroidRootV1>,
+) -> KagemushaWalletEnrollmentPlatformV1 {
+    KagemushaWalletEnrollmentPlatformV1::Android {
+        root_set,
+        patch_floor_yyyymm: 202610,
+    }
+}
+fn vendor_root(adapter_id: &str) -> KagemushaWalletAndroidRootV1 {
+    KagemushaWalletAndroidRootV1 {
+        family: KagemushaWalletAndroidRootFamilyV1::Vendor {
+            adapter_id: adapter_id.into(),
+        },
+        spki_sha256: [0xff; 32],
+        revocation_source: KagemushaWalletRevocationSourceV1::OperatorDenylist,
+    }
+}
 struct BaseFixture {
     key: KeyPair,
     app: Value,
@@ -273,8 +303,8 @@ impl BaseFixture {
                 } else {
                     KagemushaWalletAppIdentityV1::Android {
                         package_name: "org.example.wallet".into(),
-                        package_version: 7,
-                        app_signing_certificate_sha256: [3; 32],
+                        minimum_package_version: 7,
+                        signer_set: vec![[3; 32]],
                     }
                 },
             };
@@ -288,15 +318,7 @@ impl BaseFixture {
                         attestation_root_sha256: BlobV1::of(SESSION_ROOT).sha256,
                     }
                 } else {
-                    KagemushaWalletEnrollmentPlatformV1::Android {
-                        attestation_root_sha256: BlobV1::of(SESSION_ROOT).sha256,
-                        hardware: KagemushaWalletAndroidHardwareV1::TeeOrStrongBox,
-                        patch_floor_yyyymm: 202610,
-                        play_integrity_maximum_age_ms: 120000,
-                        require_play_recognized: true,
-                        require_licensed: true,
-                        minimum_device_integrity: KagemushaWalletPlayIntegrityLevelV1::Device,
-                    }
+                    android_platform(google_roots())
                 },
                 regulatory_policy: KagemushaWalletRegulatoryPolicyV1::default(),
                 challenge_lifetime_ms: 120000,
@@ -385,6 +407,30 @@ impl BaseFixture {
         let app = canonical(&app);
         let envelope = sign(&self.key, &app);
         (app, envelope, runtime)
+    }
+    /// Replace the signed runtime's Android enrollment policy platform, keeping its digest pin
+    /// consistent, so a genuinely signed release can select it.
+    fn set_android_platform(&mut self, platform: KagemushaWalletEnrollmentPlatformV1) {
+        let scheme = self.scheme.scheme_id();
+        let android = object_mut(object_mut(&mut self.runtime).get_mut("android").unwrap());
+        let original = STANDARD
+            .decode(
+                android["enrollment_policy_original_base64"]
+                    .as_str()
+                    .unwrap(),
+            )
+            .unwrap();
+        let mut policy =
+            KagemushaWalletEnrollmentPolicyV1::decode_canonical(&original, &scheme).unwrap();
+        policy.platform = platform;
+        android.insert(
+            "enrollment_policy_original_base64".into(),
+            Value::String(STANDARD.encode(norito::encode_canonical(&policy).unwrap())),
+        );
+        android.insert(
+            "enrollment_policy_hex".into(),
+            Value::String(hex::encode(policy.policy_digest().unwrap())),
+        );
     }
     fn load(&self) -> Result<Selection> {
         let (app, envelope, runtime) = self.originals();
@@ -566,6 +612,27 @@ fn genuinely_resigned_application_still_cannot_change_native_genesis_policy_or_a
             .unwrap(),
         "scale",
         Value::from(3u64),
+    );
+    assert!(fixture.load().is_err());
+}
+#[test]
+fn cbsi_consensus_keeps_its_signed_finality_verifier_field() {
+    // Only the BPNG runtime dropped this pin; the CBSI release format is unchanged.
+    let mut fixture = BaseFixture::new();
+    object_mut(
+        native_installation_mut(&mut fixture.app)
+            .get_mut("consensus")
+            .unwrap(),
+    )
+    .remove("finalityVerifierSha256");
+    assert!(fixture.load().is_err());
+    let mut fixture = BaseFixture::new();
+    mutate(
+        native_installation_mut(&mut fixture.app)
+            .get_mut("consensus")
+            .unwrap(),
+        "finalityVerifierSha256",
+        Value::String("0".repeat(64)),
     );
     assert!(fixture.load().is_err());
 }
@@ -1022,9 +1089,15 @@ fn session_selection() -> Value {
             "enrollmentChallengePath":("/v1/retail/kagemusha/enrollment/challenge"), "releaseOriginalBase64":(STANDARD.encode(SESSION_RELEASE))})
     }).collect();
     norito::json!({"schema":("cbsi.fi-session-enrollment-selection.v1"), "sessions":(sessions),
-        "enrollmentCollection":{"androidAttestationRootDERBase64":(STANDARD.encode(SESSION_ROOT)),
-            "appleAttestationRootDERBase64":(STANDARD.encode(SESSION_ROOT)),
-            "androidPlayIntegrityCloudProjectNumber":("123456789")}})
+        "enrollmentCollection":{"appleAttestationRootDERBase64":(STANDARD.encode(SESSION_ROOT))}})
+}
+/// The session root original: the selected Apple App Attestation root, or none on Android.
+fn session_root(android: bool) -> Vec<u8> {
+    if android {
+        Vec::new()
+    } else {
+        SESSION_ROOT.to_vec()
+    }
 }
 fn session_originals(android: bool) -> [Vec<u8>; 3] {
     session_originals_for(android, 31, "00000000-0000-4000-8000-000000000001", 1500)
@@ -1062,7 +1135,7 @@ fn session_originals_for(
     let message = format!("{header}.{claims}");
     let signature: G1Signature = proof_key.sign(message.as_bytes());
     let proof = format!("{message}.{}", URL_SAFE_NO_PAD.encode(signature.to_bytes())).into_bytes();
-    [token, proof, SESSION_ROOT.to_vec()]
+    [token, proof, session_root(android)]
 }
 #[test]
 fn renewed_session_requires_the_same_signed_device_and_dpop_key() {
@@ -1106,6 +1179,10 @@ fn enrolled_session_requires_signed_fi_token_bound_proof_and_exact_root() {
         assert_eq!(session.config.release, SESSION_RELEASE);
         assert_eq!(session.config.session_valid_from_ms, 1_440_000);
         assert_eq!(session.config.session_expires_at_ms, 1_561_000);
+        assert_eq!(
+            session.config.attestation_root_der,
+            (!android).then(|| SESSION_ROOT.to_vec())
+        );
         assert!(
             selection
                 .enrollment_session(!android, originals.each_ref().map(Vec::as_slice))
@@ -1113,7 +1190,11 @@ fn enrolled_session_requires_signed_fi_token_bound_proof_and_exact_root() {
         );
         for field in 0..3 {
             let mut changed = originals.clone();
-            changed[field][0] ^= 1;
+            match changed[field].first_mut() {
+                Some(byte) => *byte ^= 1,
+                // Android selects no root original: any offered root bytes are refused.
+                None => changed[field] = SESSION_ROOT.to_vec(),
+            }
             assert!(
                 selection
                     .enrollment_session(android, changed.each_ref().map(Vec::as_slice))
@@ -1121,6 +1202,14 @@ fn enrolled_session_requires_signed_fi_token_bound_proof_and_exact_root() {
             );
         }
     }
+    // Apple requires the exact selected root original; it is never optional.
+    let mut apple = session_originals(false);
+    apple[2].clear();
+    assert!(
+        selection
+            .enrollment_session(false, apple.each_ref().map(Vec::as_slice))
+            .is_err()
+    );
 }
 #[test]
 fn fi_selection_rejects_missing_duplicate_reordered_and_release_alias_rows() {
@@ -1151,39 +1240,70 @@ fn fi_selection_rejects_missing_duplicate_reordered_and_release_alias_rows() {
     }
 }
 
+fn fi_collection_mut(fixture: &mut BaseFixture) -> &mut Map {
+    let selection = native_installation_mut(&mut fixture.app)
+        .get_mut("fiSessionEnrollment")
+        .unwrap();
+    object_mut(
+        object_mut(selection)
+            .get_mut("enrollmentCollection")
+            .unwrap(),
+    )
+}
 #[test]
-fn fi_collection_requires_policy_bound_roots_and_positive_canonical_project() {
-    for field in [
-        "androidAttestationRootDERBase64",
-        "appleAttestationRootDERBase64",
+fn fi_collection_selects_only_the_policy_bound_apple_root() {
+    BaseFixture::new().load().unwrap();
+    for root in [
+        Value::String(STANDARD.encode(b"foreign root")),
+        Value::String(String::new()),
+        Value::Null,
     ] {
         let mut fixture = BaseFixture::new();
-        let selection = native_installation_mut(&mut fixture.app)
-            .get_mut("fiSessionEnrollment")
-            .unwrap();
-        let collection = object_mut(selection)
-            .get_mut("enrollmentCollection")
-            .unwrap();
-        object_mut(collection).insert(
-            field.into(),
-            Value::String(STANDARD.encode(b"foreign root")),
-        );
+        fi_collection_mut(&mut fixture).insert("appleAttestationRootDERBase64".into(), root);
         assert!(fixture.load().is_err());
     }
-    for project in ["", "0", "01", "+1", "1.0", " 1", "9223372036854775808"] {
+    let mut fixture = BaseFixture::new();
+    fi_collection_mut(&mut fixture).remove("appleAttestationRootDERBase64");
+    assert!(fixture.load().is_err());
+    // The retired Android root DER and Play Integrity project are refused, not ignored, even
+    // with otherwise genuine values: Android chains carry their own SPKI-pinned root.
+    for (name, value) in [
+        (
+            "androidAttestationRootDERBase64",
+            Value::String(STANDARD.encode(SESSION_ROOT)),
+        ),
+        (
+            "androidPlayIntegrityCloudProjectNumber",
+            Value::String("123456789".into()),
+        ),
+    ] {
         let mut fixture = BaseFixture::new();
-        let selection = native_installation_mut(&mut fixture.app)
-            .get_mut("fiSessionEnrollment")
-            .unwrap();
-        let collection = object_mut(selection)
-            .get_mut("enrollmentCollection")
-            .unwrap();
-        object_mut(collection).insert(
-            "androidPlayIntegrityCloudProjectNumber".into(),
-            Value::String(project.into()),
-        );
-        assert!(fixture.load().is_err());
+        fi_collection_mut(&mut fixture).insert(name.into(), value);
+        assert!(fixture.load().is_err(), "{name}");
     }
+}
+
+#[test]
+fn android_policy_naming_an_unqualified_or_unknown_vendor_adapter_fails_configuration() {
+    // The `huawei` profile ships unqualified until a genuine chain qualifies it; an unknown
+    // adapter is never implemented. Either fails installation before any session or challenge.
+    for adapter in ["huawei", "unknown-vendor"] {
+        let mut roots = google_roots();
+        roots.push(vendor_root(adapter));
+        let mut fixture = BaseFixture::new();
+        fixture.set_android_platform(android_platform(roots));
+        assert!(matches!(
+            fixture.load(),
+            Err(Failure {
+                status: INVALID,
+                ..
+            })
+        ));
+    }
+    // The same policy edit with Google roots only is still admitted.
+    let mut fixture = BaseFixture::new();
+    fixture.set_android_platform(android_platform(vec![google_roots().remove(1)]));
+    fixture.load().unwrap();
 }
 
 mod universal_tests;

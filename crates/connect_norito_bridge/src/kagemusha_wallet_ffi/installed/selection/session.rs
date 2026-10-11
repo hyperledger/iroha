@@ -53,43 +53,16 @@ fn hash(bytes: &[u8]) -> [u8; 32] {
 pub(super) fn authorities(
     value: &Value,
     release_digest: &[u8; 32],
-    android: &KagemushaWalletEnrollmentPolicyV1,
     apple: &KagemushaWalletEnrollmentPolicyV1,
 ) -> Result<Vec<FiAuthority>> {
     let selection = exact(value, &["schema", "sessions", "enrollmentCollection"])?;
+    // Android KeyMint chains carry their own root, matched by SPKI against the policy root
+    // set, and no vendor online verdict is collected: only the Apple root DER is selected.
     let collection = exact(
         field(selection, "enrollmentCollection")?,
-        &[
-            "androidAttestationRootDERBase64",
-            "appleAttestationRootDERBase64",
-            "androidPlayIntegrityCloudProjectNumber",
-        ],
+        &["appleAttestationRootDERBase64"],
     )?;
-    for (name, policy) in [
-        ("androidAttestationRootDERBase64", android),
-        ("appleAttestationRootDERBase64", apple),
-    ] {
-        let root = raw(collection, name, 16_384)?;
-        let pinned = match policy.platform {
-            KagemushaWalletEnrollmentPlatformV1::Android {
-                attestation_root_sha256,
-                ..
-            }
-            | KagemushaWalletEnrollmentPlatformV1::Apple {
-                attestation_root_sha256,
-            } => attestation_root_sha256,
-        };
-        if hash(&root) != pinned {
-            return Err(invalid());
-        }
-    }
-    let project = text(collection, "androidPlayIntegrityCloudProjectNumber")?;
-    if project.is_empty()
-        || project.len() > 19
-        || project.starts_with('0')
-        || !project.bytes().all(|byte| byte.is_ascii_digit())
-        || project.parse::<i64>().ok().is_none_or(|value| value <= 0)
-    {
+    if hash(&raw(collection, "appleAttestationRootDERBase64", 16_384)?) != apple_root_pin(apple)? {
         return Err(invalid());
     }
     if text(selection, "schema")? != "cbsi.fi-session-enrollment-selection.v1" {
@@ -354,6 +327,26 @@ fn uuid(value: &str) -> Result<()> {
     }
     Ok(())
 }
+/// The session's selected root original: Android supplies none, because its `KeyMint` chain
+/// carries its own root, matched by SPKI against the policy root set; Apple supplies the
+/// exact App Attestation root DER pinned by its policy.
+pub(super) fn session_root(
+    android: bool,
+    policy: &KagemushaWalletEnrollmentPolicyV1,
+    root: &[u8],
+) -> Result<Option<Vec<u8>>> {
+    if android {
+        if !root.is_empty() {
+            return Err(invalid());
+        }
+        return Ok(None);
+    }
+    bounded(root, 16_384)?;
+    if hash(root) != apple_root_pin(policy)? {
+        return Err(invalid());
+    }
+    Ok(Some(root.to_vec()))
+}
 /// Secret compact originals stay only in this live owner and are never formatted or persisted.
 pub(crate) struct Session {
     token: Zeroizing<Vec<u8>>,
@@ -390,7 +383,6 @@ impl Selection {
             return bpng::authenticate(self, selected, android, originals);
         }
         let [token, proof, root] = originals;
-        bounded(root, 16_384)?;
         let (h, c, s) = compact(token, 16_384)?;
         let header = json(&segment(h)?, 1024, false)?;
         let header = exact(&header, &["alg", "typ"])?;
@@ -517,18 +509,7 @@ impl Selection {
         } else {
             &self.apple_enrollment
         };
-        let pinned = match policy.platform {
-            KagemushaWalletEnrollmentPlatformV1::Android {
-                attestation_root_sha256,
-                ..
-            }
-            | KagemushaWalletEnrollmentPlatformV1::Apple {
-                attestation_root_sha256,
-            } => attestation_root_sha256,
-        };
-        if hash(root) != pinned {
-            return Err(invalid());
-        }
+        let attestation_root_der = session_root(android, policy, root)?;
         Ok(Session {
             token: Zeroizing::new(token.to_vec()),
             proof: Zeroizing::new(proof.to_vec()),
@@ -537,8 +518,8 @@ impl Selection {
             config: iroha_core_zk::kagemusha_wallet_enrollment_v1::EnrollmentConfigV1 {
                 scheme: self.scheme,
                 app: app.clone(),
-                policy: *policy,
-                attestation_root_der: root.to_vec(),
+                policy: policy.clone(),
+                attestation_root_der,
                 installation: self.installation,
                 enrollment_certificate: self.enrollment_certificate,
                 service_origin: selected.origin.as_bytes().to_vec(),

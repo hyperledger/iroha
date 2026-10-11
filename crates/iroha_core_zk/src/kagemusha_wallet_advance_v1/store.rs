@@ -208,8 +208,26 @@ impl<F: KagemushaWalletFsV1> KagemushaWalletDurableStoreV1<F> {
         name: &KagemushaWalletEntryNameV1,
         bytes: &[u8],
     ) -> KagemushaWalletPublishOutcomeV1 {
-        match self.read(dir, name, bytes.len()) {
-            KagemushaWalletReadV1::Present(existing) if existing == bytes => {}
+        self.replace_exact(dir, name, bytes, bytes)
+    }
+
+    /// Replace the exact current content `expected` of `name` with `bytes` on a fresh inode:
+    /// staged, synced, atomically renamed over the name, parent synced (the same sequence as
+    /// [`Self::rewrite_same`]). Only the exclusive custody owner calls it, for a replace-only
+    /// record whose every version is complete; the name holds `expected` or `bytes` on every
+    /// outcome.
+    ///
+    /// Refuses (`ContentMismatch`, `DestinationAbsent`) unless `name` currently holds exactly
+    /// `expected`.
+    pub(super) fn replace_exact(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        name: &KagemushaWalletEntryNameV1,
+        expected: &[u8],
+        bytes: &[u8],
+    ) -> KagemushaWalletPublishOutcomeV1 {
+        match self.read(dir, name, expected.len()) {
+            KagemushaWalletReadV1::Present(existing) if existing == expected => {}
             KagemushaWalletReadV1::Present(_) | KagemushaWalletReadV1::Oversized => {
                 return KagemushaWalletPublishOutcomeV1::NotPublished(
                     KagemushaWalletNotPublishedV1::ContentMismatch,

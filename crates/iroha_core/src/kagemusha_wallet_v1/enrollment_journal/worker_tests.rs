@@ -108,6 +108,7 @@ impl Fixture {
             "journal_incarnation": (request.get("journal_incarnation").unwrap().clone()),
             "config_sha256": (hex::encode(CONFIGURATION)),
             "outcome": (outcome), "evidence_base64": (evidence),
+            "refusal_code": (if outcome == "refused" { Value::from(7_u16) } else { Value::Null }),
         });
         let bytes = norito::json::to_vec(&json).unwrap();
         let mut framed = (bytes.len() as u32).to_le_bytes().to_vec();
@@ -241,15 +242,23 @@ fn unknown_unavailable_and_foreign_worker_responses_never_restore_verify() {
 }
 
 #[test]
-fn rejection_is_durable_and_cannot_select_a_credential() {
+fn refusal_is_durable_with_its_exact_code_and_cannot_select_a_credential() {
     let mut f = Fixture::new();
-    let frame = f.frame("rejected", None);
+    let frame = f.frame("refused", None);
     assert!(matches!(
         f.journal
             .retain_worker_response(&mut f.attempt, CONFIGURATION, &f.packet, &frame),
-        Ok(OutcomeV1::Rejected)
+        Ok(OutcomeV1::Refused(
+            KagemushaWalletEnrollmentRefusalV1::AppIdentityMismatch
+        ))
     ));
     assert_eq!(f.attempt.worker_result(), Some(frame.as_slice()));
+    assert_eq!(
+        f.journal
+            .retained_refusal(&f.attempt, CONFIGURATION)
+            .unwrap(),
+        KagemushaWalletEnrollmentRefusalV1::AppIdentityMismatch
+    );
     let recovery_exchange = [33; 32];
     let recovery_packet = f
         .journal
@@ -261,7 +270,7 @@ fn rejection_is_durable_and_cannot_select_a_credential() {
             2_000,
         )
         .unwrap();
-    let recovery = f.frame_for(recovery_exchange, "rejected", None);
+    let recovery = f.frame_for(recovery_exchange, "refused", None);
     assert_ne!(recovery, frame);
     assert!(matches!(
         f.journal.retain_worker_response(
@@ -270,7 +279,9 @@ fn rejection_is_durable_and_cannot_select_a_credential() {
             &recovery_packet,
             &recovery,
         ),
-        Ok(OutcomeV1::Rejected)
+        Ok(OutcomeV1::Refused(
+            KagemushaWalletEnrollmentRefusalV1::AppIdentityMismatch
+        ))
     ));
     assert_eq!(f.attempt.worker_result(), Some(frame.as_slice()));
     assert!(matches!(
@@ -447,4 +458,133 @@ fn altered_retained_worker_originals_cannot_reach_signing() {
         Err(Invalid)
     ));
     assert_eq!(f.attempt.phase(), EnrollmentJournalPhaseV1::Evidence);
+}
+
+#[test]
+fn an_exposed_worker_refusal_is_verified_against_its_retained_original_and_exchange() {
+    let mut f = Fixture::new();
+    let frame = f.frame("refused", None);
+    let mismatch = KagemushaWalletEnrollmentRefusalV1::AppIdentityMismatch;
+    f.journal
+        .retain_worker_response(&mut f.attempt, CONFIGURATION, &f.packet, &frame)
+        .unwrap();
+    assert_eq!(
+        f.journal.verified_worker_refusal(&f.attempt).unwrap(),
+        Some(mismatch)
+    );
+    let key = f.attempt.selection().key;
+    let name = filename(&key).unwrap();
+    // A later Recover exchange refusing again keeps the first terminal reply and exchange.
+    let recover = f
+        .journal
+        .worker_exchange(
+            &f.attempt,
+            CONFIGURATION,
+            ActionV1::Recover,
+            [33; 32],
+            2_500,
+        )
+        .unwrap();
+    let again = f.frame_for_packet(&recover, "refused", None);
+    assert!(matches!(
+        f.journal
+            .retain_worker_response(&mut f.attempt, CONFIGURATION, &recover, &again),
+        Ok(OutcomeV1::Refused(reason)) if reason == mismatch
+    ));
+    let kept = f.journal.read(&key).unwrap().unwrap();
+    assert_eq!(kept.original, f.attempt.original);
+    assert_eq!(kept.record.worker_result, frame);
+    assert_eq!(
+        kept.record.worker_refusal_exchange,
+        Some(WorkerRefusalExchange {
+            action: 1,
+            exchange: EXCHANGE,
+            dispatch_time_ms: 2_000,
+        })
+    );
+    let reply = |change: &dyn Fn(&mut Value)| {
+        let mut value: Value = norito::json::from_slice(&frame[4..]).unwrap();
+        change(&mut value);
+        let bytes = norito::json::to_vec(&value).unwrap();
+        let mut framed = (bytes.len() as u32).to_le_bytes().to_vec();
+        framed.extend(bytes);
+        framed
+    };
+    let mut cases: Vec<(String, Record)> = Vec::new();
+    let mut case = |label: &str, change: &dyn Fn(&mut Record)| {
+        let mut record = f.attempt.record.clone();
+        change(&mut record);
+        cases.push((label.to_owned(), record));
+    };
+    // The cached code differs from the retained reply's reason.
+    case("cached code", &|record| {
+        record.worker_refusal = KagemushaWalletEnrollmentRefusalV1::EvidenceInvalid.code();
+    });
+    // The retained reply was altered.
+    case("altered reply", &|record| {
+        let last = record.worker_result.len() - 1;
+        record.worker_result[last] ^= 1;
+    });
+    // Each exchange binding of the retained reply was altered or removed.
+    for field in ["exchange_id", "request_sha256", "journal_incarnation"] {
+        for replacement in [Value::from(hex::encode([99; 32])), Value::Null] {
+            let changed = reply(&|value| {
+                value
+                    .as_object_mut()
+                    .unwrap()
+                    .insert(field.into(), replacement.clone());
+            });
+            case(&format!("{field} {replacement:?}"), &|record| {
+                record.worker_result = changed.clone();
+            });
+        }
+    }
+    // A genuine-shaped refusal of another exchange of the same request and configuration.
+    let foreign = f.frame_for([77; 32], "refused", None);
+    case("foreign reply", &|record| {
+        record.worker_result = foreign.clone()
+    });
+    // The retained exchange selection was altered.
+    case("exchange id", &|record| {
+        record.worker_refusal_exchange.as_mut().unwrap().exchange = [78; 32];
+    });
+    case("dispatch time", &|record| {
+        record
+            .worker_refusal_exchange
+            .as_mut()
+            .unwrap()
+            .dispatch_time_ms = 2_001;
+    });
+    case("action", &|record| {
+        record.worker_refusal_exchange.as_mut().unwrap().action = 2;
+    });
+    for (label, tampered) in cases {
+        f.journal
+            .publish(&name, &encode(&tampered).unwrap(), PublishMode::Replace)
+            .unwrap();
+        let current = f.journal.read(&key).unwrap().unwrap();
+        assert!(current.worker_refusal().is_some(), "{label}");
+        assert!(
+            matches!(f.journal.verified_worker_refusal(&current), Err(Invalid)),
+            "{label}"
+        );
+        // A stale cursor is answered only through the same verification.
+        assert!(
+            matches!(f.journal.current_refusal(&f.attempt), Err(Invalid)),
+            "{label}"
+        );
+        // Restore the genuine record for the next case.
+        f.journal
+            .publish(&name, &f.attempt.original, PublishMode::Replace)
+            .unwrap();
+        assert_eq!(
+            f.journal.current_refusal(&f.attempt).unwrap(),
+            None,
+            "the genuine current cursor checks its E5 first"
+        );
+        assert_eq!(
+            f.journal.verified_worker_refusal(&f.attempt).unwrap(),
+            Some(mismatch)
+        );
+    }
 }

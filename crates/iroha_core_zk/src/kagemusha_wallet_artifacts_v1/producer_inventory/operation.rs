@@ -71,8 +71,13 @@ pub struct QualifiedOperationRouteV1 {
     omega: Option<KeyArtifact<Ep>>,
     a_seals: Vec<InstalledSourceSealV1<Eq>>,
     w_seals: Vec<InstalledSourceSealV1<Ep>>,
+    stage_memory: u64,
 }
 impl QualifiedOperationRouteV1 {
+    /// Design §5.3 peak proving memory of the largest A or W stage of this route.
+    pub const fn stage_memory_bytes(&self) -> u64 {
+        self.stage_memory
+    }
     /// Authenticated installation, logical route index and signed program index.
     pub const fn identity(&self) -> (([u8; 32], [u8; 32]), u32, u32) {
         (self.installation, self.route, self.program)
@@ -384,6 +389,7 @@ impl AuthenticatedProducerInventoryV1 {
             let terminal = metadata(
                 self.read_verifier_original(*record.a.last().ok_or(Error::Inventory)?, originals)?,
             )?;
+            let stage_memory = owner.stage_memory_bytes();
             return Ok(QualifiedOperationRouteV1 {
                 installation: identity,
                 route: route_index,
@@ -393,6 +399,7 @@ impl AuthenticatedProducerInventoryV1 {
                 omega: None,
                 a_seals: Vec::new(),
                 w_seals: Vec::new(),
+                stage_memory,
             });
         }
         let omega = metadata(self.read_verifier_original(self.inventory.omega, originals)?)?;
@@ -425,6 +432,7 @@ impl AuthenticatedProducerInventoryV1 {
             .map(|index| metadata(self.read_verifier_original(*index, originals)?))
             .collect::<Result<Vec<_>, OperationQualificationErrorV1>>()?;
         let terminal = a.last().ok_or(Error::Inventory)?.clone();
+        let stage_memory = peak_proving_memory(&a)?.max(peak_proving_memory(&w)?);
         let owner = plan.install(a, w)?;
         let mut a_seals = Vec::with_capacity(record.a.len());
         let mut w_seals = Vec::with_capacity(record.w.len());
@@ -449,6 +457,7 @@ impl AuthenticatedProducerInventoryV1 {
             omega: Some(omega),
             a_seals,
             w_seals,
+            stage_memory,
         })
     }
 }

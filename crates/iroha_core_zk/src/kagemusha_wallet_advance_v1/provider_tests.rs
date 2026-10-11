@@ -224,10 +224,12 @@ fn wallet_advance_v1_provider_cache_poison_remember_and_guard() {
         provider.cache.contains_key(&slot),
         "a stable status is cached"
     );
-    // The cached path re-lists markers and compares the current marker's bytes only.
+    // The cached path re-lists markers, compares the current marker's bytes, checks that no
+    // abandoned-slot record conflicts with it and re-reads its verified enrollment phase and
+    // the Client, Accepted and Slot originals that phase names.
     let start = device.fs.steps();
     assert_eq!(provider.status(&slot), Ok(status.clone()));
-    assert_eq!(device.fs.steps() - start, 2);
+    assert_eq!(device.fs.steps() - start, 7);
     provider.poison(&slot);
     assert!(!provider.cache.contains_key(&slot));
     let start = device.fs.steps();

@@ -196,12 +196,17 @@ fn request_and_original_response_survive_restart_and_nonce_consumes_exactly_once
 }
 
 #[test]
-fn frozen_and_not_approved_are_retained_without_consumption_or_attempt_changes() {
+fn a_pre_issuance_denial_is_retained_unconsumed_as_the_attempts_terminal_refusal() {
     for decision in [
         KagemushaEligibilityDecisionV1::Frozen,
         KagemushaEligibilityDecisionV1::NotApproved,
     ] {
-        let (_temp, _parent, mut journal) = initialized();
+        let refusal = if decision == KagemushaEligibilityDecisionV1::Frozen {
+            iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1::AccountFrozen
+        } else {
+            iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1::AccountNotApproved
+        };
+        let (temp, _parent, mut journal) = initialized();
         let (dispatch, mut attempt, _) = permit_tests::fixture(&mut journal);
         let (policy, request) = fixture(&dispatch, &attempt);
         journal
@@ -211,19 +216,23 @@ fn frozen_and_not_approved_are_retained_without_consumption_or_attempt_changes()
         journal
             .retain_eligibility_response(&mut attempt, &request.nonce, &original, 1200)
             .unwrap();
-        let before = attempt.original.clone();
+        assert_eq!(attempt.refusal(), None);
         assert_eq!(
             journal.consume_eligibility(&mut attempt, &dispatch, &policy, &request, 1200),
-            Err(EnrollmentJournalErrorV1::Ineligible)
+            Err(EnrollmentJournalErrorV1::Ineligible(refusal))
         );
+        assert_eq!(attempt.refusal(), Some(refusal));
         assert_eq!(
             journal
-                .read(&attempt.selection().key)
+                .read_eligibility(&attempt, &request.nonce)
                 .unwrap()
                 .unwrap()
-                .original,
-            before
+                .consumed_at_ms,
+            0,
+            "a denial is never consumed"
         );
+        // Terminal: no later response, request, consumption or permit changes the attempt.
+        let before = attempt.original.clone();
         let approved = response(
             &policy,
             &request,
@@ -233,14 +242,22 @@ fn frozen_and_not_approved_are_retained_without_consumption_or_attempt_changes()
             journal.retain_eligibility_response(&mut attempt, &request.nonce, &approved, 1300),
             Err(Conflict)
         );
+        let mut next = request;
+        next.nonce = [77; 32];
         assert_eq!(
-            journal
-                .read_eligibility(&attempt, &request.nonce)
-                .unwrap()
-                .unwrap()
-                .consumed_at_ms,
-            0
+            journal.retain_eligibility_request(&mut attempt, &dispatch, &policy, &next, 1300),
+            Err(Conflict)
         );
+        assert_eq!(
+            journal.consume_eligibility(&mut attempt, &dispatch, &policy, &request, 1300),
+            Err(Conflict)
+        );
+        drop(journal);
+        let journal =
+            EnrollmentJournalV1::open(&temp.path().join("issuer"), b"approved scope DATA").unwrap();
+        let reread = journal.read(&attempt.selection().key).unwrap().unwrap();
+        assert_eq!(reread.original, before);
+        assert_eq!(reread.refusal(), Some(refusal));
     }
 }
 
@@ -934,5 +951,96 @@ fn scheme_operator_is_exactly_scoped_and_uses_the_same_durable_one_use_observati
         journal
             .consume_eligibility(&mut attempt, &dispatch, &policy, &request, 1_201)
             .is_err()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_interrupted_refusal_or_permit_is_adopted_on_a_fresh_inode_before_it_is_exposed() {
+    // Deterministic injection between the replacing rename and the parent synchronization:
+    // the record is visible but not known durable. The fresh-inode republication (with its
+    // own parent synchronization) is what makes it durable; physical power loss is not
+    // simulated on the real filesystem.
+    use crate::kagemusha_wallet_v1::enrollment_journal::fault::{
+        ADOPTION_FAILS, UNCERTAIN_AFTER_RENAME,
+    };
+    use std::os::unix::fs::MetadataExt as _;
+    let (temp, _parent, mut journal) = initialized();
+    let directory = temp.path().join("issuer");
+    let reopen = |journal: EnrollmentJournalV1| {
+        drop(journal);
+        EnrollmentJournalV1::open(&directory, b"approved scope DATA").unwrap()
+    };
+    let inode = |path: &std::path::Path| std::fs::metadata(path).unwrap().ino();
+    let (dispatch, attempt, signer) = permit_tests::fixture(&mut journal);
+    let key = attempt.selection().key;
+    let record = directory.join(filename(&key).unwrap());
+    // 1. The permit original is renamed into place without its parent synchronization.
+    let permit = permit_tests::signed(&dispatch, permit_tests::body(&dispatch, &attempt), &signer);
+    UNCERTAIN_AFTER_RENAME.with(|armed| armed.set(true));
+    assert_eq!(
+        journal.retain_permit(&attempt, &dispatch, permit.clone()),
+        Err(Uncertain)
+    );
+    let journal = reopen(journal);
+    let permits: Vec<_> = std::fs::read_dir(&directory)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("permit-"))
+        })
+        .collect();
+    assert_eq!(permits.len(), 1, "{permits:?}");
+    let before = inode(&permits[0]);
+    let attempt = journal.read(&key).unwrap().unwrap();
+    ADOPTION_FAILS.with(|fails| fails.set(true));
+    assert!(
+        journal.permit(&attempt, &dispatch).is_err(),
+        "nothing exposed"
+    );
+    ADOPTION_FAILS.with(|fails| fails.set(false));
+    assert_eq!(inode(&permits[0]), before, "nothing republished");
+    assert_eq!(journal.permit(&attempt, &dispatch).unwrap(), Some(permit));
+    assert_ne!(inode(&permits[0]), before, "adopted on a fresh inode");
+    // 2. The terminal refusal is renamed into place without its parent synchronization.
+    let mut journal = journal;
+    let mut attempt = attempt;
+    let (policy, request) = fixture(&dispatch, &attempt);
+    journal
+        .retain_eligibility_request(&mut attempt, &dispatch, &policy, &request, 1000)
+        .unwrap();
+    let denial = response(&policy, &request, KagemushaEligibilityDecisionV1::Frozen);
+    journal
+        .retain_eligibility_response(&mut attempt, &request.nonce, &denial, 1200)
+        .unwrap();
+    UNCERTAIN_AFTER_RENAME.with(|armed| armed.set(true));
+    assert_eq!(
+        journal.consume_eligibility(&mut attempt, &dispatch, &policy, &request, 1200),
+        Err(Uncertain)
+    );
+    let journal = reopen(journal);
+    let before = inode(&record);
+    // An unknown adoption exposes no outcome and republishes nothing.
+    ADOPTION_FAILS.with(|fails| fails.set(true));
+    assert!(matches!(journal.read(&key), Err(Uncertain)));
+    ADOPTION_FAILS.with(|fails| fails.set(false));
+    assert_eq!(inode(&record), before);
+    // A successful adoption republishes the exact record on a fresh inode, then exposes it.
+    let adopted = journal.read(&key).unwrap().unwrap();
+    assert_eq!(
+        adopted.refusal(),
+        Some(iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1::AccountFrozen)
+    );
+    let after = inode(&record);
+    assert_ne!(after, before, "adopted on a fresh inode");
+    journal.read(&key).unwrap().unwrap();
+    assert_eq!(inode(&record), after, "adopted once per owner");
+    // The adopted refusal is what a later owner reads.
+    let journal = reopen(journal);
+    assert_eq!(
+        journal.read(&key).unwrap().unwrap().refusal(),
+        adopted.refusal()
     );
 }

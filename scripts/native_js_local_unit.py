@@ -114,8 +114,8 @@ def policy(root):
             and all(isinstance(name, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", name) for name in required),
             "current Node export policy is not a literal exact inventory")
     return {"required": sorted(set(required) | set(owner.REQUIRED_SYMBOLS["node"])),
-            "forbidden": sorted(owner.RETIRED_PROTOCOL_SYMBOLS["node"]), "abi_version": 28,
-            "required_results": {"connectNoritoBridgeAbiVersion": 28, "securePrivateFileAbiVersion": 1}}
+            "forbidden": sorted(owner.RETIRED_PROTOCOL_SYMBOLS["node"]), "abi_version": 29,
+            "required_results": {"connectNoritoBridgeAbiVersion": 29, "securePrivateFileAbiVersion": 1}}
 
 
 def local_policy(scope, profile):
@@ -319,7 +319,7 @@ def check_child(receipt, argv, root, env, log):
 def check_probe(proof, selected_policy):
     require(set(proof) == {"abi_version", "exports", "forbidden", "required_exports", "required_results",
                           "signing_independent_emitted", "signing_independent_artifact"}
-            and type(proof["abi_version"]) is int and proof["abi_version"] == 28 and proof["forbidden"] == []
+            and type(proof["abi_version"]) is int and proof["abi_version"] == 29 and proof["forbidden"] == []
             and proof["required_exports"] == selected_policy["required"]
             and proof["required_results"] == selected_policy["required_results"]
             and all(type(value) is int for value in proof["required_results"].values())

@@ -18,8 +18,10 @@ pub struct EnrollmentConfigV1 {
     pub app: KagemushaWalletAppPolicyV1,
     /// Exact approved enrollment-policy preimage, not a client liveness assertion.
     pub policy: KagemushaWalletEnrollmentPolicyV1,
-    /// Exact independently approved root DER; a self-consistent pin is not approval.
-    pub attestation_root_der: Vec<u8>,
+    /// Exact independently approved Apple App Attestation root DER (1–16,384 bytes); a
+    /// self-consistent pin is not approval. Always `None` on Android: a `KeyMint` chain carries
+    /// its own root, which the issuer matches by SPKI against the policy's root set.
+    pub attestation_root_der: Option<Vec<u8>>,
     /// Independently selected installed manifest, also required by the later source loader.
     pub installation: crate::kagemusha_wallet_artifacts_v1::InstallationV1,
     /// Exact rooted current Enrollment-role certificate.
@@ -78,6 +80,9 @@ fn authorize(account: &AccountId, message: &[u8; 32], signature: &[u8]) -> Resul
 }
 #[derive(Clone)]
 struct Scope {
+    /// Pre-key request identity whose retained Client, Accepted and Slot originals select
+    /// this scope; kept independently of the live dispatch, which authorization consumes.
+    request_id: [u8; 32],
     challenge: KagemushaWalletEnrollmentChallengeV1,
     dates: KagemushaWalletEnrollmentDatesV1,
     account: AccountId,
@@ -96,12 +101,24 @@ pub enum EnrollmentProgressV1 {
         /// Exact challenge digest supplied during key generation.
         challenge_digest: [u8; 32],
     },
-    /// Reconciliation did not establish an enrolled marker. No key is regenerated here.
+    /// Reconciliation did not establish an enrolled marker (slot `Empty` or `IntentOnly`).
+    /// No key is regenerated here; abandoning it takes the local no-marker form.
     Pending,
     /// This exact attempt is terminal; a new issuer challenge is required.
     Abandoned,
     /// E7 already selected or completed; recover through strict original wallet open.
     BootstrapSelected,
+}
+/// Explicit result of abandoning an unused enrollment (design §3.2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnrollmentAbandonmentV1 {
+    /// No-marker form: the slot never had an enrollment marker, so no E5, credential or ledger
+    /// record can name it. The holder-abandoned record is durable; there is nothing to submit.
+    LocalAbandoned,
+    /// Marker form: the exact retained Abandonment frame, signed by the payment key, which the
+    /// holder's account submits until finalized inclusion is authenticated. Retries return the
+    /// same bytes.
+    Abandonment(Vec<u8>),
 }
 /// E5 returns either the exact selected request or an account signature challenge for new originals.
 #[derive(Debug, Clone)]
@@ -136,20 +153,19 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
                 return Err(Error::Original("authenticated session time window"));
             }
             original(config.policy.validate_for_app(&config.app))?;
-            let pinned_root = match config.policy.platform {
-                KagemushaWalletEnrollmentPlatformV1::Android {
-                    attestation_root_sha256,
-                    ..
-                }
-                | KagemushaWalletEnrollmentPlatformV1::Apple {
-                    attestation_root_sha256,
-                } => attestation_root_sha256,
-            };
-            if config.attestation_root_der.is_empty()
-                || config.attestation_root_der.len() > 16_384
-                || <[u8; 32]>::from(Sha256::digest(&config.attestation_root_der)) != pinned_root
-            {
-                return Err(Error::Original("approved root original"));
+            super::issuer_worker::require_qualified_android_adapters_v1(&config.policy.platform)
+                .map_err(|_| Error::Original("approved Android adapter profile"))?;
+            match (&config.policy.platform, &config.attestation_root_der) {
+                (KagemushaWalletEnrollmentPlatformV1::Android { .. }, None) => {}
+                (
+                    KagemushaWalletEnrollmentPlatformV1::Apple {
+                        attestation_root_sha256,
+                    },
+                    Some(root),
+                ) if !root.is_empty()
+                    && root.len() <= 16_384
+                    && <[u8; 32]>::from(Sha256::digest(root)) == *attestation_root_sha256 => {}
+                _ => return Err(Error::Original("approved root original")),
             }
             if config.scheme.scheme_id() != *provider.scheme_id()
                 || config.policy.scheme_id != *provider.scheme_id()
@@ -244,7 +260,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
 
     /// Recover source status without foreign liveness, client time or key-regeneration authority.
     pub fn progress(&mut self) -> Result<EnrollmentProgressV1, Error> {
-        let (scope, slot) = self.selected.as_ref().ok_or(Error::Phase)?;
+        let (scope, slot) = self.selected.clone().ok_or(Error::Phase)?;
+        // Authenticate the retained pre-key originals and the durable phase before any
+        // recovery (which may restore a selected intent or marker) runs.
+        self.require_selected_prekey(&scope, &slot)?;
+        let slot = &slot;
         Ok(match self.provider.status(slot)? {
             KagemushaWalletSlotStatusV1::Enrollment(marker) => EnrollmentProgressV1::Evidence {
                 slot: slot.0,
@@ -261,23 +281,32 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
             KagemushaWalletSlotStatusV1::Empty => EnrollmentProgressV1::Pending,
         })
     }
-    /// Permanently abandon this unused enrollment and retain exact signed ledger-control bytes.
-    /// The provider refuses once Bootstrap commits; retries never re-sign a selected output.
-    /// This is an explicit terminal action, distinct from closing the native handle.
+    /// Permanently abandon this unused enrollment (design §3.2). A slot with no enrollment
+    /// marker is abandoned locally and returns [`EnrollmentAbandonmentV1::LocalAbandoned`];
+    /// a slot whose generation-zero marker is current commits the terminal marker and returns
+    /// the exact retained signed Abandonment frame. The provider refuses once Bootstrap is
+    /// selected; retries never re-sign a selected output. Local abandonment never probes the
+    /// key, so it also covers a selected slot whose key lookup is unknown. This is an explicit
+    /// terminal action, distinct from closing the native handle; a fresh enrollment may start
+    /// as soon as it returns.
     /// # Errors
-    /// Unselected/foreign custody, committed Bootstrap, unavailable hardware or lost originals.
-    pub fn abandon(&mut self) -> Result<Vec<u8>, Error> {
+    /// Unselected custody (`Phase`), lost or changed pre-key originals, committed Bootstrap,
+    /// lost custody, unavailable or uncertain storage or hardware. Nothing is abandoned then.
+    pub fn abandon(&mut self) -> Result<EnrollmentAbandonmentV1, Error> {
+        let (scope, slot) = self.selected.clone().ok_or(Error::Phase)?;
+        // Authenticate the retained pre-key originals and the durable enrollment phase before
+        // releasing any live selection.
+        let phase = self.require_selected_prekey(&scope, &slot)?;
         self.pending = None;
         self.request = None;
-        let (scope, slot) = self.selected.as_ref().ok_or(Error::Phase)?;
-        let intent = self
-            .provider
-            .read_intent(slot)?
-            .ok_or(Error::Original("selected enrollment intent"))?;
-        if intent.challenge != scope.challenge || intent.dates != scope.dates {
-            return Err(Error::Original("selected enrollment intent"));
+        if !phase.phase.marker_selected() && !self.provider.has_enrollment_marker(&slot)? {
+            self.provider
+                .abandon_unmarked_enrollment(&slot, &scope.request_id)?;
+            return Ok(EnrollmentAbandonmentV1::LocalAbandoned);
         }
-        let bytes = self.provider.abandon_enrollment(slot)?;
+        // A selected or current marker takes the signed marker form; reconciliation restores a
+        // selected marker or fails closed for a lost committed one.
+        let bytes = self.provider.abandon_enrollment(&slot)?;
         let result = original(KagemushaWalletAbandonmentV1::decode_canonical(
             &bytes,
             &self.config.scheme.scheme_id(),
@@ -287,10 +316,12 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         {
             return Err(Error::Original("selected abandonment"));
         }
-        Ok(bytes)
+        Ok(EnrollmentAbandonmentV1::Abandonment(bytes))
     }
     fn selected_marker(&mut self) -> Result<KagemushaWalletMarkerV1, Error> {
         let (scope, slot) = self.selected.as_ref().ok_or(Error::Phase)?;
+        // Every E5/E6 recovery entry point authenticates the selected originals first.
+        self.require_selected_prekey(scope, slot)?;
         let status = self.provider.status(slot)?;
         let marker = match status {
             KagemushaWalletSlotStatusV1::Enrollment(marker)
@@ -328,7 +359,8 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
     /// selected slot can establish request absence only from its actual pre-key records;
     /// this is not payment-key absence, freshness or permission to generate anything.
     pub fn retained_request(&mut self) -> Result<Option<Vec<u8>>, Error> {
-        if let Some((_, slot)) = &self.selected {
+        if let Some((scope, slot)) = &self.selected {
+            self.require_selected_prekey(scope, slot)?;
             match self.provider.status(slot)? {
                 KagemushaWalletSlotStatusV1::Empty => {
                     self.require_unissued_prekey(false)?;
@@ -377,10 +409,13 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
             )
             .map_err(|_| Error::Original("pre-key retained permit"))?;
             for slot in self.provider.slots()? {
-                let intent = self
-                    .provider
-                    .read_intent(&slot)?
-                    .ok_or(Error::Original("unselected custody intent lost"))?;
+                let Some(intent) = self.provider.read_intent(&slot)? else {
+                    // A durable holder abandonment before E2 legitimately has no intent.
+                    if self.provider.is_abandoned_without_marker(&slot)? {
+                        continue;
+                    }
+                    return Err(Error::Original("unselected custody intent lost"));
+                };
                 if intent.challenge == permit.body.challenge {
                     return Err(Error::Original("selected pre-key slot lost"));
                 }
@@ -478,7 +513,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
             challenge: scope.challenge,
             marker,
             app: self.config.app.clone(),
-            policy: self.config.policy,
+            policy: self.config.policy.clone(),
             account: scope.account.clone(),
             asset: scope.asset.clone(),
             evidence: evidence.to_vec(),
@@ -571,7 +606,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         if intent.challenge != scope.challenge
             || intent.dates != scope.dates
             || !super::credential::evidence_matches_policy(
-                self.config.policy.platform,
+                &self.config.policy.platform,
                 intent.key_profile()?,
                 credential.body.evidence_kind,
             )

@@ -63,6 +63,19 @@ fn progress(value: native::EnrollmentProgressV1) -> Response {
         native::EnrollmentProgressV1::BootstrapSelected => response(22, Vec::new()),
     }
 }
+/// Design §3.2 abandonment result. The no-marker form is local, has nothing to submit and
+/// returns kind 58 with no bytes; the marker form returns kind 28 with the exact retained
+/// signed frame, byte for byte on every retry. An empty marker frame is never projected as
+/// either form: no outcome may be inferred from it.
+pub(super) fn abandonment(value: native::EnrollmentAbandonmentV1) -> Result<Response> {
+    match value {
+        native::EnrollmentAbandonmentV1::LocalAbandoned => Ok(response(58, Vec::new())),
+        native::EnrollmentAbandonmentV1::Abandonment(bytes) if bytes.is_empty() => {
+            Err(Failure::code(INTERNAL))
+        }
+        native::EnrollmentAbandonmentV1::Abandonment(bytes) => Ok(response(28, bytes)),
+    }
+}
 /// Execute against the enrollment phase of the SAME installed runtime.
 pub(super) fn perform<F: advance::KagemushaWalletFsV1, P: advance::KagemushaWalletPlatformV1>(
     owner: &mut native::EnrollmentOwnerV1<F, P>,
@@ -90,7 +103,7 @@ pub(super) fn perform<F: advance::KagemushaWalletFsV1, P: advance::KagemushaWall
             Some(bytes) => response(25, bytes),
             None => response(20, Vec::new()),
         },
-        Action::Abandon => response(28, owner.abandon()?),
+        Action::Abandon => abandonment(owner.abandon()?)?,
         Action::AppleOriginals => {
             let originals = owner.apple_collection_originals()?;
             let mut bytes = Vec::new();
@@ -129,12 +142,28 @@ pub(crate) fn call(id: u64, action: Action<'_>) -> Result<Response> {
     open::enroll(id, action)
 }
 
+/// Holder class of one relayed closed E1 refusal code (design §2.4) for evidence of the given
+/// platform: 1 Phone, 2 App, 3 Attempt, 4 Account. Native owns the table; Core and the SDKs
+/// relay the issuer's `u16` unchanged. Zero, unknown and platform-inapplicable codes are
+/// protocol errors, never admission and never a phone verdict.
+pub(crate) fn refusal_class(code: u16, android: bool) -> Result<i32> {
+    use KagemushaWalletEnrollmentRefusalClassV1 as Class;
+    let reason = KagemushaWalletEnrollmentRefusalV1::from_code(code)
+        .filter(|reason| reason.applies_to(android))
+        .ok_or(Failure::code(INVALID))?;
+    Ok(match reason.class() {
+        Class::Phone => 1,
+        Class::App => 2,
+        Class::Attempt => 3,
+        Class::Account => 4,
+    })
+}
+
 pub(crate) fn bounds(selector: u32) -> Result<[usize; 3]> {
     Ok(match selector {
         0 => [32, 4096, 1024],
         1 | 5 => [64, 0, 0],
-        2 | 7 | 8 | 10 => [0; 3],
-        3 => [65_536, 0, 0],
+        2 | 3 | 7 | 8 | 10 => [0; 3],
         4 => [32, 65_536, 4096],
         6 => [native::RESULT_MAX_BYTES, 0, 0],
         9 => [2048, 0, 0],
@@ -157,10 +186,11 @@ pub(crate) fn request<'a>(
         .zip(limits)
         .any(|(bytes, bound)| bytes.len() > bound)
         || (selector != 3 && !chain.is_empty())
-        || chain.len() > 8
+        || chain.len() > native::ANDROID_CHAIN_MAX
         || chain
             .iter()
-            .any(|item| item.is_empty() || item.len() > 16_384)
+            .any(|item| item.is_empty() || item.len() > native::ANDROID_CERTIFICATE_MAX_BYTES)
+        || chain.iter().map(|item| item.len()).sum::<usize>() > native::ANDROID_CHAIN_MAX_BYTES
     {
         return Err(Failure::code(INVALID));
     }
@@ -170,9 +200,11 @@ pub(crate) fn request<'a>(
             Action::Begin(originals)
         }
         // The authenticated product selection requires either genuine DPoP (CBSI)
-        // or an empty proof frame (BPNG). This boundary only checks frame bounds.
-        11 if !first.is_empty() && !third.is_empty() => Action::Start(originals),
-        19 if !first.is_empty() && !third.is_empty() => Action::RenewSession(originals),
+        // or an empty proof frame (BPNG), and the exact selected Apple root DER on Apple or
+        // an empty root on Android, whose KeyMint chain carries its own root. This boundary
+        // only checks frame bounds.
+        11 if !first.is_empty() => Action::Start(originals),
+        19 if !first.is_empty() => Action::RenewSession(originals),
         12 if !first.is_empty() && !second.is_empty() => Action::BeginResult([first, second]),
         13 => Action::AppleOriginals,
         14 if first.len() == 1 && (1..=3).contains(&first[0]) => Action::BeginAppleEffect(first[0]),
@@ -184,10 +216,10 @@ pub(crate) fn request<'a>(
         17 => Action::CompleteAppleCollection,
         1 => Action::Authorize(first),
         2 => Action::Progress,
-        3 if !first.is_empty() && chain.len() >= 2 => {
+        // The leaf-first KeyMint chain is the whole Android evidence: no token or verdict.
+        3 if chain.len() >= native::ANDROID_CHAIN_MIN => {
             Action::Prepare(native::PlatformEvidenceV1::Android {
                 certificates: chain.iter().map(|item| item.to_vec()).collect(),
-                play_integrity_token: first.to_vec(),
             })
         }
         4 if first.len() == 32 && !second.is_empty() && !third.is_empty() => {
@@ -210,6 +242,42 @@ pub(crate) fn request<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn abandonment_results_are_explicit_and_exact_through_the_c_result() {
+        use native::EnrollmentAbandonmentV1 as A;
+        let frame = vec![0x5a, 0, 0xff, 7, 0];
+        // Marker form: kind 28 with the exact retained frame on every retry.
+        for _ in 0..3 {
+            let mut out = WalletResult::default();
+            let status = unsafe {
+                super::super::exports::output(&mut out, || {
+                    abandonment(A::Abandonment(frame.clone()))
+                })
+            };
+            assert_eq!((status, out.status, out.reason, out.detail), (0, 28, -1, 0));
+            assert_eq!(
+                unsafe { std::slice::from_raw_parts(out.bytes, out.length) },
+                frame.as_slice()
+            );
+            crate::connect_norito_free(out.bytes);
+        }
+        // No-marker form: kind 58, null bytes, length 0; nothing to submit.
+        for _ in 0..2 {
+            let mut out = WalletResult::default();
+            let status = unsafe {
+                super::super::exports::output(&mut out, || abandonment(A::LocalAbandoned))
+            };
+            assert_eq!((status, out.status, out.length), (0, 58, 0));
+            assert!(out.bytes.is_null());
+        }
+        // Kind 58 is distinct from every earlier result kind, including EpochProgress 57.
+        assert_eq!(abandonment(A::LocalAbandoned).unwrap().kind, 58);
+        assert!(abandonment(A::LocalAbandoned).unwrap().bytes.is_empty());
+        assert_eq!(
+            abandonment(A::Abandonment(Vec::new())).unwrap_err(),
+            Failure::code(INTERNAL)
+        );
+    }
     #[test]
     fn original_enrollment_bounds_are_per_role_and_unused_fields_are_rejected() {
         for selector in 0..=19 {
@@ -246,10 +314,87 @@ mod tests {
         assert!(request(12, [b"result", b"account", &[]], &[]).is_ok());
         assert!(request(12, [b"result", &[], &[]], &[]).is_err());
         assert!(request(2, [&[]; 3], &[b"foreign chain"]).is_err());
-        assert!(request(3, [b"token", &[], &[]], &[b"leaf"]).is_err());
-        assert!(request(3, [b"token", &[], &[]], &[b"leaf", b"ca"]).is_ok());
+        // Android evidence is the KeyMint chain only: no token or other original rides along.
+        assert_eq!(bounds(3).unwrap(), [0; 3]);
+        assert!(request(3, [&[]; 3], &[b"leaf"]).is_err());
+        assert!(request(3, [b"token", &[], &[]], &[b"leaf", b"ca"]).is_err());
+        assert!(matches!(
+            request(3, [&[]; 3], &[b"leaf", b"ca"]).unwrap(),
+            Action::Prepare(native::PlatformEvidenceV1::Android { certificates })
+                if certificates == [b"leaf".to_vec(), b"ca".to_vec()]
+        ));
+        let item = vec![7; native::ANDROID_CERTIFICATE_MAX_BYTES];
+        let full: Vec<&[u8]> = vec![&item[..]; native::ANDROID_CHAIN_MAX];
+        // Eight maximal items exceed the total chain bound before any native decode.
+        assert!(request(3, [&[]; 3], &full).is_err());
+        let fitting: Vec<&[u8]> = vec![
+            &item[..];
+            native::ANDROID_CHAIN_MAX_BYTES
+                / native::ANDROID_CERTIFICATE_MAX_BYTES
+        ];
+        assert!(request(3, [&[]; 3], &fitting).is_ok());
+        let nine: Vec<&[u8]> = vec![b"c"; native::ANDROID_CHAIN_MAX + 1];
+        assert!(request(3, [&[]; 3], &nine).is_err());
+        let oversized = vec![7; native::ANDROID_CERTIFICATE_MAX_BYTES + 1];
+        assert!(request(3, [&[]; 3], &[b"leaf", &oversized]).is_err());
+        assert!(request(3, [&[]; 3], &[b"leaf", b""]).is_err());
+        // Session originals: Android supplies no root (its chain carries one); the product
+        // selection, not this frame boundary, decides which roots are required.
+        for selector in [11, 19] {
+            assert!(request(selector, [b"JWT", &[], &[]], &[]).is_ok());
+            assert!(request(selector, [&[], &[], b"root"], &[]).is_err());
+        }
         assert!(request(4, [&[1; 32], b"attestation", b"assertion"], &[]).is_ok());
         assert!(request(4, [&[1; 32], b"attestation", &vec![0; 4097]], &[]).is_err());
+    }
+    #[test]
+    fn refusal_codes_are_the_closed_native_table_per_platform() {
+        let expected = [
+            (1, Some(1), None),
+            (2, Some(1), None),
+            (3, Some(1), None),
+            (4, Some(1), None),
+            (5, Some(1), Some(1)),
+            (6, Some(1), None),
+            (7, Some(2), Some(2)),
+            (8, Some(2), None),
+            (9, Some(3), Some(3)),
+            (10, Some(3), Some(3)),
+            (11, Some(4), Some(4)),
+            (12, Some(4), Some(4)),
+        ];
+        for (code, android, apple) in expected {
+            assert_eq!(refusal_class(code, true).ok(), android, "android {code}");
+            assert_eq!(refusal_class(code, false).ok(), apple, "apple {code}");
+        }
+        for code in [0, 13, 255, u16::MAX] {
+            for android in [true, false] {
+                assert_eq!(refusal_class(code, android).unwrap_err().status, INVALID);
+            }
+        }
+        // Platform-inapplicable codes are protocol errors, never a softer class.
+        assert_eq!(refusal_class(1, false).unwrap_err().status, INVALID);
+        assert_eq!(
+            connect_norito_kagemusha_wallet_enrollment_refusal_v1(5, 0),
+            1
+        );
+        assert_eq!(
+            connect_norito_kagemusha_wallet_enrollment_refusal_v1(8, 1),
+            2
+        );
+        assert_eq!(
+            connect_norito_kagemusha_wallet_enrollment_refusal_v1(8, 0),
+            INVALID
+        );
+        assert_eq!(
+            connect_norito_kagemusha_wallet_enrollment_refusal_v1(0, 1),
+            INVALID
+        );
+        // The platform flag is exactly 0 (Apple) or 1 (Android).
+        assert_eq!(
+            connect_norito_kagemusha_wallet_enrollment_refusal_v1(9, 2),
+            INVALID
+        );
     }
     #[test]
     fn enrollment_ffi_layout_has_no_hidden_original_or_authority_fields() {
@@ -297,7 +442,7 @@ mod tests {
         let mut input = WalletEnrollmentRequest {
             selector: 3,
             first: std::ptr::null(),
-            first_length: 65_537,
+            first_length: 1,
             second: std::ptr::null(),
             second_length: 0,
             third: std::ptr::null(),

@@ -6,25 +6,26 @@ import org.hyperledger.iroha.sdk.testing.JvmApiInventory
 
 /** FFI projection fixture only; it has no native provider, attestation or qualified proof grant. */
 class KagemushaWalletEnrollmentV1Test {
-    @Test fun `session originals preserve exact BPNG empty proof and CBSI proof without granting authority`() {
+    @Test fun `session originals preserve exact BPNG empty proof and CBSI proof and carry no Android root`() {
         val token = byteArrayOf(1, 2)
-        val root = byteArrayOf(3, 4)
-        val bpng = KagemushaWalletEnrollmentSessionOriginalsV1(token, byteArrayOf(), root)
-        token.fill(0); root.fill(0)
+        val bpng = KagemushaWalletEnrollmentSessionOriginalsV1(token, byteArrayOf())
+        token.fill(0)
+        assertEquals(3, bpng.frames().size)
         assertContentEquals(byteArrayOf(1, 2), bpng.frames()[0])
         assertTrue(bpng.frames()[1].isEmpty())
-        assertContentEquals(byteArrayOf(3, 4), bpng.frames()[2])
+        // Android supplies no attestation root: the KeyMint chain carries its own SPKI-pinned root.
+        assertTrue(bpng.frames()[2].isEmpty())
         bpng.frames()[0].fill(0)
         assertContentEquals(byteArrayOf(1, 2), bpng.frames()[0])
-        val cbsi = KagemushaWalletEnrollmentSessionOriginalsV1(byteArrayOf(1), byteArrayOf(2), byteArrayOf(3))
+        val cbsi = KagemushaWalletEnrollmentSessionOriginalsV1(byteArrayOf(1), byteArrayOf(2))
         assertContentEquals(byteArrayOf(2), cbsi.frames()[1])
+        assertTrue(cbsi.frames()[2].isEmpty())
         for (bad in listOf(
-            listOf(byteArrayOf(), byteArrayOf(), byteArrayOf(1)),
-            listOf(byteArrayOf(1), byteArrayOf(), byteArrayOf()),
-            listOf(ByteArray(16_385), byteArrayOf(), byteArrayOf(1)),
-            listOf(byteArrayOf(1), ByteArray(4097), byteArrayOf(1)),
-            listOf(byteArrayOf(1), byteArrayOf(), ByteArray(16_385))
-        )) assertFailsWith<IllegalArgumentException> { KagemushaWalletEnrollmentSessionOriginalsV1(bad[0], bad[1], bad[2]) }
+            listOf(byteArrayOf(), byteArrayOf()),
+            listOf(ByteArray(16_385), byteArrayOf()),
+            listOf(byteArrayOf(1), ByteArray(4097)),
+        )) assertFailsWith<IllegalArgumentException> { KagemushaWalletEnrollmentSessionOriginalsV1(bad[0], bad[1]) }
+        KagemushaWalletEnrollmentSessionOriginalsV1(ByteArray(16_384), ByteArray(4096))
         assertEquals("KagemushaWalletEnrollmentSessionOriginalsV1(originals=[REDACTED])", bpng.toString())
     }
     private class Driver : KagemushaWalletEnrollmentDriverV1 {
@@ -44,7 +45,7 @@ class KagemushaWalletEnrollmentV1Test {
     @Test fun `renewed session keeps exact originals and requires same owner nonmonetary acknowledgement`() {
         val driver = Driver()
         val owner = KagemushaWalletEnrollmentV1(7,driver,byteArrayOf(1,2),Any(),2)
-        val session = KagemushaWalletEnrollmentSessionOriginalsV1(byteArrayOf(1),byteArrayOf(2),byteArrayOf(3))
+        val session = KagemushaWalletEnrollmentSessionOriginalsV1(byteArrayOf(1),byteArrayOf(2))
         driver.reply = KagemushaWalletCallV1(39,-1,0,7,0,0,byteArrayOf())
         owner.renewSession(session)
         assertEquals(19,driver.lastSelector)
@@ -61,7 +62,7 @@ class KagemushaWalletEnrollmentV1Test {
         owner.close()
     }
     @Test fun `enrollment projections never become payment completion and retain exact originals`() {
-        for ((status,size) in listOf(18 to 32,19 to 161,20 to 0,21 to 0,22 to 0,23 to 32,24 to 131072,25 to 262144,26 to 0,27 to 16384,28 to 1024)) {
+        for ((status,size) in listOf(18 to 32,19 to 161,20 to 0,21 to 0,22 to 0,23 to 32,24 to 131072,25 to 262144,26 to 0,27 to 16384,28 to 1024,58 to 0)) {
             val bytes=ByteArray(size) { 5 };val reply=KagemushaWalletCallV1(status,-1,0,7,0,0,bytes)
             assertFailsWith<KagemushaWalletExceptionV1>{reply.completion()}
             bytes.fill(0);if(size>0)assertEquals(5,reply.bytes()[0].toInt())
@@ -84,11 +85,16 @@ class KagemushaWalletEnrollmentV1Test {
         assertSame(KagemushaWalletEnrollmentProgressV1.Pending,owner.progress())
         assertFailsWith<KagemushaWalletExceptionV1>{owner.retainRequest(ByteArray(64))}
         driver.reply=KagemushaWalletCallV1(24,-1,0,7,0,0,byteArrayOf(9,8,7))
-        assertContentEquals(byteArrayOf(9,8,7),assertIs<KagemushaWalletEnrollmentRequestV1.Retained>(owner.prepareRequest(listOf(byteArrayOf(1),byteArrayOf(2)),byteArrayOf(3))).bytes())
+        assertContentEquals(byteArrayOf(9,8,7),assertIs<KagemushaWalletEnrollmentRequestV1.Retained>(owner.prepareRequest(listOf(byteArrayOf(1),byteArrayOf(2)))).bytes())
+        // The chain is the whole Android evidence: every other original frame is empty.
+        assertEquals(3, driver.lastSelector); assertTrue(driver.retainedFrames.all { it.isEmpty() })
         val before=driver.calls;assertFailsWith<IllegalArgumentException>{owner.acceptCredential(ByteArray(262145))};assertEquals(before,driver.calls)
         driver.reply=KagemushaWalletCallV1(28,-1,0,7,0,0,byteArrayOf(7,8))
-        assertContentEquals(byteArrayOf(7,8),owner.abandon())
-        assertContentEquals(byteArrayOf(7,8),owner.abandon())
+        val marker = assertIs<KagemushaWalletEnrollmentAbandonmentV1.Abandonment>(owner.abandon())
+        assertContentEquals(byteArrayOf(7,8),marker.frame())
+        marker.frame().fill(0); assertContentEquals(byteArrayOf(7,8),marker.frame())
+        assertContentEquals(byteArrayOf(7,8),assertIs<KagemushaWalletEnrollmentAbandonmentV1.Abandonment>(owner.abandon()).frame())
+        assertEquals(10, driver.lastSelector)
         owner.close();owner.close();assertEquals(1,driver.closes);assertFailsWith<KagemushaWalletExceptionV1>{owner.progress()}
     }
     @Test fun `retained request distinguishes absent original from durable E5`() {
@@ -129,14 +135,41 @@ class KagemushaWalletEnrollmentV1Test {
         val driver = Driver()
         driver.reply = KagemushaWalletCallV1(23, -1, 0, 7, 0, 0, ByteArray(32) { 1 })
         val owner = KagemushaWalletEnrollmentV1(7, driver, byteArrayOf(1,2), Any(), 2)
-        val maximum = List(8) { certificate -> ByteArray(16384) { index -> ((index + certificate) % 251).toByte() } }
-        assertIs<KagemushaWalletEnrollmentRequestV1.AccountChallenge>(owner.prepareRequest(maximum, byteArrayOf(1)))
+        // Four maximal certificates fill the 65,536-byte chain bound exactly.
+        val maximum = List(4) { certificate -> ByteArray(16384) { index -> ((index + certificate) % 251).toByte() } }
+        assertIs<KagemushaWalletEnrollmentRequestV1.AccountChallenge>(owner.prepareRequest(maximum))
         maximum.zip(driver.retainedCertificates).forEach { (expected, actual) -> assertContentEquals(expected, actual) }
+        assertIs<KagemushaWalletEnrollmentRequestV1.AccountChallenge>(owner.prepareRequest(List(8) { byteArrayOf(it.toByte()) }))
         val before = driver.calls
-        for (bad in listOf(List(9) { byteArrayOf(1) }, listOf(byteArrayOf()), listOf(ByteArray(16385)))) {
-            assertFailsWith<IllegalArgumentException> { owner.prepareRequest(bad, byteArrayOf(1)) }
+        for (bad in listOf(List(9) { byteArrayOf(1) }, listOf(byteArrayOf(1)), emptyList(), listOf(byteArrayOf(), byteArrayOf(1)),
+            listOf(byteArrayOf(1), ByteArray(16385)), List(5) { ByteArray(16384) }, List(4) { ByteArray(16384) } + listOf(byteArrayOf(1)))) {
+            assertFailsWith<IllegalArgumentException> { owner.prepareRequest(bad) }
         }
         assertEquals(before, driver.calls)
+        owner.close()
+    }
+
+    @Test fun `abandonment is explicit local or marker and never an inferred outcome`() {
+        val driver = Driver()
+        val owner = KagemushaWalletEnrollmentV1(7, driver, byteArrayOf(1,2), Any(), 2)
+        driver.reply = KagemushaWalletCallV1(58, -1, 0, 7, 0, 0, byteArrayOf())
+        assertSame(KagemushaWalletEnrollmentAbandonmentV1.LocalAbandoned, owner.abandon())
+        assertSame(KagemushaWalletEnrollmentAbandonmentV1.LocalAbandoned, owner.abandon())
+        driver.reply = KagemushaWalletCallV1(28, -1, 0, 7, 0, 0, ByteArray(1024) { 3 })
+        assertEquals(1024, assertIs<KagemushaWalletEnrollmentAbandonmentV1.Abandonment>(owner.abandon()).frame().size)
+        // Kind 58 never carries bytes, kind 28 always does, and no other kind is an abandonment.
+        assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(58, -1, 0, 7, 0, 0, byteArrayOf(1)) }
+        assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(28, -1, 0, 7, 0, 0, byteArrayOf()) }
+        assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(58, -1, 0, 7, 0, 1, byteArrayOf()) }
+        assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(59, -1, 0, 7, 0, 0, byteArrayOf()) }
+        for (reply in listOf(KagemushaWalletCallV1(20, -1, 0, 7, 0, 0, byteArrayOf()), KagemushaWalletCallV1(58, -1, 0, 8, 0, 0, byteArrayOf()),
+            KagemushaWalletCallV1(24, -1, 0, 7, 0, 0, byteArrayOf(1)))) {
+            driver.reply = reply
+            assertFailsWith<KagemushaWalletExceptionV1> { owner.abandon() }
+        }
+        // A Native refusal (for example once Bootstrap is selected) is preserved, never mapped to a form.
+        driver.reply = KagemushaWalletCallV1(-5, 17, 23, 0, 0, 0, byteArrayOf())
+        assertEquals(-5, assertFailsWith<KagemushaWalletExceptionV1> { owner.abandon() }.status)
         owner.close()
     }
     @Test fun `canonical JNI enrollment carries only native selector and original frames`() {
