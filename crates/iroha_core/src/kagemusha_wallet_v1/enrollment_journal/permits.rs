@@ -82,6 +82,7 @@ impl EnrollmentJournalV1 {
         if dispatch.native_dispatch_nonce != *nonce {
             return Err(Conflict);
         }
+        self.adopt(&name(&attempt.selection().key, nonce)?, &bytes)?;
         Ok(Some(record))
     }
 
@@ -152,6 +153,9 @@ impl EnrollmentJournalV1 {
         original: Vec<u8>,
     ) -> Result<()> {
         self.require_dispatch(attempt, dispatch)?;
+        if attempt.refusal().is_some() {
+            return Err(Conflict);
+        }
         let permit = KagemushaEnrollmentPermitV1::decode_canonical(
             &original,
             &dispatch.scheme,

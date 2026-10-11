@@ -18,7 +18,7 @@ assert.equal(resolve(artifact), artifact);
 assert.equal(resolve(emitted), emitted);
 const policy = JSON.parse(rawPolicy);
 assert.deepEqual(Object.keys(policy).sort(), ["abi_version", "forbidden", "required", "required_results"]);
-assert.equal(policy.abi_version, 28);
+assert.equal(policy.abi_version, 29);
 assert(REQUIRED_NATIVE_EXPORTS.every((name) => policy.required.includes(name)));
 
 // This is the existing real publication consumer, including network-context,

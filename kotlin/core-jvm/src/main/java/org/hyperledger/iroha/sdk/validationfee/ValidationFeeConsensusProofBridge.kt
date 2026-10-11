@@ -32,7 +32,7 @@ class ValidationFeeConsensusProofBridge private constructor() {
 
     companion object {
         private const val LIBRARY_NAME = "connect_norito_bridge"
-        private const val REQUIRED_BRIDGE_ABI_VERSION = 28
+        private const val REQUIRED_BRIDGE_ABI_VERSION = 29
         private const val HASH_BYTES = 32
         private const val MAX_PROOF_BYTES = 4 * 1024 * 1024
         // Matches the canonical native checkpoint's two 32 MiB frames and 4 MiB metadata bound.

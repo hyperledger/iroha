@@ -344,4 +344,32 @@ impl Platform for CallbackPlatform {
             _ => Err(Unavailable::Platform(0)),
         }
     }
+    /// Design §5.3 memory probe. iOS answers natively, without a platform callback; zero (not
+    /// an app, or already over its limit) is no answer, which never refuses.
+    fn available_memory(&self) -> Option<u64> {
+        #[cfg(any(target_os = "ios", target_os = "tvos", target_os = "watchos"))]
+        {
+            apple_available_memory()
+        }
+        #[cfg(not(any(target_os = "ios", target_os = "tvos", target_os = "watchos")))]
+        {
+            use iroha_core_zk::kagemusha_wallet_capacity_v1 as capacity;
+            capacity::kagemusha_wallet_native_available_memory_v1()
+        }
+    }
+}
+
+/// Bytes remaining before this app reaches its current dirty-memory limit
+/// (`os_proc_available_memory`, iOS 13+; the deployment floor is iOS 18).
+#[cfg(any(target_os = "ios", target_os = "tvos", target_os = "watchos"))]
+fn apple_available_memory() -> Option<u64> {
+    unsafe extern "C" {
+        fn os_proc_available_memory() -> usize;
+    }
+    // SAFETY: a libSystem query with no arguments and no retained state.
+    let bytes = unsafe { os_proc_available_memory() };
+    if bytes == 0 {
+        return None;
+    }
+    u64::try_from(bytes).ok()
 }

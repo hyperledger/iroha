@@ -6,6 +6,11 @@ package org.hyperledger.iroha.sdk.offline.wallet
 import android.content.Context
 import java.io.File
 import java.io.IOException
+import org.hyperledger.iroha.sdk.crypto.keystore.attestation.AndroidAttestationE1PolicyV1
+import org.hyperledger.iroha.sdk.crypto.keystore.attestation.AndroidAttestationE1ResultV1
+import org.hyperledger.iroha.sdk.crypto.keystore.attestation.AndroidKeyAttestationOriginalV1
+import org.hyperledger.iroha.sdk.crypto.keystore.attestation.AttestationResult
+import org.hyperledger.iroha.sdk.offline.KagemushaWalletEnrollmentRefusalV1
 
 // Rust JNI retains this opaque object and calls nativeCall from attached worker threads.
 // TODO(G3/G4): authenticated operation/Λ/Ω artifact loading still gates native wallet open.
@@ -16,11 +21,12 @@ import java.io.IOException
  * Opaque Android platform handle of the KAGEMUSHA wallet `Advance` provider (spec §§1.2, 2.2,
  * 2.3, 4.2; G2 design rev 2).
  *
- * The only public operation exports original certificates for a native-selected enrollment target.
+ * The only public operation exports the E5 evidence of a native-selected enrollment target,
+ * with the adapter's own pre-E5 admission check ([enrollmentEvidence]).
  * Its private methods are the JNI upcalls of the Rust
  * `KagemushaWalletPlatformV1` adapter (JNI ignores Kotlin visibility; `consumer-rules.pro` keeps
- * them): the tri-state payment-key probe, generation bound to the issuer challenge digest and the
- * enrollment's hardware profile, `SHA256withECDSA` signing of the exact 32-byte Poseidon signing
+ * them): the tri-state payment-key probe, generation bound to the issuer challenge digest under
+ * the one StrongBox-then-TEE plan, `SHA256withECDSA` signing of the exact 32-byte Poseidon signing
  * message (KeyMint hashes it with SHA-256; never a no-digest mode) that returns the platform DER, key
  * deletion for custody deletion, attestation-chain export, the anchor policy (Android keeps no
  * rollback anchor), storage state and the custody root path. Only the Rust role-checked signers
@@ -44,22 +50,31 @@ import java.io.IOException
 class KagemushaWalletAndroidPlatformV1 private constructor(
     private val adapter: KagemushaWalletAndroidPlatformAdapterV1,
 ) {
-    /** Original DER for the exact native-selected payment key, with no attestation verdict. */
-    fun enrollmentCertificates(target: KagemushaWalletEnrollmentTargetV1): List<ByteArray> {
-        adapter.storageState()?.let { enrollmentCertificatesUnavailable(it) }
-        when (val key = adapter.keyProbe(target.slot())) {
-            is KagemushaWalletAndroidKeyProbeV1.Present ->
-                if (!key.publicKeySec1().contentEquals(target.paymentKey())) throw KagemushaWalletExceptionV1(-7)
-            KagemushaWalletAndroidKeyProbeV1.Absent -> throw KagemushaWalletExceptionV1(-13)
-            is KagemushaWalletAndroidKeyProbeV1.Unavailable -> enrollmentCertificatesUnavailable(key.reason)
+    /**
+     * E5 evidence of the exact native-selected payment key, right after its generation: the
+     * original leaf-first KeyMint chain and this adapter's own check of it (design §2.4). The
+     * check applies the Phone and App steps of the enrollment policy's Android admission to the
+     * chain, under the Android admission inputs of the selected app and enrollment policies
+     * ([AndroidAttestationE1PolicyV1.fromPolicyOriginals]), and reports the first failure as
+     * its closed refusal reason. On [KagemushaWalletAndroidEnrollmentEvidenceV1.Ineligible]
+     * the app abandons the attempt ([KagemushaWalletEnrollmentV1.abandon]) and words the
+     * refusal by its holder class; it never submits that chain. The issuer stays authoritative:
+     * [KagemushaWalletAndroidEnrollmentEvidenceV1.Eligible] admits nothing.
+     *
+     * @throws KagemushaWalletExceptionV1 -5 when storage or the key is unavailable now (retry),
+     * -7 when the key differs from the target and -13 when it is definitively absent.
+     */
+    fun enrollmentEvidence(
+        target: KagemushaWalletEnrollmentTargetV1,
+        policy: AndroidAttestationE1PolicyV1,
+    ): KagemushaWalletAndroidEnrollmentEvidenceV1 {
+        val certificates = adapter.enrollmentCertificates(target)
+        return when (val checked = AndroidKeyAttestationOriginalV1.e1Admission(certificates, target.challengeDigest(), target.paymentKey(), policy)) {
+            is AndroidAttestationE1ResultV1.Eligible -> KagemushaWalletAndroidEnrollmentEvidenceV1.Eligible(
+                certificates, checked.securityLevel == AttestationResult.SecurityLevel.STRONG_BOX,
+            )
+            is AndroidAttestationE1ResultV1.Ineligible -> KagemushaWalletAndroidEnrollmentEvidenceV1.Ineligible(checked.refusal, checked.detail)
         }
-        val result = when (val chain = adapter.attestationChain(target.slot())) {
-            is KagemushaWalletAndroidAttestationChainV1.Present -> chain.certificatesDer()
-            KagemushaWalletAndroidAttestationChainV1.Absent -> throw KagemushaWalletExceptionV1(-13)
-            is KagemushaWalletAndroidAttestationChainV1.Unavailable -> enrollmentCertificatesUnavailable(chain.reason)
-        }
-        adapter.storageState()?.let { enrollmentCertificatesUnavailable(it) }
-        return result
     }
 
     // JNI upcalls. Names and signatures are the bridge contract and are pinned by tests.
@@ -166,6 +181,34 @@ class KagemushaWalletAndroidPlatformV1 private constructor(
 private fun enrollmentCertificatesUnavailable(reason: KagemushaWalletAndroidUnavailableV1): Nothing =
     throw KagemushaWalletExceptionV1(-5, reason.kind.tag, reason.code)
 
+/**
+ * E5 evidence of one freshly generated payment key with the Android adapter's own pre-E5 check
+ * (design §2.4). Neither form is an admission or a device verdict beyond its closed reason.
+ */
+sealed class KagemushaWalletAndroidEnrollmentEvidenceV1 {
+    /** Every client-checkable admission step passed; submit exactly these certificates at E5. */
+    class Eligible internal constructor(certificates: List<ByteArray>, @JvmField val strongBox: Boolean) :
+        KagemushaWalletAndroidEnrollmentEvidenceV1() {
+        private val chain = certificates.map { it.copyOf() }
+
+        /** Copies of the original leaf-first DER certificates for `prepareRequest`. */
+        fun certificatesDer(): List<ByteArray> = chain.map { it.copyOf() }
+
+        override fun toString(): String = "Eligible(${chain.size} certificates, strongBox=$strongBox)"
+    }
+
+    /**
+     * The first failing check as its closed §2.4 reason. Abandon the attempt; the holder class
+     * says whether to start again (App, Attempt) or not on this phone (Phone).
+     */
+    class Ineligible internal constructor(
+        @JvmField val refusal: KagemushaWalletEnrollmentRefusalV1,
+        @JvmField val detail: String,
+    ) : KagemushaWalletAndroidEnrollmentEvidenceV1() {
+        override fun toString(): String = "Ineligible(${refusal.name})"
+    }
+}
+
 /** Implementation of the platform upcalls; see [KagemushaWalletAndroidPlatformV1]. */
 internal class KagemushaWalletAndroidPlatformAdapterV1(
     private val environment: KagemushaWalletAndroidEnvironmentV1,
@@ -188,18 +231,19 @@ internal class KagemushaWalletAndroidPlatformAdapterV1(
     fun keyProbe(slot: ByteArray): KagemushaWalletAndroidKeyProbeV1 = paymentKey.probe(slot)
 
     /**
-     * Generate the payment key of [slot] with [challengeDigest] as the attestation challenge
-     * under the Rust `KagemushaWalletKeyProfileV1` tag [profileTag]. Never replaces an entry.
+     * Generate the payment key of [slot] with [challengeDigest] as the attestation challenge.
+     * [profileTag] must be the Android platform's only Rust `KagemushaWalletKeyProfileV1` tag
+     * (SecureElementOrTee, 2); any other tag fails closed. Never replaces an entry.
      */
     fun keyGenerate(slot: ByteArray, challengeDigest: ByteArray, profileTag: Int): KagemushaWalletAndroidKeyGenerationV1 {
-        val profile = requireNotNull(KagemushaWalletAndroidKeyProfileV1.fromTag(profileTag)) { "unknown key profile tag" }
-        return paymentKey.generate(slot, challengeDigest, profile)
+        kagemushaWalletAndroidRequireKeyProfileV1(profileTag)
+        return paymentKey.generate(slot, challengeDigest)
     }
 
     /** Recover only a positive generate return held by this same platform owner; never generates. */
     fun keyGenerationRecovery(slot: ByteArray, challengeDigest: ByteArray, profileTag: Int): KagemushaWalletAndroidKeyGenerationV1? {
-        val profile = requireNotNull(KagemushaWalletAndroidKeyProfileV1.fromTag(profileTag)) { "unknown key profile tag" }
-        return paymentKey.recoverGeneration(slot, challengeDigest, profile)
+        kagemushaWalletAndroidRequireKeyProfileV1(profileTag)
+        return paymentKey.recoverGeneration(slot, challengeDigest)
     }
 
     /** Actual JNI generation mode: 1 needs Native fresh provenance; 0 has definitive absence. */
@@ -207,9 +251,9 @@ internal class KagemushaWalletAndroidPlatformAdapterV1(
 
     /** Only nativeCall operation 11 reaches this after consuming Native's bound fresh grant. */
     fun keyGenerateFreshFromNative(slot: ByteArray, challengeDigest: ByteArray, profileTag: Int): KagemushaWalletAndroidKeyGenerationV1 {
-        val profile = requireNotNull(KagemushaWalletAndroidKeyProfileV1.fromTag(profileTag)) { "unknown key profile tag" }
+        kagemushaWalletAndroidRequireKeyProfileV1(profileTag)
         storageState()?.let { return KagemushaWalletAndroidKeyGenerationV1.Unavailable(it) }
-        return paymentKey.generateFreshFromNative(slot, challengeDigest, profile)
+        return paymentKey.generateFreshFromNative(slot, challengeDigest)
     }
 
     /**
@@ -226,6 +270,24 @@ internal class KagemushaWalletAndroidPlatformAdapterV1(
 
     fun enrollmentAttestationChain(slot: ByteArray, expectedPaymentKey: ByteArray): KagemushaWalletAndroidAttestationChainV1 =
         paymentKey.enrollmentAttestationChain(slot, expectedPaymentKey)
+
+    /** Original DER for the exact native-selected payment key, with no attestation verdict. */
+    fun enrollmentCertificates(target: KagemushaWalletEnrollmentTargetV1): List<ByteArray> {
+        storageState()?.let { enrollmentCertificatesUnavailable(it) }
+        when (val key = keyProbe(target.slot())) {
+            is KagemushaWalletAndroidKeyProbeV1.Present ->
+                if (!key.publicKeySec1().contentEquals(target.paymentKey())) throw KagemushaWalletExceptionV1(-7)
+            KagemushaWalletAndroidKeyProbeV1.Absent -> throw KagemushaWalletExceptionV1(-13)
+            is KagemushaWalletAndroidKeyProbeV1.Unavailable -> enrollmentCertificatesUnavailable(key.reason)
+        }
+        val result = when (val chain = attestationChain(target.slot())) {
+            is KagemushaWalletAndroidAttestationChainV1.Present -> chain.certificatesDer()
+            KagemushaWalletAndroidAttestationChainV1.Absent -> throw KagemushaWalletExceptionV1(-13)
+            is KagemushaWalletAndroidAttestationChainV1.Unavailable -> enrollmentCertificatesUnavailable(chain.reason)
+        }
+        storageState()?.let { enrollmentCertificatesUnavailable(it) }
+        return result
+    }
 
     /** Rust `KagemushaWalletAnchorPolicyV1` tag: Android keeps no rollback anchor. */
     fun anchorPolicyTag(): Int = KAGEMUSHA_WALLET_ANDROID_ANCHOR_NOT_REQUIRED_TAG_V1

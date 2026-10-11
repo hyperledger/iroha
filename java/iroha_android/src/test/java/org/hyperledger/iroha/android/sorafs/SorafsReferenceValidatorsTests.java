@@ -231,10 +231,10 @@ public final class SorafsReferenceValidatorsTests {
     assert SorafsOrderbookSide.BID.bridgeCode() == 1;
     assert SorafsOrderbookTier.ARCHIVE.bridgeCode() == 3;
     assert SorafsOrderbookCancelReason.REPLACED.bridgeCode() == 4;
-    assert SorafsReferenceValidators.REQUIRED_BRIDGE_ABI_VERSION == 28;
+    assert SorafsReferenceValidators.REQUIRED_BRIDGE_ABI_VERSION == 29;
     assert !SorafsReferenceValidators.isBridgeAbiSupported(20);
     assert !SorafsReferenceValidators.isBridgeAbiSupported(23);
-    assert SorafsReferenceValidators.isBridgeAbiSupported(28);
+    assert SorafsReferenceValidators.isBridgeAbiSupported(29);
     assert !SorafsReferenceValidators.isBridgeAbiSupported(22);
     assert !SorafsReferenceValidators.isBridgeAbiSupported(21);
     assert !SorafsReferenceValidators.isGovernanceDagBridgeSupported(27, false);
@@ -958,7 +958,7 @@ public final class SorafsReferenceValidatorsTests {
   private static void requireNativeBridge() {
     if (!SorafsReferenceValidators.isNativeAvailable()) {
       throw new AssertionError(
-          "ABI-28 connect_norito_bridge with all SoraFS reference symbols is required.");
+          "ABI-29 connect_norito_bridge with all SoraFS reference symbols is required.");
     }
   }
 

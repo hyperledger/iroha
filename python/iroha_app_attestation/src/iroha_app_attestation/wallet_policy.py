@@ -1,9 +1,13 @@
-"""NEW first-release policy transcripts matching the Native wallet Model proposal.
+"""First-release E1 policy transcripts matching the Native wallet Model.
 
 These unsigned objects identify actual verifier inputs. Construction, validation and hashing
 never authenticate operator approval. Native retains the approved canonical Norito policy
 originals and supplies their typed projection; Python does not define another wire codec.
-No default policy, root DER, approval, success flag, signer or disabled platform is provided.
+No default policy, root, approval, success flag or signer is provided.
+
+``specs/kagemusha_wallet_enrollment_policy_v1.md`` fixes the transcripts: the Android app arm
+pins a package, a minimum package version and a signer set; the Android enrollment arm pins
+a root set whose entries name their revocation source, plus the patch floor.
 """
 from __future__ import annotations
 
@@ -11,11 +15,19 @@ import hashlib
 import re
 from dataclasses import dataclass
 
-from .attestation import MAX_CERT, fixed32, require, validate_android_patch_floor
-from .play_integrity import PlayIntegrityEnrollmentPolicy
+from .attestation import (
+    ANDROID_REVOCATION_SOURCES, ANDROID_ROOT_FAMILIES, MAX_CERT, AndroidTrustAnchor,
+    android_adapter_profile, fixed32, require, validate_android_patch_floor,
+)
 
 _PREFIX = b"iroha:kagemusha:wallet:v1:"
 _PACKAGE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+\Z")
+_ADAPTER = re.compile(r"[a-z][a-z0-9-]*\Z")
+_FAMILY_TAGS = {"google_rsa": 1, "google_ca1": 2, "vendor": 3}
+_SOURCE_TAGS = {"google_attestation_status": 1, "operator_denylist": 2}
+MAX_ANDROID_SIGNERS = 4
+MAX_ANDROID_ROOTS = 8
+MAX_ADAPTER_ID_BYTES = 16
 
 
 def _uint(value: int, bits: int, name: str, positive: bool = False) -> int:
@@ -44,15 +56,25 @@ def _digest(role: bytes, body: bytes) -> bytes:
 
 @dataclass(frozen=True)
 class AndroidAppIdentityV1:
+    """Package, minimum attested ``versionCode`` and every released channel's signer."""
+
     package_name: str
-    package_version: int
-    app_signing_certificate_sha256: bytes
+    minimum_package_version: int
+    signer_set: tuple
 
     def transcript(self) -> bytes:
         text = _text(self.package_name, "invalid Android package")
         require(_PACKAGE.fullmatch(self.package_name) is not None, "invalid Android package")
-        return (b"\1" + text + _uint(self.package_version, 64, "invalid package version").to_bytes(8, "little")
-                + _binding(self.app_signing_certificate_sha256, "invalid app signing pin"))
+        minimum = _uint(self.minimum_package_version, 64, "invalid minimum package version")
+        signers = self.signer_set
+        require(type(signers) is tuple and 1 <= len(signers) <= MAX_ANDROID_SIGNERS
+                and all(type(signer) is bytes for signer in signers), "invalid Android signer set")
+        for signer in signers:
+            _binding(signer, "invalid Android signer")
+        require(all(a < b for a, b in zip(signers, signers[1:])),
+                "Android signer set is not strictly ascending")
+        return (b"\1" + text + minimum.to_bytes(8, "little") + bytes([len(signers)])
+                + b"".join(signers))
 
 
 @dataclass(frozen=True)
@@ -95,31 +117,62 @@ class RegulatoryPolicyV1:
 
 
 @dataclass(frozen=True)
-class AndroidEnrollmentPlatformV1:
-    attestation_root_sha256: bytes
-    hardware_tag: int
-    patch_floor_yyyymm: int
-    play_integrity_maximum_age_ms: int
-    require_play_recognized: bool
-    require_licensed: bool
-    minimum_device_integrity_tag: int
+class AndroidRootV1:
+    """One pinned root: family, optional Vendor adapter identifier, SPKI pin and source."""
+
+    family: str
+    spki_sha256: bytes
+    revocation_source: str
+    adapter_id: str | None = None
 
     def transcript(self) -> bytes:
-        require(type(self.hardware_tag) is int and self.hardware_tag in (1, 2, 3), "invalid hardware selector")
-        validate_android_patch_floor(self.patch_floor_yyyymm)
-        age = _uint(self.play_integrity_maximum_age_ms, 64, "invalid Google age", True)
-        require(type(self.require_play_recognized) is bool and type(self.require_licensed) is bool,
-                "invalid Google verdict selector")
-        require(type(self.minimum_device_integrity_tag) is int
-                and self.minimum_device_integrity_tag in (1, 2), "invalid Google device selector")
-        return (b"\1" + _binding(self.attestation_root_sha256, "invalid Android root pin")
-                + bytes([self.hardware_tag]) + self.patch_floor_yyyymm.to_bytes(4, "little")
-                + age.to_bytes(8, "little") + bytes([self.require_play_recognized,
-                    self.require_licensed, self.minimum_device_integrity_tag]))
+        require(type(self.family) is str and self.family in ANDROID_ROOT_FAMILIES,
+                "invalid Android root family")
+        require(type(self.revocation_source) is str
+                and self.revocation_source in ANDROID_REVOCATION_SOURCES,
+                "invalid Android revocation source")
+        head = bytes([_FAMILY_TAGS[self.family]])
+        if self.family == "vendor":
+            require(type(self.adapter_id) is str and _ADAPTER.fullmatch(self.adapter_id) is not None
+                    and len(self.adapter_id) <= MAX_ADAPTER_ID_BYTES, "invalid Android adapter id")
+            require(self.revocation_source == "operator_denylist",
+                    "Vendor root must name the operator denylist")
+            head += len(self.adapter_id).to_bytes(4, "little") + self.adapter_id.encode("ascii")
+        else:
+            require(self.adapter_id is None, "Google root names an adapter")
+            require(self.revocation_source == "google_attestation_status",
+                    "Google root must name Google's attestation status list")
+        return (head + _binding(self.spki_sha256, "invalid Android root SPKI pin")
+                + bytes([_SOURCE_TAGS[self.revocation_source]]))
 
-    def allowed_security_levels(self) -> frozenset[int]:
+    def anchor(self) -> AndroidTrustAnchor:
+        """Resolve the implemented, qualified adapter profile; else a configuration failure."""
         self.transcript()
-        return {1: frozenset({1}), 2: frozenset({2}), 3: frozenset({1, 2})}[self.hardware_tag]
+        anchor = AndroidTrustAnchor(self.family, self.spki_sha256, self.revocation_source,
+                                    android_adapter_profile(self.family, self.adapter_id))
+        anchor.validate()
+        return anchor
+
+
+@dataclass(frozen=True)
+class AndroidEnrollmentPlatformV1:
+    root_set: tuple
+    patch_floor_yyyymm: int
+
+    def transcript(self) -> bytes:
+        roots = self.root_set
+        require(type(roots) is tuple and 1 <= len(roots) <= MAX_ANDROID_ROOTS
+                and all(type(root) is AndroidRootV1 for root in roots), "invalid Android root set")
+        entries = [root.transcript() for root in roots]
+        require(all(a.spki_sha256 < b.spki_sha256 for a, b in zip(roots, roots[1:])),
+                "Android root set is not strictly ascending by SPKI pin")
+        validate_android_patch_floor(self.patch_floor_yyyymm)
+        return (b"\1" + bytes([len(roots)]) + b"".join(entries)
+                + self.patch_floor_yyyymm.to_bytes(4, "little"))
+
+    def anchors(self) -> tuple:
+        self.transcript()
+        return tuple(root.anchor() for root in self.root_set)
 
 
 @dataclass(frozen=True)
@@ -149,12 +202,9 @@ class WalletEnrollmentPolicyV1:
         lease = _uint(self.attestation_lease_lifetime_ms, 64, "invalid lease lifetime")
         regulator = self.regulatory_policy.transcript()
         require((lease > 0) == bool(self.regulatory_policy.permitted_controls & 4), "inconsistent lease permission")
-        selected = self.platform.transcript()
-        if type(self.platform) is AndroidEnrollmentPlatformV1:
-            require(self.platform.play_integrity_maximum_age_ms <= ttl, "Google age exceeds challenge lifetime")
         return (b"\1\0" + _binding(self.scheme_id, "invalid enrollment scheme")
                 + _binding(self.asset_digest, "invalid enrollment asset") + _binding(self.app_policy, "invalid enrollment app")
-                + selected + regulator + ttl.to_bytes(8, "little") + lease.to_bytes(8, "little"))
+                + self.platform.transcript() + regulator + ttl.to_bytes(8, "little") + lease.to_bytes(8, "little"))
 
     def policy_digest(self) -> bytes:
         """NEW enrollment-policy identity; existing opaque digests have no implied mapping."""
@@ -183,18 +233,37 @@ class WalletEnrollmentPolicyV1:
 
 @dataclass(frozen=True)
 class ConfiguredWalletEnrollmentPolicyV1:
-    """Private projection of selected originals plus genuine root DER, never a public body.
+    """Private projection of selected originals, never a public body.
 
     Native must authenticate operator selection and compare retained Model policy originals
-    before creating this input. Root hashing verifies consistency, not external trust/approval.
+    before creating this input. Android selects no root original: its chain carries its root,
+    matched by SPKI. Apple carries its genuine root DER; hashing verifies consistency only.
     """
     app: WalletAppPolicyV1
     enrollment: WalletEnrollmentPolicyV1
-    attestation_root_der: bytes
+    apple_root_der: bytes | None = None
 
-    def validate_scope(self, challenge_transcript: bytes, created_at_ms: int, now_ms: int) -> None:
+    def validate(self) -> None:
         require(type(self.enrollment) is WalletEnrollmentPolicyV1, "configured policy absent")
         self.enrollment.validate_for_app(self.app)
+        if type(self.enrollment.platform) is AppleEnrollmentPlatformV1:
+            require(type(self.apple_root_der) is bytes and 0 < len(self.apple_root_der) <= MAX_CERT
+                    and hashlib.sha256(self.apple_root_der).digest()
+                    == self.enrollment.platform.attestation_root_sha256,
+                    "configured root original differs")
+        else:
+            require(self.apple_root_der is None, "Android policy carries a root original")
+            # Every root names an implemented and qualified adapter profile.
+            self.enrollment.platform.anchors()
+
+    def android_anchors(self) -> tuple:
+        self.validate()
+        require(type(self.enrollment.platform) is AndroidEnrollmentPlatformV1,
+                "configured Android platform absent")
+        return self.enrollment.platform.anchors()
+
+    def validate_scope(self, challenge_transcript: bytes, created_at_ms: int, now_ms: int) -> None:
+        self.validate()
         value = challenge_transcript
         require(type(value) is bytes and len(value) == 194 and value[:2] == b"\1\0"
                 and all(any(value[offset:offset + 32]) for offset in range(2, 194, 32)), "invalid E1 transcript")
@@ -202,21 +271,3 @@ class ConfiguredWalletEnrollmentPolicyV1:
                 and value[98:130] == self.app.policy_digest()
                 and value[130:162] == self.enrollment.policy_digest(), "E1 policy bindings differ")
         self.enrollment.require_live_challenge(created_at_ms, now_ms)
-        require(type(self.attestation_root_der) is bytes and 0 < len(self.attestation_root_der) <= MAX_CERT
-                and hashlib.sha256(self.attestation_root_der).digest()
-                == self.enrollment.platform.attestation_root_sha256, "configured root original differs")
-
-    def play_integrity_policy(self) -> PlayIntegrityEnrollmentPolicy:
-        self.enrollment.validate_for_app(self.app)
-        app = self.app.identity
-        selected = self.enrollment.platform
-        require(type(app) is AndroidAppIdentityV1 and type(selected) is AndroidEnrollmentPlatformV1,
-                "Android policy absent")
-        # Explicit NEW projection mapping, not a claim about any historical opaque digest.
-        result = PlayIntegrityEnrollmentPolicy(
-            self.enrollment.policy_digest(), app.package_name, app.package_version,
-            app.app_signing_certificate_sha256, selected.play_integrity_maximum_age_ms,
-            selected.require_play_recognized, selected.require_licensed,
-            {1: "MEETS_DEVICE_INTEGRITY", 2: "MEETS_STRONG_INTEGRITY"}[selected.minimum_device_integrity_tag])
-        result.validate()
-        return result

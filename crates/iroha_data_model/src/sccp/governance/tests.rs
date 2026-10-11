@@ -731,7 +731,7 @@ fn base_revisions_must_equal_the_sorted_subject_list() {
     let mut unsorted = valid.clone();
     unsorted.base_revisions.swap(0, 1);
     let mut duplicated = valid.clone();
-    let first = duplicated.base_revisions[0].clone();
+    let first = duplicated.base_revisions[0];
     duplicated.base_revisions.insert(0, first);
     let mut wrong_subject = valid.clone();
     wrong_subject.base_revisions[0].subject = SccpGovernanceSubjectV1::RouteControl(ETH);

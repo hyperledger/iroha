@@ -17,6 +17,11 @@ fn with(update: impl FnOnce(&mut SccpParametersV1)) -> SccpParametersV1 {
     parameters
 }
 
+/// Repairs one field of the first value from the second, valid one.
+type Repair = fn(&mut SccpParametersV1, &SccpParametersV1);
+/// Writes one `u64` field.
+type SetU64 = fn(&mut SccpParametersV1, u64);
+
 /// The context of the SCCP staking profile with the given Parliament attempt latency.
 fn context(parliament_sccp_attempt_latency_ms: Option<u64>) -> SccpParameterContextV1 {
     SccpParameterContextV1 {
@@ -55,7 +60,9 @@ fn fixed_exempt_quotas_are_one_keepalive_one_evidence_and_one_advance_per_networ
     assert_eq!(SCCP_FIXED_EXEMPT_QUOTAS_PER_BLOCK_V1, 1 + 1 + networks);
     assert_eq!(SCCP_FIXED_EXEMPT_QUOTAS_PER_BLOCK_V1, 5);
     // Every admitted cap leaves at least one self-claim slot beside the fixed quotas.
-    assert!(SCCP_MIN_EXEMPT_TRANSACTIONS_PER_BLOCK_V1 > SCCP_FIXED_EXEMPT_QUOTAS_PER_BLOCK_V1);
+    const {
+        assert!(SCCP_MIN_EXEMPT_TRANSACTIONS_PER_BLOCK_V1 > SCCP_FIXED_EXEMPT_QUOTAS_PER_BLOCK_V1);
+    }
 }
 
 #[test]
@@ -567,7 +574,7 @@ fn rules_report_own_bounds_then_joint_rules_in_table_order() {
         fast_pause_hold_ms: u64::MAX,
     };
     let valid = SccpParametersV1::taira_default();
-    let repairs: [(E, fn(&mut SccpParametersV1, &SccpParametersV1)); 16] = [
+    let repairs: [(E, Repair); 16] = [
         // Own bounds. Validity and the accept window are repaired to values inside their own
         // bound that still break their joint rule.
         (E::CommitteeValidityTooLong, |p, _| {
@@ -791,7 +798,7 @@ fn json_u64_violation_names_the_first_field_over_the_bound() {
         SccpParametersV1::taira_default().first_json_u64_violation(JSON_MAX),
         None
     );
-    let fields: [(&str, fn(&mut SccpParametersV1, u64)); 10] = [
+    let fields: [(&str, SetU64); 10] = [
         ("committee_validity_ms", |p, v| p.committee_validity_ms = v),
         ("committee_heartbeat_ms", |p, v| {
             p.committee_heartbeat_ms = v;

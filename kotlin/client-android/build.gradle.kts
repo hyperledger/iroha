@@ -1853,7 +1853,7 @@ abstract class StripNativeBridgeTask @Inject constructor(
         val cargoFeatures = listOf("privacy-production-enabled")
         val manifest = linkedMapOf<String, Any?>(
             "schema" to "iroha.android-native-build-provenance.v1",
-            "native_bridge_abi_version" to 28,
+            "native_bridge_abi_version" to 29,
             "build_profile" to "release",
             "cargo_locked" to true,
             "privacy_production_enabled" to true,
@@ -2003,7 +2003,6 @@ publishing {
 dependencies {
     api(project(":core-jvm"))
     implementation(libs.play.services.nearby)
-    implementation(libs.play.integrity)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     testImplementation(kotlin("test"))
     testImplementation(libs.bcprov)

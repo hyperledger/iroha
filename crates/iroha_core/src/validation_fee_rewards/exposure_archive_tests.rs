@@ -1,6 +1,7 @@
 //! Original certified exposure archives survive hot-page removal and native replay.
 
 use super::*;
+use crate::state::StateReadOnly;
 use crate::validation_fee_rewards::tests::{account, fund_test_conversion, signed_claim_all};
 use iroha_data_model::{
     isi::{Mint, staking::SchedulePublicLaneUnbond},
@@ -9,6 +10,7 @@ use iroha_data_model::{
         Parameter,
         system::{SumeragiConsensusMode, SumeragiNposParameters, SumeragiParameter},
     },
+    transaction::{FeePaymentIntent, TransactionBuilder},
     validation_fee::{ValidationFeePayoutPolicyRegistryV1, ValidationFeePolicyRegistryV1},
     validation_fee_rewards::allocate_page,
 };
@@ -20,11 +22,7 @@ fn archived_tail_fixture() -> (
     crate::sumeragi::test_chain::CertifiedTestChain,
     ValidationFeeTreasuryPayoutBindingV1,
 ) {
-    let deployer = AccountId::new(
-        iroha_crypto::KeyPair::from_seed(vec![55; 32], iroha_crypto::Algorithm::Ed25519)
-            .public_key()
-            .clone(),
-    );
+    let deployer = account(55);
     let mut config = crate::sumeragi::test_chain::TestChainConfig::new(
         crate::validation_fee::tests::validation_fee_payout_world(&deployer),
         1_000,
@@ -114,6 +112,11 @@ fn archived_tail_fixture() -> (
         )
         .unwrap()
         .apply(&mut stx.world);
+        // Fee payment has its own unreserved funding. The signed unbond below
+        // must not pay its execution charge from reserved staking principal.
+        Mint::asset_quantity(Quantity::from(100_u32), custody)
+            .execute(&authority, stx)
+            .unwrap();
         stx.world.public_lane_validators.insert(
             (LaneId::SINGLE, validator.clone()),
             PublicLaneValidatorRecord {
@@ -203,12 +206,34 @@ fn archived_exposure_survives_hot_rollover_replay_and_signed_claims() {
         amount: Quantity::one(),
         release_at_ms: timestamp + 365 * DAY_MS,
     };
-    let signed = chain.sign(&signer, [unbond.into()], timestamp);
+    let mut builder = TransactionBuilder::new(
+        chain.network_id(),
+        validator.clone(),
+        FeePaymentIntent::authority(Vec::new(), None),
+    );
+    builder.set_creation_time(std::time::Duration::from_millis(timestamp));
+    let builder = builder.with_instructions([unbond]);
+    let draft = builder.clone().sign(signer.private_key());
+    let view = chain.state().view();
+    let quote = crate::executor::quote_nexus_fee_admission_draft(
+        view.world(),
+        view.nexus(),
+        view.pipeline(),
+        draft.payload(),
+        timestamp,
+        chain.height() + 1,
+        None,
+    )
+    .expect("unbond has separate fee funding and an exact signed admission quote");
+    drop(view);
+    let signed = builder
+        .with_fee_payment_intent(quote.recommended_intent)
+        .sign(signer.private_key());
     assert_eq!(
         chain.commit_at(timestamp, vec![signed]),
         vec![true],
-        "actual signed archive rollover unbond must publish successfully: {:?}",
-        chain.committed(chain.height()).block().execution_outputs()
+        "signed unbond must apply before the archived exposure changes: {:?}",
+        chain.committed(chain.height()).block().network_output_at(0)
     );
     chain.commit_at(NOW + 3_001, Vec::new());
     let state = std::sync::Arc::clone(chain.state());

@@ -68,8 +68,8 @@ fn fixture(apple: bool) -> VerifierRequestV1 {
         } else {
             KagemushaWalletAppIdentityV1::Android {
                 package_name: "org.example.wallet".into(),
-                package_version: 7,
-                app_signing_certificate_sha256: [3; 32],
+                minimum_package_version: 7,
+                signer_set: vec![[3; 32]],
             }
         },
     };
@@ -84,13 +84,12 @@ fn fixture(apple: bool) -> VerifierRequestV1 {
             }
         } else {
             KagemushaWalletEnrollmentPlatformV1::Android {
-                attestation_root_sha256: [4; 32],
-                hardware: KagemushaWalletAndroidHardwareV1::Tee,
+                root_set: vec![KagemushaWalletAndroidRootV1 {
+                    family: KagemushaWalletAndroidRootFamilyV1::GoogleCa1,
+                    spki_sha256: [4; 32],
+                    revocation_source: KagemushaWalletRevocationSourceV1::GoogleAttestationStatus,
+                }],
                 patch_floor_yyyymm: 202608,
-                play_integrity_maximum_age_ms: 120_000,
-                require_play_recognized: true,
-                require_licensed: true,
-                minimum_device_integrity: KagemushaWalletPlayIntegrityLevelV1::Device,
             }
         },
         regulatory_policy: KagemushaWalletRegulatoryPolicyV1::default(),
@@ -120,7 +119,6 @@ fn fixture(apple: bool) -> VerifierRequestV1 {
     } else {
         PlatformEvidenceV1::Android {
             certificates: vec![b"DATA leaf".to_vec(), b"DATA root".to_vec()],
-            play_integrity_token: b"opaque token".to_vec(),
         }
     };
     let body = RequestBodyV1 {
@@ -199,7 +197,7 @@ fn dispatch(request: &RequestV1) -> PreKeyDispatchV1 {
         actor_digest: [8; 32],
         scheme,
         app: request.body.app.clone(),
-        policy: request.body.policy,
+        policy: request.body.policy.clone(),
         enrollment_certificate: certificate,
         account: request.body.account.clone(),
         asset: request.body.asset.clone(),
@@ -233,20 +231,15 @@ fn projection(request: &VerifierRequestV1) -> Value {
     let body = &request.request.body;
     let (kind, originals, items, key, counter) =
         match PlatformEvidenceV1::decode(&body.evidence, &body.policy).unwrap() {
-            PlatformEvidenceV1::Android { certificates, .. } => {
-                let mut items = certificates.clone();
-                items.push(b"DATA original Google response".to_vec());
-                (
-                    KagemushaWalletEvidenceKindV1::AndroidKeyMintTee,
-                    IssuerEvidenceV1::Android {
-                        certificates,
-                        google_response: items.last().unwrap().clone(),
-                    },
-                    items,
-                    Value::Null,
-                    Value::Null,
-                )
-            }
+            PlatformEvidenceV1::Android { certificates } => (
+                KagemushaWalletEvidenceKindV1::AndroidKeyMintTee,
+                IssuerEvidenceV1::Android {
+                    certificates: certificates.clone(),
+                },
+                certificates,
+                Value::Null,
+                Value::Null,
+            ),
             PlatformEvidenceV1::Apple {
                 key_id,
                 attestation,
@@ -264,8 +257,7 @@ fn projection(request: &VerifierRequestV1) -> Value {
         };
     let facts = kind.required_enrollment_facts()
         | if kind.is_android() {
-            KAGEMUSHA_WALLET_FACT_PLAY_INTEGRITY_SIGNAL_V1
-                | KAGEMUSHA_WALLET_FACT_REVOCATION_LIST_CLEAR_V1
+            KAGEMUSHA_WALLET_FACT_REVOCATION_LIST_CLEAR_V1
         } else {
             KAGEMUSHA_WALLET_FACT_APP_ATTEST_PRODUCTION_V1
         };
@@ -298,7 +290,7 @@ fn reply_with(
         "schema": (SCHEMA), "version": (1_u16), "exchange_id": (packet["exchange_id"].clone()),
         "request_sha256": (hex::encode(Sha256::digest(&exchange.frame()[4..]))),
         "journal_incarnation": (hex::encode([10;32])), "config_sha256": (hex::encode(configuration)),
-        "outcome": (outcome), "evidence_base64": (evidence),
+        "outcome": (outcome), "evidence_base64": (evidence), "refusal_code": (Value::Null),
     })
 }
 fn reply(exchange: &VerifierExchangeV1, outcome: &str, evidence: Value) -> Value {
@@ -378,7 +370,7 @@ fn retained_request_has_exact_python_fields_and_no_extra_lifetime_ceiling() {
                     .is_err()
             );
         }
-        let mut other = body.policy;
+        let mut other = body.policy.clone();
         other.challenge_lifetime_ms += 1;
         assert!(
             {
@@ -488,7 +480,7 @@ fn projection_rejects_foreign_identity_time_kind_facts_and_originals() {
 #[test]
 fn uncertain_and_unavailable_outcomes_never_become_evidence() {
     let request = fixture(false);
-    for outcome in ["outcome_unknown", "unavailable", "rejected"] {
+    for outcome in ["outcome_unknown", "unavailable"] {
         let value = response(&request, outcome, Value::Null);
         let result = request
             .response(&exchange(&request, [9; 32]), &framed(&value))
@@ -497,12 +489,19 @@ fn uncertain_and_unavailable_outcomes_never_become_evidence() {
             (outcome, result),
             ("outcome_unknown", OutcomeV1::OutcomeUnknown)
                 | ("unavailable", OutcomeV1::Unavailable)
-                | ("rejected", OutcomeV1::Rejected)
         ));
         assert!(
             request
                 .response(&exchange(&request, [8; 32]), &framed(&value))
                 .is_err()
+        );
+        let mut coded = value.clone();
+        change(&mut coded, "refusal_code", Value::from(9_u16));
+        assert!(
+            request
+                .response(&exchange(&request, [9; 32]), &framed(&coded))
+                .is_err(),
+            "a recovery state never carries a refusal code"
         );
         let mut wrong = value.clone();
         change(
@@ -526,7 +525,7 @@ fn uncertain_and_unavailable_outcomes_never_become_evidence() {
                 .is_err()
         );
     }
-    for outcome in ["accepted", "", "success", "evidence"] {
+    for outcome in ["accepted", "", "success", "evidence", "rejected"] {
         assert!(
             request
                 .response(
@@ -535,6 +534,156 @@ fn uncertain_and_unavailable_outcomes_never_become_evidence() {
                 )
                 .is_err()
         );
+    }
+    let mut missing = response(&request, "unavailable", Value::Null);
+    missing.as_object_mut().unwrap().remove("refusal_code");
+    assert!(
+        request
+            .response(&exchange(&request, [9; 32]), &framed(&missing))
+            .is_err()
+    );
+}
+
+#[test]
+fn refusals_carry_exactly_one_closed_platform_code_for_the_configured_platform() {
+    for apple in [false, true] {
+        let request = fixture(apple);
+        for reason in KagemushaWalletEnrollmentRefusalV1::ALL {
+            let mut value = response(&request, "refused", Value::Null);
+            change(&mut value, "refusal_code", Value::from(reason.code()));
+            let result = request.response(&exchange(&request, [9; 32]), &framed(&value));
+            if !reason.is_eligibility() && reason.applies_to(!apple) {
+                assert!(
+                    matches!(result, Ok(OutcomeV1::Refused(actual)) if actual == reason),
+                    "{reason:?}"
+                );
+            } else {
+                // Eligibility codes come from the issuer owner, never the platform worker;
+                // Android-only reasons cannot refuse Apple evidence.
+                assert!(result.is_err(), "{reason:?} apple={apple}");
+            }
+        }
+        for code in [
+            Value::Null,
+            Value::from(0_u16),
+            Value::from(13_u16),
+            Value::from(-1),
+        ] {
+            let mut value = response(&request, "refused", Value::Null);
+            change(&mut value, "refusal_code", code.clone());
+            assert!(
+                request
+                    .response(&exchange(&request, [9; 32]), &framed(&value))
+                    .is_err(),
+                "{code:?}"
+            );
+        }
+        let mut with_evidence = response(&request, "refused", Value::from(STANDARD.encode(b"x")));
+        change(&mut with_evidence, "refusal_code", Value::from(9_u16));
+        assert!(
+            request
+                .response(&exchange(&request, [9; 32]), &framed(&with_evidence))
+                .is_err()
+        );
+        // A refusal never answers an evidence reply.
+        let original = encode(&projection(&request), MAX_RESULT).unwrap();
+        let mut evidence = response(
+            &request,
+            "evidence",
+            Value::from(STANDARD.encode(&original)),
+        );
+        change(&mut evidence, "refusal_code", Value::from(9_u16));
+        assert!(
+            request
+                .response(&exchange(&request, [9; 32]), &framed(&evidence))
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn new_android_evidence_never_carries_the_retired_bit_9_fact() {
+    let request = fixture(false);
+    let baseline = projection(&request);
+    for extra in [
+        KAGEMUSHA_WALLET_FACT_PLAY_INTEGRITY_SIGNAL_V1,
+        KAGEMUSHA_WALLET_FACT_LOCAL_COMPROMISE_CHECKS_CLEAR_V1,
+        KAGEMUSHA_WALLET_FACT_STRONGBOX_V1,
+    ] {
+        let mut value = baseline.clone();
+        change(
+            &mut value,
+            "facts",
+            Value::from(integer(&baseline, "facts").unwrap() | u64::from(extra)),
+        );
+        assert!(
+            request
+                .projection(encode(&value, MAX_RESULT).unwrap())
+                .is_err(),
+            "{extra:#x}"
+        );
+    }
+    // REVOCATION_LIST_CLEAR is required; PATCH_POLICY_MET is an optional recorded fact.
+    let mut value = baseline.clone();
+    change(
+        &mut value,
+        "facts",
+        Value::from(
+            integer(&baseline, "facts").unwrap()
+                & !u64::from(KAGEMUSHA_WALLET_FACT_REVOCATION_LIST_CLEAR_V1),
+        ),
+    );
+    assert!(
+        request
+            .projection(encode(&value, MAX_RESULT).unwrap())
+            .is_err()
+    );
+    let facts = integer(&baseline, "facts").unwrap();
+    let mut value = baseline;
+    change(
+        &mut value,
+        "facts",
+        Value::from(facts | u64::from(KAGEMUSHA_WALLET_FACT_PATCH_POLICY_MET_V1)),
+    );
+    request
+        .projection(encode(&value, MAX_RESULT).unwrap())
+        .unwrap();
+}
+
+#[test]
+fn attested_strongbox_and_tee_kinds_are_both_admitted_under_one_android_policy() {
+    let request = fixture(false);
+    for (kind, facts) in [
+        (
+            KagemushaWalletEvidenceKindV1::AndroidKeyMintTee,
+            KAGEMUSHA_WALLET_ANDROID_REQUIRED_FACTS_V1,
+        ),
+        (
+            KagemushaWalletEvidenceKindV1::AndroidKeyMintStrongBox,
+            KAGEMUSHA_WALLET_ANDROID_REQUIRED_FACTS_V1 | KAGEMUSHA_WALLET_FACT_STRONGBOX_V1,
+        ),
+    ] {
+        let body = &request.request.body;
+        let mut value = projection(&request);
+        change(&mut value, "kind_tag", Value::from(kind.tag()));
+        change(
+            &mut value,
+            "facts",
+            Value::from(facts | KAGEMUSHA_WALLET_FACT_REVOCATION_LIST_CLEAR_V1),
+        );
+        let originals = IssuerEvidenceV1::Android {
+            certificates: vec![b"DATA leaf".to_vec(), b"DATA root".to_vec()],
+        };
+        change(
+            &mut value,
+            "evidence_digest",
+            Value::from(hex::encode(originals.digest(body, kind).unwrap())),
+        );
+        let projected = request
+            .projection(encode(&value, MAX_RESULT).unwrap())
+            .unwrap();
+        assert_eq!(projected.kind, kind);
+        assert_eq!(projected.originals, originals);
     }
 }
 
@@ -586,46 +735,20 @@ fn private_decode_rejects_duplicate_fields_bad_numbers_and_noncanonical_binary()
 }
 
 #[test]
-fn google_original_uses_actual_worker_bound_without_expanding_certificate_bounds() {
+fn android_projection_items_are_exactly_the_bounded_e5_chain() {
     let request = fixture(false);
-    let PlatformEvidenceV1::Android { certificates, .. } =
-        PlatformEvidenceV1::decode(&request.request.body.evidence, &request.request.body.policy)
-            .unwrap()
-    else {
-        panic!("Android DATA")
-    };
-    for size in [65_537, 131_072, 131_073] {
-        let google = vec![b'x'; size];
-        let mut items = certificates.clone();
-        items.push(google);
-        let digest = kagemusha_wallet_evidence_digest_v1(
-            KagemushaWalletEvidenceKindV1::AndroidKeyMintTee,
-            &items.iter().map(Vec::as_slice).collect::<Vec<_>>(),
-        )
-        .unwrap();
-        let mut value = projection(&request);
-        change(
-            &mut value,
-            "original_items_base64",
-            Value::Array(
-                items
-                    .iter()
-                    .map(|v| Value::from(STANDARD.encode(v)))
-                    .collect(),
-            ),
-        );
-        change(
-            &mut value,
-            "evidence_digest",
-            Value::from(hex::encode(digest)),
-        );
-        let result = request.projection(encode(&value, MAX_RESULT).unwrap());
-        if size <= 131_072 {
-            assert_eq!(result.unwrap().evidence.digest, digest);
-        } else {
-            assert!(matches!(result, Err(Error("binary bound"))));
-        }
-    }
+    let mut value = projection(&request);
+    value
+        .get_mut("original_items_base64")
+        .unwrap()
+        .as_array_mut()
+        .unwrap()
+        .push(Value::from(STANDARD.encode(b"appended original response")));
+    assert!(
+        request
+            .projection(encode(&value, MAX_RESULT).unwrap())
+            .is_err()
+    );
     let mut value = projection(&request);
     value
         .get_mut("original_items_base64")
@@ -635,5 +758,15 @@ fn google_original_uses_actual_worker_bound_without_expanding_certificate_bounds
     assert!(matches!(
         request.projection(encode(&value, MAX_RESULT).unwrap()),
         Err(Error("binary bound"))
+    ));
+    let mut value = projection(&request);
+    change(
+        &mut value,
+        "original_items_base64",
+        Value::Array(vec![Value::from(STANDARD.encode(b"DATA leaf")); 9]),
+    );
+    assert!(matches!(
+        request.projection(encode(&value, MAX_RESULT).unwrap()),
+        Err(Error("evidence item count"))
     ));
 }

@@ -100,6 +100,13 @@ beside development; there is no mandatory 90-day wait.
 - Capture Apple evidence separately. App Attest authenticates its own key and
   supplied transcript; it does not independently attest a separate payment
   key or report payment-time OS integrity.
+- Record each [proposal §9.1 cutover acceptance](kagemusha_single_design_proposal.md#91-cutover-sequencing)
+  case for E1 admission with its chain provenance: the adapter profile, root,
+  provisioning kind and, for a device chain, the phone, OS build and whether
+  Google Mobile Services are present. A Huawei case counts only with a genuine
+  chain from a post-2019 Huawei phone without Google Mobile Services; an
+  emulator chain ends at a software root and qualifies no profile. Record what
+  each pinned root's independent ownership evidence is.
 - Identify which trusted component owns the current head, enforces
   `expected_head`, commits the successor and retains the recovery outcome.
   Document how a verifier authenticates the provider and its contract.
@@ -258,13 +265,32 @@ Expected invariants:
   that no delayed incoming Payment exists. Intentional custody deletion reports
   the loss of late incoming value; it is not a safe monetary drain certificate.
 - Interrupted enrollment: try funding a load before the ledger records the
-  completed Bootstrap receipt; the transaction fails without debit. Abandon is permitted
-  only while the original enrollment marker remains selected and Bootstrap has
-  never committed. Once Bootstrap commits, including an uncertain activation
-  response, resume that incarnation and use Retiring; do not select Abandon.
-  If a load is funded, consume its original receipt once without cancelling its
-  obligation, refunding its mint, resetting ordinals or initializing a second
-  authority. Abandoning an unused enrollment changes no monetary balance.
+  completed Bootstrap receipt; the transaction fails without debit. Abandon is
+  permitted only while Bootstrap has never been selected, in the proposal §3.2
+  form the slot's durable state selects: local with no ledger bytes when no
+  marker exists, or the signed Abandonment frame while the generation-zero
+  marker is current. Once Bootstrap is selected or commits, including an
+  uncertain activation response, resume that incarnation and use Retiring; do
+  not select Abandon. If a load is funded, consume its original receipt once
+  without cancelling its obligation, refunding its mint, resetting ordinals or
+  initializing a second authority. Abandoning an unused enrollment changes no
+  monetary balance.
+- Local abandonment: deliver a delayed platform generation result after the
+  abandoned-slot record is durable, and restart into every recovery path; each
+  returns `SlotAbandoned` without a key probe and adopts no key. Make storage
+  unavailable or uncertain, or lose the marker: abandonment writes no record and
+  reports `Unavailable`. Race local abandonment against Bootstrap selection,
+  marker installation and generation recovery; exactly one wins. On Android API
+  26–30 the spent grant and an unknown lookup never regenerate the alias. Also
+  on API 26–30, crash after Slot publication and before intent creation, then
+  abandon locally: the authenticated pre-E2 evidence and readable absence of
+  intent, generation-attempt, marker, E5, E6 and initialized-state records
+  admit abandonment while the null lookup stays unknown; the slot reconciles to
+  `SlotAbandoned`, no grant is issued and the alias is never regenerated. Lose
+  a required Client, Accepted permit or Slot original, or make one of those
+  records unreadable: abandonment reports `Unavailable` and writes nothing. With
+  quota controls enabled, race two enrollments for the last share; one fails,
+  and the old share is released only on finalized successful Abandonment.
 - Time anchors: delay the issuer's response to near the response-age bound and
   sign it just before a lease end; the wallet must treat the lease as ended.
   Sleep the device for hours while anchored; elapsed time must include the
@@ -364,10 +390,13 @@ untested combinations without claiming platform or vendor universality.
   little free custody storage or available memory for the operation's
   relations), activation, Load, Send, Receive and RefreshPolicy refuse before
   commit with `NotEnoughStorage` or `NotEnoughMemory`, and the load receipt or
-  Payment stays deliverable. No device class, model list or published budget
-  gates any phone. On each measured phone, record fold time, peak memory and
-  energy per operation as evidence, including folds interrupted by app
-  suspension and resumed at the next app run. With a
+  Payment stays deliverable. Kill the app for memory during proving and during
+  commit (the Android low-memory killer, iOS jetsam): at the next start an
+  uncommitted operation leaves the head unchanged and stays deliverable, and a
+  committed one completes from its retained outcome. No device class, model
+  list or published budget gates any phone. On each measured phone, record fold
+  time, peak memory and energy per operation as evidence, including folds
+  interrupted by app suspension and resumed at the next app run. With a
   receiver's Request-issuance policy (minimum amount, rate limit, maximum
   unfolded backlog), new quotes stop at the configured limit and committed
   Payments stay receivable.

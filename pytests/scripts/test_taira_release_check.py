@@ -22,6 +22,7 @@ from unittest.mock import MagicMock, patch
 
 # Exact current-source native census. Both scopes retain the closed MV/Concread
 # ownership suite, including funded replacement/snapshot and deletion controls.
+# Current reward accounting and owner custody regressions remain mandatory.
 # Every accepted leaf remains explicit and bound to its current source owner.
 # Linux additionally selects OpenSSH descriptor custody. All platforms select
 # the same genuine four-peer beacon workload.
@@ -29,8 +30,8 @@ EXPECTED_BEACON_NETWORK_TEST = (
     'production_beacon_bootstrap::four_peer_fresh_custody_bootstrap_reaches_mandatory_pulse'
 )
 PLATFORM_REGRESSION_COUNT = 1 if sys.platform == "linux" else 0
-EXPECTED_BASIC_REGRESSION_COUNT = 1943 + PLATFORM_REGRESSION_COUNT
-EXPECTED_REGRESSION_COUNT = 1976 + PLATFORM_REGRESSION_COUNT
+EXPECTED_BASIC_REGRESSION_COUNT = 1949 + PLATFORM_REGRESSION_COUNT
+EXPECTED_REGRESSION_COUNT = 1982 + PLATFORM_REGRESSION_COUNT
 
 REWARD_ACCOUNTING_SOURCE_TESTS = {
     'smartcontracts/isi/multisig.rs': ('smartcontracts::isi::multisig::tests::', (
@@ -44,6 +45,7 @@ REWARD_ACCOUNTING_SOURCE_TESTS = {
     )),
     'validation_fee_rewards/automatic_tests.rs': ('validation_fee_rewards::tests::', (
         'automatic_multiple_validator_nominations_accrue_and_claim_exact_xor',
+        'empty_eligible_service_preserves_validator_gross_and_signed_claim',
         'delayed_funding_preserves_pre_exit_service_and_late_stake_cannot_capture_it',
         'automatic_cursor_rounding_conserves_minor_units_across_cohorts_and_replay',
         'automatic_nominator_failed_transfer_rolls_back_credit_reserve_and_claim_receipt',
@@ -51,6 +53,9 @@ REWARD_ACCOUNTING_SOURCE_TESTS = {
     'validation_fee_rewards.rs': ('validation_fee_rewards::tests::', (
         'conversion_reserves_once_preserves_earning_month_and_obeys_caps',
         'pending_sbd_and_reserved_xor_are_protected_but_unrelated_funds_are_spendable',
+    )),
+    'validation_fee_rewards/beneficiary/tests.rs': ('validation_fee_rewards::beneficiary::tests::', (
+        'current_owner_requires_explicit_alias_before_initial_and_recovered_claims',
     )),
     'validation_fee_rewards/exposure.rs': ('validation_fee_rewards::exposure::tests::', (
         'changed_exposure_preserves_chronology_and_only_adjacent_snapshots_coalesce',
@@ -74,6 +79,7 @@ REWARD_ACCOUNTING_SOURCE_TESTS = {
         'restart_requires_unsealed_sources_even_without_pending_funding',
         'lifetime_reward_turnover_can_exceed_current_balance_width',
         'restore_requires_retirement_journal_before_accepting_funded_rights',
+        'compacted_outstanding_balance_requires_its_retained_beneficiary_owner',
     )),
     'validation_fee_rewards/exposure_budget_tests.rs': ('validation_fee_rewards::exposure::budget_tests::', (
         'live_stake_backing_does_not_rescan_history_but_restore_requires_it',
@@ -83,11 +89,16 @@ REWARD_ACCOUNTING_SOURCE_TESTS = {
         'journal_validation_requires_exact_original_height_hash_and_custody',
         'retirement_journal_keeps_contract_and_custody_scope',
         'compacted_lifetime_turnover_preserves_more_than_u128',
+        'retirement_journal_decode_refusal_defers_without_retiring_original_bytes',
+        'unavailable_original_archive_leaves_journal_and_checkpoint_intact',
     )),
     'query/native_receipts/reward_history/tests.rs': ('query::native_receipts::reward_history::tests::', (
         'committed_fee_archive_preserves_original_corpus_and_rejects_absent_exposure',
         'committed_reward_archive_missing_corrupt_and_changed_root_defer_without_fabrication',
         'reward_archive_capacity_preserves_original_pool_refusal',
+    )),
+    'receiver_snapshot.rs': ('receiver_snapshot::native_fee_evidence_tests::', (
+        'native_fee_snapshot_decode_refusal_retries_original_authenticated_bytes',
     )),
     'retail_fee/reward_history.rs': ('retail_fee::reward_history::tests::', (
         'original_month_history_waits_for_late_wallet_collection_and_credit_flush',
@@ -461,8 +472,8 @@ class BeaconGateTests(unittest.TestCase):
     def test_reward_accounting_repairs_are_required_once_in_both_scopes(self):
         required = [prefix + name for prefix, names in REWARD_ACCOUNTING_SOURCE_TESTS.values()
                     for name in names]
-        self.assertEqual(len(required), 36)
-        self.assertEqual(len(set(required)), 36)
+        self.assertEqual(len(required), 42)
+        self.assertEqual(len(set(required)), 42)
         for platform in ("darwin", "linux"):
             spec = importlib.util.spec_from_file_location("reward_accounting_gate", gate.__file__)
             selected_gate = importlib.util.module_from_spec(spec)
@@ -498,8 +509,10 @@ class BeaconGateTests(unittest.TestCase):
             self.assertIn('include!("' + child + '");', staking)
         rewards = (root / "validation_fee_rewards.rs").read_text()
         self.assertIn('include!("validation_fee_rewards/automatic_tests.rs");', rewards)
-        for child in ("exposure", "history", "reconciliation"):
+        for child in ("beneficiary", "exposure", "history", "reconciliation"):
             self.assertIn('mod ' + child + ';', rewards)
+        self.assertIn('#[cfg(test)]\nmod tests;',
+                      (root / "validation_fee_rewards/beneficiary.rs").read_text())
         exposure = (root / "validation_fee_rewards/exposure.rs").read_text()
         for child in ("archive", "budget", "restart", "service"):
             self.assertIn('#[path = "exposure_' + child + '_tests.rs"]\nmod ' + child + '_tests;', exposure)
@@ -508,6 +521,8 @@ class BeaconGateTests(unittest.TestCase):
         self.assertIn('mod reward_history;', (root / "query/native_receipts.rs").read_text())
         self.assertIn('#[cfg(test)]\nmod tests;',
                       (root / "query/native_receipts/reward_history.rs").read_text())
+        self.assertRegex((root / "receiver_snapshot.rs").read_text(),
+                         r'#\[cfg\(test\)\]\s*mod native_fee_evidence_tests\s*\{')
         self.assertIn('#[path = "validation_fee/tests.rs"]\npub(crate) mod tests;',
                       (root / "validation_fee.rs").read_text())
         self.assertIn('#[path = "runtime_wrapper_tests.rs"]\npub(crate) mod runtime_wrapper_tests;',
@@ -522,7 +537,7 @@ class BeaconGateTests(unittest.TestCase):
         registered = [name for _, names in gate.CORE_REWARD_ACCOUNTING_STAGES for name in names]
         expected = []
         # This verifies selected names in their explicit source/module owners; it
-        # does not claim these thirty-six exhaust every reward or custody test.
+        # does not claim these forty-two exhaust every reward or custody test.
         for child, (prefix, names) in REWARD_ACCOUNTING_SOURCE_TESTS.items():
             source = (root / child).read_text()
             for name in names:

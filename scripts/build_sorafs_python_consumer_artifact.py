@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Execute the fixed SoraFS Python consumer against original offline wheels.
 
-Requires a clean matching source candidate, native ABI-28 manifest, independently
+Requires a clean matching source candidate, native ABI-29 manifest, independently
 pinned CPython3.12/runtime and offline dependency manifests, and prebuilt native
 and SDK wheels. Outputs are fresh below the source's target/ directory. This
 unsigned POSIX host artifact does not grant SDK parity or release promotion.
@@ -92,7 +92,7 @@ def _produce(args: argparse.Namespace, originals: OriginalInputs, copied: Origin
         originals.read(Path(shared.path), verifier.MAX_MEMBER_BYTES, hold=True)
     dependency_raw = copy_input(args.dependency_manifest, "inputs/dependencies.json", 128 * 1024)
     dependencies = parse_dependency_manifest(dependency_raw, expected_sha256=args.dependency_manifest_sha256)
-    manifest_raw = copy_input(args.native_manifest, "inputs/native-abi28.json", native.MAX_MANIFEST_BYTES)
+    manifest_raw = copy_input(args.native_manifest, "inputs/native-abi29.json", native.MAX_MANIFEST_BYTES)
     manifest = native.validate_manifest(decode_evidence_json(manifest_raw))
     if (native.canonical_manifest_bytes(manifest) != manifest_raw or manifest["sdk"] != "python"
             or manifest["source_commit"] != commit
@@ -259,7 +259,7 @@ def _produce(args: argparse.Namespace, originals: OriginalInputs, copied: Origin
                                                 expected_size=runtime_bundle.size)
     if parse_runtime_bundle(bundle_raw, expected_manifest_sha256=runtime.sha256).manifest != runtime:
         raise ArtifactError("retained runtime bundle differs from original runtime manifest")
-    for name in ("runtime.json", "dependencies.json", "native-abi28.json", "requirements.txt", "child.json"):
+    for name in ("runtime.json", "dependencies.json", "native-abi29.json", "requirements.txt", "child.json"):
         retained["inputs/" + name] = copied.read(work / "inputs" / name, MAX_MANIFEST_BYTES)
     record = {"schema": SCHEMA, "consumer": "python", "scope": "posix-host-native",
               "source_commit": commit, "source_manifest_sha256": args.source_manifest_sha256,

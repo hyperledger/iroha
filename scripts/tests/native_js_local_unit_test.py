@@ -77,9 +77,9 @@ def test_wrong_stale_cabi_or_non_napi_emitter_cannot_substitute_for_real_napi(ch
 
 def probe_fixture():
     policy = {'required': ['connectNoritoBridgeAbiVersion', 'securePrivateFileAbiVersion'],
-              'forbidden': ['retiredMethod'], 'abi_version': 28,
-              'required_results': {'connectNoritoBridgeAbiVersion': 28, 'securePrivateFileAbiVersion': 1}}
-    proof = {'abi_version': 28, 'exports': policy['required'], 'forbidden': [],
+              'forbidden': ['retiredMethod'], 'abi_version': 29,
+              'required_results': {'connectNoritoBridgeAbiVersion': 29, 'securePrivateFileAbiVersion': 1}}
+    proof = {'abi_version': 29, 'exports': policy['required'], 'forbidden': [],
              'required_exports': policy['required'], 'required_results': policy['required_results'],
              'signing_independent_emitted': 'a' * 64, 'signing_independent_artifact': 'a' * 64}
     return proof, policy
@@ -107,10 +107,10 @@ def test_real_consumer_abi_export_and_signing_only_derivation_cannot_be_relabell
 
 def test_current_repository_node_policy_combines_all_original_required_methods():
     selected = unit.policy(ROOT)
-    assert selected['abi_version'] == 28
+    assert selected['abi_version'] == 29
     assert {'noritoEncodeInstruction', 'privacyCompiledProfileCatalogV1', 'privateSettlementVerifyCommitteeProofResponseV1',
             'securePrivateFileRead', 'compileKotodama', 'buildKaigiUsageProofV1'} <= set(selected['required'])
-    assert selected['required_results'] == {'connectNoritoBridgeAbiVersion': 28, 'securePrivateFileAbiVersion': 1}
+    assert selected['required_results'] == {'connectNoritoBridgeAbiVersion': 29, 'securePrivateFileAbiVersion': 1}
 
 
 def test_alias_receipt_duplicate_and_wrong_digest_refuse(tmp_path):

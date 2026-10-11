@@ -66,8 +66,7 @@ use std::{
 use thiserror::Error;
 mod kagemusha_enrollment;
 pub use kagemusha_enrollment::{
-    KagemushaEnrollmentGoogle, KagemushaEnrollmentIssuer, KagemushaEnrollmentProvider,
-    KagemushaEnrollmentWorker,
+    KagemushaEnrollmentIssuer, KagemushaEnrollmentProvider, KagemushaEnrollmentWorker,
 };
 mod app_routed_read_config;
 mod musubi_publication_installation;

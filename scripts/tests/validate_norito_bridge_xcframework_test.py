@@ -28,7 +28,7 @@ sys.modules[SPEC.name] = validator
 SPEC.loader.exec_module(validator)
 WALLET_JNI_SYMBOLS = [
     "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_" + method
-    for method in ("revision", "openBegin", "openFinish", "openCancel", "close", "activity", "call", "setup", "enrollment", "execute", "snapshot")
+    for method in ("revision", "openBegin", "openFinish", "openCancel", "close", "activity", "call", "setup", "enrollment", "enrollmentRefusal", "execute", "snapshot")
 ] + [
     "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_beginInstallation",
     "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_registerInstallation",
@@ -43,10 +43,6 @@ LOAD_ORIGINAL_JNI_SYMBOLS = [
     "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletLoadOriginalNativeV1_validate",
 ]
 KAGEMUSHA_JNI_SYMBOLS = [*WALLET_JNI_SYMBOLS, *LOAD_ORIGINAL_JNI_SYMBOLS]
-AUTH_JNI_SYMBOLS = [
-    "Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_" + method
-    for method in ("reserve", "restore")
-]
 
 
 class StrictNoritoBridgeValidatorTests(unittest.TestCase):
@@ -139,7 +135,7 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
         rust_commit = "b" * 40
         self.payload = {
             "version": "1.0.0",
-            "native_bridge_abi_version": 28,
+            "native_bridge_abi_version": 29,
             "privacy_production_enabled": True,
             "cargo_features": ["privacy-production-enabled"],
             "build_environment": {
@@ -288,8 +284,6 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
         self, symbols: list[str], mode: str = "apple"
     ) -> subprocess.CompletedProcess[str]:
         """Exercise the packaging guard with an explicit exported symbol table."""
-        if mode == "elf":
-            symbols = [*symbols, *AUTH_JNI_SYMBOLS]
         checker = (ROOT / "scripts/check_mobile_sdk_artifacts.sh").read_text(
             encoding="utf-8"
         )

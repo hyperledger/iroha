@@ -5,12 +5,10 @@ package org.hyperledger.iroha.sdk.offline
 
 import java.nio.file.Files
 import java.nio.file.Paths
-import java.util.Base64
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
-import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
@@ -20,14 +18,10 @@ import org.junit.jupiter.api.Test
 
 /** Cross-language fixed vectors from the actual Python E1 verifier and Rust-written wire fixture. */
 class KagemushaWalletEnrollmentBindingV1Test {
-    @Test fun `exact Python E1 challenge and key binding produce canonical Google requestHash`() {
+    @Test fun `exact Python E1 challenge and key binding digests`() {
         val selected = KagemushaWalletEnrollmentBindingV1(transcript(), generator())
         assertContentEquals(hex("9ee9b71a3026e333f8c69d1c5f338bdf8639fbd85644730be5bf5a3bdaf53682"), selected.challengeDigest())
         assertContentEquals(hex("b4129d2396a72c9288160f28f26f1fc63f6935b8512a37fd722cc2aa5859454e"), selected.enrollmentKeyBinding())
-        assertEquals("tBKdI5anLJKIFg8o8m8fxj9pNbhRKjf9cizCqlhZRU4", selected.playIntegrityRequestHash())
-        assertEquals(43, selected.playIntegrityRequestHash().length)
-        assertFalse(selected.playIntegrityRequestHash().contains('='))
-        assertContentEquals(selected.enrollmentKeyBinding(), Base64.getUrlDecoder().decode(selected.playIntegrityRequestHash()))
     }
 
     @Test fun `Rust canonical challenge fixture agrees with actual Python enrollment binding`() {
@@ -42,9 +36,8 @@ class KagemushaWalletEnrollmentBindingV1Test {
             hex(key.getValue("public_key_hex").jsonPrimitive.content),
         )
         assertContentEquals(hex(challenge.getValue("digest_hex").jsonPrimitive.content), selected.challengeDigest())
-        // Independently produced by the repository's Python WalletEnrollmentScope and request_hash_text.
+        // Independently produced by the repository's Python WalletEnrollmentScope.
         assertContentEquals(hex("0a88912dab0eb378beab219c2bb26ad035c57df6b78cdf29c6c6af4743840d9d"), selected.enrollmentKeyBinding())
-        assertEquals("CoiRLasOs3i-qyGcK7Jq0DXFffa3jN8pxsavR0OEDZ0", selected.playIntegrityRequestHash())
     }
 
     @Test fun `reject wrong extent version and every zero E1 binding`() {
@@ -70,17 +63,17 @@ class KagemushaWalletEnrollmentBindingV1Test {
         }
     }
 
-    @Test fun `each E1 field and exact payment key affect the Google binding`() {
+    @Test fun `each E1 field and exact payment key affect the key binding`() {
         val selected = KagemushaWalletEnrollmentBindingV1(transcript(), generator())
         for (offset in 2 until 194 step 32) {
             val different = KagemushaWalletEnrollmentBindingV1(transcript().also { it[offset] = 7 }, generator())
             assertFalse(selected.challengeDigest().contentEquals(different.challengeDigest()))
-            assertNotEquals(selected.playIntegrityRequestHash(), different.playIntegrityRequestHash())
+            assertFalse(selected.enrollmentKeyBinding().contentEquals(different.enrollmentKeyBinding()))
         }
         val otherKey = hex("049a65173d48a0a0c706eeec2a75ae1f56793be988b2d407e9a7d3aba7574a9ea5101daceaadf42b661543a353e4f505ec41281df8535fecc5912ea39ed6b50568")
         val different = KagemushaWalletEnrollmentBindingV1(transcript(), otherKey)
         assertContentEquals(selected.challengeDigest(), different.challengeDigest())
-        assertNotEquals(selected.playIntegrityRequestHash(), different.playIntegrityRequestHash())
+        assertFalse(selected.enrollmentKeyBinding().contentEquals(different.enrollmentKeyBinding()))
     }
 
     @Test fun `inputs and returned digests cannot change retained binding`() {
@@ -89,7 +82,7 @@ class KagemushaWalletEnrollmentBindingV1Test {
         val selected = KagemushaWalletEnrollmentBindingV1(transcript, key)
         transcript.fill(0); key.fill(0)
         selected.challengeDigest().fill(0); selected.enrollmentKeyBinding().fill(0)
-        assertEquals("tBKdI5anLJKIFg8o8m8fxj9pNbhRKjf9cizCqlhZRU4", selected.playIntegrityRequestHash())
+        assertContentEquals(hex("b4129d2396a72c9288160f28f26f1fc63f6935b8512a37fd722cc2aa5859454e"), selected.enrollmentKeyBinding())
         assertTrue(selected.challengeDigest().any { it != 0.toByte() })
         assertEquals("KagemushaWalletEnrollmentBindingV1(binding=[REDACTED])", selected.toString())
     }

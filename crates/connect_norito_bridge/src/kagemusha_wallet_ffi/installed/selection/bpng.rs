@@ -7,6 +7,9 @@
 use super::*;
 use std::collections::BTreeSet;
 
+// The cutover removed `firstDeviceAuthentication` (Google sign-up key, OAuth client and Play
+// Integrity project), the retail OTP `authentication` policy and the retail stage anchor
+// authority (Core verifies native checkpoint-rooted finality). They are refused, not ignored.
 const APP_FIELDS: &[&str] = &[
     "schema",
     "environment",
@@ -19,13 +22,10 @@ const APP_FIELDS: &[&str] = &[
     "contracts",
     "authorities",
     "services",
-    "authentication",
     "kasumi",
     "mibankCentralPaymentAdapter",
-    "retailStageAnchorAuthority",
     "enrollment",
     "walletRuntime",
-    "firstDeviceAuthentication",
     "evidence",
 ];
 pub(super) const VALIDATOR_BASES: [&str; 4] = [
@@ -47,10 +47,8 @@ pub(super) fn application(document: &Value) -> Result<&Map> {
     // authenticated originals, not a second interpretation of Core authority.
     for name in [
         "feeSponsor",
-        "authentication",
         "kasumi",
         "mibankCentralPaymentAdapter",
-        "retailStageAnchorAuthority",
         "enrollment",
         "evidence",
     ] {
@@ -118,7 +116,6 @@ pub(super) fn application(document: &Value) -> Result<&Map> {
         return Err(invalid());
     }
     sha(text(ledger, "irohaBuildSha256")?)?;
-    first_device_authentication(app, "bpng.first-device-auth-runtime-selection.v1")?;
     asset(app)?;
     services(app)?;
     let consensus = object(field(app, "consensus")?)?;

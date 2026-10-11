@@ -121,6 +121,16 @@ pub struct KagemushaWalletProviderV1<
         BTreeMap<KagemushaWalletSlotIdV1, super::enrollment::RetainedGeneratedKeyV1>,
     pub(super) generation_dispatches:
         BTreeMap<KagemushaWalletSlotIdV1, super::enrollment::RetainedGenerationDispatchV1>,
+    /// Exact bytes this process published or durably adopted on a fresh inode, by directory and
+    /// name. A visible record from an uncertain write authorizes nothing until it is adopted
+    /// here; a sync alone cannot prove durability after a lost writeback.
+    pub(super) adopted:
+        std::cell::RefCell<BTreeMap<(KagemushaWalletCustodyDirV1, String), Vec<u8>>>,
+    /// Request identity and exact phase version this process last verified for each phased
+    /// slot; cached returns re-read the phase and compare.
+    /// Bytes are the phase, Client, Accepted permit and Slot selection, in that order.
+    pub(super) slot_phases:
+        std::cell::RefCell<BTreeMap<KagemushaWalletSlotIdV1, ([u8; 32], [Vec<u8>; 4])>>,
     sentinel: KagemushaWalletRootSentinelV1,
     _lock: F::Lock,
     _frames: PhantomData<fn() -> (C, R)>,
@@ -194,6 +204,8 @@ where
             pending_reasons: BTreeMap::new(),
             generation_results: BTreeMap::new(),
             generation_dispatches: BTreeMap::new(),
+            adopted: std::cell::RefCell::new(BTreeMap::new()),
+            slot_phases: std::cell::RefCell::new(BTreeMap::new()),
             sentinel,
             _lock: lock,
             _frames: PhantomData,
@@ -424,6 +436,32 @@ where
         self.platform.boot_id()
     }
 
+    /// Free custody storage and memory available to the app now, for the design §5.3 runtime
+    /// capacity check. Free space is read inside the protected-storage bracket.
+    ///
+    /// # Errors
+    ///
+    /// `Unavailable` when protected storage is locked or free space cannot be read. An
+    /// unreadable value is never reported as a shortfall.
+    pub fn runtime_resources(
+        &self,
+    ) -> Result<
+        crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1,
+        KagemushaWalletProviderErrorV1,
+    > {
+        self.require_storage()?;
+        let storage_bytes = self
+            .store
+            .available_bytes()
+            .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
+        Ok(
+            crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1 {
+                storage_bytes,
+                memory_bytes: self.platform.available_memory(),
+            },
+        )
+    }
+
     /// Require available protected storage now. Called before and after every answer from
     /// which absence or loss would be concluded (design R0, I9): on Android, credential-
     /// encrypted names read as absent while their keys are evicted.
@@ -456,6 +494,55 @@ where
         let answer = self.platform.key_probe(slot);
         self.require_storage()?;
         Ok(answer)
+    }
+
+    /// Durably adopt the exact visible `bytes` of `name`: republished on a fresh inode once per
+    /// process (then remembered), so a record left visible by an uncertain write or a lost
+    /// writeback counts only once it is durable.
+    ///
+    /// # Errors
+    /// `Unavailable`/`Uncertain` when the republication gives no durable answer; `Unavailable`
+    /// (`Busy`) when the name no longer holds exactly `bytes`.
+    pub(super) fn adopt_exact(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        name: &super::layout::KagemushaWalletEntryNameV1,
+        bytes: &[u8],
+    ) -> Result<(), KagemushaWalletProviderErrorV1> {
+        let key = (dir.clone(), name.as_str().to_owned());
+        if self
+            .adopted
+            .borrow()
+            .get(&key)
+            .is_some_and(|adopted| adopted.as_slice() == bytes)
+        {
+            return Ok(());
+        }
+        match self.store.rewrite_same(dir, name, bytes) {
+            super::platform::KagemushaWalletPublishOutcomeV1::NotPublished(
+                super::platform::KagemushaWalletNotPublishedV1::ContentMismatch
+                | super::platform::KagemushaWalletNotPublishedV1::DestinationAbsent,
+            ) => {
+                return Err(KagemushaWalletProviderErrorV1::Unavailable(
+                    KagemushaWalletUnavailableV1::Busy,
+                ));
+            }
+            outcome => super::layout::kagemusha_wallet_require_published_v1(outcome)?,
+        }
+        self.adopted.borrow_mut().insert(key, bytes.to_vec());
+        Ok(())
+    }
+
+    /// Remember exact bytes this process has just published durably.
+    pub(super) fn note_durable(
+        &self,
+        dir: &KagemushaWalletCustodyDirV1,
+        name: &super::layout::KagemushaWalletEntryNameV1,
+        bytes: &[u8],
+    ) {
+        self.adopted
+            .borrow_mut()
+            .insert((dir.clone(), name.as_str().to_owned()), bytes.to_vec());
     }
 
     /// Forget the verified state of `slot`; the next operation reconciles it fully.

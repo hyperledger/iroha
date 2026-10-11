@@ -1219,3 +1219,47 @@ fn wallet_advance_v1_advance_ballast_helpers() {
         Ok(false)
     );
 }
+
+#[test]
+fn post_bootstrap_marker_loss_never_resurrects_generation_zero() {
+    for policy in [ANDROID, KagemushaWalletAnchorPolicyV1::Keychain] {
+        let (device, _f, slot, _bootstrap) = bootstrapped_device(policy, 0x77);
+        let markers = kagemusha_wallet_markers_dir_v1(&slot);
+        let slot_dir =
+            crate::kagemusha_wallet_advance_v1::layout::kagemusha_wallet_slot_dir_v1(&slot);
+        assert!(!device.fs.visible_names(&markers).is_empty());
+        for name in device.fs.visible_names(&markers) {
+            device.fs.unlink(&markers, &name).unwrap();
+        }
+        for _ in 0..2 {
+            let mut provider = device.open();
+            for _ in 0..2 {
+                let status = provider.status(&slot);
+                assert!(
+                    matches!(
+                        status,
+                        Err(KagemushaWalletProviderErrorV1::LostCustody(_)
+                            | KagemushaWalletProviderErrorV1::UnavailableCustodyData { .. })
+                    ),
+                    "{status:?}"
+                );
+            }
+            assert!(
+                device.fs.visible_names(&markers).is_empty(),
+                "no generation-zero marker is ever republished"
+            );
+            assert!(
+                !device
+                    .fs
+                    .visible_names(&slot_dir)
+                    .contains(&"abandoned.norito".to_owned())
+            );
+            drop(provider);
+            device.fs.restart();
+        }
+        device.platform.with(|state| {
+            assert_eq!(state.generate_calls, 1);
+            assert_eq!(state.delete_calls, 0);
+        });
+    }
+}

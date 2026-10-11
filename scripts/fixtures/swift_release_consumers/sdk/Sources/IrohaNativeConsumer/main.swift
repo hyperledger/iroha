@@ -21,7 +21,7 @@ func runNativeSmoke() throws {
     }
     defer { dlclose(process) }
     let abiVersion = unsafeBitCast(abiSymbol, to: (@convention(c) () -> UInt32).self)
-    try require(abiVersion() == 28, "The SDK did not load native ABI 28.")
+    try require(abiVersion() == 29, "The SDK did not load native ABI 29.")
 
     let message = Data("downstream-swiftpm-native-consumer".utf8)
     let changedMessage = Data("downstream-swiftpm-native-consumer-changed".utf8)
@@ -47,7 +47,7 @@ func runNativeSmoke() throws {
     try require(try !secpKeypair.verify(message: changedMessage, signature: secpSignature),
                 "Native secp256k1 accepted a changed message.")
 
-    // Exercise ABI-28 canonicalization and native BLAKE3 through its public API.
+    // Exercise ABI-29 canonicalization and native BLAKE3 through its public API.
     let canonical = Data(#"{"a":{"x":null,"y":true},"z":[3,2,1]}"#.utf8)
     let reordered = Data(#"{ "z": [3,2,1], "a": {"y":true,"x":null} }"#.utf8)
     let first = try bridge.canonicalizeJSONBlake3(reordered)
@@ -110,7 +110,7 @@ func runNativeSmoke() throws {
 
 do {
     try runNativeSmoke()
-    print("PASS: SwiftPM SDK Release ABI 28, signatures, canonical JSON, BLAKE3 and Connect agreement/AEAD")
+    print("PASS: SwiftPM SDK Release ABI 29, signatures, canonical JSON, BLAKE3 and Connect agreement/AEAD")
 } catch {
     fputs("FAIL: downstream SwiftPM native smoke: \(error)\n", stderr)
     exit(1)

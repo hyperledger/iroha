@@ -145,7 +145,7 @@ def verify_python_consumer(index: PackageIndex, opened: OpenedIndexFiles, *,
     _require(bundle.manifest == runtime, "runtime bundle and selected manifest differ")
     dependency_raw = retained_original("inputs/dependencies.json", "dependency_manifest", 64 * 1024)
     dependencies = parse_dependency_manifest(dependency_raw, expected_sha256=expected_dependency_manifest_sha256)
-    native_raw = retained_original("inputs/native-abi28.json", "native_manifest", native.MAX_MANIFEST_BYTES)
+    native_raw = retained_original("inputs/native-abi29.json", "native_manifest", native.MAX_MANIFEST_BYTES)
     native_manifest = native.validate_manifest(decode_evidence_json(native_raw))
     _require(native.canonical_manifest_bytes(native_manifest) == native_raw
              and native_manifest["sdk"] == "python" and native_manifest["source_commit"] == index.source_commit

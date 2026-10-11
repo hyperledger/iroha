@@ -7,9 +7,3 @@
 # algorithm implementations dynamically, so retain the provider entry point.
 -dontwarn org.bouncycastle.**
 -keep class org.bouncycastle.jce.provider.BouncyCastleProvider { *; }
-
-# Private first-device authentication key owner JNI upcalls and copied reply carriers.
--keep class org.hyperledger.iroha.sdk.crypto.keystore.FirstDeviceAuthNativePlatformV1 { *; }
--keep class org.hyperledger.iroha.sdk.crypto.keystore.NativeFirstDeviceAuthKeyJniV1 { *; }
--keep class org.hyperledger.iroha.sdk.crypto.keystore.NativeFirstDeviceAuthPlatformReplyV1 { *; }
--keep class org.hyperledger.iroha.sdk.crypto.keystore.NativeFirstDeviceAuthKeyReplyV1 { *; }

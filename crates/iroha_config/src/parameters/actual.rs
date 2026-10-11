@@ -81,8 +81,7 @@ use std::{
 mod actual_soranet_handshake_debug;
 mod kagemusha_enrollment;
 pub use kagemusha_enrollment::{
-    KagemushaEnrollmentGoogle, KagemushaEnrollmentIssuer, KagemushaEnrollmentProvider,
-    KagemushaEnrollmentWorker,
+    KagemushaEnrollmentIssuer, KagemushaEnrollmentProvider, KagemushaEnrollmentWorker,
 };
 mod sccp;
 #[path = "actual_sorafs_reputation.rs"]

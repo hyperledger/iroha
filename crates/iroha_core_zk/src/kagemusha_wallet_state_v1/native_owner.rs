@@ -62,6 +62,8 @@ pub struct NativeWalletProofsV1<F: KagemushaWalletFsV1, P, S> {
     account_original: Vec<u8>,
     asset_original: Vec<u8>,
     enrollment_certificates: Vec<u8>,
+    capacity:
+        std::sync::OnceLock<crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeCapacityV1>,
 }
 
 fn proof<T>(value: Result<T, ProofError>) -> Result<T, Error> {
@@ -133,6 +135,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> AdmittedWalletV1<F, P
             account_original,
             asset_original,
             enrollment_certificates: certificates,
+            capacity: std::sync::OnceLock::new(),
         };
         let mut wallet = Coordinator {
             custody: handle,
@@ -353,6 +356,23 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
                 self.verify_lineage(&status.lineage, None)
             }
         }
+    }
+    fn runtime_capacity(
+        &self,
+    ) -> Result<crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeCapacityV1, Error> {
+        if let Some(capacity) = self.capacity.get() {
+            return Ok(*capacity);
+        }
+        // Fixed for this installation: computed once from its authenticated descriptors and
+        // checkpoint layouts, never from the phone.
+        let capacity = crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeCapacityV1 {
+            storage_bytes: self.worker.fold_witness_bytes()?,
+            memory_bytes: self
+                .sources
+                .peak_proving_memory_bytes()
+                .map_err(|_| Error::Proof("installed relation capacity bound"))?,
+        };
+        Ok(*self.capacity.get_or_init(|| capacity))
     }
     fn fold_schedule(
         &self,

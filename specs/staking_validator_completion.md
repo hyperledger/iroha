@@ -56,8 +56,10 @@ effect-owner test under the unchanged default four-million-gas limit. Both the
 full DLMM and funded-pool cases preserve nested pool authorities and exact
 output through the signed callback. The artifact's nested byte charge remains
 3,837,504 gas at the unchanged 64-gas-per-byte price; no metering or policy
-allowance was relaxed. Complete scheduled conversion, automatic accrual,
-certified replay and signed nominator-claim qualification remains in progress.
+allowance was relaxed. Focused native integration tests pass scheduled full-DLMM
+and funded-pool conversion, automatic accrual for multiple validators and
+nominators, authenticated signed claims and certified suffix replay. Real
+four-peer network qualification remains open.
 The strict workspace source inventory refuses an unsafe nested checkout path;
 component measurements do not establish candidate or network qualification.
 TODO: qualify the actual enacted payout under the default policy on the
@@ -216,10 +218,14 @@ readers must retain actual release owners, with callbacks outside enclosing fenc
   its independent evidence sources within the 8 MiB block corpus. Mandatory
   accrual runs before the optional idle-wallet sweep, whose complete batch
   rolls back when its additional receipts exceed the remaining budget.
+  Before customer instructions, each committed block advances at most one funded
+  exposure page per retained payout binding. Reward cursors create no blocks or
+  transactions; a completely idle chain waits for ordinary submitted Network
+  work or certified lane merges to produce the next block.
   Each changed tail also enters the original block's independent native archive
   projection. At most 31 tails, each with a bounded predecessor reference, fit
   within 4 MiB alongside the monetary corpus inside the 16 MiB native archive
-  budget. World retains one mutable tail and a fixed-size head per outstanding
+  budget. World retains at most one mutable tail and a fixed-size head per outstanding
   validator/month. Rollover removes the previous tail body after its original
   certified archive is available. Every predecessor link binds the complete
   canonical archive wrapper. Accrual follows those links newest first while

@@ -1822,8 +1822,22 @@ fun replayVoidFrozen(env: Env, firstNonce: int, count: int): SendResultList {
     return sendVoidFrozen(env, firstNonce, count, REPLAY_VALUE);
 }
 
+/// States that `replayExpectState` has compared in the running test; null
+/// before the first one.
+global replayedStateCount: int?
+
+/// The number of fixture states the running test has compared so far. A
+/// generated scenario replay compares one state after its deployment and one
+/// after each of its steps, so a suite pins `steps + 1` per scenario and a
+/// regenerated fixture cannot drop a step unnoticed.
+fun replayedStates(): int {
+    val count = replayedStateCount;
+    return count == null ? 0 : count;
+}
+
 /// Expects the committee, latch, pause and operation counter of the minter
-/// at clock `nowMs` (`state_after` of a fixture step).
+/// at clock `nowMs` (`state_after` of a fixture step), and counts the
+/// comparison (`replayedStates`).
 fun replayExpectState(
     env: Env,
     nowMs: int,
@@ -1840,6 +1854,7 @@ fun replayExpectState(
     effectivePaused: bool,
     opCount: int,
 ) {
+    replayedStateCount = replayedStates() + 1;
     val state = env.minter.getSccpState();
     expect(state.generation).toEqual(generation);
     expect(state.root).toEqual(root);

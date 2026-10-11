@@ -1,5 +1,5 @@
 """Explicit installer uses the real durable store and never repairs unavailable custody."""
-from contextlib import closing, redirect_stderr
+from contextlib import closing, redirect_stderr, redirect_stdout
 import io
 import os
 from pathlib import Path
@@ -11,8 +11,16 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from iroha_app_attestation.attestation import VerificationUnavailable
-from iroha_app_attestation.wallet_enrollment_install import initialize_new, main
+import hashlib
+import json
+
+from iroha_app_attestation.attestation import AttestationRejected, VerificationUnavailable
+from iroha_app_attestation.revocation import (
+    DENYLIST_CUSTODY, DenylistUpdateRejected, OperatorDenylistCustody,
+)
+from iroha_app_attestation.wallet_enrollment_install import (
+    denylist, denylist_main, initialize_new, main,
+)
 from iroha_app_attestation.wallet_enrollment_store import E1CounterStore
 
 
@@ -152,6 +160,61 @@ class InstallTests(unittest.TestCase):
         self.assertNotIn(str(store), stderr.getvalue())
         self.assertNotIn(secret.read_text(), stderr.getvalue())
         self.assertTrue(stat.S_ISREG(secret.stat().st_mode))
+
+
+class DenylistInstallTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name).resolve()
+        self.root.chmod(0o700)
+        self.store = self.root / "store"
+        self.store.mkdir(mode=0o700)
+
+    def original(self, sequence, *entries):
+        path = self.root / f"denylist-{sequence}.json"
+        value = json.dumps({"version": 1, "sequence": sequence, "entries": list(entries)},
+                           separators=(",", ":")).encode()
+        path.write_bytes(value)
+        return path, hashlib.sha256(value).hexdigest()
+
+    def test_denylist_custody_needs_an_existing_store_a_pin_and_follows_rollback_rules(self):
+        first, first_pin = self.original(1)
+        # Only an existing, complete E1 store receives custody.
+        with self.assertRaises(FileNotFoundError):
+            denylist(self.store, first, first_pin, initialize=True)
+        initialize_new(self.store)
+        with self.assertRaisesRegex(AttestationRejected, "differs from its pin"):
+            denylist(self.store, first, "00" * 32, initialize=True)
+        self.assertFalse((self.store / DENYLIST_CUSTODY).exists())
+        self.assertEqual(denylist(self.store, first, first_pin, initialize=True), "initialized")
+        with self.assertRaises(FileExistsError):
+            denylist(self.store, first, first_pin, initialize=True)
+        self.assertEqual(denylist(self.store, first, first_pin, initialize=False), "unchanged")
+        second, second_pin = self.original(2, {"serial": "2a"})
+        self.assertEqual(denylist(self.store, second, second_pin, initialize=False), "accepted")
+        with self.assertRaises(DenylistUpdateRejected):
+            denylist(self.store, first, first_pin, initialize=False)
+        fd = os.open(self.store, os.O_RDONLY)
+        try:
+            self.assertEqual(OperatorDenylistCustody(self.store, fd).active().sequence, 2)
+        finally:
+            os.close(fd)
+
+    def test_denylist_command_reports_without_printing_paths(self):
+        initialize_new(self.store)
+        first, first_pin = self.original(1)
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            self.assertEqual(denylist_main(["--store-directory", str(self.store), "--original", str(first),
+                                            "--sha256", first_pin, "--initialize"]), 0)
+        self.assertEqual(stdout.getvalue(), "operator denylist initialized\n")
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            self.assertEqual(denylist_main(["--store-directory", str(self.store), "--original", str(first),
+                                            "--sha256", "ab" * 32]), 1)
+        self.assertNotIn(str(first), stderr.getvalue())
+        self.assertIn("active custody unchanged", stderr.getvalue())
 
 
 if __name__ == "__main__":

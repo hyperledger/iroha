@@ -85,7 +85,7 @@ pub(crate) fn unprepared_fixture(
         actor_digest: [13; 32],
         scheme,
         app,
-        policy,
+        policy: policy.clone(),
         enrollment_certificate,
         account,
         asset,
@@ -280,7 +280,7 @@ pub(crate) fn account_request(
         )
         .unwrap(),
         app: dispatch.app.clone(),
-        policy: dispatch.policy,
+        policy: dispatch.policy.clone(),
         account: dispatch.account.clone(),
         asset: dispatch.asset.clone(),
         evidence: norito::encode_canonical(&PlatformEvidenceV1::Apple {

@@ -65,6 +65,7 @@ use crate::nexus::AxtAssetIncarnationValidationError;
 mod custody;
 mod digest;
 mod enrollment_policy;
+mod enrollment_refusal;
 mod frame_alignment;
 mod identity;
 mod keys;
@@ -109,11 +110,16 @@ pub use self::{
         kagemusha_wallet_signing_message_v1, kagemusha_wallet_verify_signature_v1,
     },
     enrollment_policy::{
-        KAGEMUSHA_WALLET_APP_IDENTIFIER_MAX_BYTES_V1,
-        KAGEMUSHA_WALLET_ENROLLMENT_POLICY_MAX_BYTES_V1, KagemushaWalletAndroidHardwareV1,
-        KagemushaWalletAppIdentityV1, KagemushaWalletAppPolicyV1,
+        KAGEMUSHA_WALLET_ANDROID_ADAPTER_ID_MAX_BYTES_V1, KAGEMUSHA_WALLET_ANDROID_ROOTS_MAX_V1,
+        KAGEMUSHA_WALLET_ANDROID_SIGNERS_MAX_V1, KAGEMUSHA_WALLET_APP_IDENTIFIER_MAX_BYTES_V1,
+        KAGEMUSHA_WALLET_ENROLLMENT_POLICY_MAX_BYTES_V1, KagemushaWalletAndroidRootFamilyV1,
+        KagemushaWalletAndroidRootV1, KagemushaWalletAppIdentityV1, KagemushaWalletAppPolicyV1,
         KagemushaWalletEnrollmentPlatformV1, KagemushaWalletEnrollmentPolicyTemplateV1,
-        KagemushaWalletEnrollmentPolicyV1, KagemushaWalletPlayIntegrityLevelV1,
+        KagemushaWalletEnrollmentPolicyV1, KagemushaWalletRevocationSourceV1,
+    },
+    enrollment_refusal::{
+        KagemushaWalletEnrollmentRefusalClassV1, KagemushaWalletEnrollmentRefusalPlatformV1,
+        KagemushaWalletEnrollmentRefusalV1,
     },
     identity::{
         KAGEMUSHA_WALLET_ANDROID_FORBIDDEN_FACTS_V1, KAGEMUSHA_WALLET_ANDROID_REQUIRED_FACTS_V1,

@@ -118,7 +118,7 @@ def test_xml_entity_controls_refuse(raw):
 def test_guard_keeps_clean_source_and_places_original_tests_before_final_verification():
     text = (DRAFT / "ci/check_privacy_python_sdk.sh").read_text()
     tests = text.index('tests/confidential_wallet_native_test.py')
-    final_verify = text.rindex('"${ABI28_CHECKER}" verify')
+    final_verify = text.rindex('"${ABI29_CHECKER}" verify')
     retain = text.index('"${SCRIPT_DIR}/python_native_guard_evidence.py"')
     assert tests < final_verify < retain
     assert '"${SCRIPT_DIR}/python_native_source_delivery.py" pin --root "${ROOT_DIR}"' in text

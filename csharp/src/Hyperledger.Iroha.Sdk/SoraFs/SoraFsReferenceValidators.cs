@@ -214,7 +214,7 @@ public static class SoraFsReferenceValidators
     /// <summary>
     /// First bridge ABI that contains the required V1 SoraFS reference entrypoints.
     /// </summary>
-    public const uint RequiredBridgeAbiVersion = 28;
+    public const uint RequiredBridgeAbiVersion = 29;
 
     /// <summary>
     /// Bridge error code reserved for SoraFS reference operations.
@@ -296,7 +296,7 @@ public static class SoraFsReferenceValidators
     };
 
     /// <summary>
-    /// Reports whether the current native bridge exposes the complete ABI-28
+    /// Reports whether the current native bridge exposes the complete ABI-29
     /// governance and appeal-finance reference surface.
     /// </summary>
     public static bool IsAvailable()

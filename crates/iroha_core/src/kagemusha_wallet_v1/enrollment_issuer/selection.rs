@@ -196,14 +196,29 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
         )?;
         self.unchanged(&session.dispatch, &selected)?;
         let consumed = self.now()?;
-        self.journal.consume_eligibility(
+        match self.journal.consume_eligibility(
             &mut session.attempt,
             &session.dispatch,
             &policy,
             &request,
             consumed,
-        )?;
-        Ok((selected, expires_at_ms))
+        ) {
+            Ok(()) => Ok((selected, expires_at_ms)),
+            // Before any credential can exist the journal retained the denial as the attempt's
+            // terminal refusal. An Issued attempt keeps its exact E6 and the denial only withholds
+            // it; a possibly signed attempt keeps its unknown outcome. Neither becomes a refusal,
+            // whatever operation (including a resumed pre-key permit) observed the denial.
+            Err(EnrollmentJournalErrorV1::Ineligible(reason)) => {
+                Err(if session.attempt.refusal() == Some(reason) {
+                    Refused(reason)
+                } else if session.attempt.issued().is_some() {
+                    DeliveryWithheld(reason)
+                } else {
+                    OutcomeUnknown
+                })
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
     pub(super) fn finish_boundary(

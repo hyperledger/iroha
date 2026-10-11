@@ -62,6 +62,20 @@ pub(super) fn owner_in_world(
     if value.beneficiary_id != *original || value.revision != revision {
         return Err(fail("reward beneficiary owner revision has mismatched identity").into());
     }
+    let alias =
+        read_from_world::<Alias>(world, &alias_key(binding, &value.account_id).map_err(fail)?)?
+            .ok_or_else(|| fail("reward beneficiary owner alias is absent"))?;
+    if alias.account_id != value.account_id || alias.beneficiary_id != *original {
+        return Err(fail("reward beneficiary owner alias has mismatched identity").into());
+    }
+    if value.account_id != *original {
+        let original_alias =
+            read_from_world::<Alias>(world, &alias_key(binding, original).map_err(fail)?)?
+                .ok_or_else(|| fail("original reward beneficiary alias is absent"))?;
+        if original_alias.account_id != *original || original_alias.beneficiary_id != *original {
+            return Err(fail("original reward beneficiary alias has mismatched identity").into());
+        }
+    }
     Ok(Some(value))
 }
 fn immutable<T: NoritoSerialize>(

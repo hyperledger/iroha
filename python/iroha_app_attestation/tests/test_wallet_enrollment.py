@@ -1,61 +1,61 @@
-"""Current E1 vectors and genuinely signed synthetic X509/AppAttest regressions.
+"""Current E1 composition on genuinely signed synthetic X509/KeyMint/App Attest originals.
 
-Synthetic roots and scripted server Google responses qualify component code only.
-They are never physical-device, distributed app, production issuer or deployment evidence.
+Synthetic roots qualify component code only. They are never physical-device, distributed
+app, production issuer or deployment evidence.
 """
 import hashlib
-from dataclasses import replace
 import os
 import shutil
-import subprocess
 import tempfile
-import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from iroha_app_attestation.attestation import (
-    ANDROID_KEY_DESCRIPTION_OID, APPLE_NONCE_OID, AttestationRejected,
-    DurableAppleAssertionCounterStore, Selection,
-    verify_android_wallet_payment_key_raw, verify_apple_wallet_attestation_raw,
+    AttestationRejected, DurableAppleAssertionCounterStore, EnrollmentRefusal, EvidenceRefused,
+    VerificationUnavailable, spki_sha256, verify_apple_wallet_attestation_raw,
     verify_apple_wallet_enrollment_assertion,
 )
-from iroha_app_attestation.play_integrity import (
-    DecodedPlayIntegrityEvidence, GooglePlayIntegrityVerifier,
-    PlayIntegrityEnrollmentPolicy, PlayIntegrityProof,
-)
 from iroha_app_attestation.native_time_interval import NativeTimeInterval
+from iroha_app_attestation.revocation import (
+    AndroidRevocation, GoogleAttestationStatus, GoogleStatusList, OperatorDenylistCustody,
+)
 from iroha_app_attestation.wallet_enrollment import (
     VerifiedWalletEnrollmentEvidence, WalletEnrollmentScope,
     verify_android_wallet_enrollment, verify_apple_wallet_enrollment,
 )
 from iroha_app_attestation.wallet_policy import (
-    AndroidAppIdentityV1, AndroidEnrollmentPlatformV1, AppleAppIdentityV1, AppleEnrollmentPlatformV1,
-    ConfiguredWalletEnrollmentPolicyV1, RegulatoryPolicyV1, WalletAppPolicyV1, WalletEnrollmentPolicyV1,
+    AndroidAppIdentityV1, AndroidEnrollmentPlatformV1, AndroidRootV1, AppleAppIdentityV1,
+    AppleEnrollmentPlatformV1, ConfiguredWalletEnrollmentPolicyV1, RegulatoryPolicyV1,
+    WalletAppPolicyV1, WalletEnrollmentPolicyV1,
 )
-from test_synthetic_platform_evidence import (
-    SignedEnvelope, cbor, explicit, keymint_description, octets, sequence,
+from synthetic_pki import (
+    APP_ID, PACKAGE, SIGNER, SignedEnvelope, SyntheticPki, apple_assertion, apple_object,
+    key_description, now_ms, remote_hierarchy,
 )
 
 GENERATOR = bytes.fromhex(
     "046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296"
     "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5")
+Code = EnrollmentRefusal
 
 
 def scope(point: bytes) -> WalletEnrollmentScope:
     return WalletEnrollmentScope(b"\1\0" + b"".join(bytes([i]) * 32 for i in range(1, 7)), point)
 
 
-def configured_policy(root: bytes, apple: bool) -> ConfiguredWalletEnrollmentPolicyV1:
+def configured_policy(root: bytes, apple: bool, *, roots=None, minimum=7,
+                      signers=(SIGNER,)) -> ConfiguredWalletEnrollmentPolicyV1:
     """Synthetic component selection only; no operator approval or installed policy."""
-    app = WalletAppPolicyV1(1, b"\1" * 32, AppleAppIdentityV1("TEAMID.example.app") if apple else
-                           AndroidAppIdentityV1("org.example.wallet", 7, b"\x71" * 32))
-    pin = hashlib.sha256(root).digest()
-    platform = AppleEnrollmentPlatformV1(pin) if apple else AndroidEnrollmentPlatformV1(
-        pin, 3, 202608, 120_000, True, True, 1)
+    app = WalletAppPolicyV1(1, b"\1" * 32, AppleAppIdentityV1(APP_ID) if apple else
+                           AndroidAppIdentityV1(PACKAGE, minimum, tuple(signers)))
+    if apple:
+        platform = AppleEnrollmentPlatformV1(hashlib.sha256(root).digest())
+    else:
+        platform = AndroidEnrollmentPlatformV1(roots or (
+            AndroidRootV1("google_rsa", spki_sha256(root), "google_attestation_status"),), 202608)
     enrollment = WalletEnrollmentPolicyV1(1, b"\1" * 32, b"\2" * 32, app.policy_digest(),
         platform, RegulatoryPolicyV1(0, 0, 0), 120_000, 0)
-    return ConfiguredWalletEnrollmentPolicyV1(app, enrollment, root)
+    return ConfiguredWalletEnrollmentPolicyV1(app, enrollment, root if apple else None)
 
 
 def policy_scope(policy: ConfiguredWalletEnrollmentPolicyV1, point: bytes) -> WalletEnrollmentScope:
@@ -63,34 +63,12 @@ def policy_scope(policy: ConfiguredWalletEnrollmentPolicyV1, point: bytes) -> Wa
         + b"\3" * 32 + policy.app.policy_digest() + policy.enrollment.policy_digest() + b"\6" * 32, point)
 
 
-def synthetic_root(fixture: SignedEnvelope) -> bytes:
-    fixture.run("x509", "-in", "root.pem", "-outform", "DER", "-out", "root.der")
-    return (fixture.directory / "root.der").read_bytes()
-
-
-def assertion(fixture: SignedEnvelope, client_data_hash: bytes, counter: int) -> bytes:
-    app_id = "TEAMID.example.app"
-    auth = hashlib.sha256(app_id.encode()).digest() + b"\x40" + counter.to_bytes(4, "big")
-    (fixture.directory / "assertion-message.bin").write_bytes(
-        hashlib.sha256(auth + client_data_hash).digest())
-    fixture.run("dgst", "-sha256", "-sign", "leaf.key", "-out", "assertion-signature.bin",
-                "assertion-message.bin")
-    return cbor({"signature": (fixture.directory / "assertion-signature.bin").read_bytes(),
-                 "authenticatorData": auth})
-
-
-def apple_object(fixture: SignedEnvelope, selected: WalletEnrollmentScope):
-    app_id = "TEAMID.example.app"
-    key_id = hashlib.sha256(fixture.point).digest()
-    cose = cbor({1: 2, 3: -7, -1: 1, -2: fixture.point[1:33], -3: fixture.point[33:]})
-    auth = (hashlib.sha256(app_id.encode()).digest() + b"\x40" + b"\0" * 4
-            + b"appattest" + b"\0" * 7 + b"\0\x20" + key_id + cose)
-    nonce = hashlib.sha256(auth + selected.challenge_digest()).digest()
-    leaf, root = fixture.sign(APPLE_NONCE_OID, sequence(explicit(1, octets(nonce))))
-    obj = cbor({"fmt": "apple-appattest",
-                "attStmt": {"x5c": [leaf, root], "receipt": b"synthetic receipt"},
-                "authData": auth})
-    return obj, key_id, root
+def custody(directory: Path, original: bytes = b'{"version":1,"sequence":1,"entries":[]}'):
+    directory.mkdir(mode=0o700)
+    fd = os.open(directory, os.O_RDONLY)
+    held = OperatorDenylistCustody(directory.resolve(), fd)
+    held.initialize(original)
+    return held, fd
 
 
 class WalletEnrollmentTests(unittest.TestCase):
@@ -116,71 +94,138 @@ class WalletEnrollmentTests(unittest.TestCase):
             with self.subTest(value=value[:2]), self.assertRaises(AttestationRejected):
                 WalletEnrollmentScope(value, GENERATOR).validate()
 
-    def test_current_android_direct_challenge_preserves_tee_and_strongbox_checks(self):
+    def test_android_composition_records_chain_only_evidence_and_never_bit_nine(self):
         with tempfile.TemporaryDirectory() as temporary:
-            fixture = SignedEnvelope(Path(temporary), self.openssl)
-            selected = scope(fixture.point)
-            # Existing signed fixture builder only: replace its historical challenge octets
-            # with current E1 before signing. Production current paths never use Selection.
-            old = Selection(*[bytes([i]) * 32 for i in range(11, 17)])
-            signer = b"\x71" * 32
-            for level in (1, 2):
-                description = keymint_description(
-                    old, "org.example.wallet", 7, signer, security_level=level,
-                    keymint_security_level=level, os_patch_level=202608,
-                    vendor_patch_level=20260805)
-                description = description.replace(hashlib.sha256(old.transcript()).digest(),
-                                                  selected.challenge_digest())
-                leaf, root = fixture.sign(ANDROID_KEY_DESCRIPTION_OID, description)
-                args = ([leaf, root], selected.challenge_digest(), "org.example.wallet", 7,
-                        signer, root, hashlib.sha256(root).digest(),
-                        int(time.time() * 1000) + 60_000, self.openssl)
-                proof = verify_android_wallet_payment_key_raw(
-                    *args, allowed_security_levels=frozenset({1, 2}))
-                self.assertEqual(proof.android_security_level, level)
-                self.assertEqual(proof.attested_public_key_sec1, fixture.point)
-                for wrong in (b"\0" * 32, hashlib.sha256(selected.challenge_digest()).digest()):
-                    with self.assertRaises(AttestationRejected):
-                        verify_android_wallet_payment_key_raw(
-                            args[0], wrong, *args[2:], allowed_security_levels=frozenset({1, 2}))
-                with self.assertRaises(AttestationRejected):
-                    verify_android_wallet_payment_key_raw(*args, allowed_security_levels=frozenset({0}))
+            base = Path(temporary).resolve()
+            (base / "pki").mkdir()
+            pki = SyntheticPki(base / "pki", self.openssl)
+            remote_hierarchy(pki, "ec256")
+            root = pki.der("root")
+            pki.key("leaf")
+            point = pki.point("leaf")
+            policy = configured_policy(root, False)
+            selected = policy_scope(policy, point)
+            held, fd = custody(base / "store")
+            self.addCleanup(os.close, fd)
+            revocation = AndroidRevocation(GoogleAttestationStatus(
+                lambda: GoogleStatusList(frozenset(), 0), lambda: None), held)
+            now = now_ms()
+
+            def chain(**changes):
+                description = key_description(selected.challenge_digest(), **changes)
+                return [pki.leaf("leaf", "attestation", description, new_key=False),
+                        pki.der("attestation"), pki.der("intermediate"), root]
+
+            def verify(certificates, *, sample=lambda: NativeTimeInterval(now, now), policy=policy,
+                       selected=selected, checker=revocation):
+                return verify_android_wallet_enrollment(
+                    certificates, selected, policy, checker, self.openssl,
+                    evidence_time_ms=now - 5, challenge_created_at_ms=now - 10,
+                    trusted_time_interval=sample)
+
+            for level, kind_facts in ((1, 0), (2, 1 << 1)):
+                with self.subTest(level=level):
+                    certificates = chain(level=level, os_patch_level=202608,
+                                         vendor_patch_level=20260805, boot_patch_level=20260901)
+                    record = verify(certificates)
+                    self.assertEqual(record.kind_tag, level)
+                    self.assertEqual(record.facts, 0b10000111101 | kind_facts)
+                    self.assertFalse(record.facts & (1 << 9))
+                    self.assertEqual(record.original_items, tuple(certificates))
+                    self.assertEqual(record.time_ms, now - 5)
+                    self.assertEqual((record.os_patch_level, record.vendor_patch_level,
+                                      record.boot_patch_level), (202608, 20260805, 20260901))
+            unmet = verify(chain(level=1))
+            self.assertEqual(unmet.facts, 0b10000101101)
+            self.assertEqual((unmet.os_patch_level, unmet.boot_patch_level), (0, 0))
+            # Another payment key, an expired window and a revocation outage.
+            with self.assertRaises(EvidenceRefused) as raised:
+                verify(chain(), selected=WalletEnrollmentScope(selected.challenge_transcript, GENERATOR))
+            self.assertEqual(raised.exception.code, Code.EVIDENCE_INVALID)
+            samples = iter([now, now + 200_000])
+
+            def expiring():
+                moment = next(samples)
+                return NativeTimeInterval(moment, moment)
+            with self.assertRaises(EvidenceRefused) as raised:
+                verify(chain(), sample=expiring)
+            self.assertEqual(raised.exception.code, Code.CHALLENGE_EXPIRED)
+            with self.assertRaises(VerificationUnavailable):
+                verify(chain(), checker=AndroidRevocation(GoogleAttestationStatus(
+                    lambda: (_ for _ in ()).throw(VerificationUnavailable("offline")), lambda: None), held))
+            # Refusals follow the ordered admission steps.
+            for changes, code in (({"locked": False}, Code.BOOTLOADER_UNLOCKED),
+                                  ({"packages": ((PACKAGE, 6),)}, Code.APP_VERSION_BELOW_MINIMUM),
+                                  ({"signers": (b"\x72" * 32,)}, Code.APP_IDENTITY_MISMATCH)):
+                with self.subTest(changes=changes), self.assertRaises(EvidenceRefused) as raised:
+                    verify(chain(**changes))
+                self.assertEqual(raised.exception.code, code)
+            # A policy naming the shipped (unqualified) huawei profile is a configuration failure.
+            vendor = configured_policy(root, False, roots=(
+                AndroidRootV1("vendor", spki_sha256(root), "operator_denylist", "huawei"),))
+            with self.assertRaisesRegex(AttestationRejected, "unqualified") as raised:
+                verify(chain(), policy=vendor, selected=policy_scope(vendor, point))
+            self.assertNotIsInstance(raised.exception, EvidenceRefused)
 
     def test_current_apple_uses_prehashed_e1_and_binding_without_extra_sha(self):
         with tempfile.TemporaryDirectory() as temporary:
             fixture = SignedEnvelope(Path(temporary), self.openssl)
             selected = scope(GENERATOR)  # Separate payment key; App Attest key is fixture.point.
-            obj, key_id, root = apple_object(fixture, selected)
+            obj, key_id, root = apple_object(fixture, selected.challenge_digest())
+            pin = hashlib.sha256(root).digest()
+            now = now_ms()
             proof = verify_apple_wallet_attestation_raw(
-                obj, key_id, "TEAMID.example.app", "production", selected.challenge_digest(),
-                root, hashlib.sha256(root).digest(), int(time.time() * 1000) + 60_000, self.openssl)
+                obj, key_id, APP_ID, "production", selected.challenge_digest(),
+                root, pin, now, self.openssl)
             self.assertEqual(proof.attested_public_key_sec1, fixture.point)
-            signed = assertion(fixture, selected.enrollment_key_binding(), 1)
-            args = (signed, selected.enrollment_key_binding(), fixture.point, key_id,
-                    "TEAMID.example.app", 0, self.openssl)
+            signed = apple_assertion(fixture, selected.enrollment_key_binding(), 1)
+            args = (signed, selected.enrollment_key_binding(), fixture.point, key_id, APP_ID, 0, self.openssl)
             verified = verify_apple_wallet_enrollment_assertion(*args)
             self.assertEqual(verified.counter, 1)
             self.assertEqual(verified.client_data_sha256, selected.enrollment_key_binding())
-            with self.assertRaises(AttestationRejected):
-                verify_apple_wallet_enrollment_assertion(
-                    signed, hashlib.sha256(selected.enrollment_key_binding()).digest(), *args[2:])
-            with self.assertRaises(AttestationRejected):
-                verify_apple_wallet_attestation_raw(
-                    obj, key_id, "TEAMID.example.app", "production",
-                    hashlib.sha256(selected.challenge_digest()).digest(), root,
-                    hashlib.sha256(root).digest(), int(time.time() * 1000) + 60_000, self.openssl)
+            for changed, code in (
+                ((signed, hashlib.sha256(selected.enrollment_key_binding()).digest(), *args[2:]),
+                 Code.EVIDENCE_INVALID),
+                ((signed, *args[1:4], "TEAMID.other.app", 0, self.openssl), Code.APP_IDENTITY_MISMATCH),
+                ((signed, *args[1:5], 1, self.openssl), Code.EVIDENCE_INVALID),
+            ):
+                with self.subTest(code=code), self.assertRaises(EvidenceRefused) as raised:
+                    verify_apple_wallet_enrollment_assertion(*changed)
+                self.assertEqual(raised.exception.code, code)
+            for arguments, code in (
+                ((obj, key_id, APP_ID, "production", hashlib.sha256(selected.challenge_digest()).digest(),
+                  root, pin), Code.EVIDENCE_INVALID),
+                ((obj, key_id, "TEAMID.other.app", "production", selected.challenge_digest(), root, pin),
+                 Code.APP_IDENTITY_MISMATCH),
+                ((obj, key_id, APP_ID, "development", selected.challenge_digest(), root, pin),
+                 Code.APP_IDENTITY_MISMATCH),
+                ((obj, b"\7" * 32, APP_ID, "production", selected.challenge_digest(), root, pin),
+                 Code.EVIDENCE_INVALID),
+                ((obj, key_id, APP_ID, "production", selected.challenge_digest(), b"other root",
+                  hashlib.sha256(b"other root").digest()), Code.UNTRUSTED_ATTESTATION_ROOT),
+                ((obj[:-1], key_id, APP_ID, "production", selected.challenge_digest(), root, pin),
+                 Code.EVIDENCE_INVALID),
+            ):
+                with self.subTest(code=code, app=arguments[2]), self.assertRaises(EvidenceRefused) as raised:
+                    verify_apple_wallet_attestation_raw(*arguments, now, self.openssl)
+                self.assertEqual(raised.exception.code, code)
+            with self.assertRaises(EvidenceRefused) as raised:
+                verify_apple_wallet_attestation_raw(obj, key_id, APP_ID, "production",
+                                                    selected.challenge_digest(), root, pin,
+                                                    now + 3 * 86_400_000, self.openssl)
+            self.assertEqual(raised.exception.code, Code.UNTRUSTED_ATTESTATION_ROOT)
 
     def test_current_apple_composition_preserves_counter_and_consumed_challenge_after_restart(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             os.chmod(directory, 0o700)
             fixture = SignedEnvelope(directory, self.openssl)
-            policy = configured_policy(synthetic_root(fixture), True)
+            policy = configured_policy(fixture.root_der(), True)
             selected = policy_scope(policy, GENERATOR)
-            now = int(time.time() * 1000) + 60_000
-            obj, key_id, root = apple_object(fixture, selected)
+            now = now_ms()
+            obj, key_id, root = apple_object(fixture, selected.challenge_digest())
             store = DurableAppleAssertionCounterStore(directory / "counters.sqlite")
-            signed = assertion(fixture, selected.enrollment_key_binding(), 1)
+            signed = apple_assertion(fixture, selected.enrollment_key_binding(), 1)
             record = verify_apple_wallet_enrollment(
                 obj, signed, key_id, selected, policy, store,
                 now, self.openssl, challenge_created_at_ms=now - 1)
@@ -189,63 +234,18 @@ class WalletEnrollmentTests(unittest.TestCase):
             self.assertEqual((record.os_patch_level, record.vendor_patch_level, record.boot_patch_level), (0, 0, 0))
             self.assertEqual(record.original_items, (obj, signed))
             store = DurableAppleAssertionCounterStore(directory / "counters.sqlite")
-            with self.assertRaisesRegex(AttestationRejected, "counter did not advance"):
+            with self.assertRaisesRegex(EvidenceRefused, "counter did not advance"):
                 verify_apple_wallet_enrollment(obj, signed, key_id, selected, policy, store,
                                               now, self.openssl, challenge_created_at_ms=now - 1)
-            replay = assertion(fixture, selected.enrollment_key_binding(), 2)
-            with self.assertRaisesRegex(AttestationRejected, "already consumed"):
+            replay = apple_assertion(fixture, selected.enrollment_key_binding(), 2)
+            with self.assertRaisesRegex(EvidenceRefused, "already consumed"):
                 verify_apple_wallet_enrollment(obj, replay, key_id, selected, policy, store,
                                               now, self.openssl, challenge_created_at_ms=now - 1)
+            with self.assertRaises(EvidenceRefused) as raised:
+                verify_apple_wallet_enrollment(obj, replay, key_id, selected, policy, store,
+                                              now + 200_000, self.openssl, challenge_created_at_ms=now - 1)
+            self.assertEqual(raised.exception.code, Code.CHALLENGE_EXPIRED)
 
-    def test_current_android_separate_google_boundary_binds_same_payment_key_and_original_response(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            fixture = SignedEnvelope(Path(temporary), self.openssl)
-            policy = configured_policy(synthetic_root(fixture), False)
-            selected = policy_scope(policy, fixture.point)
-            old = Selection(*[bytes([i]) * 32 for i in range(11, 17)])
-            signer = b"\x71" * 32
-            description = keymint_description(old, "org.example.wallet", 7, signer,
-                                             os_patch_level=202608, vendor_patch_level=20260805)
-            description = description.replace(hashlib.sha256(old.transcript()).digest(), selected.challenge_digest())
-            leaf, root = fixture.sign(ANDROID_KEY_DESCRIPTION_OID, description)
-            now = int(time.time() * 1000) + 60_000
-            pi = policy.play_integrity_policy()
-            self.assertFalse(hasattr(pi, "maximum_refresh_interval_ms"))
-            google = GooglePlayIntegrityVerifier(lambda: "synthetic-scoped-server-token")
-            body = b'{"tokenPayloadExternal":"scripted-server-original-for-component-test"}'
-            decoded = DecodedPlayIntegrityEvidence(body, PlayIntegrityProof(
-                pi.policy_digest, selected.enrollment_key_binding(), now,
-                b"\x31" * 32, hashlib.sha256(body).digest(), "PLAY_RECOGNIZED", "LICENSED",
-                ("MEETS_DEVICE_INTEGRITY",)))
-            with (patch("iroha_app_attestation.wallet_enrollment.verify_google_chain_not_revoked") as revocation,
-                  patch.object(google, "decode", return_value=decoded) as decoder):
-                record = verify_android_wallet_enrollment([leaf, root], "opaque-mobile-token", selected,
-                                                         policy, google, now, self.openssl, challenge_created_at_ms=now - 1,
-                                                         trusted_time_interval=lambda: NativeTimeInterval(now, now))
-                revocation.assert_called_once_with([leaf, root])
-                decoder.assert_called_once_with("opaque-mobile-token", pi, selected.enrollment_key_binding(), now)
-                # Fresh interval is mandatory around each external stage. A response
-                # can age out while its decoder is running without expiring the challenge.
-                shorter = replace(policy, enrollment=replace(policy.enrollment,
-                    platform=replace(policy.enrollment.platform, play_integrity_maximum_age_ms=1_000)))
-                shorter_scope = policy_scope(shorter, fixture.point)
-                # Scope changes bind the attestation, so exercise this temporal check
-                # against the already selected raw verifier DATA in isolation.
-                with patch("iroha_app_attestation.wallet_enrollment.verify_android_wallet_payment_key_raw") as raw:
-                    raw.return_value.attested_public_key_sec1 = shorter_scope.payment_key_sec1
-                    samples = iter([now, now, now, now, now + 1_001])
-                    def fresh_interval():
-                        current = next(samples)
-                        return NativeTimeInterval(current, current)
-                    with self.assertRaisesRegex(AttestationRejected, "expired during verification"):
-                        verify_android_wallet_enrollment([leaf, root], "opaque-mobile-token", shorter_scope,
-                            shorter, google, now, self.openssl, challenge_created_at_ms=now - 1,
-                            trusted_time_interval=fresh_interval)
-                self.assertEqual(record.original_items, (leaf, root, body))
-                self.assertTrue(record.facts & (1 << 9))
-                self.assertTrue(record.facts & (1 << 10))
-                self.assertTrue(record.facts & (1 << 4))
-                with self.assertRaisesRegex(AttestationRejected, "another payment key"):
-                    verify_android_wallet_enrollment([leaf, root], "opaque-mobile-token", policy_scope(policy, GENERATOR),
-                                                     policy, google, now, self.openssl, challenge_created_at_ms=now - 1,
-                                                         trusted_time_interval=lambda: NativeTimeInterval(now, now))
+
+if __name__ == "__main__":
+    unittest.main()

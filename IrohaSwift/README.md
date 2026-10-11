@@ -196,6 +196,20 @@ selecting credential zero. `loadRuntime` qualifies the complete proof-source gra
 `beginEnrolled` then starts the separate account-admission challenge using those retained
 originals. Missing artifacts remain unavailable without losing enrollment custody.
 
+E1 refusals use the closed `u16` codes 1–12 of the design's §2.4 table, relayed by BPNG
+Core unchanged and never replaced by free text. `KagemushaWalletEnrollmentRefusalV1`
+names each code, and its `holderClass` (`phone`, `app`, `attempt` or `account`) says what
+the holder can do; the app owns the wording. `init(relayedCode:)` admits a code only when
+Native's closed table (`connect_norito_kagemusha_wallet_enrollment_refusal_v1`) and this
+projection agree, so zero, unknown and Android-only codes are protocol errors for iPhone
+evidence. `KagemushaWalletEnrollmentOutcomeV1.parse` reads the one outcome header of a
+response: `refused(reason)` (403, terminal for this attempt), `deliveryWithheld(reason)` (403,
+code 11 or 12 at E6 delivery: the Issued outcome and its E6 stay retained, so keep the slot
+and retry delivery) or `outcomeUnknown` (409: recover or abandon, never restart). A
+`Unavailable` response carries no outcome header and is retried with the same originals.
+Capacity shortfalls before commit are the typed native statuses
+`KagemushaWalletErrorV1.notEnoughStorageStatus` (-12) and `notEnoughMemoryStatus` (-14).
+
 After Bootstrap, `activation()` returns the exact retained signed Activate frame for
 ledger submission. It does not confirm ledger activation. Bootstrap originals cannot
 be collected before the activation plan retains its complete source copies. Full
@@ -436,7 +450,7 @@ A separate `MOBILE_SDK_LOCAL_UNIT_ARTIFACT_DIR` input may select a producer-vali
 single-host macOS archive for debug unit tests. It requires genuine current-source
 static capture, normalization, complete-archive native consumer checks, and the
 explicit `local-unit` artifact schema. It retains every package test and exact
-ABI-28 admission. It cannot be selected together with the external/release input;
+ABI-29 admission. It cannot be selected together with the external/release input;
 iOS and Release compilation reject it. It is never accepted by the canonical
 three-slice validator, pin owner, archive owner, or release publication.
 
@@ -1017,7 +1031,7 @@ let finality = try await torii.waitForDetachedAssetTransferFinality(
 )
 ```
 
-Preparation fails closed unless ABI-28 native inspection proves the versioned
+Preparation fails closed unless ABI-29 native inspection proves the versioned
 scaffold has the exact authority, network identity, protocol receipt chain, definition, source scope, amount,
 destination, memo, typed fee payer, creation time, TTL, and no extra metadata.
 The prepare route obtains the canonical fee quote and replaces only the charge
@@ -1056,7 +1070,7 @@ guard assessment.intentHash == intentHash.map { String(format: "%02X", $0) }.joi
 let canonicalMarker = try assessment.marker()
 ```
 
-The three ABI-28 retail fee operations use native typed Norito and reject
+The three ABI-29 retail fee operations use native typed Norito and reject
 noncanonical markers. Local decoding does not verify that an assessment is
 current or authorized. Signed read and verified finality remain required before
 payment approval; admission checks the assessment against ledger state.
@@ -1521,7 +1535,7 @@ stale native bridge fail closed. The signed fetch bypasses local cached response
 and sends `Cache-Control: no-cache, no-store` for current committed state.
 `PrivacyExact12CapabilityAdmissionV1` issues
 an opaque per-protocol token only when the committed row is active, ready, and
-byte-identical to the ABI28 native-validated compiled catalog. The generic
+byte-identical to the ABI29 native-validated compiled catalog. The generic
 transaction-frame initializer rejects `SubmitPrivacyProofV1`, and the admitted
 factory revalidates the native catalog, manifest, consensus action ceiling, and
 complete final V1 envelope profile tuple both at construction and final encoding.
@@ -1532,7 +1546,7 @@ Final batch encoding also compares the token and statement against the batch's
 exact `networkId`; an admission from another network cannot be reused. Managed
 fixture projection and standalone native validation do not mint network authority.
 
-ABI28 requires exactly six privacy C exports, including
+ABI29 requires exactly six privacy C exports, including
 `iroha_privacy_validate_exact12_capability_manifest_v1`. Swift passes the exact
 Torii archive to the canonical Rust validator before projecting its fields.
 Rust checks the complete release and deployment records, artifact counts,
@@ -1544,7 +1558,7 @@ without the manifest validator is unavailable.
 envelopes, submit instructions, transaction intents, unsigned payloads, signed
 transactions, and transaction hashes for all twelve rows;
 `validateExact12FixtureBundleV1(_:)`
-accepts only the canonical bundle and enforces a 2 MiB input ceiling. ABI 28
+accepts only the canonical bundle and enforces a 2 MiB input ceiling. ABI 29
 availability requires both compiled-catalog symbols, both exact-12 fixture symbols,
 the capability-manifest validator, the zeroizing-free symbol, and successful typed probes. Generic
 request/build/verify dispatch and free-form selectors are absent; proofs use
@@ -2590,7 +2604,7 @@ one scalar field. They have no hash marker, alias tag or issuance timestamp.
 The roster root remains a separate marked Iroha hash.
 
 Account-controller policies retain the full u16 member count (1–65,535). The
-public address constructors and parsers require the ABI-28 Rust address codec
+public address constructors and parsers require the ABI-29 Rust address codec
 for complete key and policy admission. Canonical I105 parsers reject surrounding
 Unicode whitespace; unavailable native validation is an
 explicit error. The
@@ -2614,12 +2628,12 @@ account ordering, establish rekey authority or verify an authorization proof.
 all five private actions and a complex private create to Rust-owned model
 bytes. Its synthetic proofs are wire fixtures. Proof generation, native bridge
 qualification and four-validator execution require separate evidence. The
-canonical Swift package always requires the real ABI28 NoritoBridge artifact.
+canonical Swift package always requires the real ABI29 NoritoBridge artifact.
 
 `ValidatorStakingNoritoV1` decodes first-release authority generations, epoch
 authorizations, signed all-edge beacon DKG records, committee transitions,
-typed registration, bond, withdrawal and slash plans, bounded reward claims with an explicit optional fee-custody
-payment, and peer rebinding. Its Rust-authored fixture is
+typed registration, bond, withdrawal and slash plans, bounded reward claims with
+one mandatory exact funded XOR payment, and peer rebinding. Its Rust-authored fixture is
 `fixtures/validator_staking/norito_v1.tsv`; the consumer tests also reject
 truncated records, malformed peer bindings, invalid withdrawal hash widths or markers,
 retired reward-plan layouts, invalid fee custody and
@@ -2627,8 +2641,12 @@ noncanonical quantity decimals. This structural codec
 does not verify signatures, custody, or committee activation.
 
 The enrollment handle's explicit `abandon` action permanently closes an unused enrollment
-before runtime handoff and returns its exact retained signed ledger control. Native refuses
-once Bootstrap commits. Closing the handle only releases ownership. Abandon output is published
+before runtime handoff and returns `KagemushaWalletEnrollmentAbandonmentV1`: `localAbandoned`
+when no enrollment marker existed (nothing to submit; the slot is terminal and no key is ever
+generated or adopted under it), or `abandonment(frame)` with the exact retained signed frame,
+which the holder's account submits until its finalized inclusion is authenticated. A fresh
+enrollment with a new challenge, slot and key may start as soon as `abandon` returns. Native
+refuses once Bootstrap is selected. Closing the handle only releases ownership. Abandon output is published
 before an immutable digest selection, and nothing is returned until both are durable; a missing
 selected original is refused. Recovery may complete a missing selection for a present valid
 original. This local mechanism does not establish protection against complete filesystem rollback.

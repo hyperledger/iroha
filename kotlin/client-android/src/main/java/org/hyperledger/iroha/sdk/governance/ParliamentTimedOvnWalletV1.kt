@@ -176,7 +176,7 @@ class ParliamentTimedOvnWalletV1 private constructor(
     private val seedVault: SeedVault,
     private val endpoint: Endpoint?,
 ) {
-    /** Whether the exact ABI-28 proof-gated native casting corridor is available. */
+    /** Whether the exact ABI-29 proof-gated native casting corridor is available. */
     val isAvailable: Boolean
         get() = endpoint != null
 
@@ -384,7 +384,7 @@ class ParliamentTimedOvnWalletV1 private constructor(
 
     companion object {
         /** Exact connect_norito_bridge ABI required by this first-release wallet boundary. */
-        const val REQUIRED_BRIDGE_ABI_VERSION: Int = 28
+        const val REQUIRED_BRIDGE_ABI_VERSION: Int = 29
 
         /** Maximum complete framed `ParliamentTimedOvnCastingProofResponseV1`. */
         const val MAXIMUM_CASTING_PROOF_RESPONSE_BYTES: Int = 8 * 1024 * 1024
@@ -403,7 +403,7 @@ class ParliamentTimedOvnWalletV1 private constructor(
 
         private const val MAXIMUM_AUTHORITY_BYTES = 8 * 1024
         private const val NATIVE_UNAVAILABLE_MESSAGE =
-            "ABI-28 connect_norito_bridge with proof-gated Parliament wallet symbols is required"
+            "ABI-29 connect_norito_bridge with proof-gated Parliament wallet symbols is required"
 
         /** Create a production wallet backed by Android Keystore and the packaged native bridge. */
         @JvmStatic

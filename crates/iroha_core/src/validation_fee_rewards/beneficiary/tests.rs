@@ -1,6 +1,68 @@
 //! Funded reward custody and claim ownership across repeated beneficiary rekeys.
 use super::*;
 use iroha_data_model::{IntoKeyValue, fee_evidence::FeeEvidencePayloadV1};
+
+#[test]
+fn current_owner_requires_explicit_alias_before_initial_and_recovered_claims() {
+    crate::retail_fee_tests::fixture(1_793_451_600_000, |stx, policy| {
+        let (_, binding) = super::super::tests::network_xor_claim_fixture(stx, policy);
+        let original = super::super::tests::account(2);
+        let recovered = super::super::tests::account(4);
+        let stranger = super::super::tests::account(5);
+        super::super::tests::seed_claim_credit(stx, &binding, &original, 200, 200);
+        // Recovery must retain both the current owner alias and the original
+        // self-alias used by delayed exposure and authenticated evidence.
+        for (alias_account, expected_owner) in [
+            (&original, &original),
+            (&recovered, &recovered),
+            (&original, &recovered),
+        ] {
+            if alias_account == &recovered {
+                rekey_beneficiary(stx, &original, &recovered).unwrap();
+            }
+            let key = alias_key(&binding, alias_account).unwrap();
+            let exact = stx.world.smart_contract_state.remove(key.clone()).unwrap();
+            assert!(owner_in_world(&stx.world, &binding, &original).is_err());
+            assert!(super::super::reconciliation::validate(&stx.world, &binding).is_err());
+            for substituted in [
+                Alias {
+                    account_id: alias_account.clone(),
+                    beneficiary_id: stranger.clone(),
+                },
+                Alias {
+                    account_id: stranger.clone(),
+                    beneficiary_id: original.clone(),
+                },
+            ] {
+                stx.world
+                    .smart_contract_state
+                    .insert(key.clone(), norito::to_bytes(&substituted).unwrap());
+                assert!(owner_in_world(&stx.world, &binding, &original).is_err());
+                assert!(super::super::reconciliation::validate(&stx.world, &binding).is_err());
+            }
+            stx.world.smart_contract_state.insert(key, exact);
+            assert_eq!(
+                owner(stx, &binding, &original).unwrap().unwrap().account_id,
+                *expected_owner
+            );
+            super::super::reconciliation::validate(&stx.world, &binding).unwrap();
+            assert_eq!(
+                read::<u128>(stx, &claimable_key(&binding, &original).unwrap()).unwrap(),
+                Some(200)
+            );
+            assert_eq!(read_state(stx, &binding).unwrap().reserved_xor, 200);
+        }
+        super::super::tests::signed_claim_all(stx, &binding, &recovered);
+        let paid = AssetId::new(binding.xor_asset_id.clone(), recovered);
+        assert_eq!(
+            minor_units(stx.world.assets.get(&paid).unwrap().as_ref(), 9).unwrap(),
+            200
+        );
+        assert_eq!(read_state(stx, &binding).unwrap().reserved_xor, 0);
+        super::super::reconciliation::validate(&stx.world, &binding).unwrap();
+    });
+}
+
 #[test]
 fn recovery_preserves_reserved_and_delayed_rewards_through_repeated_rekeys() {
     crate::retail_fee_tests::fixture(1_793_451_600_000, |stx, policy| {

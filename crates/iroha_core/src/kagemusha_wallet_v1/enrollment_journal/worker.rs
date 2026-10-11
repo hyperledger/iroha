@@ -100,17 +100,84 @@ impl EnrollmentJournalV1 {
                 self.retain_worker_result(
                     attempt,
                     projection.original_result.clone(),
-                    false,
+                    None,
                     projection.evidence.time_ms,
                 )?;
             }
             // A fresh Recover exchange changes its envelope but cannot replace the first
-            // definitive rejection original or restore this terminal attempt to Verifying.
-            OutcomeV1::Rejected if attempt.phase() == EnrollmentJournalPhaseV1::Rejected => {}
-            OutcomeV1::Rejected => self.retain_worker_result(attempt, frame.to_vec(), true, 0)?,
+            // terminal refusal original or its exchange, change its reason or restore this
+            // attempt to Verifying.
+            OutcomeV1::Refused(reason) if attempt.phase() == EnrollmentJournalPhaseV1::Rejected => {
+                if self.retained_refusal(attempt, configuration)? != *reason {
+                    return Err(Conflict);
+                }
+            }
+            OutcomeV1::Refused(reason) => {
+                self.retain_worker_result(
+                    attempt,
+                    frame.to_vec(),
+                    Some((*reason, WorkerRefusalExchange::of(exchange)?)),
+                    0,
+                )?;
+            }
             OutcomeV1::OutcomeUnknown | OutcomeV1::Unavailable => {}
         }
         Ok(outcome)
+    }
+
+    /// Closed reason of the exact retained terminal refusal; every retry returns it unchanged.
+    /// # Errors
+    /// Refuses an attempt without a retained refusal, a changed configuration or custody.
+    pub fn retained_refusal(
+        &self,
+        attempt: &EnrollmentAttemptV1,
+        configuration: [u8; 32],
+    ) -> Result<iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1> {
+        let retained = attempt.worker_refusal().ok_or(Conflict)?;
+        let selection = attempt.record.worker_refusal_exchange.ok_or(Invalid)?;
+        // Rebuild the exact exchange that produced the retained reply from the retained E5,
+        // preparation, configuration and journal incarnation, check the reply against every
+        // binding of that exchange, and require the stored code to be its reason.
+        let worker = self.retained_worker_request(attempt, configuration)?;
+        let incarnation = attempt
+            .record
+            .worker_preparation
+            .as_ref()
+            .ok_or(Conflict)?
+            .incarnation;
+        let exchange = worker
+            .packet(
+                selection.action()?,
+                incarnation,
+                selection.exchange,
+                selection.dispatch_time_ms,
+            )
+            .map_err(|_| Invalid)?;
+        if worker
+            .retained_refusal(&exchange, &attempt.record.worker_result)
+            .map_err(|_| Invalid)?
+            != retained
+        {
+            return Err(Invalid);
+        }
+        Ok(retained)
+    }
+
+    /// The retained worker refusal of `attempt`, verified against its exact retained worker
+    /// original through the stored configuration pin (no live worker dependency); `None` when
+    /// the attempt holds no worker refusal.
+    /// # Errors
+    /// A stored code that differs from the retained original, an altered original, a stale
+    /// cursor or unavailable custody.
+    pub fn verified_worker_refusal(
+        &self,
+        attempt: &EnrollmentAttemptV1,
+    ) -> Result<Option<iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1>> {
+        if attempt.worker_refusal().is_none() {
+            return Ok(None);
+        }
+        let configuration = attempt.worker_configuration().ok_or(Invalid)?;
+        self.retained_refusal(attempt, configuration).map(Some)
     }
 
     /// Recheck the exact retained evidence against the original request and worker selection.
@@ -208,6 +275,28 @@ impl EnrollmentJournalV1 {
         record.credential_body = norito::encode_canonical(&body).map_err(|_| Invalid)?;
         self.advance(attempt, record)?;
         Ok(body)
+    }
+
+    /// Durably record that the Enrollment signer is about to be invoked for the frozen body of
+    /// this `Signing` attempt. It is written immediately before the signer call, so a recovered
+    /// attempt with it set never invokes the signer again.
+    /// # Errors
+    /// Refuses another phase, a stale cursor or failed publication.
+    pub fn mark_signing_dispatched(&mut self, attempt: &mut EnrollmentAttemptV1) -> Result<()> {
+        if attempt.phase() != EnrollmentJournalPhaseV1::Signing {
+            return Err(Conflict);
+        }
+        if attempt.record.signing_dispatched {
+            return self.require_current(attempt);
+        }
+        let mut record = attempt.record.clone();
+        record.signing_dispatched = true;
+        self.advance(attempt, record)
+    }
+
+    /// Whether the Enrollment signer may already have been invoked for this attempt.
+    pub fn signing_dispatched(&self, attempt: &EnrollmentAttemptV1) -> bool {
+        attempt.record.signing_dispatched
     }
 
     /// Verify the actual signed E6 against the frozen body, selected issuer and worker originals,

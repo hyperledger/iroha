@@ -109,6 +109,7 @@ mod archive;
 mod capsule;
 mod completion;
 mod enrollment;
+mod enrollment_phase;
 mod layout;
 mod marker;
 mod platform;
@@ -116,7 +117,12 @@ mod prekey_custody;
 mod provider;
 #[cfg(test)]
 use enrollment::KagemushaWalletChallengeLivenessV1;
-pub(crate) use prekey_custody::{PreKeyPublicationV1, PreKeyRecordV1};
+pub(crate) use enrollment_phase::{
+    KagemushaWalletEnrollmentBindingV1, KagemushaWalletEnrollmentPhaseStateV1,
+    KagemushaWalletEnrollmentPhaseV1, kagemusha_wallet_prekey_client_digest_v1,
+    kagemusha_wallet_prekey_permit_digest_v1,
+};
+pub(crate) use prekey_custody::{PreKeyPublicationV1, PreKeyRecordV1, PreKeySlotSelectionV1};
 mod reconcile;
 mod retained;
 mod setup;

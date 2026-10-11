@@ -692,17 +692,23 @@ fn dir_label(dir: &KagemushaWalletCustodyDirV1) -> &'static str {
 }
 
 /// Durably create the directories of `slot`: the slot itself, then `markers/`, `capsules/`,
-/// `completion/`, `ops/` and `archive/`. Existing directories are kept; an existing entry of
-/// another kind is refused.
+/// `completion/`, `ops/` and `archive/`. Directories that hold custody entries are preserved;
+/// an existing directory that holds nothing but staging files is removed and created again so
+/// its entry is durable; an existing entry of another kind is refused.
 ///
 /// # Errors
 ///
-/// Returns the errors of [`kagemusha_wallet_ensure_dir_v1`].
+/// Returns the errors of `kagemusha_wallet_ensure_durable_dir_v1` (listing, staging removal,
+/// directory removal and [`kagemusha_wallet_ensure_dir_v1`]).
 pub(super) fn kagemusha_wallet_prepare_slot_dirs_v1<F: KagemushaWalletFsV1>(
     store: &KagemushaWalletDurableStoreV1<F>,
     slot: &KagemushaWalletSlotIdV1,
 ) -> Result<(), KagemushaWalletProviderErrorV1> {
-    kagemusha_wallet_ensure_dir_v1(store, &kagemusha_wallet_slots_dir_v1(), &slot.dir_name())?;
+    kagemusha_wallet_ensure_durable_dir_v1(
+        store,
+        &kagemusha_wallet_slots_dir_v1(),
+        &slot.dir_name(),
+    )?;
     let slot_dir = kagemusha_wallet_slot_dir_v1(slot);
     for name in [
         KAGEMUSHA_WALLET_MARKERS_DIR_NAME_V1,
@@ -711,9 +717,32 @@ pub(super) fn kagemusha_wallet_prepare_slot_dirs_v1<F: KagemushaWalletFsV1>(
         KAGEMUSHA_WALLET_OPS_DIR_NAME_V1,
         KAGEMUSHA_WALLET_ARCHIVE_DIR_NAME_V1,
     ] {
-        kagemusha_wallet_ensure_dir_v1(store, &slot_dir, &fixed(name))?;
+        kagemusha_wallet_ensure_durable_dir_v1(store, &slot_dir, &fixed(name))?;
     }
     Ok(())
+}
+
+/// Ensure the directory `name` under `parent` exists with a durable entry before anything is
+/// placed in it. An existing directory that holds nothing but staging files may be the visible
+/// residue of a creation whose parent synchronization was lost (a later sync of the parent is
+/// then vacuous): its staging files are discarded, and it is removed and created again. A
+/// directory that holds custody entries was only ever filled after its creation was durable.
+fn kagemusha_wallet_ensure_durable_dir_v1<F: KagemushaWalletFsV1>(
+    store: &KagemushaWalletDurableStoreV1<F>,
+    parent: &KagemushaWalletCustodyDirV1,
+    name: &KagemushaWalletEntryNameV1,
+) -> Result<(), KagemushaWalletProviderErrorV1> {
+    let dir = parent.child(name);
+    if let Some(entries) = kagemusha_wallet_list_dir_v1(store, &dir)? {
+        if entries.iter().all(|entry| {
+            entry.kind == KagemushaWalletEntryKindV1::File
+                && kagemusha_wallet_is_staging_name_v1(&entry.name)
+        }) {
+            store.remove_staging(&dir)?;
+            kagemusha_wallet_require_removed_v1(store.remove_dir(parent, name))?;
+        }
+    }
+    kagemusha_wallet_ensure_dir_v1(store, parent, name)
 }
 
 /// List the slot identities under `slots/`; `None` when `slots/` is definitively absent.

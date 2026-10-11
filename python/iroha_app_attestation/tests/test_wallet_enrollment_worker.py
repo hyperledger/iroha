@@ -10,7 +10,7 @@ import shutil
 import sqlite3
 import subprocess
 import sys
-import urllib.parse
+import urllib.error
 from contextlib import ExitStack, closing
 import tempfile
 import threading
@@ -22,19 +22,25 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from iroha_app_attestation.attestation import AttestationRejected
+from iroha_app_attestation.attestation import (
+    AttestationRejected, EnrollmentRefusal, EvidenceRefused, VerificationUnavailable, spki_sha256,
+)
 from iroha_app_attestation.wallet_enrollment_worker import (
     CONFIG_SCHEMA, PREPARATION_SCHEMA, SCHEMA, MAX_PACKET, MAX_REQUEST, MAX_ORIGINAL, EXCHANGE_WINDOW, VerifierOwner, DispatchClock,
     E1CounterStore, configured_policy, encode, exact_json, read_packet, serve,
 )
 from iroha_app_attestation.wallet_enrollment import WalletEnrollmentScope
-from test_wallet_enrollment import (GENERATOR, scope, assertion, apple_object,
-                                    configured_policy as fixture_policy, policy_scope, synthetic_root)
-from test_synthetic_platform_evidence import SignedEnvelope, keymint_description
-from iroha_app_attestation import openssl_private_rsa as crypto, play_integrity as pi, revocation
-from iroha_app_attestation.attestation import ANDROID_KEY_DESCRIPTION_OID, Selection, VerificationUnavailable
-from iroha_app_attestation.google_oauth import GoogleServiceAccountTokenProvider, TOKEN_URI, OAUTH_SCOPE, POLICY_SCHEMA
-from test_google_oauth import SyntheticCodeOriginal, EMAIL, CLIENT_ID, PROJECT
+from iroha_app_attestation import revocation
+from iroha_app_attestation.revocation import DENYLIST_CUSTODY, OperatorDenylistCustody
+from test_wallet_enrollment import (GENERATOR, configured_policy as fixture_policy, policy_scope)
+from synthetic_pki import (APP_ID, PACKAGE, SIGNER, SignedEnvelope, SyntheticPki, apple_assertion,
+                           apple_object, key_description, remote_hierarchy)
+
+Code = EnrollmentRefusal
+
+
+def assertion(fixture, client_data_hash, counter):
+    return apple_assertion(fixture, client_data_hash, counter)
 
 
 # These are private-packet DATA fixtures. Canonical Norito account decoding and Ed25519
@@ -100,10 +106,10 @@ class WorkerTests(unittest.TestCase):
         directory = directory.resolve(strict=True)
         os.chmod(directory, 0o700)
         fixture = SignedEnvelope(directory, self.openssl)
-        policy = fixture_policy(synthetic_root(fixture), True)
+        policy = fixture_policy(fixture.root_der(), True)
         policy = replace(policy, enrollment=replace(policy.enrollment, challenge_lifetime_ms=challenge_lifetime_ms))
         selected = policy_scope(policy, GENERATOR)
-        attestation, key_id, root = apple_object(fixture, selected)
+        attestation, key_id, root = apple_object(fixture, selected.challenge_digest())
         now = int(time.time() * 1000) + 60000
         request = encode({"challenge_transcript_base64": base64.b64encode(selected.challenge_transcript).decode(),
             "payment_key_base64": base64.b64encode(GENERATOR).decode(),
@@ -148,15 +154,21 @@ class WorkerTests(unittest.TestCase):
                 return result
             with patch.object(worker, "_realtime_ns", side_effect=lambda: wall[0]), \
                     patch.object(worker, "_verify_apple_assertion_with_hash", side_effect=delayed_assertion):
-                with self.assertRaisesRegex(AttestationRejected, "expired"):
+                with self.assertRaisesRegex(EvidenceRefused, "expired") as raised:
                     dispatch(owner, request, "complete")
-            self.assertIsNone(dispatch(owner, request, "recover"))
+            self.assertEqual(raised.exception.code, Code.CHALLENGE_EXPIRED)
+            # The refusal is terminal and retained: every retry returns the same code.
+            for action in ("recover", "complete", "inspect"):
+                with self.subTest(action=action), self.assertRaises(EvidenceRefused) as again:
+                    dispatch(owner, request, action)
+                self.assertEqual(again.exception.code, Code.CHALLENGE_EXPIRED)
             with sqlite3.connect(Path(temporary) / "wallet-e1.sqlite3") as connection:
                 self.assertEqual(connection.execute("SELECT counter FROM apple_keys WHERE key_id=?", (key_id,)).fetchone(), (0,))
                 self.assertEqual(connection.execute("SELECT count(*) FROM apple_client_data").fetchone(), (0,))
-                self.assertIsNone(connection.execute("SELECT result FROM wallet_e1_attempts").fetchone()[0])
+                self.assertEqual(connection.execute("SELECT outcome, result, refusal_code FROM wallet_e1_attempts").fetchone(),
+                                 ("refused", None, 10))
 
-    def test_stale_first_dispatch_is_rejected_before_claiming_prepared_row(self):
+    def test_verification_starting_after_the_challenge_lifetime_is_refused_and_retained(self):
         from iroha_app_attestation import wallet_enrollment_worker as worker
         with tempfile.TemporaryDirectory() as temporary:
             open_owner, request, _, _ = self.owner_fixture(Path(temporary))
@@ -165,10 +177,14 @@ class WorkerTests(unittest.TestCase):
             arguments = self.prepared(owner, request)
             with patch.object(worker, "_realtime_ns", return_value=source["expires_at_ms"] * 1_000_000), \
                     patch.object(worker, "verify_apple_wallet_attestation_raw", side_effect=AssertionError("must not verify")):
-                with self.assertRaisesRegex(AttestationRejected, "expired"):
+                with self.assertRaisesRegex(EvidenceRefused, "expired") as raised:
                     owner.perform(request, "recover", **arguments)
+                self.assertEqual(raised.exception.code, Code.CHALLENGE_EXPIRED)
+                with self.assertRaises(EvidenceRefused):
+                    owner.perform(request, "complete", **arguments)
             with sqlite3.connect(Path(temporary) / "wallet-e1.sqlite3") as connection:
-                self.assertEqual(connection.execute("SELECT request_sha256, result FROM wallet_e1_attempts").fetchone(), (None, None))
+                self.assertEqual(connection.execute("SELECT request_sha256 IS NOT NULL, outcome, result, refusal_code FROM wallet_e1_attempts").fetchone(),
+                                 (1, "refused", None, 10))
 
     def test_selected_lifetime_has_no_unconfigured_ten_minute_ceiling(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -237,13 +253,18 @@ class WorkerTests(unittest.TestCase):
             preparation = preparation_original(owner, shortened)
             incarnation = owner.journal()
             owner.prepare(incarnation, preparation)
-            with self.assertRaisesRegex(AttestationRejected, "first dispatch expired"):
-                owner.perform(shortened, "complete", incarnation=incarnation,
-                    preparation=preparation, account_signature=ACCOUNT_SIGNATURE,
-                    dispatch_time_ms=value["expires_at_ms"])
+            with patch("iroha_app_attestation.wallet_enrollment_worker.verify_apple_wallet_attestation_raw",
+                       side_effect=AssertionError("expired first dispatch must not verify")):
+                with self.assertRaisesRegex(EvidenceRefused, "after the E1 challenge lifetime") as raised:
+                    owner.perform(shortened, "complete", incarnation=incarnation,
+                        preparation=preparation, account_signature=ACCOUNT_SIGNATURE,
+                        dispatch_time_ms=value["expires_at_ms"])
+                self.assertEqual(raised.exception.code, Code.CHALLENGE_EXPIRED)
+                with self.assertRaises(EvidenceRefused):
+                    dispatch(owner, shortened, "complete")
             with closing(sqlite3.connect(Path(temporary) / "wallet-e1.sqlite3")) as connection:
-                self.assertEqual(connection.execute("SELECT request_sha256, result FROM wallet_e1_attempts").fetchone(), (None, None))
-            self.assertIsNotNone(dispatch(owner, shortened, "complete"))
+                self.assertEqual(connection.execute("SELECT first_dispatch, outcome, refusal_code FROM wallet_e1_attempts").fetchone(),
+                                 (value["expires_at_ms"].to_bytes(8, "little"), "refused", 10))
 
     def test_selected_lifetime_keeps_strict_u64_and_half_open_time_bounds(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -331,10 +352,10 @@ class WorkerTests(unittest.TestCase):
             value["evidence"]["assertion_base64"] = base64.b64encode(raw).decode()
             changed = encode(value)
             owner = open_owner()
-            with self.assertRaises(AttestationRejected):
-                dispatch(owner, changed, "complete")
-            self.assertIsNone(dispatch(owner, changed, "recover"))
-            self.assertIsNone(dispatch(owner, changed, "complete"))
+            for action in ("complete", "recover", "complete", "inspect"):
+                with self.subTest(action=action), self.assertRaises(EvidenceRefused) as raised:
+                    dispatch(owner, changed, action)
+                self.assertEqual(raised.exception.code, Code.EVIDENCE_INVALID)
             with closing(sqlite3.connect(Path(temporary) / "wallet-e1.sqlite3")) as connection:
                 self.assertEqual(connection.execute("SELECT counter FROM apple_keys WHERE key_id=?", (key_id,)).fetchone(), (0,))
                 self.assertEqual(connection.execute("SELECT count(*) FROM apple_client_data").fetchone(), (0,))
@@ -389,6 +410,7 @@ class WorkerTests(unittest.TestCase):
                                 (FileNotFoundError("private bearer"), "unavailable"),
                                 (sqlite3.IntegrityError("private bearer"), "rejected"),
                                 (AttestationRejected("private bearer"), "rejected"),
+                                (EvidenceRefused(Code.APP_IDENTITY_MISMATCH, "private bearer"), "refused"),
                                 (VerificationUnavailable("private bearer"), "unavailable")):
             class FailedOwner(ProtocolOnlyOwner):
                 def perform(self, original, action, **arguments): raise error
@@ -398,6 +420,7 @@ class WorkerTests(unittest.TestCase):
             response = exact_json(read_packet(io.BytesIO(output.getvalue())), MAX_PACKET)
             self.assertEqual(response["outcome"], expected)
             self.assertIsNone(response["evidence_base64"])
+            self.assertEqual(response["refusal_code"], 7 if expected == "refused" else None)
             self.assertNotIn(b"private bearer", output.getvalue())
 
     def test_lost_journal_cannot_restart_or_reverify_consumed_apple_evidence(self):
@@ -498,7 +521,7 @@ class WorkerTests(unittest.TestCase):
             policy_b = configured_policy(config_b["policy"], "apple")
             config_b["enrollment_policy_hex"] = policy_b.enrollment.policy_digest().hex()
             selected_b = policy_scope(policy_b, GENERATOR)
-            attestation, key_b, _ = apple_object(open_owner.fixture, selected_b)
+            attestation, key_b, _ = apple_object(open_owner.fixture, selected_b.challenge_digest())
             self.assertEqual(key_b, key_id)
             value_b = exact_json(request_a, MAX_REQUEST)
             value_b["challenge_transcript_base64"] = base64.b64encode(selected_b.challenge_transcript).decode()
@@ -593,13 +616,15 @@ class WorkerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             open_owner, request, _, _ = self.owner_fixture(Path(temporary))
             owner = open_owner(); self.addCleanup(owner.close)
+            # An interruption during verification leaves the claim in flight: outcome unknown.
             with patch("iroha_app_attestation.wallet_enrollment_worker.verify_apple_wallet_attestation_raw",
-                       side_effect=VerificationUnavailable("synthetic outage")):
-                with self.assertRaises(VerificationUnavailable): dispatch(owner, request, "complete")
+                       side_effect=sqlite3.OperationalError("synthetic interruption")):
+                with self.assertRaises(sqlite3.OperationalError): dispatch(owner, request, "complete")
             with patch("iroha_app_attestation.wallet_enrollment_worker.verify_apple_wallet_attestation_raw",
                        side_effect=AssertionError("ambiguous attempt must only recover")):
                 self.assertIsNone(dispatch(owner, request, "recover"))
                 self.assertIsNone(dispatch(owner, request, "complete"))
+                self.assertIsNone(dispatch(owner, request, "inspect"))
             value = exact_json(request, MAX_PACKET); value["trusted_time_ms"] += 1
             with self.assertRaises(AttestationRejected): dispatch(owner, encode(value), "complete")
             with self.assertRaises(AttestationRejected): dispatch(owner, encode(value), "recover")
@@ -611,6 +636,33 @@ class WorkerTests(unittest.TestCase):
             "dispatch_time_ms": exact_json(request, MAX_REQUEST)["trusted_time_ms"]}
         owner.prepare(arguments["incarnation"], original)
         return arguments
+
+    def test_outage_before_any_effect_resumes_the_same_apple_claim_while_live(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            open_owner, request, _, key_id = self.owner_fixture(Path(temporary))
+            owner = open_owner(); self.addCleanup(owner.close)
+            arguments = self.prepared(owner, request)
+            with patch("iroha_app_attestation.wallet_enrollment_worker.verify_apple_wallet_attestation_raw",
+                       side_effect=VerificationUnavailable("synthetic outage")) as external:
+                with self.assertRaises(VerificationUnavailable):
+                    owner.perform(request, "complete", **arguments)
+                # A second outage on the resumed claim stays a recovery state.
+                with self.assertRaises(VerificationUnavailable):
+                    owner.perform(request, "recover", **dict(arguments, dispatch_time_ms=arguments["dispatch_time_ms"] + 1))
+                self.assertEqual(external.call_count, 2)
+            with closing(sqlite3.connect(Path(temporary) / "wallet-e1.sqlite3")) as connection:
+                self.assertEqual(connection.execute("SELECT outcome, refusal_code, result FROM wallet_e1_attempts").fetchone(),
+                                 ("unavailable", None, None))
+                self.assertEqual(connection.execute("SELECT counter FROM apple_keys WHERE key_id=?", (key_id,)).fetchone(), None)
+            later = dict(arguments, dispatch_time_ms=arguments["dispatch_time_ms"] + 7)
+            result = owner.perform(request, "complete", **later)
+            self.assertEqual(exact_json(result, MAX_ORIGINAL)["time_ms"], arguments["dispatch_time_ms"])
+            with patch("iroha_app_attestation.wallet_enrollment_worker.verify_apple_wallet_attestation_raw",
+                       side_effect=AssertionError("terminal evidence is never verified again")):
+                self.assertEqual(owner.perform(request, "recover", **later), result)
+            with closing(sqlite3.connect(Path(temporary) / "wallet-e1.sqlite3")) as connection:
+                self.assertEqual(connection.execute("SELECT counter FROM apple_keys WHERE key_id=?", (key_id,)).fetchone(), (1,))
+                self.assertEqual(connection.execute("SELECT outcome FROM wallet_e1_attempts").fetchone(), ("evidence",))
 
     def test_inspect_never_claims_missing_or_prepared_operation_even_when_live(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -933,9 +985,10 @@ class WorkerTests(unittest.TestCase):
             owner = open_owner(); self.addCleanup(owner.close)
             arguments = self.prepared(owner, request)
             source = exact_json(request, MAX_REQUEST)
-            for now in (None, True, source["trusted_time_ms"] - 1, source["expires_at_ms"], 1 << 64):
-                with self.subTest(now=now), self.assertRaises(AttestationRejected):
+            for now in (None, True, source["trusted_time_ms"] - 1, 1 << 64):
+                with self.subTest(now=now), self.assertRaises(AttestationRejected) as raised:
                     owner.perform(request, "recover", **dict(arguments, dispatch_time_ms=now))
+                self.assertNotIsInstance(raised.exception, EvidenceRefused)
             with closing(sqlite3.connect(Path(temporary) / "wallet-e1.sqlite3")) as connection:
                 self.assertEqual(connection.execute("SELECT request_sha256 FROM wallet_e1_attempts").fetchone(), (None,))
             result = owner.perform(request, "recover", **arguments)
@@ -965,7 +1018,8 @@ class WorkerTests(unittest.TestCase):
                 serve(owner, io.BytesIO(len(message).to_bytes(4, "little") + message), output)
                 response = exact_json(read_packet(io.BytesIO(output.getvalue())), MAX_PACKET)
                 self.assertEqual(set(response), {"schema", "version", "exchange_id", "request_sha256",
-                    "journal_incarnation", "config_sha256", "outcome", "evidence_base64"})
+                    "journal_incarnation", "config_sha256", "outcome", "evidence_base64", "refusal_code"})
+                self.assertIsNone(response["refusal_code"])
                 self.assertEqual(response["request_sha256"], hashlib.sha256(message).hexdigest())
                 self.assertEqual(response["journal_incarnation"], owner.journal().hex())
                 self.assertEqual(response["config_sha256"], owner.config_digest.hex())
@@ -983,17 +1037,26 @@ class WorkerTests(unittest.TestCase):
 
 
 class AndroidIntegratedWorkerTests(unittest.TestCase):
-    """Real signed synthetic KeyMint and RSA OAuth, fixed scripted HTTPS originals.
+    """Real signed synthetic KeyMint chains through the private worker; scripted HTTPS originals.
 
-    Private credentials use actual effective service-UID custody. The fixture replaces
-    development loaded TLS code admission only; no genuine Google/device claim.
+    The synthetic root is a throwaway test key that the test policy pins as a GoogleRsa-family
+    root; no genuine Google, Huawei or device claim follows.
     """
     @classmethod
     def setUpClass(cls):
-        cls.openssl = Path(shutil.which("openssl")).resolve()
-        result = subprocess.run([str(cls.openssl), "genpkey", "-algorithm", "RSA",
-                                 "-pkeyopt", "rsa_keygen_bits:2048"], capture_output=True, check=True)
-        cls.pem = result.stdout.decode("ascii")
+        executable = shutil.which("openssl")
+        if executable is None:
+            raise unittest.SkipTest("OpenSSL3 unavailable")
+        cls.openssl = Path(executable).resolve()
+        cls.temporary = tempfile.TemporaryDirectory()
+        cls.pki = SyntheticPki(Path(cls.temporary.name).resolve(), cls.openssl)
+        remote_hierarchy(cls.pki, "ec256")
+        cls.pki.key("leaf")
+        cls.point = cls.pki.point("leaf")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temporary.cleanup()
 
     def setUp(self):
         self.enterContext(patch("iroha_app_attestation.wallet_enrollment_worker._sleep_inclusive_ns",
@@ -1001,22 +1064,16 @@ class AndroidIntegratedWorkerTests(unittest.TestCase):
         self.enterContext(patch("iroha_app_attestation.wallet_enrollment_worker._realtime_ns",
                                 side_effect=lambda: time.time_ns() + 61_000_000_000))
 
-    def fixture(self, directory, level=2):
+    def fixture(self, directory, level=2, payment=None):
         directory = directory.resolve(strict=True); directory.chmod(0o700)
-        fixture = SignedEnvelope(directory, self.openssl)
-        policy = fixture_policy(synthetic_root(fixture), False)
-        selected = policy_scope(policy, fixture.point)
+        root = self.pki.der("root")
+        policy = fixture_policy(root, False)
+        selected = policy_scope(policy, self.point if payment is None else payment)
+        description = key_description(selected.challenge_digest(), level=level,
+                                      os_patch_level=202608, vendor_patch_level=20260805)
+        chain = [self.pki.leaf("leaf", "attestation", description, new_key=False),
+                 self.pki.der("attestation"), self.pki.der("intermediate"), root]
         now = int(time.time() * 1000) + 60000
-        old = Selection(*[bytes([i]) * 32 for i in range(11, 17)])
-        description = keymint_description(old, "org.example.wallet", 7, b"\x71" * 32,
-            security_level=level, keymint_security_level=level, os_patch_level=202608,
-            vendor_patch_level=20260805)
-        description = description.replace(hashlib.sha256(old.transcript()).digest(), selected.challenge_digest())
-        leaf, root = fixture.sign(ANDROID_KEY_DESCRIPTION_OID, description)
-        google_original = encode({"schema": POLICY_SCHEMA, "version": 1,
-            "cloudProject": {"id": PROJECT, "number": 642560099159}, "packageName": "org.example.wallet",
-            "packageVersion": 7, "appSigningCertificateSha256Hex": (b"\x71" * 32).hex(),
-            "credentialSubject": {"email": EMAIL, "clientId": CLIENT_ID}})
         config = encode({"schema": CONFIG_SCHEMA, "version": 1, "platform": "android",
             "app_policy_hex": policy.app.policy_digest().hex(), "enrollment_policy_hex": policy.enrollment.policy_digest().hex(),
             "openssl_path": str(self.openssl), "openssl_sha256": hashlib.sha256(self.openssl.read_bytes()).hexdigest(),
@@ -1024,152 +1081,212 @@ class AndroidIntegratedWorkerTests(unittest.TestCase):
                 "asset_digest_hex": policy.enrollment.asset_digest.hex(), "regulatory_policy": {
                     "permitted_controls": 0, "blacklist_max_age_ms": 0, "time_anchor_max_response_ms": 0},
                 "challenge_lifetime_ms": 120000, "attestation_lease_lifetime_ms": 0,
-                "package_name": "org.example.wallet", "package_version": 7,
-                "app_certificate_sha256": (b"\x71" * 32).hex(), "root_base64": base64.b64encode(root).decode(),
-                "root_sha256": hashlib.sha256(root).hexdigest(), "security_levels": [1, 2],
-                "patch_floor_yyyymm": 202608, "google_policy_base64": base64.b64encode(google_original).decode(),
-                "google_policy_sha256": hashlib.sha256(google_original).hexdigest(), "maximum_evidence_age_ms": 120000,
-                "require_play_recognized": True, "require_licensed": True, "minimum_device_integrity": "MEETS_DEVICE_INTEGRITY"}})
+                "package_name": PACKAGE, "minimum_package_version": 7, "app_signer_sha256": [SIGNER.hex()],
+                "roots": [{"family": "google_rsa", "spki_sha256": spki_sha256(root).hex(),
+                           "revocation_source": "google_attestation_status"}],
+                "patch_floor_yyyymm": 202608}})
         request = encode({"challenge_transcript_base64": base64.b64encode(selected.challenge_transcript).decode(),
-            "payment_key_base64": base64.b64encode(fixture.point).decode(), "issued_at_ms": now - 1,
+            "payment_key_base64": base64.b64encode(selected.payment_key_sec1).decode(), "issued_at_ms": now - 1,
             "expires_at_ms": now - 1 + 120000, "trusted_time_ms": now, "platform": "android", "evidence": {
-                "chain_base64": [base64.b64encode(x).decode() for x in (leaf, root)],
-                "play_integrity_token": "opaque.synthetic.token"}})
-        credential = {"type": "service_account", "project_id": PROJECT, "private_key_id": "ab" * 20,
-            "private_key": self.pem, "client_email": EMAIL, "client_id": CLIENT_ID,
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth", "token_uri": TOKEN_URI,
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/" + urllib.parse.quote(EMAIL, safe=""),
-            "universe_domain": "googleapis.com"}
-        path = directory / "synthetic-oauth.json"; path.write_bytes(encode(credential)); path.chmod(0o600)
-        return config, request, selected, now, path
+                "chain_base64": [base64.b64encode(x).decode() for x in chain]}})
+        return config, request, chain
 
-    def actual_owner(self, config, directory, credential, stack, *, initialize=True):
-        descriptors = [os.open(x, os.O_RDONLY) for x in (directory, self.openssl, credential)]
+    def actual_owner(self, config, directory, stack, *, initialize=True,
+                     denylist=b'{"version":1,"sequence":1,"entries":[]}', candidate=None):
+        directory = directory.resolve()
+        descriptors = [os.open(x, os.O_RDONLY) for x in (directory, self.openssl)]
         for fd in descriptors: stack.callback(os.close, fd)
         if initialize:
             E1CounterStore.initialize(directory, descriptors[0]).close()
-        stack.enter_context(patch.object(crypto, "_HeldRootCodeOriginal", SyntheticCodeOriginal))
-        owner = VerifierOwner(config, directory_fd=descriptors[0], crypto_fd=descriptors[1], oauth_fd=descriptors[2])
+        if denylist is not None:
+            OperatorDenylistCustody(directory, descriptors[0]).initialize(denylist)
+        arguments = {}
+        if candidate is not None:
+            path = directory.parent / (directory.name + "-candidate.json")
+            path.write_bytes(candidate); path.chmod(0o644)
+            arguments["denylist_fd"] = os.open(path, os.O_RDONLY)
+            stack.callback(os.close, arguments["denylist_fd"])
+        owner = VerifierOwner(config, directory_fd=descriptors[0], crypto_fd=descriptors[1], **arguments)
         stack.callback(owner.close)
         return owner
 
-    def test_actual_service_uid_credential_admission_rejects_foreign_owner(self):
-        # Actual local descriptor custody is checked without replacing the provider.
-        # The first half exercises the real non-root service UID on ordinary CI/hosts.
-        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
-            directory = Path(temporary).resolve(strict=True)
-            config, _, _, _, credential = self.fixture(directory)
-            owner = self.actual_owner(config, directory, credential, stack)
-            self.assertEqual(owner.oauth._owner_uid, os.geteuid())
-            self.assertTrue(owner.oauth._read())
-        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
-            directory = Path(temporary).resolve(strict=True)
-            config, _, _, _, credential = self.fixture(directory)
-            original_fstat = os.fstat
-            identity = credential.stat()
-            def foreign_owner(fd):
-                value = original_fstat(fd)
-                if (value.st_dev, value.st_ino) == (identity.st_dev, identity.st_ino):
-                    fields = list(value)
-                    fields[4] = os.geteuid() + 1
-                    return os.stat_result(fields)
-                return value
-            with patch("iroha_app_attestation.google_oauth.os.fstat", side_effect=foreign_owner):
-                with self.assertRaises(AttestationRejected):
-                    self.actual_owner(config, directory, credential, stack)
-
-    def transport(self, selected, now, *, wrong_hash=False, revoked=False):
-        calls, originals = [], {}
+    def transport(self, stack, entries=(), failures=0):
+        calls = []
         class Response:
             status = 200
-            headers = {"Content-Type": "application/json", "Content-Encoding": "identity"}
-            def __init__(self, url, body): self.url, self.body = url, body
-            def geturl(self): return self.url
+            headers = {"Content-Type": "application/json", "Content-Encoding": "identity",
+                       "Cache-Control": "public, max-age=3600"}
+            def __init__(self, body): self.body = body
+            def geturl(self): return revocation.GOOGLE_STATUS_URL
             def read(self, bound): return self.body[:bound]
             def __enter__(self): return self
             def __exit__(self, *args): pass
         class Transport:
             def open(inner, request, timeout):
                 calls.append(request.full_url)
-                if request.full_url == TOKEN_URI:
-                    form = urllib.parse.parse_qs(request.data.decode(), strict_parsing=True)
-                    self.assertEqual(set(form), {"assertion", "grant_type"})
-                    head, body, signature = form["assertion"][0].split(".")
-                    decode = lambda value: base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
-                    self.assertEqual(json.loads(decode(body))["scope"], OAUTH_SCOPE)
-                    with tempfile.TemporaryDirectory() as check:
-                        d = Path(check); (d / "private.pem").write_text(self.pem)
-                        subprocess.run([str(self.openssl), "pkey", "-in", str(d / "private.pem"), "-pubout",
-                            "-out", str(d / "public.pem")], capture_output=True, check=True)
-                        (d / "message").write_bytes((head + "." + body).encode()); (d / "signature").write_bytes(decode(signature))
-                        subprocess.run([str(self.openssl), "dgst", "-sha256", "-verify", str(d / "public.pem"),
-                            "-signature", str(d / "signature"), str(d / "message")], capture_output=True, check=True)
-                    original = encode({"access_token": "synthetic-access-token", "token_type": "Bearer", "expires_in": 3600})
-                elif request.full_url == revocation.GOOGLE_STATUS_URL:
-                    # Tests of nonempty revocation entries are covered by the real shared suite.
-                    original = encode({"entries": {}})
-                else:
-                    self.assertEqual(request.full_url, "https://playintegrity.googleapis.com/v1/org.example.wallet:decodeIntegrityToken")
-                    self.assertEqual(json.loads(request.data), {"integrity_token": "opaque.synthetic.token"})
-                    expected = b"\x99" * 32 if wrong_hash else selected.enrollment_key_binding()
-                    original = encode({"tokenPayloadExternal": {"requestDetails": {"requestPackageName": "org.example.wallet",
-                        "requestHash": pi.request_hash_text(expected), "timestampMillis": str(now)}, "appIntegrity": {
-                            "appRecognitionVerdict": "PLAY_RECOGNIZED", "packageName": "org.example.wallet", "versionCode": "7",
-                            "certificateSha256Digest": [pi.request_hash_text(b"\x71" * 32)]}, "deviceIntegrity": {
-                                "deviceRecognitionVerdict": ["MEETS_DEVICE_INTEGRITY"]}, "accountDetails": {"appLicensingVerdict": "LICENSED"}}})
-                    originals["google"] = original
-                return Response(request.full_url, original)
-        return Transport(), calls, originals
+                if len(calls) <= failures:
+                    raise urllib.error.URLError("synthetic outage")
+                return Response(encode({"entries": {"%x" % serial: {"status": "REVOKED"} for serial in entries}}))
+        stack.enter_context(patch("urllib.request.build_opener", return_value=Transport()))
+        return calls
 
-    def check_level(self, level):
+    def test_tee_and_strongbox_enrollment_records_chain_only_evidence(self):
+        for level in (1, 2):
+            with self.subTest(level=level), tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+                directory = Path(temporary).resolve()
+                config, request, chain = self.fixture(directory, level)
+                owner = self.actual_owner(config, directory, stack)
+                calls = self.transport(stack)
+                result = dispatch(owner, request, "complete")
+                projection = exact_json(result, MAX_ORIGINAL)
+                self.assertEqual(projection["kind_tag"], level)
+                self.assertEqual(projection["facts"], 0b10000111101 | (2 if level == 2 else 0))
+                self.assertFalse(projection["facts"] & (1 << 9))
+                self.assertEqual([base64.b64decode(x) for x in projection["original_items_base64"]], chain)
+                self.assertEqual(projection["time_ms"], exact_json(request, MAX_REQUEST)["trusted_time_ms"])
+                self.assertEqual((projection["app_attest_key_id"], projection["app_attest_counter"]), (None, None))
+                self.assertEqual(calls, [revocation.GOOGLE_STATUS_URL])
+                self.assertEqual(dispatch(owner, request, "recover"), result)
+                self.assertEqual(len(calls), 1)
+
+    def test_revoked_chain_is_refused_with_a_retained_code(self):
+        attestation_serial = revocation.certificate_serial(self.pki.der("attestation"))
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             directory = Path(temporary).resolve()
-            config, request, selected, now, credential = self.fixture(directory, level)
-            owner = self.actual_owner(config, directory, credential, stack)
-            transport, calls, originals = self.transport(selected, now)
-            stack.enter_context(patch("urllib.request.build_opener", return_value=transport))
-            result = dispatch(owner, request, "complete")
+            config, request, _ = self.fixture(directory)
+            owner = self.actual_owner(config, directory, stack)
+            calls = self.transport(stack, entries=(attestation_serial,))
+            owner.prepare(owner.counters.incarnation, preparation_original(owner, request))
+            message = packet("complete", owner=owner, original=request)
+            output = io.BytesIO()
+            serve(owner, io.BytesIO(len(message).to_bytes(4, "little") + message), output)
+            response = exact_json(read_packet(io.BytesIO(output.getvalue())), MAX_PACKET)
+            self.assertEqual((response["outcome"], response["refusal_code"], response["evidence_base64"]),
+                             ("refused", 6, None))
+            for action in ("recover", "inspect", "complete"):
+                with self.subTest(action=action), self.assertRaises(EvidenceRefused) as raised:
+                    dispatch(owner, request, action)
+                self.assertEqual(raised.exception.code, Code.ATTESTATION_REVOKED)
+            self.assertEqual(len(calls), 1)
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            directory = Path(temporary).resolve()
+            config, request, chain = self.fixture(directory)
+            listed = encode({"version": 1, "sequence": 1,
+                             "entries": [{"spki_sha256": spki_sha256(chain[0]).hex()}]})
+            owner = self.actual_owner(config, directory, stack, denylist=listed)
+            self.transport(stack)
+            with self.assertRaises(EvidenceRefused) as raised:
+                dispatch(owner, request, "complete")
+            self.assertEqual(raised.exception.code, Code.ATTESTATION_REVOKED)
+
+    def test_revocation_outage_before_any_effect_resumes_the_same_claim_while_live(self):
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            directory = Path(temporary).resolve()
+            config, request, _ = self.fixture(directory)
+            owner = self.actual_owner(config, directory, stack)
+            calls = self.transport(stack, failures=1)
+            source = exact_json(request, MAX_REQUEST)
+            with self.assertRaises(VerificationUnavailable):
+                dispatch(owner, request, "complete")
+            with closing(sqlite3.connect(directory / "wallet-e1.sqlite3")) as connection:
+                self.assertEqual(connection.execute("SELECT first_dispatch, outcome FROM wallet_e1_attempts").fetchone(),
+                                 (source["trusted_time_ms"].to_bytes(8, "little"), "unavailable"))
+            # Inspect never resumes a claim.
+            self.assertIsNone(owner.perform(request, "inspect", **self.arguments(owner, request)))
+            arguments = self.arguments(owner, request, delay=5)
+            result = owner.perform(request, "recover", **arguments)
             projection = exact_json(result, MAX_ORIGINAL)
-            self.assertEqual(projection["kind_tag"], level)
-            self.assertEqual(projection["payment_key_base64"], base64.b64encode(selected.payment_key_sec1).decode())
-            self.assertEqual(projection["key_binding"], selected.enrollment_key_binding().hex())
-            self.assertEqual(base64.b64decode(projection["original_items_base64"][-1]), originals["google"])
-            self.assertEqual(calls, [revocation.GOOGLE_STATUS_URL, TOKEN_URI,
-                                    "https://playintegrity.googleapis.com/v1/org.example.wallet:decodeIntegrityToken"])
-            self.assertEqual(dispatch(owner, request, "recover"), result)
-            self.assertEqual(len(calls), 3)
+            # The first dispatch stays the recorded verification time.
+            self.assertEqual(projection["time_ms"], source["trusted_time_ms"])
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(owner.perform(request, "inspect", **arguments), result)
 
-    def test_current_tee_enrollment_real_keymint_oauth_and_google_original(self): self.check_level(1)
-    def test_current_strongbox_enrollment_real_keymint_oauth_and_google_original(self): self.check_level(2)
-
-    def test_wrong_google_hash_retains_unknown_and_never_reverifies(self):
+    def test_outage_after_the_challenge_lifetime_stays_unknown_and_never_reverifies(self):
         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
             directory = Path(temporary).resolve()
-            config, request, selected, now, credential = self.fixture(directory)
-            owner = self.actual_owner(config, directory, credential, stack)
-            transport, calls, _ = self.transport(selected, now, wrong_hash=True)
-            stack.enter_context(patch("urllib.request.build_opener", return_value=transport))
-            with self.assertRaises(AttestationRejected): dispatch(owner, request, "complete")
-            self.assertIsNone(dispatch(owner, request, "recover")); self.assertEqual(len(calls), 3)
-            self.assertIsNone(dispatch(owner, request, "complete"))
+            config, request, _ = self.fixture(directory)
+            owner = self.actual_owner(config, directory, stack)
+            calls = self.transport(stack, failures=1)
+            with self.assertRaises(VerificationUnavailable):
+                dispatch(owner, request, "complete")
+            arguments = self.arguments(owner, request, delay=200_000)
+            for action in ("recover", "complete", "inspect"):
+                self.assertIsNone(owner.perform(request, action, **arguments))
+            self.assertEqual(len(calls), 1)
 
-    def test_android_software_boolean_or_foreign_google_original_cannot_enter_worker(self):
+    def test_missing_denylist_custody_is_unavailable_never_admission(self):
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            directory = Path(temporary).resolve()
+            config, request, _ = self.fixture(directory)
+            owner = self.actual_owner(config, directory, stack, denylist=None)
+            calls = self.transport(stack)
+            with self.assertRaises(VerificationUnavailable):
+                dispatch(owner, request, "complete")
+            self.assertEqual(calls, [])
+            # The explicit installation action restores admission of the same live claim.
+            OperatorDenylistCustody(directory, owner.directory_fd).initialize(
+                b'{"version":1,"sequence":1,"entries":[]}')
+            self.assertIsNotNone(owner.perform(request, "recover", **self.arguments(owner, request, delay=1)))
+
+    def test_inherited_denylist_candidate_follows_rollback_rules(self):
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            directory = Path(temporary).resolve()
+            config, request, chain = self.fixture(directory)
+            leaf_spki = spki_sha256(chain[0]).hex()
+            current = b'{"version":1,"sequence":2,"entries":[]}'
+            newer = encode({"version": 1, "sequence": 3, "entries": [{"spki_sha256": leaf_spki}]})
+            owner = self.actual_owner(config, directory, stack, denylist=current, candidate=newer)
+            self.assertEqual(owner.denylist_offer, "accepted")
+            self.transport(stack)
+            with self.assertRaises(EvidenceRefused) as raised:
+                dispatch(owner, request, "complete")
+            self.assertEqual(raised.exception.code, Code.ATTESTATION_REVOKED)
+            custody = OperatorDenylistCustody(directory, owner.directory_fd)
+            self.assertEqual(custody.active().sequence, 3)
+            owner.close()
+            for stale, outcome in ((current, "rejected"), (newer, "unchanged"), (b"not json", "rejected")):
+                with self.subTest(outcome=outcome):
+                    replacement = self.actual_owner(config, directory, stack, initialize=False,
+                                                    denylist=None, candidate=stale)
+                    self.assertEqual(replacement.denylist_offer, outcome)
+                    self.assertEqual(custody.active().sequence, 3)
+            absent = self.actual_owner(config, directory, stack, initialize=False, denylist=None)
+            self.assertIsNone(absent.denylist_offer)
+
+    def test_android_configuration_cannot_select_retired_or_unqualified_inputs(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary).resolve()
-            config, _, _, _, _ = self.fixture(directory)
+            config, _, _ = self.fixture(directory)
             source = exact_json(config, MAX_PACKET)
-            for change in (lambda v: v["policy"].update({"security_levels": [0]}),
-                           lambda v: v["policy"].update({"security_levels": [True]}),
-                           lambda v: v["policy"].update({"require_licensed": 1}),
-                           lambda v: v["policy"].update({"package_version": True}),
-                           lambda v: v["policy"].update({"root_sha256": "09" * 32})):
+            for change in (lambda v: v["policy"].update({"security_levels": [1, 2]}),
+                           lambda v: v["policy"].update({"google_policy_base64": "e30="}),
+                           lambda v: v["policy"].update({"root_base64": "e30="}),
+                           lambda v: v["policy"].update({"minimum_package_version": True}),
+                           lambda v: v["policy"].update({"app_signer_sha256": []}),
+                           lambda v: v["policy"]["roots"][0].update({"family": "vendor", "adapter_id": "huawei",
+                                                                     "revocation_source": "operator_denylist"}),
+                           lambda v: v["policy"]["roots"][0].update({"family": "vendor", "adapter_id": "acme",
+                                                                     "revocation_source": "operator_denylist"})):
                 value = json.loads(json.dumps(source)); change(value)
                 with self.assertRaises(AttestationRejected): configured_policy(value["policy"], "android")
-            with ExitStack() as stack:
-                changed = json.loads(json.dumps(source)); changed["policy"]["google_policy_base64"] = "e30="
-                with self.assertRaises(AttestationRejected): self.actual_owner(encode(changed), directory, directory / "synthetic-oauth.json", stack, initialize=False)
-                self.assertFalse((directory / "wallet-e1.sqlite3").exists())
+                with ExitStack() as stack, self.assertRaises(AttestationRejected):
+                    self.actual_owner(encode(value), directory, stack, initialize=False, denylist=None)
+            self.assertFalse((directory / "wallet-e1.sqlite3").exists())
+
+    def test_attested_key_of_another_payment_key_is_evidence_invalid(self):
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            directory = Path(temporary).resolve()
+            config, request, _ = self.fixture(directory, payment=GENERATOR)
+            owner = self.actual_owner(config, directory, stack)
+            self.transport(stack)
+            with self.assertRaises(EvidenceRefused) as raised:
+                dispatch(owner, request, "complete")
+            self.assertEqual(raised.exception.code, Code.EVIDENCE_INVALID)
+
+    def arguments(self, owner, request, delay=0):
+        return {"incarnation": owner.counters.incarnation, "preparation": preparation_original(owner, request),
+                "account_signature": ACCOUNT_SIGNATURE,
+                "dispatch_time_ms": exact_json(request, MAX_REQUEST)["trusted_time_ms"] + delay}
 
 
 class UnsignedArchiveTests(unittest.TestCase):
@@ -1193,6 +1310,9 @@ class UnsignedArchiveTests(unittest.TestCase):
                 self.assertEqual(set(archive.namelist()), {"__main__.py"} |
                                  {"iroha_app_attestation/" + name for name in builder.SOURCES})
                 self.assertNotIn("iroha_app_attestation/ordinary_worker.py", archive.namelist())
+                for retired in ("play_integrity.py", "google_oauth.py", "openssl_private_rsa.py",
+                                "retail_auth_worker.py"):
+                    self.assertNotIn("iroha_app_attestation/" + retired, archive.namelist())
                 self.assertNotIn("iroha_app_attestation/kagemusha_native_signer.py", archive.namelist())
             with self.assertRaises(FileExistsError):
                 builder.build(package, one)

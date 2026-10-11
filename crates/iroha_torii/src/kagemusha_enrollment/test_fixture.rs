@@ -94,10 +94,9 @@ pub(super) fn provider(path: PathBuf) -> KagemushaEnrollmentProvider {
             verifier_sha256: [42; 32],
             openssl_executable: "/opt/issuer/openssl".into(),
             openssl_sha256: [43; 32],
-            attestation_root: "/opt/issuer/root.pem".into(),
+            attestation_root: Some("/opt/issuer/root.pem".into()),
             store_directory: "/private/issuer/worker".into(),
             exchange_timeout: std::time::Duration::from_secs(60),
-            google: None,
         },
         signer_private_key: path,
     }
