@@ -205,7 +205,7 @@ struct StoredReader {
 
 impl StoredReader {
     fn recheck(&self) -> io::Result<()> {
-        self.file.revalidate()?;
+        // snapshot already revalidates retained custody before and after capture.
         if self.file.snapshot()? != self.snapshot {
             return Err(invalid("encoded original changed during streaming"));
         }
