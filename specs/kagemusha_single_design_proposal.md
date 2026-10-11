@@ -1779,6 +1779,29 @@ scheme and signed artifact manifest. The release binds that complete carrier,
 its genesis and signed runtime, and builds validators and all mobile Native
 slices from the resulting current source.
 
+The mobile artifact carrier stores each `wallet-originals/<raw-sha256>` file as
+exactly one lossless zstd frame. The signed catalog continues to bind the actual
+decoded original; compression does not change a proof, key, relation or scheme.
+The closed `iroha.kagemusha.wallet-artifact-original-transport.v1` JSON has, in
+order, `schema`, mandatory `encoding: "zstd"`, and `walletOriginals`. Each row has
+`bytes`, `sha256`, `storedBytes`, `storedSha256` in that order. Rows are nonempty,
+unique and ascending by lowercase raw SHA-256; canonical JSON ends with one LF.
+There are at most 12,288 rows and 32 MiB of JSON. Each raw original is bounded by
+1 GiB, each stored frame by 1 GiB plus 4 MiB, and the decoder window by 8 MiB.
+
+Delivery and resume use the stored extent/hash and preserve the raw-address
+filename. Native retains no-follow private ancestry and sealed file custody,
+verifies the exact stored identity, rejects extra/skippable/concatenated frames
+and trailing bytes, and checks exact decoded length/hash before returning the
+final declared byte. It also refuses changed or missing previously observed
+originals on reopening. Decoding streams in bounded memory without a decoded
+disk cache. There is no raw mobile fallback. Raw directories remain the distinct
+offline compiler and authenticated candidate input format. Repackaging verifies
+the pinned signed pack/catalog and every original, preserves those originals,
+and recomputes transport and financial metadata; the signed runtime must select
+those exact recomputed metadata bytes before publication. Source reconstruction
+and wallet installation remain mandatory after lossless decoding.
+
 Nothing in this revision is deployed piecemeal. The cutover is one coordinated
 change, and the release driver builds and releases it:
 

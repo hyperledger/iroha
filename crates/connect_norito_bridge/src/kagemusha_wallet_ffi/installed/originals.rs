@@ -2,8 +2,8 @@
 
 use super::*;
 use iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::{
-    AuthenticatedProducerInventoryV1, DirectoryOriginalsV1, PROVING_KEY_MAX_BYTES_V1,
-    ProducerInventoryV1,
+    AuthenticatedProducerInventoryV1, EncodedDirectoryOriginalsV1, EncodedTransportV1,
+    PROVING_KEY_MAX_BYTES_V1, ProducerInventoryV1,
 };
 use iroha_core_zk::kagemusha_wallet_proofs_v1::Error as OriginalError;
 use iroha_fs::PrivateDirectory;
@@ -21,7 +21,7 @@ pub(super) struct CatalogOriginals {
 #[derive(Clone)]
 struct CatalogReader {
     metadata: Arc<PrivateDirectory>,
-    wallet: Arc<DirectoryOriginalsV1>,
+    wallet: Arc<EncodedDirectoryOriginalsV1>,
     roles: Arc<BTreeMap<[u8; 32], BlobV1>>,
 }
 
@@ -79,8 +79,8 @@ impl CatalogOriginals {
         if financial_original.as_slice() != financial.original()?.as_slice() {
             return Err(Failure::code(INVALID));
         }
-        require_transport(inventory, &transport)?;
-        let source = CatalogReader::load(metadata, root, inventory)?;
+        let transport = require_transport(inventory, &transport)?;
+        let source = CatalogReader::load(metadata, root, inventory, &transport)?;
         Ok(Self {
             _selected: selected,
             source,
@@ -93,26 +93,22 @@ impl CatalogReader {
         metadata: PrivateDirectory,
         root: &Path,
         inventory: &ProducerInventoryV1,
+        transport: &EncodedTransportV1,
     ) -> Result<Self> {
         // The exact current financial roles are the only source directories. This
         // method creates no files and replaces no authority or old missing original.
-        let wallet = DirectoryOriginalsV1::open_existing(
-            root.join("wallet-originals"),
-            PROVING_KEY_MAX_BYTES_V1,
-        )
-        .map_err(storage)?;
-        // Reauthenticate every wallet proving original. Ordinary finality uses
-        // native BLS certificates and has no proving artifacts.
-        for record in &inventory.originals {
-            for blob in [record.descriptor, record.verifying_key, record.proving_key] {
-                wallet.verify_original(blob).map_err(storage)?;
-            }
-        }
+        let wallet =
+            EncodedDirectoryOriginalsV1::open_existing(root.join("wallet-originals"), transport)
+                .map_err(storage)?;
         let mut roles = BTreeMap::new();
         for record in &inventory.originals {
             for blob in [record.descriptor, record.verifying_key, record.proving_key] {
                 insert(&mut roles, blob)?;
             }
+        }
+        // Check every unique decoded original once; aliases retain the same signed identity.
+        for blob in roles.values() {
+            wallet.verify_original(*blob).map_err(storage)?;
         }
         metadata.revalidate().map_err(storage)?;
         Ok(Self {
@@ -131,7 +127,7 @@ impl OriginalSourceV1 for CatalogReader {
     fn open(&mut self, sha256: [u8; 32]) -> std::result::Result<Box<dyn Read + '_>, OriginalError> {
         self.metadata
             .revalidate()
-            .map_err(|_| OriginalError::Unavailable)?;
+            .map_err(|_| OriginalError::Inventory)?;
         self.roles.get(&sha256).ok_or(OriginalError::Inventory)?;
         self.wallet.open_original(sha256)
     }
@@ -182,52 +178,23 @@ fn closed(blobs: impl IntoIterator<Item = BlobV1>) -> Result<Vec<BlobV1>> {
     }
     Ok(originals.into_values().collect())
 }
-fn require_transport(inventory: &ProducerInventoryV1, bytes: &[u8]) -> Result<()> {
-    // Each bounded wallet artifact record contributes descriptor, VK and PK rows.
-    const ROWS: usize =
-        iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::ARTIFACT_MAX_COUNT_V1 * 3;
-    let limits = norito::json::JsonPreflightLimits::new(
-        32 * 1024 * 1024,
-        ROWS * 3 + 4,
-        512,
-        128,
-        32 * 1024 * 1024,
-        ROWS,
-        ROWS,
-        ROWS * 2 + 3,
-        ROWS * 3 + 3,
-        4,
-    );
-    let value = selection::json_limits(bytes, 32 * 1024 * 1024, false, limits)?;
-    let object = selection::exact(&value, &["schema", "walletOriginals"])?;
-    if selection::text(object, "schema")? != "iroha.kagemusha.wallet-artifact-original-transport.v1"
-    {
-        return Err(Failure::code(INVALID));
-    }
+fn require_transport(inventory: &ProducerInventoryV1, bytes: &[u8]) -> Result<EncodedTransportV1> {
+    let transport = EncodedTransportV1::from_json(bytes).map_err(storage)?;
     let wallet = closed(
         inventory
             .originals
             .iter()
             .flat_map(|r| [r.descriptor, r.verifying_key, r.proving_key]),
     )?;
-    for (name, expected) in [("walletOriginals", wallet)] {
-        let actual = object
-            .get(name)
-            .and_then(norito::json::Value::as_array)
-            .ok_or(Failure::code(INVALID))?;
-        if actual.len() != expected.len() {
-            return Err(Failure::code(INVALID));
-        }
-        for (actual, expected) in actual.iter().zip(expected) {
-            let row = selection::exact(actual, &["bytes", "sha256"])?;
-            if row.get("bytes").and_then(norito::json::Value::as_u64) != Some(expected.bytes)
-                || selection::sha(selection::text(row, "sha256")?)? != expected.sha256
-            {
-                return Err(Failure::code(INVALID));
-            }
-        }
+    if transport
+        .originals()
+        .iter()
+        .map(|row| row.original)
+        .ne(wallet)
+    {
+        return Err(Failure::code(INVALID));
     }
-    Ok(())
+    Ok(transport)
 }
 
 #[cfg(test)]

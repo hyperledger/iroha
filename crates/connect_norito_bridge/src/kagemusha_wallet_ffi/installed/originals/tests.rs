@@ -1,6 +1,8 @@
 //! Closed carrier DATA tests. These inventory fixtures contain no source keys or authority.
 use super::*;
-use iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::OriginalV1;
+use iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::{
+    DirectoryOriginalsV1, OriginalV1, encode_original,
+};
 fn fixture() -> ProducerInventoryV1 {
     let blob = |n| BlobV1 {
         bytes: 16,
@@ -29,17 +31,15 @@ fn fixture() -> ProducerInventoryV1 {
     }
 }
 fn transport(rows: norito::json::Value) -> Vec<u8> {
-    norito::json::to_json(
-        &norito::json!({"schema":"iroha.kagemusha.wallet-artifact-original-transport.v1",
-        "walletOriginals":rows}),
-    )
-    .unwrap()
-    .into_bytes()
+    format!("{{\"schema\":\"iroha.kagemusha.wallet-artifact-original-transport.v1\",\"encoding\":\"zstd\",\"walletOriginals\":{}}}\n", norito::json::to_json(&rows).unwrap()).into_bytes()
+}
+fn fixture_transport(root: &Path) -> EncodedTransportV1 {
+    EncodedTransportV1::from_json(&std::fs::read(root.join("transport.json")).unwrap()).unwrap()
 }
 fn rows() -> norito::json::Value {
     norito::json::Value::Array(
         (1u8..=5)
-            .map(|n| norito::json!({"bytes":16,"sha256":(hex::encode([n;32]))}))
+            .map(|n| norito::json!({"bytes":16,"sha256":(hex::encode([n;32])),"storedBytes":20,"storedSha256":(hex::encode([n+10;32]))}))
             .collect(),
     )
 }
@@ -197,14 +197,24 @@ fn wallet_data_fixture() -> (
         b"inert wallet proving key DATA".to_vec(),
     ];
     let blobs = originals.each_ref().map(|bytes| BlobV1::of(bytes));
-    let mut wallet = DirectoryOriginalsV1::open_existing(
-        root.join("wallet-originals"),
-        PROVING_KEY_MAX_BYTES_V1,
-    )
-    .unwrap();
+    let raw_root = root.parent().unwrap().join("raw");
+    PrivateDirectory::open_or_create(&raw_root).unwrap();
+    let target = PrivateDirectory::open_exact(root.join("wallet-originals")).unwrap();
+    let mut wallet =
+        DirectoryOriginalsV1::open_existing(raw_root, PROVING_KEY_MAX_BYTES_V1).unwrap();
+    let mut encoded = Vec::new();
     for (blob, bytes) in blobs.iter().zip(&originals) {
         wallet.store_original(*blob, bytes).unwrap();
+        encoded.push(encode_original(&wallet, &target, *blob).unwrap());
     }
+    encoded.sort_by_key(|row| row.original.sha256);
+    metadata
+        .write_atomic(
+            "transport.json",
+            &EncodedTransportV1::new(encoded).unwrap().to_json(),
+            iroha_fs::PublishMode::CreateNew,
+        )
+        .unwrap();
     let mut inventory = fixture();
     inventory.originals = vec![OriginalV1 {
         descriptor: blobs[0],
@@ -221,6 +231,7 @@ fn wallet_catalog_reader_requires_only_wallet_artifacts() {
         PrivateDirectory::open_exact(&root).unwrap(),
         &root,
         &inventory,
+        &fixture_transport(&root),
     )
     .unwrap();
     for original in &originals {
@@ -247,6 +258,7 @@ fn wallet_catalog_reader_refuses_changed_extent_hash_or_missing_original() {
             PrivateDirectory::open_exact(&root).unwrap(),
             &root,
             inventory,
+            &fixture_transport(&root),
         )
     };
     let mut wrong_length = inventory.clone();
@@ -275,14 +287,9 @@ fn wallet_transport_requires_all_originals_and_rejects_retired_finality_graph() 
         rows.sort();
         let wallet_originals: Vec<_> = rows
             .into_iter()
-            .map(|(hash, bytes)| norito::json!({"bytes":bytes,"sha256":(hex::encode(hash))}))
+            .map(|(hash, bytes)| norito::json!({"bytes":bytes,"sha256":(hex::encode(hash)),"storedBytes":20,"storedSha256":(hex::encode([7;32]))}))
             .collect();
-        norito::json::to_json(&norito::json!({
-            "schema":"iroha.kagemusha.wallet-artifact-original-transport.v1",
-            "walletOriginals": wallet_originals
-        }))
-        .unwrap()
-        .into_bytes()
+        transport(norito::json::Value::Array(wallet_originals))
     };
     require_transport(&inventory, &wire(&[0, 1, 2])).unwrap();
     for indices in [&[0][..], &[1], &[0, 1], &[0, 2], &[]] {

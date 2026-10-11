@@ -698,6 +698,47 @@ fn inspect_sources(path: &str, scheme: &str, manifest: &str) -> io::Result<()> {
     Ok(())
 }
 
+fn encode_carrier(path: &str, scheme: &str, manifest: &str, destination: &str) -> io::Result<()> {
+    let root = PrivateDirectory::open_exact(path)?;
+    let pack = Original::open(
+        root.path()
+            .join("verifier-pack.norito")
+            .to_str()
+            .ok_or_else(|| invalid("carrier path"))?,
+        iroha_core_zk::kagemusha_wallet_artifacts_v1::VERIFIER_PACK_MAX_BYTES_V1,
+        None,
+    )?;
+    let catalog = Original::open(
+        root.path()
+            .join("producer-inventory.norito")
+            .to_str()
+            .ok_or_else(|| invalid("carrier path"))?,
+        iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::CATALOG_MAX_BYTES_V1,
+        None,
+    )?;
+    let raw = DirectoryOriginalsV1::open_existing(
+        root.path().join("wallet-originals"),
+        PROVING_KEY_MAX_BYTES_V1,
+    )?;
+    iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::encode_wallet_carrier_v1(
+        &pack.bytes,
+        &catalog.bytes,
+        InstallationV1 {
+            scheme_id: digest(scheme)?,
+            manifest_digest: digest(manifest)?,
+        },
+        &raw,
+        destination,
+    )?;
+    pack.recheck()?;
+    catalog.recheck()?;
+    root.revalidate()?;
+    println!(
+        "Encoded carrier written to {destination}. Proof identities are unchanged; runtime selection and native installation remain separate."
+    );
+    Ok(())
+}
+
 fn main() {
     // The compiler inherits owner-only modes for temporary artifact originals.
     #[cfg(unix)]
@@ -706,7 +747,7 @@ fn main() {
     let result = match args.as_slice() {
         [help] if help == "--help" => {
             println!(
-                "kagemusha_wallet_artifacts --request ABSOLUTE_IMMUTABLE_PUBLIC_JSON [--reuse-candidates ABSOLUTE_IMMUTABLE_PUBLIC_JSON]\nConstructs native wallet originals and signs protocol certificates/manifest using the selected private recovery role keys. Explicit pinned candidate requests select original_groups from sigma, q, a, w, omega. Selected originals are indexed, then imported only for matching current sources; changed fingerprints compile fresh. Finality uses direct BLS verification and needs no proof artifacts. No network actions.\nRead-only source compatibility: --inspect-sources ABSOLUTE_CARRIER SCHEME_HEX MANIFEST_HEX. Checks every real source; does not admit genesis/finality or a wallet."
+                "kagemusha_wallet_artifacts --request ABSOLUTE_IMMUTABLE_PUBLIC_JSON [--reuse-candidates ABSOLUTE_IMMUTABLE_PUBLIC_JSON]\nConstructs native wallet originals and signs protocol certificates/manifest using the selected private recovery role keys. Explicit pinned candidate requests select original_groups from sigma, q, a, w, omega. Selected originals are indexed, then imported only for matching current sources; changed fingerprints compile fresh. Finality uses direct BLS verification and needs no proof artifacts. No network actions.\nRead-only source compatibility: --inspect-sources ABSOLUTE_CARRIER SCHEME_HEX MANIFEST_HEX. Checks every real source; does not admit genesis/finality or a wallet.\nLossless mobile carrier: --encode-carrier ABSOLUTE_RAW_CARRIER SCHEME_HEX MANIFEST_HEX ABSOLUTE_EXISTING_PRIVATE_OUTPUT. Checks the signed selection and all raw/stored identities; recomputes transport and financial metadata for independent runtime selection."
             );
             Ok(())
         }
@@ -718,6 +759,9 @@ fn main() {
         }
         [flag, path, scheme, manifest] if flag == "--inspect-sources" => {
             inspect_sources(path, scheme, manifest)
+        }
+        [flag, path, scheme, manifest, destination] if flag == "--encode-carrier" => {
+            encode_carrier(path, scheme, manifest, destination)
         }
         _ => Err(invalid(
             "usage: kagemusha_wallet_artifacts --request ABSOLUTE_IMMUTABLE_PUBLIC_JSON",
