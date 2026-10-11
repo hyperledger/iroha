@@ -706,7 +706,7 @@ fn main() {
     let result = match args.as_slice() {
         [help] if help == "--help" => {
             println!(
-                "kagemusha_wallet_artifacts --request ABSOLUTE_IMMUTABLE_PUBLIC_JSON [--reuse-candidates ABSOLUTE_IMMUTABLE_PUBLIC_JSON]\nConstructs native wallet originals and signs protocol certificates/manifest using the selected private recovery role keys. Explicit pinned candidate originals are indexed, then imported only for matching current sources; changed fingerprints compile fresh. Finality uses direct BLS verification and needs no proof artifacts. No network actions.\nRead-only source compatibility: --inspect-sources ABSOLUTE_CARRIER SCHEME_HEX MANIFEST_HEX. Checks every real source; does not admit genesis/finality or a wallet."
+                "kagemusha_wallet_artifacts --request ABSOLUTE_IMMUTABLE_PUBLIC_JSON [--reuse-candidates ABSOLUTE_IMMUTABLE_PUBLIC_JSON]\nConstructs native wallet originals and signs protocol certificates/manifest using the selected private recovery role keys. Explicit pinned candidate requests select original_groups from sigma, q, a, w, omega. Selected originals are indexed, then imported only for matching current sources; changed fingerprints compile fresh. Finality uses direct BLS verification and needs no proof artifacts. No network actions.\nRead-only source compatibility: --inspect-sources ABSOLUTE_CARRIER SCHEME_HEX MANIFEST_HEX. Checks every real source; does not admit genesis/finality or a wallet."
             );
             Ok(())
         }

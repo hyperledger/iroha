@@ -2,7 +2,7 @@
 //! compiler still synthesizes each current circuit and imports every matching key.
 use super::*;
 use iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::{
-    CATALOG_MAX_BYTES_V1, OriginalSinkV1, OriginalV1,
+    CATALOG_MAX_BYTES_V1, OriginalSinkV1, OriginalV1, ProducerInventoryV1,
 };
 use iroha_core_zk::kagemusha_wallet_proofs_v1::Error;
 
@@ -15,6 +15,45 @@ struct ReuseRequest {
     manifest_digest_hex: String,
     verifier_pack_sha256: String,
     producer_inventory_sha256: String,
+    original_groups: Vec<String>,
+}
+
+/// Catalog roles only select lookup candidates. They never grant source authority;
+/// every selected key still needs exact current fingerprint matching and full import.
+fn selected_originals(
+    inventory: &ProducerInventoryV1,
+    groups: &[String],
+) -> io::Result<Vec<OriginalV1>> {
+    if groups.is_empty() || groups.len() > 5 {
+        return Err(invalid("nonempty candidate original_groups required"));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut indices = std::collections::BTreeSet::new();
+    for group in groups {
+        if !seen.insert(group.as_str()) {
+            return Err(invalid("duplicate candidate original group"));
+        }
+        match group.as_str() {
+            "sigma" => indices.extend(inventory.sigma),
+            "q" => indices.extend(inventory.operations.iter().flat_map(|value| &value.q)),
+            "a" => indices.extend(inventory.operations.iter().flat_map(|value| &value.a)),
+            "w" => indices.extend(inventory.operations.iter().flat_map(|value| &value.w)),
+            "omega" => {
+                indices.insert(inventory.omega);
+            }
+            _ => return Err(invalid("unknown candidate original group")),
+        }
+    }
+    indices
+        .into_iter()
+        .map(|index| {
+            usize::try_from(index)
+                .ok()
+                .and_then(|index| inventory.originals.get(index))
+                .copied()
+                .ok_or_else(|| invalid("candidate original index outside catalog"))
+        })
+        .collect()
 }
 
 pub(super) trait CarrierSource {
@@ -73,7 +112,7 @@ impl Candidates {
         let inventory = installed
             .authenticate_producer_inventory(&catalog.bytes)
             .map_err(io::Error::other)?;
-        let originals = inventory.inventory().originals.clone();
+        let originals = selected_originals(inventory.inventory(), &request.original_groups)?;
         let mut identities = BTreeMap::new();
         for original in &originals {
             for blob in [
@@ -189,7 +228,7 @@ mod tests {
         )
         .unwrap();
         let input = format!(
-            r#"{{"schema":"iroha.kagemusha.wallet-artifact-candidates.v1","carrier_directory":"{}","scheme_id_hex":"{}","manifest_digest_hex":"{}","verifier_pack_sha256":"{}","producer_inventory_sha256":"{}"}}"#,
+            r#"{{"schema":"iroha.kagemusha.wallet-artifact-candidates.v1","carrier_directory":"{}","scheme_id_hex":"{}","manifest_digest_hex":"{}","verifier_pack_sha256":"{}","producer_inventory_sha256":"{}","original_groups":["sigma","q"]}}"#,
             root.path().display(),
             "11".repeat(32),
             "22".repeat(32),
@@ -198,6 +237,15 @@ mod tests {
         );
         let parsed: ReuseRequest = json::from_slice(input.as_bytes()).unwrap();
         assert_eq!(parsed.carrier_directory, root.path().to_str().unwrap());
+        assert_eq!(parsed.original_groups, ["sigma", "q"]);
+        assert!(
+            json::from_slice::<ReuseRequest>(
+                input
+                    .replace(",\"original_groups\":[\"sigma\",\"q\"]", "")
+                    .as_bytes()
+            )
+            .is_err()
+        );
         assert!(
             json::from_slice::<ReuseRequest>(
                 input.replacen('{', "{\"admitted\":true,", 1).as_bytes()
@@ -208,6 +256,61 @@ mod tests {
         assert!(Candidates::load(root.path().join("input.json").to_str().unwrap()).is_err());
         publish(&root, "verifier-pack.norito", b"tampered metadata").unwrap();
         assert!(Candidates::load(root.path().join("input.json").to_str().unwrap()).is_err());
+    }
+
+    #[test]
+    fn candidate_group_selection_is_exact_bounded_and_deduplicated() {
+        use iroha_core_zk::kagemusha_wallet_artifacts_v1::producer_inventory::OperationV1;
+        let originals: Vec<_> = (0..7)
+            .map(|index| {
+                let blob = BlobV1::of(&[index]);
+                OriginalV1 {
+                    descriptor: blob,
+                    verifying_key: blob,
+                    proving_key: blob,
+                }
+            })
+            .collect();
+        // Selection-only metadata fixture: this is never passed to the compiler or
+        // used as an authenticated inventory. Production calls only after authentication.
+        let inventory = ProducerInventoryV1 {
+            version: 1,
+            native_profile: [0; 32],
+            originals: originals.clone(),
+            sigma: [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+            operations: vec![OperationV1 {
+                variant: 1,
+                own_class: vec![],
+                incoming_class: vec![],
+                context: vec![],
+                q: vec![2, 3, 2],
+                a: vec![4],
+                w: vec![5],
+            }],
+            routes: vec![],
+            terminals: vec![4],
+            omega: 6,
+        };
+        let groups = |values: &[&str]| {
+            values
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            selected_originals(&inventory, &groups(&["sigma", "q"])).unwrap(),
+            originals[..4]
+        );
+        assert_eq!(
+            selected_originals(&inventory, &groups(&["omega", "w", "a", "q", "sigma"])).unwrap(),
+            originals
+        );
+        assert!(selected_originals(&inventory, &[]).is_err());
+        assert!(selected_originals(&inventory, &groups(&["q", "q"])).is_err());
+        assert!(selected_originals(&inventory, &groups(&["unverified"])).is_err());
+        let mut malformed = inventory;
+        malformed.operations[0].q.push(7);
+        assert!(selected_originals(&malformed, &groups(&["q"])).is_err());
     }
 
     #[test]
