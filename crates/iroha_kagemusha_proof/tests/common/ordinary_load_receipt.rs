@@ -13,7 +13,7 @@ const CAPTURE: &str = concat!(
     "/../../fixtures/kagemusha/ordinary_first_load_receipt_v1.json"
 );
 /// Read the exact separately generated first-Load capture with a finite extent.
-pub(crate) fn first_capture() -> String {
+pub fn first_capture() -> String {
     let metadata =
         fs::symlink_metadata(CAPTURE).expect("exact separately generated first-Load capture");
     assert!(metadata.file_type().is_file() && metadata.len() <= 1 << 20);
@@ -22,7 +22,7 @@ pub(crate) fn first_capture() -> String {
 
 /// Authenticate the original certificate and exact receipt event from signed genesis.
 /// This supplies fixture DATA after native BLS admission, never a catalog grant.
-pub(crate) fn verified_receipt(capture: &str) -> [u8; 282] {
+pub fn verified_receipt(capture: &str) -> [u8; 282] {
     let json: norito::json::Value = norito::json::from_str(capture).unwrap();
     let raw = |name: &str| {
         let text = json[name].as_str().unwrap();
@@ -53,8 +53,8 @@ pub(crate) fn verified_receipt(capture: &str) -> [u8; 282] {
         commit_qc: raw("commit_qc_frame_hex"),
         result_preimage: raw("result_preimage_hex"),
     };
-    let mut verifier = SumeragiCommitVerifierV1::new(&native).unwrap();
-    let verified = verifier.verify(&certificate).unwrap();
+    let mut certificate_verifier = SumeragiCommitVerifierV1::new(&native).unwrap();
+    let verified = certificate_verifier.verify(&certificate).unwrap();
     assert_eq!(verified.height(), 2);
     let receipt =
         iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLoadReceiptV1::decode_canonical(

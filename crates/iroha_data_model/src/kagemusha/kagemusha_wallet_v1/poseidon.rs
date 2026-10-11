@@ -134,10 +134,13 @@ pub const KAGEMUSHA_WALLET_CREDIT_STATUS_DOMAIN_V1: u64 = domain_v1(*b"kgwcsts1"
 /// `P_bytes` domain of the Credited digest (§5.1, owner answer A3).
 pub const KAGEMUSHA_WALLET_CREDITED_DOMAIN_V1: u64 = domain_v1(*b"kgwcrdd1");
 
+/// Opaque public identifier of the randomized private-capsule commitment.
+pub const KAGEMUSHA_WALLET_CAPSULE_COMMITMENT_DOMAIN_V1: u64 = domain_v1(*b"kgwcapc1");
+
 /// Every Poseidon domain of the wallet other than the signing domains
 /// ([`super::KagemushaWalletSigningDomainV1`]) and the object-digest domains
 /// ([`super::KagemushaWalletObjectDigestDomainV1`]), by use, in table order (wire record §3.2).
-pub const KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1: [(&str, u64); 33] = [
+pub const KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1: [(&str, u64); 34] = [
     ("core", KAGEMUSHA_WALLET_CORE_DOMAIN_V1),
     ("rest", KAGEMUSHA_WALLET_REST_DOMAIN_V1),
     ("statement", KAGEMUSHA_WALLET_STATEMENT_DOMAIN_V1),
@@ -201,6 +204,10 @@ pub const KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1: [(&str, u64); 33] = [
     ),
     ("credited_digest", KAGEMUSHA_WALLET_CREDITED_DOMAIN_V1),
     ("operation_id", KAGEMUSHA_WALLET_OPERATION_ID_DOMAIN_V1),
+    (
+        "capsule_commitment",
+        KAGEMUSHA_WALLET_CAPSULE_COMMITMENT_DOMAIN_V1,
+    ),
 ];
 
 /// Bytes of one `P_bytes` chunk: 31, so every chunk is a canonical field element.

@@ -308,10 +308,15 @@ impl TransitionOwner {
         capsule: &KagemushaWalletRecoveryCapsuleV1,
         capsule_digest: &[u8; 32],
     ) -> Result<(), ProviderError> {
-        invalid(capsule.validate())?;
-        invalid(capsule.statement.validate_for_credential(&self.credential))?;
-        if invalid(capsule.capsule_digest())? != *capsule_digest
-            || capsule.wallet_id != self.credential.body.wallet_id
+        invalid(capsule.body().validate())?;
+        invalid(
+            capsule
+                .body()
+                .statement
+                .validate_for_credential(&self.credential),
+        )?;
+        if capsule.custody_digest() != *capsule_digest
+            || capsule.body().wallet_id != self.credential.body.wallet_id
         {
             return Err(ProviderError::Invalid {
                 field: "state_owner.binding",
@@ -319,7 +324,7 @@ impl TransitionOwner {
         }
         if let KagemushaWalletEffectV1::Send {
             request: expected, ..
-        } = capsule.statement.effect
+        } = capsule.body().statement.effect
         {
             let request = self.request(capsule)?;
             if request.request_digest() != expected {
@@ -336,6 +341,7 @@ impl TransitionOwner {
         capsule: &KagemushaWalletRecoveryCapsuleV1,
     ) -> Result<KagemushaWalletRequestV1, ProviderError> {
         let mut requests = capsule
+            .body()
             .retained_inputs
             .iter()
             .filter(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request);
@@ -390,12 +396,20 @@ impl
         ))?;
         let body = invalid(KagemushaWalletReceiptBodyV1::derive(
             &signer,
-            &capsule.statement,
+            &capsule.body().statement,
             &invalid(capsule.proof_digest())?,
-            *capsule_digest,
-            capsule.payment_digest,
+            capsule.receipt_commitment(),
+            capsule.body().payment_digest,
         ))?;
         Ok(body.transcript())
+    }
+
+    fn require_completion(
+        &self,
+        capsule: &KagemushaWalletRecoveryCapsuleV1,
+        record: &KagemushaWalletCompletionRecordV1,
+    ) -> Result<(), ProviderError> {
+        invalid(record.verify(&self.credential, capsule)).map(|_| ())
     }
 
     fn assemble(
@@ -407,19 +421,19 @@ impl
         self.require(capsule, capsule_digest)?;
         let receipt = KagemushaWalletReceiptV1 {
             version: 1,
-            operation_id: capsule.operation_id,
-            capsule_digest: *capsule_digest,
-            payment_digest: capsule.payment_digest,
+            operation_id: capsule.body().operation_id,
+            capsule_commitment: capsule.receipt_commitment(),
+            payment_digest: capsule.body().payment_digest,
             signature: *signature,
         };
         let package = KagemushaWalletPackageV1::new(
-            capsule.statement.clone(),
-            capsule.predecessor_lineage.clone(),
-            capsule.step_proof.clone(),
+            capsule.body().statement.clone(),
+            capsule.body().predecessor_lineage.clone(),
+            capsule.body().step_proof.clone(),
             receipt,
         );
         invalid(package.verify(&self.credential))?;
-        let output = if capsule.kind == KagemushaWalletOperationKindV1::Send {
+        let output = if capsule.body().kind == KagemushaWalletOperationKindV1::Send {
             let request = self.request(capsule)?;
             invalid(KagemushaWalletPaymentV1::assemble(
                 &request,

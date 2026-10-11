@@ -101,7 +101,7 @@ fn invalid_objects_and_signatures_reach_the_original_tapes_without_repair() {
     changed.version = 19;
     changed.send.receipt.version = 23;
     changed.send.receipt.operation_id[0] ^= 1;
-    changed.send.receipt.capsule_digest[0] ^= 1;
+    changed.send.receipt.capsule_commitment[0] ^= 1;
     changed.send.receipt.payment_digest = Fp::from(31).to_repr();
     let key = SigningKey::from_slice(&[37; 32]).unwrap();
     let signature: Signature = key.sign(b"wrong incoming receipt message");
@@ -116,7 +116,7 @@ fn invalid_objects_and_signatures_reach_the_original_tapes_without_repair() {
     assert_eq!(&after.receipt[114..146], &changed.send.receipt.operation_id);
     assert_eq!(
         &after.receipt[274..306],
-        &changed.send.receipt.capsule_digest
+        &changed.send.receipt.capsule_commitment
     );
     assert_eq!(
         &after.receipt[306..338],
@@ -330,7 +330,7 @@ impl PreparationV1<'_> {
         let consumed = KagemushaWalletConsumedCreditLeafV1 {
             credit_id: request.credit_id(),
             amount: 7,
-            receive_sequence: source.frozen.capsule.successor_state.core.sequence + 1,
+            receive_sequence: source.frozen.capsule.body().successor_state.core.sequence + 1,
         };
         let mut tree = KagemushaWalletIndexedTreeV1::new();
         let maps = ReceiveMapsV1 {
@@ -388,7 +388,7 @@ impl PreparationV1<'_> {
             );
             assert_eq!(
                 restored.state().core.balance,
-                source.frozen.capsule.successor_state.core.balance + 7
+                source.frozen.capsule.body().successor_state.core.balance + 7
             );
             assert_eq!(restored.state().core.consumed_credit_root, tree.root());
             let projected = payment(restored.originals().1.unwrap()).unwrap();

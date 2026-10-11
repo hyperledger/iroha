@@ -207,7 +207,7 @@ fn wallet_advance_v1_reconcile_requires_the_marker_payment_key() {
 #[test]
 fn wallet_advance_v1_reconcile_repairs_capsule_copies_and_stops_without_any() {
     let (device, _f, slot, bootstrap) = bootstrapped_device(ANDROID, 0x55);
-    let digest = bootstrap.capsule_digest().expect("digest");
+    let digest = bootstrap.custody_digest();
     let dir = kagemusha_wallet_capsules_dir_v1(&slot);
     let primary = kagemusha_wallet_capsule_name_v1(1, &digest, KagemushaWalletCopyV1::Primary);
     let replica = kagemusha_wallet_capsule_name_v1(1, &digest, KagemushaWalletCopyV1::Replica);
@@ -244,7 +244,7 @@ fn wallet_advance_v1_reconcile_released_record_loss_never_signs_again() {
         let dir = kagemusha_wallet_completion_dir_v1(&slot);
         let mut provider = device.open();
         let KagemushaWalletLookupV1::Retained(retained) = provider
-            .lookup(&slot, &bootstrap.operation_id)
+            .lookup(&slot, &bootstrap.body().operation_id)
             .expect("lookup")
         else {
             panic!("retained");
@@ -253,7 +253,8 @@ fn wallet_advance_v1_reconcile_released_record_loss_never_signs_again() {
         let originals: Vec<_> = KagemushaWalletCopyV1::BOTH
             .iter()
             .map(|copy| {
-                let name = kagemusha_wallet_completion_name_v1(&bootstrap.operation_id, *copy);
+                let name =
+                    kagemusha_wallet_completion_name_v1(&bootstrap.body().operation_id, *copy);
                 let bytes = device.fs.visible_file(&dir, name.as_str()).expect("copy");
                 (name, bytes)
             })
@@ -295,7 +296,7 @@ fn wallet_advance_v1_reconcile_released_record_loss_never_signs_again() {
                 );
                 assert_eq!(faulted.platform.with(|state| state.sign_calls), signed);
                 assert_eq!(
-                    faulted_provider.lookup(&slot, &bootstrap.operation_id),
+                    faulted_provider.lookup(&slot, &bootstrap.body().operation_id),
                     Ok(KagemushaWalletLookupV1::Retained(retained.clone())),
                     "step {step}"
                 );
@@ -314,7 +315,7 @@ fn wallet_advance_v1_reconcile_released_record_loss_never_signs_again() {
             "{damage}: even with an owner"
         );
         assert_eq!(
-            provider.lookup(&slot, &bootstrap.operation_id),
+            provider.lookup(&slot, &bootstrap.body().operation_id),
             Ok(KagemushaWalletLookupV1::DeliveryDataLoss)
         );
         let enrollment = f.enrollment_record(super::super::test_support::BOOT_A);
@@ -776,7 +777,7 @@ fn wallet_advance_v1_reconcile_storage_locking_mid_reconcile_is_unavailable() {
     let mut provider = device.open();
     let dir = kagemusha_wallet_completion_dir_v1(&slot);
     for copy in KagemushaWalletCopyV1::BOTH {
-        let name = kagemusha_wallet_completion_name_v1(&bootstrap.operation_id, copy);
+        let name = kagemusha_wallet_completion_name_v1(&bootstrap.body().operation_id, copy);
         let _ = provider.store().remove_file(&dir, &name);
     }
     provider.poison(&slot);

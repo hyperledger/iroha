@@ -48,7 +48,8 @@ fn retained_delivery() -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
         .statement
         .operation_id(&wallet.wallet_id)
         .unwrap();
-    let send_capsule = payment.send.receipt.capsule_digest;
+    let send_capsule = [84; 32];
+    let send_commitment = payment.send.receipt.capsule_commitment;
     let send = NativeIntentV1::user(OperationRequestV1 {
         request_id: send_id,
         action: OperationActionV1::Send {
@@ -56,7 +57,7 @@ fn retained_delivery() -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
         },
     });
     wallet
-        .retain_delivery_test_mapping(send, send_capsule, send_operation)
+        .retain_delivery_test_mapping(send, send_capsule, send_commitment, send_operation)
         .unwrap();
     // Send completion/capsule/source are absent: only the explicit permanent tombstone is
     // available. A regression that reopens archive_send_source cannot pass this test.
@@ -73,6 +74,7 @@ fn retained_delivery() -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
     );
     let intent = NativeIntentV1::retained_delivery_test_originals(
         &payment,
+        send_capsule,
         request,
         credited.clone(),
         offer.payer_credential.to_canonical_bytes().unwrap(),
@@ -81,11 +83,20 @@ fn retained_delivery() -> (Wallet, [u8; 32], Vec<u8>, Vec<u8>) {
     let operation = [79; 32];
     let archive_capsule = [80; 32];
     wallet
-        .retain_delivery_test_mapping(intent, archive_capsule, operation)
+        .retain_delivery_test_mapping(
+            intent,
+            archive_capsule,
+            fixture::<KagemushaWalletCompletionRecordV1>("KagemushaWalletCompletionRecordV1")
+                .receipt
+                .capsule_commitment,
+            operation,
+        )
         .unwrap();
     let mut record: KagemushaWalletCompletionRecordV1 =
         fixture("KagemushaWalletCompletionRecordV1");
     record.operation_id = operation;
+    record.wallet_id = wallet.wallet_id;
+    record.capsule_digest = archive_capsule;
     let result = record.output.clone();
     wallet.custody.retained.insert(
         operation,
@@ -136,4 +147,37 @@ fn bound_delivery_foreign_request_and_unavailable_custody_never_mean_complete_or
     assert!(wallet.credited_status_for_send(&send, &credited).is_err());
     assert!(wallet.accept_credited_for_send(&send, &credited).is_err());
     assert_eq!(wallet.custody.signatures, 0);
+}
+
+#[test]
+fn bound_delivery_after_send_pruning_rejects_changed_private_tombstone() {
+    let (mut wallet, send, credited, _) = retained_delivery();
+    wallet
+        .custody
+        .tombstones
+        .values_mut()
+        .next()
+        .unwrap()
+        .capsule_digest[0] ^= 1;
+    assert!(wallet.credited_status_for_send(&send, &credited).is_err());
+    assert!(wallet.accept_credited_for_send(&send, &credited).is_err());
+    assert_eq!(wallet.custody.signatures, 0);
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn bound_delivery_after_send_pruning_rejects_mismatched_archive_completion_pair() {
+    for public in [false, true] {
+        let (mut wallet, send, credited, _) = retained_delivery();
+        let retained = wallet.custody.retained.values_mut().next().unwrap();
+        if public {
+            retained.record.receipt.capsule_commitment[0] ^= 1;
+        } else {
+            retained.record.capsule_digest[0] ^= 1;
+        }
+        assert!(wallet.credited_status_for_send(&send, &credited).is_err());
+        assert!(wallet.accept_credited_for_send(&send, &credited).is_err());
+        assert_eq!(wallet.custody.signatures, 0);
+        assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+    }
 }

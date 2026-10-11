@@ -166,7 +166,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             return Ok(plan.instruction_original);
         }
         let released = self.indexed_step(&manifest, manifest.indexed.ok_or(Error::NoHead)?)?;
-        let core = &released.frozen.capsule.successor_state.core;
+        let core = &released.frozen.capsule.body().successor_state.core;
         if core.lifecycle != KagemushaWalletLifecycleV1::Active {
             return Err(Error::Invalid("ledger Load lifecycle"));
         }

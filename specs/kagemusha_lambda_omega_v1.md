@@ -858,6 +858,18 @@ accumulator, G = ⟨s(u), g⟩ is determined by u and the pinned generators. D_A
 so it adds no information beyond that public tuple. Q, A and the local fold proofs are
 not transported; `wallet_id` and `payment_key` are already public.
 
+A receipt's public `capsule_commitment` binds its frozen private recovery body
+through the selected private opening described in proposal §4.1. For any fixed
+body and auxiliary information fixed before independent uniform r is drawn,
+`m0 g[0] + m1 g[1] + r w` is uniform in Vesta. Its deterministic `kgwcapc1` hash
+therefore has the same distribution for every body, including the explicit
+zero-hash refusal branch. This does not assert a uniform digest or a 1/p zero
+probability. The private wrapper hash and r never appear in that receipt.
+Binding uses SHA/Poseidon collision resistance and the admitted IPA tuple's
+existing generator-relation premise. A/Q continue to authenticate the opaque
+receipt field and payment-key signature; the trusted native provider verifies
+the full wrapper and opening before signing.
+
 These local facts do not prove privacy of the joint public transcript. The two exposed
 challenge vectors come from non-hiding folds and can share inputs correlated with
 public σ proofs and earlier accumulators. A simulator must handle both vectors and Ω

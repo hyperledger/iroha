@@ -1,6 +1,6 @@
 //! Deferred current-Omega incoming API differential against retained native case outputs.
 //!
-//! Uses the actual ArchiveReceive AProofPlan and incoming decoder/verifier chain.
+//! Uses the actual `ArchiveReceive` `AProofPlan` and incoming decoder/verifier chain.
 //! It does not qualify a complete Archive/Receive operation, fold or release.
 
 use super::{
@@ -161,11 +161,11 @@ impl Circuit<Fp> for IncomingBoundary {
                 );
                 out.extend(incoming.vesta.words());
                 append_p(&mut out, &incoming.opening);
-                let carrier = transport.active_carrier()?;
-                out.push(carrier.length().word().clone());
+                let active_bytes = transport.active_carrier()?;
+                out.push(active_bytes.length().word().clone());
                 let lanes = chip.operation_lanes()?;
                 let mut uint = UintChip::new(lanes.glue, lanes.range);
-                out.push(carrier.packed().digest(
+                out.push(active_bytes.packed().digest(
                     &mut uint,
                     lanes.hash.sponge_mut()?,
                     &mut r,

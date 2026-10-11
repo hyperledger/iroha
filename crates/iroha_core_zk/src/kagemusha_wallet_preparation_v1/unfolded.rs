@@ -62,12 +62,12 @@ impl PreparationV1<'_> {
         // operation consumed one, never a fold of this current source head.
         self.receipt_tape(owner, source, budget)?;
         let capsule = &source.frozen.capsule;
-        authority(statement.validate_successor_of(&capsule.statement))?;
+        authority(statement.validate_successor_of(&capsule.body().statement))?;
         let statement_fields = self.statement_fields(owner, statement)?;
         let relation = self.installed.verifier().scheme().relation_id;
         let before = local_state(
             &owner.credential,
-            &capsule.successor_state,
+            &capsule.body().successor_state,
             relation,
             self.omega_key_digest,
         )?;
@@ -76,7 +76,7 @@ impl PreparationV1<'_> {
             || statement.lifecycle != state.core.lifecycle
             || statement.sequence != state.core.sequence
             || statement.next_load != state.core.next_load
-            || statement.enabled_controls != capsule.successor_state.core.enabled_controls
+            || statement.enabled_controls != capsule.body().successor_state.core.enabled_controls
         {
             return Err(Error::Authority);
         }

@@ -36,6 +36,9 @@ use super::{
     service_bootstrap::authorization::BootstrapChildAuthorization,
 };
 use journal::Original;
+#[path = "reserve_policy/initial_admission.rs"]
+mod initial_admission;
+use initial_admission::InitialAdmission;
 
 /// Exact original activation joined to fresh native evidence at a separately observed cut.
 ///
@@ -160,26 +163,40 @@ impl ManagedInitialReservePolicy {
         self.authority.validate_profile()?;
         self.validate_policy(policy)?;
         let directory = self.authority.directory.ensure_child("set")?;
-        let original = self.select_intent(&directory, policy, options.deadline)?;
+        let (original, _) = self.select_intent(&directory, policy, options.deadline)?;
         let account = AccountService::new(self.authority.config.clone())
             .map_err(|_| invalid("cannot open initial reserve wallet"))?;
         journal::explicit(&directory, &original, utc, options, &account)?;
         self.advance(options.deadline)
     }
 
-    fn select_intent(
+    fn select_intent<'a>(
         &mut self,
-        directory: &PrivateDirectory,
+        directory: &'a PrivateDirectory,
         policy: &ReserveAuthorityPolicyV1,
         deadline: Instant,
-    ) -> Result<Original> {
+    ) -> Result<(Original, Option<InitialAdmission<'a>>)> {
+        self.select_intent_using(directory, policy, deadline, Self::observe)
+    }
+
+    fn select_intent_using<'a>(
+        &mut self,
+        directory: &'a PrivateDirectory,
+        policy: &ReserveAuthorityPolicyV1,
+        deadline: Instant,
+        observe: impl FnOnce(
+            &mut Self,
+            &ReserveAuthorityPolicyV1,
+            Instant,
+        ) -> Result<(FinalityVerifier, VerifiedReservePolicyStateV1)>,
+    ) -> Result<(Original, Option<InitialAdmission<'a>>)> {
         if let Some(original) = journal::read_intent(directory)? {
             original.matches_policy(policy)?;
             self.validate_original(&original)?;
-            return Ok(original);
+            return Ok((original, None));
         }
         require_empty(directory)?;
-        let (verifier, current) = self.observe(policy, deadline)?;
+        let (verifier, current) = observe(self, policy, deadline)?;
         if current.current().is_some() {
             return Err(invalid("initial reserve policy already exists"));
         }
@@ -189,8 +206,9 @@ impl ManagedInitialReservePolicy {
             checkpoint: checkpoint_bytes(&verifier)?,
         };
         self.validate_original(&original)?;
-        journal::publish_intent(directory, &original)?;
-        Ok(original)
+        let admission = journal::publish_intent(directory, &original)?
+            .map(|published| InitialAdmission::new(published, verifier, current));
+        Ok((original, admission))
     }
 
     pub(super) fn advance_selected(
@@ -207,7 +225,7 @@ impl ManagedInitialReservePolicy {
         }
         self.validate_policy(policy)?;
         let directory = self.authority.directory.ensure_child("set")?;
-        let original = self.select_intent(&directory, policy, deadline)?;
+        let (original, mut admission) = self.select_intent(&directory, policy, deadline)?;
         let account = AccountService::new(self.authority.config.clone())
             .map_err(|_| invalid("cannot open initial reserve wallet"))?;
         let account = authorization.bind_account(account)?;
@@ -244,12 +262,8 @@ impl ManagedInitialReservePolicy {
                     )
                     .map_err(|_| invalid("cannot retain exact unsigned reserve request"))
             },
-            |_, deadline| {
-                let (_, current) = self.observe(policy, deadline)?;
-                if current.current().is_some() {
-                    return Err(invalid("initial reserve policy already exists"));
-                }
-                Ok(Observation::ordinary())
+            |prerequisite, deadline| {
+                self.initial_prerequisite(&original, &mut admission, prerequisite, deadline)
             },
             |_| Ok(true),
         )?;
@@ -330,6 +344,38 @@ impl ManagedInitialReservePolicy {
         mode: Advance<'_>,
         observe_current: bool,
         retained_account: Option<AccountService>,
+    ) -> Result<ManagedReservePolicyProgress> {
+        self.advance_original_with_preflight(
+            deadline,
+            mode,
+            observe_current,
+            retained_account,
+            |owner, policy, deadline| {
+                let observed = owner.authority.observe_finality(deadline).ok();
+                let current = observed
+                    .as_ref()
+                    .and_then(|verifier| owner.read_current(policy, verifier, deadline).ok());
+                (observed, current)
+            },
+        )
+    }
+
+    // The sole advance owner receives the same pre-effect observation. Native component
+    // controls supply actual executed proofs here; no test can replace the effect predicates.
+    fn advance_original_with_preflight(
+        &mut self,
+        deadline: Instant,
+        mode: Advance<'_>,
+        observe_current: bool,
+        retained_account: Option<AccountService>,
+        preflight: impl FnOnce(
+            &mut Self,
+            &ReserveAuthorityPolicyV1,
+            Instant,
+        ) -> (
+            Option<FinalityVerifier>,
+            Option<VerifiedReservePolicyStateV1>,
+        ),
     ) -> Result<ManagedReservePolicyProgress> {
         require_deadline(deadline)?;
         self.authority.validate_profile()?;
@@ -426,10 +472,7 @@ impl ManagedInitialReservePolicy {
             return Ok(progress(&original, status, None, None));
         }
         // Existing signed work remains observable during a current-state/quorum outage.
-        let observed = self.authority.observe_finality(deadline).ok();
-        let current = observed
-            .as_ref()
-            .and_then(|verifier| self.read_current(&original.policy, verifier, deadline).ok());
+        let (observed, current) = preflight(self, &original.policy, deadline);
         let absent = current
             .as_ref()
             .is_some_and(|state| state.current().is_none());
@@ -736,3 +779,7 @@ mod bootstrap_test_support;
 #[cfg(test)]
 #[path = "reserve_policy/epoch_test_support.rs"]
 mod epoch_test_support;
+
+#[cfg(test)]
+#[path = "reserve_policy/initial_admission_tests.rs"]
+mod initial_admission_tests;

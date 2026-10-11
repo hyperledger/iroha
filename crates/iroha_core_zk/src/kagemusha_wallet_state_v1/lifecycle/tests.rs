@@ -19,7 +19,7 @@ impl NativePreparation for TestProofs {
             Some(&source.released().frozen),
             KagemushaWalletEffectV1::Retiring,
         );
-        let c = &mut retiring.capsule;
+        let mut c = retiring.capsule.body().clone();
         c.predecessor_lineage = KagemushaWalletLineageSlotV1::Present {
             lineage: fold.lineage.clone(),
         };
@@ -34,6 +34,11 @@ impl NativePreparation for TestProofs {
             &c.payment_digest,
         )
         .unwrap();
+        retiring.capsule = c
+            .freeze()
+            .expect("valid synthetic body")
+            .seal([0; 32])
+            .expect("synthetic opening");
         archive::encode(&retiring)
     }
 
@@ -47,8 +52,8 @@ impl NativePreparation for TestProofs {
         let prepared: FrozenTransition = archive::decode(plan)?;
         prepared.validate()?;
         if request.user_request().map(|request| &request.action) != Some(&OperationActionV1::Retire)
-            || prepared.capsule.predecessor_capsule_digest
-                != source.released().frozen.capsule.capsule_digest().unwrap()
+            || prepared.capsule.body().predecessor_capsule_digest
+                != source.released().frozen.capsule.custody_digest()
         {
             return Err(Error::Invalid("test plan binding"));
         }
@@ -110,6 +115,7 @@ fn exact_request_replay_survives_restart_without_reproving_or_resigning() {
         .unwrap()
         .frozen
         .capsule
+        .body()
         .operation_id;
     assert_ne!(
         actual, request.request_id,
@@ -307,8 +313,9 @@ fn source_rotation_does_not_rebase_a_durable_plan_or_repeat_proving() {
         .plan_preparation(&NativeIntentV1::user(request()), &source, &mut custody)
         .unwrap();
     let mut other: FrozenTransition = archive::decode(&plan).unwrap();
-    other.capsule.successor_state.core.state_nonce = field(91);
-    rebind_frozen_successor(&mut other);
+    let mut body = other.capsule.body().clone();
+    body.successor_state.core.state_nonce = field(91);
+    rebind_frozen_successor(&mut other, body);
     wallet.commit(other).unwrap();
     let count = wallet.proofs.preparations.load(Ordering::SeqCst);
     wallet.proofs.fail_preparation_proof = false;
@@ -367,9 +374,9 @@ fn prepared_capsule_keeps_exact_durable_plan_after_completion_and_restart() {
     assert_eq!(plan.request, NativeIntentV1::user(request()));
     assert_eq!(
         plan.source,
-        released.frozen.capsule.predecessor_capsule_digest
+        released.frozen.capsule.body().predecessor_capsule_digest
     );
-    let capsule = released.frozen.capsule.capsule_digest().unwrap();
+    let capsule = released.frozen.capsule.custody_digest();
     let bad = manifest
         .capsule_plans
         .set(&mut wallet.archive, capsule, &[7; 31])

@@ -21,6 +21,8 @@ use super::*;
 
 #[path = "full_catalog/acceptance.rs"]
 mod acceptance;
+#[path = "full_catalog/mask_boundary.rs"]
+mod mask_boundary;
 #[path = "full_catalog/reuse.rs"]
 mod reuse;
 #[path = "full_catalog/transport.rs"]
@@ -278,6 +280,9 @@ fn complete_wallet_catalog_from_pinned_genesis() {
         &BlobV1::of(&bytes).sha256,
     )
     .unwrap();
+    // wallet_pack strictly imports both new and reused originals. Inspect the
+    // final Omega role, retaining its inventory even if the predicate refuses.
+    mask_boundary::assert_final_omega(&inventory, &mut originals);
     assert_eq!(inventory.routes.len(), compiled_routes().len());
     eprintln!(
         "WALLET_SOURCE_CATALOG routes={} programs={} terminal_keys={} originals={} stored_bytes={} signed=false qualified_wallet=false actual_receipt_proof=false",

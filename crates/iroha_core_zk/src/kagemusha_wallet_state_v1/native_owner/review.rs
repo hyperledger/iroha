@@ -197,11 +197,11 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         if marker.marker().scheme_id != self.scheme_id
             || marker.marker().wallet_id != self.wallet_id
             || marker.payment_key() != &released.frozen.credential.body.payment_key
-            || sequence != capsule.statement.sequence
-            || operation_id != capsule.operation_id
-            || head != capsule.statement.successor
-            || head != valid(capsule.successor_state.commitment())?
-            || capsule_digest != valid(capsule.capsule_digest())?
+            || sequence != capsule.body().statement.sequence
+            || operation_id != capsule.body().operation_id
+            || head != capsule.body().statement.successor
+            || head != valid(capsule.body().successor_state.commitment())?
+            || capsule_digest != capsule.custody_digest()
             || capsule_digest != released.retained.capsule_digest
             || operation_id != released.retained.operation_id
             || marker.selected_generation() != Some(released.retained.selected_generation)
@@ -393,7 +393,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             charge_quote_digest,
             scheme_id: self.scheme_id,
             wallet_id: self.wallet_id,
-            current_head: released.frozen.capsule.statement.successor.value,
+            current_head: released.frozen.capsule.body().statement.successor.value,
             source_state_commitment: valid(before.commitment())?.value,
             source_capsule_digest: released.retained.capsule_digest,
             credential_digest: owner.credential().credential_digest(),

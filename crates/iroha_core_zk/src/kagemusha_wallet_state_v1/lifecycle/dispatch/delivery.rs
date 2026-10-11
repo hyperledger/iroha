@@ -6,11 +6,11 @@ fn require_bound_payment(
     original: &[u8],
     scheme: &[u8; 32],
     wallet: &[u8; 32],
-    capsule: &[u8; 32],
+    commitment: &[u8; 32],
     operation: &[u8; 32],
 ) -> Result<(), Error> {
     let payment = valid(KagemushaWalletPaymentV1::decode_canonical(original, scheme))?;
-    if payment.send.receipt.capsule_digest != *capsule
+    if payment.send.receipt.capsule_commitment != *commitment
         || valid(payment.send.statement.operation_id(wallet))? != *operation
     {
         return Err(Error::WitnessLost("bound Archive Send operation"));
@@ -50,10 +50,13 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let capsule = send
             .capsule
             .ok_or(Error::Invalid("Send has no selected operation"))?;
+        let commitment = send
+            .capsule_commitment
+            .ok_or(Error::WitnessLost("selected Send commitment"))?;
         let operation = send
             .operation
             .ok_or(Error::WitnessLost("selected Send operation"))?;
-        match self.retry(&operation)? {
+        match self.retry_bound_operation(&capsule, &commitment, &operation)? {
             Some(Completion::Complete(_)) | Some(Completion::Archived) => {}
             Some(Completion::Pending) => return Err(Error::Pending),
             _ => return Err(Error::WitnessLost("selected Send completion")),
@@ -72,6 +75,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 .ok_or(Error::WitnessLost("bound Archive intent kind"))?;
             if intent.request_id() != archive_id
                 || archive.send_capsule != capsule
+                || archive.send_commitment != commitment
                 || archive.request != *request
                 || archive.credited != credited
             {
@@ -81,7 +85,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 &archive.payment,
                 &self.scheme_id,
                 &self.wallet_id,
-                &capsule,
+                &commitment,
                 &operation,
             )?;
             return Ok(intent);
@@ -102,8 +106,9 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             KagemushaWalletCreditedEvidenceV1::Status { status } => status.opening.credit_id,
         };
         let (source, certificates) = self.archive_send_source(&credit)?;
-        if valid(source.frozen.capsule.capsule_digest())? != capsule
-            || source.frozen.capsule.operation_id != operation
+        if source.frozen.capsule.custody_digest() != capsule
+            || source.frozen.capsule.receipt_commitment() != commitment
+            || source.frozen.capsule.body().operation_id != operation
         {
             return Err(Error::Invalid("Credited names another Send"));
         }
@@ -143,7 +148,7 @@ mod tests {
         let original = payment.to_canonical_bytes().unwrap();
         let wallet = payment.request.body.payer_wallet_id;
         let scheme = payment.send.statement.scheme_id;
-        let capsule = payment.send.receipt.capsule_digest;
+        let capsule = payment.send.receipt.capsule_commitment;
         let operation = payment.send.statement.operation_id(&wallet).unwrap();
         require_bound_payment(&original, &scheme, &wallet, &capsule, &operation).unwrap();
         assert!(require_bound_payment(&original, &scheme, &[9; 32], &capsule, &operation).is_err());
@@ -210,6 +215,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 .write_object(&archive::encode(&request)?, REQUEST_MAX_BYTES)?,
             plan: None,
             capsule: None,
+            capsule_commitment: None,
             operation: None,
         };
         self.publish_preparation(&mut selected, &mut manifest, request.request_id(), &entry)
@@ -219,6 +225,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         &mut self,
         request: NativeIntentV1,
         capsule: [u8; 32],
+        commitment: [u8; 32],
         operation: [u8; 32],
     ) -> Result<(), Error> {
         let (mut selected, mut manifest) = self.manifest()?;
@@ -228,6 +235,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                 .write_object(&archive::encode(&request)?, REQUEST_MAX_BYTES)?,
             plan: None,
             capsule: Some(capsule),
+            capsule_commitment: Some(commitment),
             operation: Some(operation),
         };
         self.publish_preparation(&mut selected, &mut manifest, request.request_id(), &entry)

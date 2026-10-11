@@ -94,16 +94,50 @@ fn with_graph_root<T>(
 }
 
 pub(super) fn validate(current: &History) -> Result<()> {
-    validate_bounded(current, MAX_RETAINED_BODIES)
+    validate_bounded(current, MAX_RETAINED_BODIES, None)
 }
 
 // A standalone body scope reserves one graph slot for its own not-yet-read History.
 pub(super) fn validate_predecessor(prior: &VerifiedUnsignedClosure) -> Result<()> {
-    validate_bounded(prior.retained_history(), MAX_RETAINED_BODIES - 1)?;
+    validate_bounded(prior.retained_history(), MAX_RETAINED_BODIES - 1, None)?;
     prior.require_receipt()
 }
 
-fn validate_bounded(current: &History, maximum: usize) -> Result<()> {
+// Only a surrounding sealed native read owner lends this snapshot; every mutable graph
+// direction and its independent native root/tree exits still execute. The existing semantic
+// witness is stronger than required: it proves exact Snapshot membership and original body
+// layout/identity. Foreign, unrecognized and late-active inputs retain the standalone recipe.
+pub(super) fn validate_in_snapshot(
+    current: &History,
+    snapshot: &SnapshotReadPass<'_>,
+) -> Result<()> {
+    validate_bounded(current, MAX_RETAINED_BODIES, Some(snapshot))
+}
+pub(super) fn validate_predecessor_in_snapshot(
+    prior: &VerifiedUnsignedClosure,
+    snapshot: &SnapshotReadPass<'_>,
+) -> Result<()> {
+    validate_bounded(
+        prior.retained_history(),
+        MAX_RETAINED_BODIES - 1,
+        Some(snapshot),
+    )?;
+    prior.require_receipt()
+}
+fn validate_bounded(
+    current: &History,
+    maximum: usize,
+    snapshot: Option<&SnapshotReadPass<'_>>,
+) -> Result<()> {
+    let snapshot = snapshot.filter(|snapshot| {
+        !norito::core::decode_limits_active()
+            && current.scope.covers_semantic_original(
+                snapshot,
+                &current.operation,
+                current.purpose,
+                current.semantic,
+            )
+    });
     #[cfg(test)]
     let _graph_timing = finish_timing::phase(finish_timing::Phase::GraphValidate);
     #[cfg(test)]
@@ -128,7 +162,7 @@ fn validate_bounded(current: &History, maximum: usize) -> Result<()> {
     // predecessor, preserve that common path without replaying it a second time.
     if count == 0 {
         return with_native_read_tree(current, |tree| {
-            current.require_current_local_in_tree(None, tree, None, None)
+            current.require_current_local_in_tree(snapshot, tree, None, None)
         });
     }
     // Authenticate all ancestors before the selected node, then recheck in reverse order.
@@ -137,7 +171,7 @@ fn validate_bounded(current: &History, maximum: usize) -> Result<()> {
     // Its borrowed pass covers only pointer-identical immutable prefixes. Both complete
     // mutable traversals retain their own native ancestry bracket, local attempt census,
     // inventory and receipt checks, with no wallet callback or effect between directions.
-    current.scope.with_snapshot_read_pass(&mut |pass| {
+    let mut directions = |pass: Option<&SnapshotReadPass<'_>>| {
         // Immutable leaf observations consolidate only inside this callback-free graph.
         // Persistent source/native refusal at the full snapshot exit overrides every
         // ordinary inner result. A leaf changed and restored inside may be unseen;
@@ -182,7 +216,11 @@ fn validate_bounded(current: &History, maximum: usize) -> Result<()> {
                 Ok(())
             })
         })
-    })
+    };
+    match snapshot {
+        Some(snapshot) => directions(Some(snapshot)),
+        None => current.scope.with_snapshot_read_pass(&mut directions),
+    }
 }
 
 // Each full traversal or parser-local census owns a separate native ancestry bracket.

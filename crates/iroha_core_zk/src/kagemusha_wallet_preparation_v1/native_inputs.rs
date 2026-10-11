@@ -225,10 +225,14 @@ impl PreparationV1<'_> {
         let capsule = &step.frozen.capsule;
         let fields = self.load_fields(owner, step, predecessor, public, budget)?;
         let insertion = load_recovery(
-            &capsule.statement.effect,
-            &capsule.map_openings,
+            &capsule.body().statement.effect,
+            &capsule.body().map_openings,
             &predecessor.source_state.core.load_redeem_recovery_root,
-            &capsule.successor_state.core.load_redeem_recovery_root,
+            &capsule
+                .body()
+                .successor_state
+                .core
+                .load_redeem_recovery_root,
         )?;
         Ok(LoadFoldFieldsV1 {
             state: fields.state,
@@ -273,7 +277,7 @@ impl PreparationV1<'_> {
         public: &KagemushaWalletLineagePublicV1,
         budget: MemoryBudget,
     ) -> Result<BootstrapFoldFieldsV1, Error> {
-        no_map_openings(&step.frozen.capsule.map_openings)?;
+        no_map_openings(&step.frozen.capsule.body().map_openings)?;
         let fields = self.bootstrap_fields(owner, step, public, budget)?;
         Ok(BootstrapFoldFieldsV1 {
             state: fields.state,
@@ -315,13 +319,23 @@ impl PreparationV1<'_> {
         budget: MemoryBudget,
     ) -> Result<ConsumingFoldFieldsV1, Error> {
         let capsule = &step.frozen.capsule;
-        let fields =
-            self.consuming_fields(capsule.kind, owner, step, predecessor, public, budget)?;
+        let fields = self.consuming_fields(
+            capsule.body().kind,
+            owner,
+            step,
+            predecessor,
+            public,
+            budget,
+        )?;
         let recovery = consuming_recovery(
-            &capsule.statement.effect,
-            &capsule.map_openings,
+            &capsule.body().statement.effect,
+            &capsule.body().map_openings,
             &predecessor.source_state.core.load_redeem_recovery_root,
-            &capsule.successor_state.core.load_redeem_recovery_root,
+            &capsule
+                .body()
+                .successor_state
+                .core
+                .load_redeem_recovery_root,
         )?;
         Ok(ConsumingFoldFieldsV1 {
             state: fields.state,

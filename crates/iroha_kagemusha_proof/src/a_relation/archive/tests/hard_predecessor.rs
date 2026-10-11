@@ -328,7 +328,7 @@ fn actual_omega_hard_predecessor_matches_native_and_witnessless_layout() {
     let instance_bytes = instances
         .iter()
         .flatten()
-        .flat_map(|v| v.to_repr())
+        .flat_map(PrimeField::to_repr)
         .collect::<Vec<_>>();
     retain(&output, "native-omega-instances.bin", &instance_bytes);
     let public = vec![expected.clone()];

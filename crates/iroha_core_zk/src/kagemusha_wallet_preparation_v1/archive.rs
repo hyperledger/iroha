@@ -173,11 +173,11 @@ impl PreparationV1<'_> {
         let KagemushaWalletEffectV1::ArchiveSent {
             credit_id,
             credited,
-        } = capsule.statement.effect
+        } = capsule.body().statement.effect
         else {
             return Err(Error::Authority);
         };
-        if capsule.kind != KagemushaWalletOperationKindV1::ArchiveSent {
+        if capsule.body().kind != KagemushaWalletOperationKindV1::ArchiveSent {
             return Err(Error::Authority);
         }
         let (successor, statement, receipt) =
@@ -185,17 +185,17 @@ impl PreparationV1<'_> {
         let retained = retained::originals(
             self.installed.verifier().scheme(),
             &owner.credential,
-            &capsule.retained_inputs,
+            &capsule.body().retained_inputs,
         )?;
         if retained.pending.credit_id != credit_id {
             return Err(Error::Authority);
         }
         let (core, core_after) = removal(
-            &removal_original(&capsule.map_openings)?,
+            &removal_original(&capsule.body().map_openings)?,
             &predecessor.source_state.core.pending_outgoing_root,
             &retained.pending,
         )?;
-        if core_after != capsule.successor_state.core.pending_outgoing_root {
+        if core_after != capsule.body().successor_state.core.pending_outgoing_root {
             return Err(Error::Authority);
         }
         let (adjusted, _) = removal(
@@ -205,7 +205,7 @@ impl PreparationV1<'_> {
         )?;
         let evidence = evidence::original(
             retained_original(
-                &capsule.retained_inputs,
+                &capsule.body().retained_inputs,
                 KagemushaWalletRetainedInputRoleV1::Credited,
             )?,
             &retained.request,
@@ -225,7 +225,7 @@ impl PreparationV1<'_> {
                 owner.certificate_tape.clone(),
                 receipt,
             ],
-            sigma: capsule.step_proof.bytes.clone(),
+            sigma: capsule.body().step_proof.bytes.clone(),
             retained: retained.native,
             evidence,
             results: witness.results,

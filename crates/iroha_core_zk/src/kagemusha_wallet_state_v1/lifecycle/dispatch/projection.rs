@@ -143,7 +143,13 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         {
             return Err(Error::WitnessLost("Receive projection source mapping"));
         }
-        let completion = self.retry(&step.operation)?;
+        let completion = self.retry_bound_operation(
+            &step.capsule,
+            &entry
+                .capsule_commitment
+                .ok_or(Error::WitnessLost("Receive commitment mapping"))?,
+            &step.operation,
+        )?;
         if completion == Some(Completion::Archived) && !step.collected {
             return Err(Error::WitnessLost("unselected Receive collection"));
         }
@@ -166,7 +172,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             };
             let package: KagemushaWalletPackageV1 = archive::decode(&original)?;
             if package.receipt.operation_id != step.operation
-                || package.receipt.capsule_digest != step.capsule
+                || Some(package.receipt.capsule_commitment) != entry.capsule_commitment
                 || package.receipt.payment_digest != identity.payment
                 || package.statement.sequence != credit.sequence
                 || package.statement.scheme_id != self.scheme_id
@@ -244,7 +250,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         if credit_id != identity.credit_id
             || credited != valid(anchor_original.verify_for(&scheme, &request, &payment))?.0
             || entry.operation != Some(package.receipt.operation_id)
-            || entry.capsule != Some(package.receipt.capsule_digest)
+            || entry.capsule_commitment != Some(package.receipt.capsule_commitment)
             || valid(package.statement.operation_id(&self.wallet_id))?
                 != package.receipt.operation_id
         {

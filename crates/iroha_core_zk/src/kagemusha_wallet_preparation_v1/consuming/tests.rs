@@ -59,7 +59,7 @@ impl Source {
         let capsule: KagemushaWalletRecoveryCapsuleV1 = fixture("KagemushaWalletRecoveryCapsuleV1");
         let request: KagemushaWalletRequestV1 = norito::decode_from_bytes(
             retained_original(
-                &capsule.retained_inputs,
+                &capsule.body().retained_inputs,
                 KagemushaWalletRetainedInputRoleV1::Request,
             )
             .unwrap(),

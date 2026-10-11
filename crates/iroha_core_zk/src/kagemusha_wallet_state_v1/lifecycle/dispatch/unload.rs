@@ -81,7 +81,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let package: KagemushaWalletPackageV1 = archive::decode(&retained.record.output)?;
         if package.receipt != retained.record.receipt
             || package.receipt.operation_id != operation
-            || package.receipt.capsule_digest != capsule
+            || Some(package.receipt.capsule_commitment) != entry.capsule_commitment
         {
             return Err(Error::WitnessLost("Unload package binding"));
         }

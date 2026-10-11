@@ -221,7 +221,7 @@ impl PreparationV1<'_> {
             let capsule = &source.frozen.capsule;
             let (state, statement, witness) = derive(
                 &owner.credential,
-                &capsule.successor_state,
+                &capsule.body().successor_state,
                 &receipt,
                 originals.insertion,
                 successor_nonce,
@@ -229,10 +229,10 @@ impl PreparationV1<'_> {
                 self.omega_key_digest,
             )?;
             self.statement_fields(owner, &statement)?;
-            authority(statement.validate_successor_of(&capsule.statement))?;
+            authority(statement.validate_successor_of(&capsule.body().statement))?;
             Ok(LoadStepV1 {
                 manifest_digest: owner.manifest_digest,
-                source_capsule_digest: authority(capsule.capsule_digest())?,
+                source_capsule_digest: capsule.custody_digest(),
                 witness,
                 state,
                 statement,

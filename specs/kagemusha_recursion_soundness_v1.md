@@ -18,7 +18,12 @@ Poseidon implementation is a heuristic instantiation of that model.
 [BCMS20](https://eprint.iacr.org/2020/499.pdf) gives accumulation definitions,
 a PCD construction and a discrete-log polynomial-commitment accumulation
 construction (§§4–7 and Appendix A). [BCLMS21](https://eprint.iacr.org/2020/1618)
-studies split accumulation and PCD under discrete-log assumptions in the ROM.
+studies split accumulation under discrete-log assumptions in the ROM.
+Its PCD transformation, like BCMS20's, instead assumes the required argument
+and accumulation security in the standard CRS model; the concrete recursive
+construction follows after heuristic instantiation. The ROM accumulation
+results therefore do not by themselves establish security of the
+oracle-dependent recursive relation implemented here.
 [BGH19](https://eprint.iacr.org/2019/1021) is the underlying Halo construction.
 These results motivate the architecture; citing them does not prove that the
 particular layouts, encodings, mixed-curve wiring or containment rule here
@@ -1165,9 +1170,12 @@ algorithm on the recovered typed argument. For identical provider responses,
 configuration and matched external events, the entire response, partial
 transcript, residual oracle and provider trace are pointwise identical. Thus
 each conditional local distance is zero without an ideal-entropy or random-
-oracle substitution for these identical calls. The capsule-derived `kgwqnon1`
-query still occurs before preparation and remains in the common prior state,
-even though Load does not use its result in a Q-local fold. Additional decoding
+oracle substitution for these identical calls. The `kgwqnon1` query derives Q's
+nonce from the authenticated signed public capsule commitment d, while private h
+still selects and authenticates the original checkpoints. The query occurs before
+preparation and remains in the common prior state, even though Load does not use
+its result in a Q-local fold. This nonce is deterministic public data, not fresh
+private entropy; complete ordered inputs are still absorbed before challenges. Additional decoding
 or native validation work must occur before the cut or be charged explicitly;
 silently repeating preparation afterward would invalidate this equality.
 
@@ -1178,15 +1186,21 @@ Their stage-public inputs are not the final external wallet/payment view:
 those inputs still include the original sigma and signatures. Their joint
 distribution, hidden source hashing, coherent recursive setup and the different
 A/W/Omega algorithms' shared RP57 interface remain obligations. The private
-native inverse and proof-parity tests now have a separately reviewed four-file
-implementation in `target/qualification/c12-load-q-public-inverse-draft-1`.
-Its manifest SHA is `2b67be25aae2fefe9af91202378c59b227ec5e43dc1a8ae413244c6c2b04656a`.
-The patch is unapplied, uncompiled and unrun. Eleven ordinary controls and two
-ignored genuine tests preserve canonical fields/tapes, exact native policy
-and pre-cut validation, then compare the unchanged native prover under matched
-deterministic recovery contexts and actual 32-byte provider responses. Running
-the genuine tests requires seven proofs, four keygens and three strict imports;
-source review does not supply those results or an OS entropy claim.
+native inverse and proof-parity tests are applied after independent review of
+the four-file implementation and current compatibility joins. Capture3 compiles
+the selected targets after an explicit Fq test type correction. All eleven
+ordinary decoding/refusal controls pass. The two explicitly selected genuine
+tests also pass: Q0 verifies three proofs, and the signature cases verify four,
+with four total key generations and three strict original imports. The retained
+results are `target/qualification/load-q-public-inverse-controls-3`,
+`load-q-public-inverse-q0-parity-3` and
+`load-q-public-inverse-signature-parity-3`. Exact proof bytes, provider-event tapes
+and source/copy custody match; independent compiler-input review admits this
+component capture with its recorded external-input provenance limitations.
+These tests preserve canonical fields/tapes, native policy and pre-cut validation
+under matched deterministic recovery contexts and actual32-byte provider responses.
+They do not establish different-history privacy, an OS entropy claim or full C12,
+and subsequent quotient/dependency changes require new candidate qualification.
 The source argument and independent review are retained at
 `target/qualification/c12-load-q-public-reconstruction-1` (argument SHA
 `6dca35a226079f9d317b40391d939871fcbc559867d01bcb844e2fcb894105ab`,
@@ -1232,6 +1246,125 @@ non-probe bodies remain byte-identical. The initial source refusal is retained.
 This establishes diagnostic regression results, not operational equivalence,
 current setup authority or C12. Actual large A1 construction remains unexecuted,
 and unchanged inner recursive constants cannot supply coherent recursive authority.
+
+### Conditional fresh Load head
+
+The exact current head layout also admits a narrower, independently reviewed
+local lemma under an **ordinary ideal-permutation interface**. This is not an
+adopted release assumption about fixed RP57. The33 core words place the nonce
+last; the eight rest words and padding give the final two permutation edges
+
+`X = (a, b + N, c + R), U = π(X), Z = U + (0, 1, 0), V = π(Z), head = V₁`.
+
+For a fresh legal Load, all prefix values are independent of the new sampler
+coins. The analysis conditions on the actual prior private/public table plus
+six rest and seventeen head-prefix positions, with at most K edges. For an
+ordinary nonzero predecessor nonce, the sampler accepts s=p−2 field values in
+at most128 independent256-bit fills. Each fill clears only bit255 and then rejects
+zero, the predecessor and noncanonical Fp values without modular reduction. Every
+accepted scalar has exactly two raw preimages, so the conditional nonce remains
+uniform over that same set. Its exhaustion branch is
+`f = (1 − s/2²⁵⁵)¹²⁸ < 2⁻¹²⁸`, since the pinned modulus satisfies p−2 > 2²⁵⁴.
+For Bootstrap's zero predecessor, s=p−1 and the same strict bound applies, but
+its different exclusion set still requires its own branch comparison. Entropy
+errors return immediately; the128-fill cap includes all rejected values. This
+sampler improvement does not establish any OS entropy or full-view privacy claim.
+
+With at most Q subsequent outside primitive operations, a conservative stopped
+first-hit bound is
+
+`e = min(1, K/s + (3K+2)/p³ + 2Q(1/s + 2/p³ + 1/p²))`.
+
+This pays for both private edges and outside hits on their endpoints. The
+`p⁻²` term is necessary because V₁ is disclosed. Private prefix evaluation only
+reads the sampled permutation under the ordinary forward/inverse interface;
+it exposes no occupancy, programming-refusal, cache-hit or table-size bit.
+Thus unequal hidden balances and prefixes need not be equated. Retain d_B for
+the actual prior joint-view distance, including nonce-independent public roots
+and the ordinary residual oracle. A common continuation gives the conditional
+bound `min(1, d_B + (1−f)(e₀+e₁) + ε_rng,0 + ε_rng,1 + ε_interface)`.
+Provider/entropy failures, visible resource effects and the zero-head rejection
+must remain explicit. Exact selected replay reuses its original head and nonce;
+it is not another fresh sample.
+
+The stronger interface with observable occupied-input programming refusals can
+probe a guessed unsalted prefix before this late nonce. The ordinary lemma
+therefore cannot be transferred to an arbitrary programmable simulator. This
+interface counterexample is not an observed attack on fixed Poseidon. The
+capsule commitment, public-map joint law, proof simulation and future
+source-dependent wallet operations remain separate obligations. In particular,
+the capsule commitment requires the independent-opening law below; its native
+construction and failures cannot simply be placed in d_B as nonce-independent
+data. No C12 or fixed-RP57 theorem follows from this local result. Exact arguments and root
+source/mathematical review are retained in
+`target/qualification/c12-fresh-head-ordinary-oracle-lemma-1` and
+`c12-fresh-head-root-review-1` (review SHA
+`cf56180dbeb4e9ffa1f6007737745ce51499f9a2c85be3250d99eced3200b9e2`).
+
+### Selected recovery capsule commitment
+
+The sole first-release custody design uses the exact frozen canonical body B,
+`b = H("capsule-body", B)`, two injective LE128 digest limbs m0,m1 in Fp, and an
+independent canonical opening r in Fp. Its Vesta point is
+`C = m0 g[0] + m1 g[1] + r w`; the public receipt identifier is
+`d = P_bytes(kgwcapc1, enc(C))`. The private canonical wrapper W=(B,r) is selected
+and authenticated by `H("capsule", W)`. C and d are recomputed from validated W,
+not trusted as serialized caches. Opening a commitment needs B and r. Custody
+identities, the body hash and r are excluded from the public receipt.
+
+For every fixed B and pre-opening auxiliary state, nonidentity w maps uniform
+r bijectively onto the prime-order Vesta group. Thus the distribution of d is
+independent of B for any fixed deterministic identifier hash, without a SHA
+random-oracle or hiding premise. Applying the same explicit zero-d refusal to
+that distribution preserves this local law. Identity C is accepted. Neither
+d's uniformity nor a 1/p refusal probability follows. Under independent uniform
+256-bit entropy fills, clear only bit 255 before rejecting noncanonical Fp
+scalars, for at most 128 attempts. Every 255-bit candidate has exactly two raw
+preimages, so accepted r is exactly uniform, including zero. Since
+`2^254 < p < 2^255`, exhaustion is `(1 - p/2^255)^128 < 2^-128`. Real entropy errors and deviation from this ideal law
+remain explicit rather than being conditioned away.
+
+Two different accepted body/opening pairs sharing one signed d yield either a
+Poseidon collision on distinct canonical C encodings, a SHA collision between
+different B, or a nontrivial relation among g[0], g[1], w. The last case uses the
+existing admitted IPA vector-commitment premise, not point validity or discrete
+log hardness alone. The generator messages under `Halo2-Parameters` are
+`[0,0,0,0,0]`, `[0,1,0,0,0]` and `[1]`. Generator derivation, installed tuple
+identity and shared-setup assumptions remain part of qualification. No new
+caller-supplied points or private-input variable-time kernel are permitted.
+
+The independent-opening law holds jointly with the entire state fixed before r,
+including the actual statement/head, public roots, σ and Ω(pred), even when they
+are correlated with the hidden body. It adds no body-hiding premise to that
+pre-opening tuple. It does not hide separately disclosed fields or establish
+the joint law of commitments to hidden balances and maps. Receipt signing extends
+this law only under the same admitted key/provider-state/randomness/error
+interface and a common or explicitly charged release kernel. Public message
+syntax alone does not couple resource or custody failures.
+
+Keep pre-r freeze/cap failures and post-r private h-zero/custody refusals in the
+total experiment. For an efficiently generated frozen B, two independent uniform
+openings produce distinct canonical W frames hashing to zero with probability
+at least `(E[Pr_r[h(B,r)=0]])² − 1/p`. Thus a collision-resistance bound ε_CR at
+that reduction's actual budget gives an unconditional h-zero bound
+`sqrt(ε_CR + 1/p)`. This includes the square-root security loss; neither a
+`2^-256` zero probability nor 128-bit quantitative security follows by assertion.
+It does not charge other provider failures, and finite-sampler/entropy deviations
+remain explicit. The source-bound local argument is retained in
+`target/qualification/c12-capsule-signed-publication-joint-law-1/argument.md`;
+its review SHA is `63df45183f0c9e4e6fdcc240ec7eb9c1e14dca657a9bb3008fb56fa065eb805f`.
+That memo precedes the public-d Q nonce amendment and does not qualify its runtime.
+
+Future Q folding derives its deterministic nonce from authenticated public d;
+h continues to authenticate private checkpoint/source custody. This removes one
+private-h-dependent query without making Q's nonce fresh or hiding its source
+witnesses. The final joint proof still needs the head/σ/Ω/public-root law, coherent
+setup, the residual-oracle continuation and related private W/r/h successor
+states, including total failures and exact replay. After durable W or selection,
+replay uses the identical wrapper and recorded output; missing openings invoke
+reconciliation or custody loss. Verification never draws a replacement opening.
+C12 remains open pending that argument and validation of the current
+implementation, keys, SDK vectors and durable retry joins.
 
 ## Executable checks and remaining review
 

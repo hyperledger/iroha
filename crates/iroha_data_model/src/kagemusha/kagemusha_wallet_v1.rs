@@ -92,8 +92,9 @@ mod vectors_tests;
 pub use self::{
     custody::{
         KAGEMUSHA_WALLET_OUTPUT_TRANSCRIPT_BYTES_V1, KagemushaWalletCompletionRecordV1,
-        KagemushaWalletFoldRecordV1, KagemushaWalletMarkerStateV1, KagemushaWalletMarkerV1,
-        KagemushaWalletOutputDescriptorV1, KagemushaWalletRecoveryCapsuleV1,
+        KagemushaWalletFoldRecordV1, KagemushaWalletFrozenRecoveryBodyV1,
+        KagemushaWalletMarkerStateV1, KagemushaWalletMarkerV1, KagemushaWalletOutputDescriptorV1,
+        KagemushaWalletRecoveryBodyV1, KagemushaWalletRecoveryCapsuleV1,
         KagemushaWalletRetainedInputRoleV1, KagemushaWalletRetainedInputV1,
         KagemushaWalletTerminalReasonV1, kagemusha_wallet_output_digest_v1,
         kagemusha_wallet_output_transcript_v1,
@@ -239,7 +240,7 @@ pub use self::{
     poseidon::{
         KAGEMUSHA_WALLET_BLACKLIST_HISTORY_VALUE_DOMAIN_V1,
         KAGEMUSHA_WALLET_BLACKLIST_LEAF_DOMAIN_V1, KAGEMUSHA_WALLET_BLACKLIST_NODE_DOMAIN_V1,
-        KAGEMUSHA_WALLET_CERTIFICATE_SET_DOMAIN_V1,
+        KAGEMUSHA_WALLET_CAPSULE_COMMITMENT_DOMAIN_V1, KAGEMUSHA_WALLET_CERTIFICATE_SET_DOMAIN_V1,
         KAGEMUSHA_WALLET_CONSUMED_CREDIT_VALUE_DOMAIN_V1, KAGEMUSHA_WALLET_CORE_DOMAIN_V1,
         KAGEMUSHA_WALLET_CREDIT_DIGEST_VALUE_DOMAIN_V1, KAGEMUSHA_WALLET_CREDIT_DOMAIN_V1,
         KAGEMUSHA_WALLET_CREDIT_OPENING_DOMAIN_V1, KAGEMUSHA_WALLET_CREDIT_STATUS_DOMAIN_V1,

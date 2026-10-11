@@ -23,6 +23,7 @@ enum Intent {
 pub(crate) struct ArchiveIntentV1 {
     request_id: [u8; 32],
     pub(crate) send_capsule: [u8; 32],
+    pub(crate) send_commitment: [u8; 32],
     pub(crate) request: Vec<u8>,
     pub(crate) payment: Vec<u8>,
     pub(crate) credential: Vec<u8>,
@@ -94,7 +95,9 @@ impl NativeIntentV1 {
                 let certificates: KagemushaWalletCertificateSetV1 =
                     archive::decode(&request.certificates)?;
                 valid(payment.verify(scheme, &payer, &certificates, &originals))?;
-                if payment.send.receipt.capsule_digest != request.send_capsule {
+                if payment.send.receipt.capsule_commitment != request.send_commitment
+                    || request.send_commitment == [0; 32]
+                {
                     return Err(Error::Invalid("Archive retained Send identity"));
                 }
                 // Incoming receipt signatures, proof validity and membership stay soft
@@ -135,12 +138,13 @@ impl NativeIntentV1 {
         certificates: Vec<u8>,
         credited: Vec<u8>,
     ) -> Result<Self, Error> {
-        if send.frozen.capsule.kind != KagemushaWalletOperationKindV1::Send {
+        if send.frozen.capsule.body().kind != KagemushaWalletOperationKindV1::Send {
             return Err(Error::Invalid("Archive requires retained Send"));
         }
         let mut requests = send
             .frozen
             .capsule
+            .body()
             .retained_inputs
             .iter()
             .filter(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request);
@@ -152,15 +156,24 @@ impl NativeIntentV1 {
         if requests.next().is_some() {
             return Err(Error::WitnessLost("Archive duplicate Send Request"));
         }
-        let send_capsule = valid(send.frozen.capsule.capsule_digest())?;
+        valid(
+            send.retained
+                .record
+                .verify(&send.frozen.credential, &send.frozen.capsule),
+        )?;
+        let send_capsule = send.frozen.capsule.custody_digest();
+        if send.retained.capsule_digest != send_capsule {
+            return Err(Error::WitnessLost("Archive selected Send custody"));
+        }
         Ok(Self {
             value: Intent::Archive(ArchiveIntentV1 {
                 request_id: Self::archive_identity(
                     &send_capsule,
-                    &send.frozen.capsule.wallet_id,
+                    &send.frozen.capsule.body().wallet_id,
                     &credited,
                 ),
                 send_capsule,
+                send_commitment: send.frozen.capsule.receipt_commitment(),
                 request,
                 payment: send.retained.record.output.clone(),
                 credential: valid(send.frozen.credential.to_canonical_bytes())?,
@@ -185,12 +198,12 @@ impl NativeIntentV1 {
     #[cfg(test)]
     pub(in crate::kagemusha_wallet_state_v1) fn retained_delivery_test_originals(
         payment: &KagemushaWalletPaymentV1,
+        capsule: [u8; 32],
         request: Vec<u8>,
         credited: Vec<u8>,
         credential: Vec<u8>,
         certificates: Vec<u8>,
     ) -> Self {
-        let capsule = payment.send.receipt.capsule_digest;
         Self {
             value: Intent::Archive(ArchiveIntentV1 {
                 request_id: Self::archive_identity(
@@ -199,6 +212,7 @@ impl NativeIntentV1 {
                     &credited,
                 ),
                 send_capsule: capsule,
+                send_commitment: payment.send.receipt.capsule_commitment,
                 request,
                 payment: payment.to_canonical_bytes().unwrap(),
                 credential,

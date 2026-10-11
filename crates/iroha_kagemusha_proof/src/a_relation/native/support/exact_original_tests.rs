@@ -2,7 +2,9 @@
 
 use super::*;
 
-fn source() -> ([Vec<u8>; 3], Vec<Vec<Fq>>, [Fp; 4], [[u64; 4]; 2]) {
+type SourceFixture = ([Vec<u8>; 3], Vec<Vec<Fq>>, [Fp; 4], [[u64; 4]; 2]);
+
+fn source() -> SourceFixture {
     let kinds = [
         ObjectKind::Credential,
         ObjectKind::Certificate,
@@ -206,7 +208,12 @@ fn own_sigma_refuses_missing_export_and_wrong_selected_range() {
         &[Fp::ZERO; 26],
     );
     let words = vec![vec![Fq::from_repr(digest.to_repr()).unwrap()]];
-    for range in [0..1, 1..0, 1..4, usize::MAX..usize::MAX] {
+    for range in [
+        0..1,
+        core::ops::Range { start: 1, end: 0 },
+        1..4,
+        usize::MAX..usize::MAX,
+    ] {
         assert_eq!(
             check_own_sigma_tape(&words, range, &[Fp::ZERO; 26], &[0; 32]),
             Err(Error::Input)

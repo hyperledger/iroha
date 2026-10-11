@@ -543,10 +543,10 @@ fn actual_two_sigma_q_proof_verifies() {
         let prover = mount(&original, config).expect("installed Q original");
         assert_eq!(prover.binding(), producer.binding());
         assert_eq!(prover.verifying_key().to_bytes(), installed_vk);
-        let (bound_d,bound_v,seal)=prover.into_metadata().into_parts();
-        let view=seal.bind(&bound_d,&bound_v,None).unwrap();
-        assert!(core::ptr::eq(view.binding(),&bound_d));
-        assert!(core::ptr::eq(view.verifying_key(),&bound_v));
+        let (retained_descriptor,bound_v,seal)=prover.into_metadata().into_parts();
+        let view=seal.bind(&retained_descriptor,&bound_v,None).unwrap();
+        assert!(core::ptr::eq(view.binding(),&raw const retained_descriptor));
+        assert!(core::ptr::eq(view.verifying_key(),&raw const bound_v));
         let prover=iroha_kagemusha_proof::q_sigma::native::QSigmaProverView::from_source_bound(&params,view,&plan,None).unwrap();
         let cancelled = iroha_pasta::CancellationToken::new(); cancelled.cancel();
         assert!(QSigmaProver::from_original_artifact_cancellable(
@@ -631,10 +631,13 @@ fn installed_serialized_q_originals_prove_and_reject_default_profile() {
     .expect("genuine installed serialized Q original");
     assert_eq!(imported.binding(), producer.binding());
     assert_eq!(imported.verifying_key().to_bytes(), vk);
-    let (bound_d, bound_v, seal) = imported.into_metadata().into_parts();
-    let view = seal.bind(&bound_d, &bound_v, None).unwrap();
-    assert!(core::ptr::eq(view.binding(), &bound_d));
-    assert!(core::ptr::eq(view.verifying_key(), &bound_v));
+    let (retained_descriptor, bound_v, seal) = imported.into_metadata().into_parts();
+    let view = seal.bind(&retained_descriptor, &bound_v, None).unwrap();
+    assert!(core::ptr::eq(
+        view.binding(),
+        &raw const retained_descriptor
+    ));
+    assert!(core::ptr::eq(view.verifying_key(), &raw const bound_v));
     let imported = iroha_kagemusha_proof::q_sigma::native::QSigmaProverView::from_source_bound(
         &params,
         view,

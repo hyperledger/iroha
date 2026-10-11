@@ -42,15 +42,15 @@ fn released_output(step: &ReleasedStep) -> Result<NativeReleasedOutputV1, Error>
             .record
             .verify(&step.frozen.credential, capsule),
     )?;
-    if step.retained.operation_id != capsule.operation_id
-        || step.retained.capsule_digest != valid(capsule.capsule_digest())?
+    if step.retained.operation_id != capsule.body().operation_id
+        || step.retained.capsule_digest != capsule.custody_digest()
         || step.retained.frame != valid(step.retained.record.to_canonical_bytes())?
         || step.retained.completion_digest != valid(step.retained.record.completion_digest())?
     {
         return Err(Error::WitnessLost("output retained binding"));
     }
     let original = step.retained.record.output.clone();
-    let peer = match capsule.kind {
+    let peer = match capsule.body().kind {
         KagemushaWalletOperationKindV1::Send => Some((3, original.clone())),
         KagemushaWalletOperationKindV1::Receive => {
             let package: KagemushaWalletPackageV1 = archive::decode(&original)?;
@@ -66,9 +66,9 @@ fn released_output(step: &ReleasedStep) -> Result<NativeReleasedOutputV1, Error>
         _ => None,
     };
     Ok(NativeReleasedOutputV1 {
-        operation_id: capsule.operation_id,
-        kind: capsule.kind,
-        sequence: capsule.statement.sequence,
+        operation_id: capsule.body().operation_id,
+        kind: capsule.body().kind,
+        sequence: capsule.body().statement.sequence,
         original,
         peer,
     })
@@ -219,10 +219,10 @@ mod tests {
             panic!("Request fixture family");
         };
         let credential = request.receiver_credential;
-        assert_eq!(credential.body.wallet_id, capsule.wallet_id);
+        assert_eq!(credential.body.wallet_id, capsule.body().wallet_id);
         assert_eq!(
             credential.credential_digest(),
-            capsule.statement.credential_digest
+            capsule.body().statement.credential_digest
         );
         record
             .verify(&credential, &capsule)
@@ -247,7 +247,7 @@ mod tests {
         let step = received();
         let value = released_output(&step).unwrap();
         assert_eq!(value.kind, KagemushaWalletOperationKindV1::Receive);
-        assert_eq!(value.operation_id, step.frozen.capsule.operation_id);
+        assert_eq!(value.operation_id, step.frozen.capsule.body().operation_id);
         assert_eq!(value.original, step.retained.record.output);
         let (kind, bytes) = value.peer.unwrap();
         assert_eq!(kind, 4);
@@ -274,7 +274,20 @@ mod tests {
                 2 => step.retained.frame[0] ^= 1,
                 3 => step.retained.completion_digest[0] ^= 1,
                 4 => step.retained.record.output[0] ^= 1,
-                _ => step.frozen.capsule.operation_id[0] ^= 1,
+                _ => {
+                    let body = step.frozen.capsule.body().clone();
+                    let mut opening = [0; 32];
+                    let mut replacement = body.clone().freeze().unwrap().seal(opening).unwrap();
+                    if replacement == step.frozen.capsule {
+                        opening[0] = 1;
+                        replacement = body.freeze().unwrap().seal(opening).unwrap();
+                    }
+                    assert_ne!(
+                        replacement.custody_digest(),
+                        step.frozen.capsule.custody_digest()
+                    );
+                    step.frozen.capsule = replacement;
+                }
             }
             assert!(released_output(&step).is_err(), "mutation {mutation}");
         }
@@ -332,7 +345,7 @@ mod tests {
             wallet_id: body.wallet_id,
             payment_key: body.payment_key,
             generation: 1,
-            state: step.frozen.capsule.head_marker_state().unwrap(),
+            state: step.frozen.capsule.head_marker_state(),
         };
         (
             SlotStatus::Pending(metadata_marker(marker, [0; 32])),

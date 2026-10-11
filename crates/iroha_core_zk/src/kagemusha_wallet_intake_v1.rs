@@ -374,10 +374,12 @@ fn source<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1>(
     }
     if let Some(capsule) = provider.current_capsule(slot)? {
         capsule
+            .body()
             .successor_state
             .validate_for_credential(credential)
             .map_err(|_| Error::Authority("source credential/state"))?;
         capsule
+            .body()
             .statement
             .validate_for_credential(credential)
             .map_err(|_| Error::Authority("source credential/statement"))?;

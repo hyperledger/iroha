@@ -135,13 +135,92 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         }
         Ok(expected_digest)
     }
+    // Canonical output supplies only an untrusted sequence locator. The selected
+    // StepEntry's exact completion hash authenticates h, signed d and every output byte,
+    // including after intentional wrapper collection. This never scans history.
+    pub(super) fn require_retained_output(
+        &mut self,
+        operation: &[u8; 32],
+        retained: &Retained<KagemushaWalletCompletionRecordV1>,
+    ) -> Result<(), Error> {
+        let record = &retained.record;
+        if record.output.len() > KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 {
+            return Err(Error::WitnessLost("retry output bound"));
+        }
+        let header = norito::core::Header::read(record.output.as_slice())
+            .map_err(|_| Error::WitnessLost("retry output header"))?;
+        // These are the two current wire types, selected by their declared schema.
+        // A failed parse never falls through to another type or retired layout.
+        let package = if header.schema
+            == norito::schema::identity::frame_hash::<KagemushaWalletPaymentV1>()
+        {
+            valid(KagemushaWalletPaymentV1::decode_canonical(
+                &record.output,
+                &self.scheme_id,
+            ))?
+            .send
+        } else if header.schema
+            == norito::schema::identity::frame_hash::<KagemushaWalletPackageV1>()
+        {
+            let package = valid(KagemushaWalletPackageV1::decode_canonical(
+                &record.output,
+                &self.scheme_id,
+            ))?;
+            if package.statement.effect.kind() == KagemushaWalletOperationKindV1::Send {
+                return Err(Error::WitnessLost("retry Send output type"));
+            }
+            package
+        } else {
+            return Err(Error::WitnessLost("retry output schema"));
+        };
+        if package.receipt != record.receipt
+            || record.operation_id != *operation
+            || retained.operation_id != *operation
+            || record.wallet_id != self.wallet_id
+            || valid(package.statement.operation_id(&self.wallet_id))? != *operation
+            || retained.capsule_digest != record.capsule_digest
+            || retained.frame != valid(record.to_canonical_bytes())?
+            || retained.completion_digest != valid(record.completion_digest())?
+        {
+            return Err(Error::WitnessLost("retry completion binding"));
+        }
+        let sequence = package.statement.sequence;
+        let (_, manifest) = self.manifest()?;
+        if manifest.indexed.is_none_or(|last| sequence > last) {
+            // Advance may release just before its StepEntry is published. Admit only
+            // that exact current marker and W; never scan/reconstruct the history.
+            let SlotStatus::Released(marker) = self.status()? else {
+                return Err(Error::WitnessLost("unindexed retry source"));
+            };
+            if marker.head() != Some((sequence, *operation, retained.capsule_digest))
+                || marker.completion_digest() != Some(retained.completion_digest)
+                || marker.selected_generation() != Some(retained.selected_generation)
+            {
+                return Err(Error::WitnessLost("unindexed retry marker"));
+            }
+            let frozen = self.frozen(retained.capsule_digest)?;
+            valid(record.verify(&frozen.credential, &frozen.capsule))?;
+            return Ok(());
+        }
+        let entry = self.step_entry(&manifest, sequence)?;
+        if entry.operation != *operation
+            || entry.capsule != retained.capsule_digest
+            || entry.selected_generation != retained.selected_generation
+            || entry.completion != retained.completion_digest
+            || entry.kind != package.statement.effect.kind()
+        {
+            return Err(Error::WitnessLost("retry selected completion binding"));
+        }
+        Ok(())
+    }
+
     pub(super) fn checked_step(&mut self, digest: [u8; 32]) -> Result<ReleasedStep, Error> {
         let frozen = self.frozen(digest)?;
         let c = &frozen.capsule;
-        let Lookup::Retained(retained) = self.custody.lookup(&c.operation_id)? else {
+        let Lookup::Retained(retained) = self.custody.lookup(&c.body().operation_id)? else {
             return Err(Error::WitnessLost("released completion"));
         };
-        if retained.operation_id != c.operation_id
+        if retained.operation_id != c.body().operation_id
             || retained.capsule_digest != digest
             || retained.frame != valid(retained.record.to_canonical_bytes())?
             || retained.completion_digest != valid(retained.record.completion_digest())?
@@ -167,11 +246,11 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         if step.retained.operation_id != entry.operation
             || step.retained.selected_generation != entry.selected_generation
             || step.retained.completion_digest != entry.completion
-            || step.frozen.capsule.kind != entry.kind
+            || step.frozen.capsule.body().kind != entry.kind
         {
             return Err(Error::WitnessLost("step metadata"));
         }
-        if step.frozen.capsule.statement.sequence != sequence {
+        if step.frozen.capsule.body().statement.sequence != sequence {
             return Err(Error::WitnessLost("indexed sequence"));
         }
         Ok(step)
@@ -224,32 +303,32 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     return Err(Error::WitnessLost("indexed boundary"));
                 }
                 let boundary = self.indexed_step(&manifest, current)?;
-                if boundary.frozen.capsule.statement.successor != head {
+                if boundary.frozen.capsule.body().statement.successor != head {
                     return Err(Error::WitnessLost("indexed boundary head"));
                 }
                 break;
             }
             let step = self.checked_step(digest)?;
             let c = &step.frozen.capsule;
-            if c.statement.sequence != current || c.statement.successor != head {
+            if c.body().statement.sequence != current || c.body().statement.successor != head {
                 return Err(Error::WitnessLost("capsule chain"));
             }
             let entry = StepEntry {
                 capsule: digest,
-                operation: c.operation_id,
+                operation: c.body().operation_id,
                 selected_generation: step.retained.selected_generation,
                 completion: step.retained.completion_digest,
-                kind: c.kind,
+                kind: c.body().kind,
                 checkpoints: 0,
                 collected: false,
             };
-            self.index_source_custody(&mut manifest, digest, c.kind)?;
+            self.index_source_custody(&mut manifest, digest, c.body().kind)?;
             manifest.steps = manifest.steps.set(
                 &mut self.archive,
                 sequence_key(current),
                 &archive::encode(&entry)?,
             )?;
-            if let KagemushaWalletEffectV1::Send { credit_id, .. } = c.statement.effect {
+            if let KagemushaWalletEffectV1::Send { credit_id, .. } = c.body().statement.effect {
                 if manifest
                     .outgoing
                     .get(&mut self.archive, &credit_id)?
@@ -264,7 +343,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             }
             if let KagemushaWalletEffectV1::Receive {
                 credit_id, amount, ..
-            } = c.statement.effect
+            } = c.body().statement.effect
             {
                 if manifest
                     .credits
@@ -274,7 +353,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     return Err(Error::WitnessLost("duplicate committed Receive"));
                 }
                 let entry = ConsumedCredit {
-                    payment_digest: c.payment_digest,
+                    payment_digest: c.body().payment_digest,
                     amount,
                     sequence: current,
                 };
@@ -286,8 +365,8 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
             }
             self.retain_fee_claim(&mut manifest, &step)?;
             self.retain_blacklist_source(&mut manifest, &step)?;
-            digest = c.predecessor_capsule_digest;
-            head = c.statement.predecessor;
+            digest = c.body().predecessor_capsule_digest;
+            head = c.body().statement.predecessor;
             if current == 0 {
                 if digest != [0; 32] || !head.is_zero() || manifest.indexed.is_some() {
                     return Err(Error::WitnessLost("bootstrap boundary"));

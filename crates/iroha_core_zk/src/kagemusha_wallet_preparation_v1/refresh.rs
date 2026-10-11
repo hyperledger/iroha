@@ -323,7 +323,7 @@ fn decode_update(
     current: &KagemushaWalletCredentialV1,
     successor: &KagemushaWalletCredentialV1,
     source: &KagemushaWalletStateV1,
-    capsule: &KagemushaWalletRecoveryCapsuleV1,
+    capsule: &KagemushaWalletRecoveryBodyV1,
     original_update: &[u8],
 ) -> Result<DecodedRefresh, Error> {
     let KagemushaWalletEffectV1::RefreshPolicy { update_kind, .. } = capsule.statement.effect
@@ -503,13 +503,14 @@ impl PreparationV1<'_> {
         self.credential_owner(owners.successor)?;
         let capsule = &step.frozen.capsule;
         if predecessor.manifest_digest != self.installed.verifier().manifest_digest()
-            || predecessor.source_capsule_digest != capsule.predecessor_capsule_digest
+            || predecessor.source_capsule_digest != capsule.body().predecessor_capsule_digest
             || predecessor.credential != owners.current.credential
         {
             return Err(Error::Authority);
         }
         authority(
             capsule
+                .body()
                 .statement
                 .validate_successor_of(&predecessor.source_statement),
         )?;
@@ -518,12 +519,12 @@ impl PreparationV1<'_> {
             &owners.current.credential,
             &owners.successor.credential,
             &predecessor.source_state,
-            capsule,
+            capsule.body(),
             original_update,
         )?;
         exact_successor(
             &predecessor.source_state,
-            &capsule.successor_state,
+            &capsule.body().successor_state,
             &decoded,
         )?;
         // A renewal preserves payment-key identity; its successor credential is the
@@ -531,8 +532,8 @@ impl PreparationV1<'_> {
         let receipt = self.receipt_tape(owners.successor, step, budget)?;
         let (successor, statement) = self.successor_fields(
             owners.successor,
-            &capsule.successor_state,
-            &capsule.statement,
+            &capsule.body().successor_state,
+            &capsule.body().statement,
             public,
         )?;
         let [certificate, update] = decoded.objects;
@@ -543,7 +544,7 @@ impl PreparationV1<'_> {
                 statement,
                 update: decoded.projection,
             },
-            sigma: capsule.step_proof.bytes.clone(),
+            sigma: capsule.body().step_proof.bytes.clone(),
             objects: [
                 certificate,
                 update,

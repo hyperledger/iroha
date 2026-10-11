@@ -239,6 +239,11 @@ fn signature_five_variable_one_fixed_fits_shared_k16() {
 #[test]
 #[ignore = "optimized actual native keygen/proof qualification component"]
 fn signature_actual_native_proof_binds_inputs_and_retains_opening() {
+    use rand_chacha::rand_core::SeedableRng as _;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
     let c = circuit(witness(), VerifyMode::Hard, false);
     let public = c.instances(&[true]).unwrap();
     let params = iroha_plonk::pcs::ipa::PinnedParams::<iroha_pasta::Ep>::derive(16).unwrap();
@@ -259,8 +264,8 @@ fn signature_actual_native_proof_binds_inputs_and_retains_opening() {
     assert_eq!(installed.verifying_key().to_bytes(), key.vk().to_bytes());
     let (bound_d, bound_v, seal) = installed.into_metadata().into_parts();
     let view = seal.bind(&bound_d, &bound_v, None).unwrap();
-    assert!(core::ptr::eq(view.binding(), &bound_d));
-    assert!(core::ptr::eq(view.verifying_key(), &bound_v));
+    assert!(core::ptr::eq(view.binding(), &raw const bound_d));
+    assert!(core::ptr::eq(view.verifying_key(), &raw const bound_v));
     let installed =
         iroha_kagemusha_proof::q_signature::native::QSignatureProverView::from_source_bound(
             c.plan(),
@@ -325,11 +330,6 @@ fn signature_actual_native_proof_binds_inputs_and_retains_opening() {
     ));
     // The recovery factory is reached only after actual reconstruction and witness
     // assignment. Cancel there, then reuse this immutable owner successfully.
-    use rand_chacha::rand_core::SeedableRng as _;
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
     let after_rebuild = iroha_pasta::CancellationToken::new();
     let signal = after_rebuild.clone();
     let callbacks = Arc::new(AtomicUsize::new(0));

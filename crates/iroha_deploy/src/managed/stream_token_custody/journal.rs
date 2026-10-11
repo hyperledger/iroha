@@ -96,6 +96,27 @@ impl Request {
         }
         .map_err(Self::inspection_error)
     }
+    // Only the concrete read-only body owner supplies this wallet-owned terminal reader.
+    // Each call still verifies this newly constructed request against fresh native bytes.
+    pub(super) fn inspect_with_reader(
+        &self,
+        reader: &mut iroha_wallet::operations::CustodyPreparationReader<'_>,
+        parent: &PrivateDirectory,
+    ) -> Result<iroha_wallet::operations::VerifiedNativePreparation> {
+        match self {
+            Self::Configure(request) => reader.inspect_configure_in_parent(
+                parent,
+                std::ffi::OsStr::new("transaction"),
+                request,
+            ),
+            Self::Enroll(request) => reader.inspect_enroll_in_parent(
+                parent,
+                std::ffi::OsStr::new("transaction"),
+                request,
+            ),
+        }
+        .map_err(Self::inspection_error)
+    }
     fn inspection_error(_error: color_eyre::eyre::Report) -> crate::managed::Error {
         #[cfg(test)]
         crate::managed::native_operation::deadline_diagnostics::wallet_error(
@@ -395,25 +416,32 @@ pub(super) fn read_original(directory: &PrivateDirectory) -> Result<Option<Selec
 pub(super) fn required_original(directory: &PrivateDirectory) -> Result<Selected<Original>> {
     read_original(directory)?.ok_or_else(|| invalid("original custody request is absent"))
 }
-pub(super) fn publish_intent(directory: &PrivateDirectory, original: &Original) -> Result<()> {
+pub(super) fn publish_intent<'a>(
+    directory: &'a PrivateDirectory,
+    original: &Original,
+) -> Result<Option<super::initial_admission::PublishedInitialIntent<'a>>> {
     if !matches!(original.action, Action::Configure(_)) {
         return Err(invalid(
             "enrollment publication requires its unsigned body reservation",
         ));
     }
-    publish_body_intent(directory, original)
+    publish_original(directory, original)
 }
 pub(super) fn publish_body_intent(directory: &PrivateDirectory, original: &Original) -> Result<()> {
+    publish_original(directory, original).map(|_| ())
+}
+fn publish_original<'a>(
+    directory: &'a PrivateDirectory,
+    original: &Original,
+) -> Result<Option<super::initial_admission::PublishedInitialIntent<'a>>> {
     original.validate()?;
     let bytes = encode(original, MAX_ORIGINAL_BYTES)?;
-    if let Some(retained) = read_optional(directory, "original.nrt", MAX_ORIGINAL_BYTES)? {
-        if retained != bytes {
-            return Err(invalid("original native custody body changed"));
-        }
-        return Ok(());
-    }
-    directory.write_atomic("original.nrt", &bytes, PublishMode::CreateNew)?;
-    Ok(())
+    super::initial_admission::PublishedInitialIntent::publish(
+        directory,
+        bytes,
+        MAX_ORIGINAL_BYTES,
+        "original native custody body changed",
+    )
 }
 pub(super) fn explicit(
     directory: &PrivateDirectory,

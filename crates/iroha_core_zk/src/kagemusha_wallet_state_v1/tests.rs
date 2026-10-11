@@ -150,12 +150,22 @@ fn enrollment() -> KagemushaWalletMarkerV1 {
     fixture("KagemushaWalletMarkerV1")
 }
 
+/// Seal synthetic, structurally valid test DATA with a fixed opening, never production entropy.
+pub(crate) fn seal_body(body: KagemushaWalletRecoveryBodyV1) -> KagemushaWalletRecoveryCapsuleV1 {
+    body.freeze()
+        .expect("valid synthetic body")
+        .seal([0; 32])
+        .expect("synthetic opening")
+}
+
 pub(super) fn frozen(
     previous: Option<&FrozenTransition>,
     effect: KagemushaWalletEffectV1,
 ) -> FrozenTransition {
     let credential = credential();
-    let mut c: KagemushaWalletRecoveryCapsuleV1 = fixture("KagemushaWalletRecoveryCapsuleV1");
+    let mut c = fixture::<KagemushaWalletRecoveryCapsuleV1>("KagemushaWalletRecoveryCapsuleV1")
+        .body()
+        .clone();
     let kind = effect.kind();
     let request_input = c
         .retained_inputs
@@ -174,21 +184,20 @@ pub(super) fn frozen(
     } else {
         KagemushaWalletLifecycleV1::Active
     };
-    c.statement.sequence = previous.map_or(0, |p| p.capsule.statement.sequence + 1);
+    c.statement.sequence = previous.map_or(0, |p| p.capsule.body().statement.sequence + 1);
     c.statement.next_load = match effect {
         KagemushaWalletEffectV1::Load { load_ordinal, .. } => load_ordinal + 1,
-        _ => previous.map_or(0, |p| p.capsule.statement.next_load),
+        _ => previous.map_or(0, |p| p.capsule.body().statement.next_load),
     };
     c.statement.enabled_controls = 0;
     c.statement.lineage_burned_total = 0;
     c.statement.lineage_pending_outgoing_root = [0; 32];
     c.statement.predecessor = previous
         .map_or(KagemushaWalletStateCommitmentV1 { value: [0; 32] }, |p| {
-            p.capsule.statement.successor
+            p.capsule.body().statement.successor
         });
     c.statement.effect = effect;
-    c.predecessor_capsule_digest =
-        previous.map_or([0; 32], |p| p.capsule.capsule_digest().expect("digest"));
+    c.predecessor_capsule_digest = previous.map_or([0; 32], |p| p.capsule.custody_digest());
     c.predecessor_lineage = KagemushaWalletLineageSlotV1::None;
     if kind.consumes_lineage() {
         let payment: KagemushaWalletPaymentV1 = fixture("KagemushaWalletPaymentV1");
@@ -213,7 +222,7 @@ pub(super) fn frozen(
     // selected predecessor fields; Bootstrap starts with the protocol's empty local stores.
     c.successor_state = previous.map_or_else(
         || KagemushaWalletStateV1::bootstrap(&credential, field(92)).expect("empty state"),
-        |previous| previous.capsule.successor_state,
+        |previous| previous.capsule.body().successor_state,
     );
     let state = &mut c.successor_state;
     state.core.scheme_id = c.scheme_id;
@@ -269,7 +278,7 @@ pub(super) fn frozen(
     }
     let result = FrozenTransition {
         credential,
-        capsule: c,
+        capsule: seal_body(c),
     };
     result.validate().expect("frozen");
     result
@@ -287,8 +296,7 @@ pub(super) fn bootstrap() -> FrozenTransition {
 
 // Structural refusal fixtures only. Issuer authentication and every operation proof remain
 // mandatory in NativeProofs; these tests establish no authentic credential reissuance.
-fn rebind_frozen_successor(value: &mut FrozenTransition) {
-    let c = &mut value.capsule;
+fn rebind_frozen_successor(value: &mut FrozenTransition, mut c: KagemushaWalletRecoveryBodyV1) {
     c.statement.credential_digest = value.credential.credential_digest();
     c.successor_state.core.credential_digest = c.statement.credential_digest;
     c.statement.successor = c.successor_state.commitment().expect("successor state");
@@ -299,10 +307,24 @@ fn rebind_frozen_successor(value: &mut FrozenTransition) {
         &c.payment_digest,
     )
     .expect("output");
+    value.capsule = c
+        .freeze()
+        .expect("valid synthetic body")
+        .seal([0; 32])
+        .expect("synthetic opening");
+    let c = &value.capsule;
     // Each existing self-contained boundary still passes after the commitment is rebound.
-    c.to_canonical_bytes().expect("self-contained capsule");
+    assert_eq!(
+        KagemushaWalletRecoveryCapsuleV1::decode_canonical(
+            &c.to_canonical_bytes(),
+            &c.body().scheme_id
+        )
+        .expect("self-contained capsule"),
+        *c
+    );
     value.credential.validate().expect("structural credential");
-    c.statement
+    c.body()
+        .statement
         .validate_for_credential(&value.credential)
         .expect("statement credential");
 }
@@ -314,8 +336,9 @@ fn frozen_rejects_rebound_successor_with_unenrolled_regulatory_controls() {
         value.credential.body.regulatory_policy.permitted_controls,
         0
     );
-    value.capsule.successor_state.rest.permitted_controls = KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1;
-    rebind_frozen_successor(&mut value);
+    let mut body = value.capsule.body().clone();
+    body.successor_state.rest.permitted_controls = KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1;
+    rebind_frozen_successor(&mut value, body);
     assert!(value.validate().is_err());
 }
 
@@ -332,17 +355,13 @@ fn frozen_rejects_rebound_successor_with_another_credential_lease() {
         .regulatory_policy
         .time_anchor_max_response_ms = 1;
     value.credential.body.lease_expires_at_ms = 1;
-    value.capsule.successor_state.rest.permitted_controls =
-        KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1;
-    value
-        .capsule
-        .successor_state
-        .core
-        .time_anchor_max_response_ms = 1;
-    value.capsule.successor_state.core.lease_expires_at_ms = 2;
-    rebind_frozen_successor(&mut value);
+    let mut body = value.capsule.body().clone();
+    body.successor_state.rest.permitted_controls = KAGEMUSHA_WALLET_CONTROL_ATTESTATION_LEASE_V1;
+    body.successor_state.core.time_anchor_max_response_ms = 1;
+    body.successor_state.core.lease_expires_at_ms = 2;
+    rebind_frozen_successor(&mut value, body);
     assert_eq!(
-        value.capsule.successor_state.regulatory_policy(),
+        value.capsule.body().successor_state.regulatory_policy(),
         value.credential.body.regulatory_policy
     );
     assert!(value.validate().is_err());
@@ -584,7 +603,7 @@ impl Custody for TestCustody {
             .filter(|r| r.operation_id == *operation_id)
         {
             Lookup::SelectedUnsigned {
-                capsule_digest: request.capsule.capsule_digest().expect("digest"),
+                capsule_digest: request.capsule.custody_digest(),
             }
         } else {
             Lookup::Unknown
@@ -596,7 +615,7 @@ impl Custody for TestCustody {
         request: &AdvanceRequest<KagemushaWalletRecoveryCapsuleV1>,
     ) -> Result<AdvanceOutcome<KagemushaWalletCompletionRecordV1>, ProviderError> {
         let capsule = &request.capsule;
-        let digest = capsule.capsule_digest().expect("digest");
+        let digest = capsule.custody_digest();
         if let Some(retained) = self.retained.get(&request.operation_id) {
             if retained.capsule_digest != digest {
                 return Err(ProviderError::Invalid {
@@ -611,8 +630,8 @@ impl Custody for TestCustody {
         if self.pause {
             self.pending = Some(request.clone());
             let mut marker = enrollment();
-            marker.generation = capsule.statement.sequence * 2 + 1;
-            marker.state = capsule.head_marker_state().expect("head");
+            marker.generation = capsule.body().statement.sequence * 2 + 1;
+            marker.state = capsule.head_marker_state();
             self.status = SlotStatus::Pending(marker_record(marker, [0; 32]));
             return Ok(AdvanceOutcome::Pending {
                 operation_id: request.operation_id,
@@ -629,18 +648,19 @@ impl Custody for TestCustody {
         self.signatures += 1;
         let record = owner.assemble(capsule, &digest, &signature)?;
         let retained = Retained {
-            operation_id: capsule.operation_id,
+            operation_id: capsule.body().operation_id,
             capsule_digest: digest,
-            selected_generation: capsule.statement.sequence * 2 + 1,
+            selected_generation: capsule.body().statement.sequence * 2 + 1,
             completion_digest: record.completion_digest().expect("digest"),
             frame: record.to_canonical_bytes().expect("frame"),
             record,
         };
         let mut marker = enrollment();
-        marker.generation = capsule.statement.sequence * 2 + 2;
-        marker.state = capsule.head_marker_state().expect("head");
+        marker.generation = capsule.body().statement.sequence * 2 + 2;
+        marker.state = capsule.head_marker_state();
         self.status = SlotStatus::Released(marker_record(marker, retained.completion_digest));
-        self.retained.insert(capsule.operation_id, retained.clone());
+        self.retained
+            .insert(capsule.body().operation_id, retained.clone());
         self.pending = None;
         Ok(AdvanceOutcome::Released {
             retained: Box::new(retained),
@@ -740,8 +760,8 @@ impl NativeProofs for TestProofs {
         }
         if let Some(previous) = previous {
             assert_eq!(
-                next.capsule.statement.predecessor,
-                previous.frozen.capsule.statement.successor
+                next.capsule.body().statement.predecessor,
+                previous.frozen.capsule.body().statement.successor
             );
         }
         Ok(self
@@ -813,17 +833,20 @@ impl NativeProofs for TestProofs {
         }
         let c = &witness.frozen.capsule;
         let mut tree = KagemushaWalletIndexedTreeV1::new();
-        if let KagemushaWalletEffectV1::Receive { credit_id, .. } = c.statement.effect {
+        if let KagemushaWalletEffectV1::Receive { credit_id, .. } = c.body().statement.effect {
             // Tests use one Receive. Native production proofs must handle the complete map.
             KagemushaWalletCreditDigestLeafV1 {
                 credit_id,
-                payment_digest: c.payment_digest,
+                payment_digest: c.body().payment_digest,
                 burned: self.burn,
             }
             .record(&mut tree)
             .expect("credit");
         }
-        let credit_root = if matches!(c.statement.effect, KagemushaWalletEffectV1::Receive { .. }) {
+        let credit_root = if matches!(
+            c.body().statement.effect,
+            KagemushaWalletEffectV1::Receive { .. }
+        ) {
             tree.root()
         } else {
             predecessor.map_or(tree.root(), |pred| pred.lineage.public.credit_digest_root)
@@ -832,22 +855,22 @@ impl NativeProofs for TestProofs {
             lineage: KagemushaWalletLineageV1 {
                 public: KagemushaWalletLineagePublicV1 {
                     version: 1,
-                    scheme_id: c.scheme_id,
-                    relation_id: c.statement.relation_id,
-                    head: c.statement.successor,
-                    wallet_id: c.wallet_id,
-                    credential_digest: c.statement.credential_digest,
+                    scheme_id: c.body().scheme_id,
+                    relation_id: c.body().statement.relation_id,
+                    head: c.body().statement.successor,
+                    wallet_id: c.body().wallet_id,
+                    credential_digest: c.body().statement.credential_digest,
                     payment_key: witness.frozen.credential.body.payment_key,
-                    lifecycle: c.statement.lifecycle,
-                    policy_epoch: c.successor_state.core.policy_epoch,
-                    enabled_controls: c.successor_state.core.enabled_controls,
-                    burned_total: c.successor_state.core.burned_total,
-                    pending_outgoing_root: c.successor_state.core.pending_outgoing_root,
+                    lifecycle: c.body().statement.lifecycle,
+                    policy_epoch: c.body().successor_state.core.policy_epoch,
+                    enabled_controls: c.body().successor_state.core.enabled_controls,
+                    burned_total: c.body().successor_state.core.burned_total,
+                    pending_outgoing_root: c.body().successor_state.core.pending_outgoing_root,
                     credit_digest_root: credit_root,
                 },
                 proof: vec![1, 2, 3],
             },
-            burned: self.burn && c.kind == KagemushaWalletOperationKindV1::Receive,
+            burned: self.burn && c.body().kind == KagemushaWalletOperationKindV1::Receive,
         })
     }
 }
@@ -860,7 +883,7 @@ pub(super) fn synthetic_payout_wallet(scheme: KagemushaWalletSchemeV1, chain: St
     let mut marker = enrollment();
     marker.scheme_id = scheme.scheme_id();
     marker.generation = 2;
-    marker.state = bootstrap().capsule.head_marker_state().unwrap();
+    marker.state = bootstrap().capsule.head_marker_state();
     custody.status = SlotStatus::Released(marker_record(marker.clone(), field(73)));
     let mut archive = MemoryArchive::new();
     archive.scheme = scheme.scheme_id();
@@ -933,7 +956,7 @@ fn completion_retry_and_pending_resume_use_exact_receipt_bytes() {
     w.custody.pause = true;
     assert_eq!(w.commit(boot.clone()).expect("commit"), Completion::Pending);
     assert_eq!(
-        w.retry(&boot.capsule.operation_id).expect("retry"),
+        w.retry(&boot.capsule.body().operation_id).expect("retry"),
         Some(Completion::Pending)
     );
     assert_eq!(w.custody.signatures, 0);
@@ -941,20 +964,22 @@ fn completion_retry_and_pending_resume_use_exact_receipt_bytes() {
     let complete = w.resume().expect("resume").expect("pending");
     assert!(matches!(complete, Completion::Complete(_)));
     assert_eq!(
-        w.retry(&boot.capsule.operation_id).expect("retry"),
+        w.retry(&boot.capsule.body().operation_id).expect("retry"),
         Some(complete.clone())
     );
     assert_eq!(w.commit(boot.clone()).expect("same inputs"), complete);
     assert_eq!(w.custody.signatures, 1);
     assert_eq!(w.released_steps().expect("steps").len(), 1);
     let mut changed = boot;
-    changed.capsule.step_proof.bytes.push(9);
-    changed.capsule.output = KagemushaWalletOutputDescriptorV1::for_transition(
-        &changed.capsule.statement,
-        &changed.capsule.proof_digest().expect("proof"),
-        &changed.capsule.payment_digest,
+    let mut body = changed.capsule.body().clone();
+    body.step_proof.bytes.push(9);
+    body.output = KagemushaWalletOutputDescriptorV1::for_transition(
+        &body.statement,
+        &body.proof_digest().expect("proof"),
+        &body.payment_digest,
     )
     .expect("output");
+    changed.capsule = seal_body(body);
     assert!(w.commit(changed).is_err());
     assert_eq!(w.custody.signatures, 1);
 }
@@ -1069,12 +1094,12 @@ fn missing_marker_bound_witness_is_loss_and_archive_cannot_invent_completion() {
     let boot = bootstrap();
     w.archive
         .put(
-            ArchiveKey::Capsule(boot.capsule.capsule_digest().expect("digest")),
+            ArchiveKey::Capsule(boot.capsule.custody_digest()),
             &archive::encode(&boot).expect("encode"),
         )
         .expect("staging");
     assert!(
-        w.retry(&boot.capsule.operation_id)
+        w.retry(&boot.capsule.body().operation_id)
             .expect("retry")
             .is_none()
     );
@@ -1082,7 +1107,7 @@ fn missing_marker_bound_witness_is_loss_and_archive_cannot_invent_completion() {
     w.archive.records.lock().expect("records").clear();
     assert!(matches!(w.released_steps(), Err(Error::WitnessLost(_))));
     assert!(matches!(
-        w.retry(&boot.capsule.operation_id)
+        w.retry(&boot.capsule.body().operation_id)
             .expect("exact authority"),
         Some(Completion::Complete(_))
     ));
@@ -1384,7 +1409,7 @@ fn send_requires_recorded_predecessor_and_owner_assembles_canonical_payment() {
     assert_eq!(w.custody.signatures, 1);
     let owner = TransitionOwner::new(send.credential.clone());
     let c = &send.capsule;
-    let digest = c.capsule_digest().expect("digest");
+    let digest = c.custody_digest();
     let body = owner.receipt_body(c, &digest).expect("preflight");
     let signature: Signature = signer(&send.credential).sign(&kagemusha_wallet_signing_message_v1(
         KagemushaWalletSigningDomainV1::Receipt,
@@ -1394,30 +1419,62 @@ fn send_requires_recorded_predecessor_and_owner_assembles_canonical_payment() {
     let signature =
         KagemushaDeviceSignatureV1::from_raw_bytes(&signature.to_bytes()).expect("signature");
     let record = owner.assemble(c, &digest, &signature).expect("Payment");
-    let payment = KagemushaWalletPaymentV1::decode_canonical(&record.output, &c.scheme_id)
+    let payment = KagemushaWalletPaymentV1::decode_canonical(&record.output, &c.body().scheme_id)
         .expect("canonical Payment");
-    assert_eq!(payment.send.statement, c.statement);
-    assert_eq!(payment.send.step_proof, c.step_proof);
+    assert_eq!(payment.send.statement, c.body().statement);
+    assert_eq!(payment.send.step_proof, c.body().step_proof);
     assert_eq!(payment.send.receipt, record.receipt);
     record
         .verify(&send.credential, c)
         .expect("receipt and exact capsule binding");
-    let mut duplicate = c.clone();
+    owner
+        .require_completion(c, &record)
+        .expect("full completion admission");
+    for mutation in 0..4 {
+        let mut changed = record.clone();
+        match mutation {
+            0 => changed.capsule_digest[0] ^= 1,
+            1 => changed.receipt.capsule_commitment[0] ^= 1,
+            2 => changed.output.push(0),
+            _ => {
+                let other: Signature = signer(&send.credential).sign(b"wrong receipt message");
+                let other = other.normalize_s().unwrap_or(other);
+                changed.receipt.signature =
+                    KagemushaDeviceSignatureV1::from_raw_bytes(&other.to_bytes()).unwrap();
+            }
+        }
+        assert!(
+            owner.require_completion(c, &changed).is_err(),
+            "completion mutation {mutation}"
+        );
+    }
+    let mut opening = [0; 32];
+    opening[0] = 1;
+    let resealed = c.body().clone().freeze().unwrap().seal(opening).unwrap();
+    let mut stale_public = record.clone();
+    stale_public.capsule_digest = resealed.custody_digest();
+    assert!(
+        owner.require_completion(&resealed, &stale_public).is_err(),
+        "changed private wrapper cannot retain the old signed public commitment"
+    );
+    let mut duplicate = c.body().clone();
     duplicate
         .retained_inputs
         .push(duplicate.retained_inputs[0].clone());
+    let duplicate = seal_body(duplicate);
     assert!(
         owner
-            .receipt_body(&duplicate, &duplicate.capsule_digest().expect("digest"))
+            .receipt_body(&duplicate, &duplicate.custody_digest())
             .is_err()
     );
-    let mut oversized = c.clone();
+    let mut oversized = c.body().clone();
     oversized.retained_inputs[0]
         .bytes
         .resize(KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1 + 1, 0);
+    let oversized = seal_body(oversized);
     assert!(
         owner
-            .receipt_body(&oversized, &oversized.capsule_digest().expect("digest"))
+            .receipt_body(&oversized, &oversized.custody_digest())
             .is_err(),
         "Request message bound must be enforced before signing, not during fee indexing"
     );
@@ -1535,12 +1592,13 @@ fn replay_reads_are_bounded_and_retry_never_converts_unavailable_to_unknown() {
         previous = next;
     }
     let (first, exact) = first.expect("first");
-    let KagemushaWalletEffectV1::Receive { credit_id, .. } = first.capsule.statement.effect else {
+    let KagemushaWalletEffectV1::Receive { credit_id, .. } = first.capsule.body().statement.effect
+    else {
         panic!("receive")
     };
     let before = w.archive.reads.load(Ordering::SeqCst);
     assert!(
-        w.consumed_credit(&credit_id, &first.capsule.payment_digest)
+        w.consumed_credit(&credit_id, &first.capsule.body().payment_digest)
             .expect("index")
             .is_some()
     );
@@ -1548,15 +1606,20 @@ fn replay_reads_are_bounded_and_retry_never_converts_unavailable_to_unknown() {
         w.archive.reads.load(Ordering::SeqCst) - before <= 257,
         "one bounded Patricia path"
     );
+    let before_retry = w.archive.reads.load(Ordering::SeqCst);
     assert_eq!(
-        w.retry(&first.capsule.operation_id).expect("exact"),
+        w.retry(&first.capsule.body().operation_id).expect("exact"),
         Some(exact)
+    );
+    assert!(
+        w.archive.reads.load(Ordering::SeqCst) - before_retry <= 260,
+        "retry uses one authenticated step path, not a history scan"
     );
     assert_eq!(w.retry(&[0xa5; 32]).expect("unknown"), None);
     let signatures = w.custody.signatures;
     w.custody.unavailable = true;
     assert!(matches!(
-        w.retry(&first.capsule.operation_id),
+        w.retry(&first.capsule.body().operation_id),
         Err(Error::Provider(ProviderError::Unavailable(_)))
     ));
     assert!(matches!(
@@ -1566,7 +1629,7 @@ fn replay_reads_are_bounded_and_retry_never_converts_unavailable_to_unknown() {
     w.custody.unavailable = false;
     w.custody.delivery_lost = true;
     assert_eq!(
-        w.retry(&first.capsule.operation_id).expect("loss"),
+        w.retry(&first.capsule.body().operation_id).expect("loss"),
         Some(Completion::DeliveryDataLoss)
     );
     assert_eq!(w.custody.signatures, signatures);
@@ -1613,7 +1676,8 @@ fn collection_is_source_selected_bounded_restartable_and_keeps_credit_replay() {
         payment.send.statement.credential_digest
     );
     payer.verify(&fixture("KagemushaWalletSchemeV1")).unwrap();
-    for input in &mut receive.capsule.retained_inputs {
+    let mut body = receive.capsule.body().clone();
+    for input in &mut body.retained_inputs {
         match input.role {
             KagemushaWalletRetainedInputRoleV1::Credential => {
                 input.bytes = payer.payer_credential.to_canonical_bytes().unwrap()
@@ -1624,10 +1688,12 @@ fn collection_is_source_selected_bounded_restartable_and_keeps_credit_replay() {
             _ => {}
         }
     }
+    receive.capsule = seal_body(body);
     w.commit(receive.clone()).unwrap();
     let input = |role| {
         receive
             .capsule
+            .body()
             .retained_inputs
             .iter()
             .find(|input| input.role == role)
@@ -1701,7 +1767,7 @@ fn collection_is_source_selected_bounded_restartable_and_keeps_credit_replay() {
     assert!(
         w.archive
             .get(
-                ArchiveKey::Capsule(receive.capsule.capsule_digest().unwrap()),
+                ArchiveKey::Capsule(receive.capsule.custody_digest()),
                 100_000
             )
             .unwrap()
@@ -1732,7 +1798,7 @@ fn collection_is_source_selected_bounded_restartable_and_keeps_credit_replay() {
     );
     assert!(matches!(w.released_steps(), Err(Error::Collected)));
     assert!(matches!(
-        w.retry(&receive.capsule.operation_id).unwrap(),
+        w.retry(&receive.capsule.body().operation_id).unwrap(),
         Some(Completion::Archived)
     ));
     let Completion::CreditStatus(replayed) = w.execute(replay.clone()).unwrap() else {
@@ -1769,13 +1835,13 @@ fn collection_is_source_selected_bounded_restartable_and_keeps_credit_replay() {
         },
     );
     let mut changed = duplicate.clone();
-    changed
-        .capsule
-        .retained_inputs
+    let mut body = changed.capsule.body().clone();
+    body.retained_inputs
         .iter_mut()
         .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::Payment)
         .unwrap()
         .bytes[0] ^= 1;
+    changed.capsule = seal_body(body);
     assert!(
         w.commit(changed).is_err(),
         "a claimed digest cannot replace the original Payment"
@@ -1788,10 +1854,7 @@ fn collection_is_source_selected_bounded_restartable_and_keeps_credit_replay() {
     assert_eq!(w.custody.signatures, signatures);
     assert!(
         w.archive
-            .get(
-                ArchiveKey::Capsule(next.capsule.capsule_digest().unwrap()),
-                100_000
-            )
+            .get(ArchiveKey::Capsule(next.capsule.custody_digest()), 100_000)
             .unwrap()
             .is_some()
     );
@@ -1930,8 +1993,7 @@ fn send_collection_requires_latest_pending_root_absence_and_keeps_unpaid_fee() {
             .unwrap();
         w.publish_manifest(old, &manifest).unwrap();
     }
-    fn rebind(value: &mut FrozenTransition) {
-        let c = &mut value.capsule;
+    fn rebind(value: &mut FrozenTransition, mut c: KagemushaWalletRecoveryBodyV1) {
         c.statement.successor = c.successor_state.commitment().unwrap();
         c.operation_id = c.statement.operation_id(&c.wallet_id).unwrap();
         c.output = KagemushaWalletOutputDescriptorV1::for_transition(
@@ -1940,6 +2002,11 @@ fn send_collection_requires_latest_pending_root_absence_and_keeps_unpaid_fee() {
             &c.payment_digest,
         )
         .unwrap();
+        value.capsule = c
+            .freeze()
+            .expect("valid synthetic body")
+            .seal([0; 32])
+            .expect("synthetic opening");
         value.validate().unwrap();
     }
     let mut w = wallet();
@@ -1956,12 +2023,18 @@ fn send_collection_requires_latest_pending_root_absence_and_keeps_unpaid_fee() {
         KagemushaWalletEffectV1::RefreshPolicy {
             update_kind: KagemushaWalletPolicyUpdateKindV1::SchemePolicy,
             update: template.request.body.scheme_policy,
-            accepted_time_floor_ms: boot.capsule.successor_state.core.accepted_time_floor_ms,
+            accepted_time_floor_ms: boot
+                .capsule
+                .body()
+                .successor_state
+                .core
+                .accepted_time_floor_ms,
         },
     );
-    policy.capsule.successor_state.core.policy_epoch = template.request.body.policy_epoch;
-    policy.capsule.successor_state.rest.scheme_policy = template.request.body.scheme_policy;
-    rebind(&mut policy);
+    let mut body = policy.capsule.body().clone();
+    body.successor_state.core.policy_epoch = template.request.body.policy_epoch;
+    body.successor_state.rest.scheme_policy = template.request.body.scheme_policy;
+    rebind(&mut policy, body);
     w.commit(policy.clone()).unwrap();
     w.fold_once().unwrap();
     w.fold_once().unwrap();
@@ -1971,17 +2044,17 @@ fn send_collection_requires_latest_pending_root_absence_and_keeps_unpaid_fee() {
     let mut pending = KagemushaWalletIndexedTreeV1::new();
     pending.insert(credit, field(42)).unwrap();
     let mut send = frozen(Some(&policy), template.send.statement.effect);
-    let send_sequence = send.capsule.statement.sequence;
-    send.capsule.predecessor_lineage = KagemushaWalletLineageSlotV1::Present {
+    let send_sequence = send.capsule.body().statement.sequence;
+    let mut body = send.capsule.body().clone();
+    body.predecessor_lineage = KagemushaWalletLineageSlotV1::Present {
         lineage: fold.record.lineage.clone(),
     };
-    send.capsule.statement.lineage_burned_total = fold.record.lineage.public.burned_total;
-    send.capsule.statement.lineage_pending_outgoing_root =
-        fold.record.lineage.public.pending_outgoing_root;
-    send.capsule.successor_state.core.pending_outgoing_root = pending.root();
-    send.capsule.successor_state.core.policy_epoch = template.request.body.policy_epoch;
-    send.capsule.successor_state.rest.scheme_policy = template.request.body.scheme_policy;
-    rebind(&mut send);
+    body.statement.lineage_burned_total = fold.record.lineage.public.burned_total;
+    body.statement.lineage_pending_outgoing_root = fold.record.lineage.public.pending_outgoing_root;
+    body.successor_state.core.pending_outgoing_root = pending.root();
+    body.successor_state.core.policy_epoch = template.request.body.policy_epoch;
+    body.successor_state.rest.scheme_policy = template.request.body.scheme_policy;
+    rebind(&mut send, body);
     let Completion::Complete(payment) = w.commit(send.clone()).unwrap() else {
         panic!("committed Send")
     };
@@ -1996,8 +2069,9 @@ fn send_collection_requires_latest_pending_root_absence_and_keeps_unpaid_fee() {
             online_charge: 0,
         },
     );
-    after.capsule.successor_state.core.pending_outgoing_root = pending.root();
-    rebind(&mut after);
+    let mut body = after.capsule.body().clone();
+    body.successor_state.core.pending_outgoing_root = pending.root();
+    rebind(&mut after, body);
     w.commit(after.clone()).unwrap();
     w.fold_once().unwrap();
     w.fold_once().unwrap();
@@ -2026,7 +2100,7 @@ fn send_collection_requires_latest_pending_root_absence_and_keeps_unpaid_fee() {
     assert!(retained.collection.is_none());
     assert!(!w.step_entry(&retained, send_sequence).unwrap().collected);
     assert_eq!(
-        w.retry(&send.capsule.operation_id).unwrap(),
+        w.retry(&send.capsule.body().operation_id).unwrap(),
         Some(Completion::Complete(payment.clone()))
     );
     // The explicit test proof provider now reports a later verified root without this credit.
@@ -2041,8 +2115,9 @@ fn send_collection_requires_latest_pending_root_absence_and_keeps_unpaid_fee() {
             online_charge: 0,
         },
     );
-    cleared.capsule.successor_state.core.pending_outgoing_root = empty.root();
-    rebind(&mut cleared);
+    let mut body = cleared.capsule.body().clone();
+    body.successor_state.core.pending_outgoing_root = empty.root();
+    rebind(&mut cleared, body);
     w.commit(cleared).unwrap();
     w.fold_once().unwrap();
     w.fold_once().unwrap();
@@ -2061,7 +2136,7 @@ fn send_collection_requires_latest_pending_root_absence_and_keeps_unpaid_fee() {
         }
     }
     assert!(matches!(
-        w.retry(&send.capsule.operation_id).unwrap(),
+        w.retry(&send.capsule.body().operation_id).unwrap(),
         Some(Completion::Archived)
     ));
     assert_eq!(
@@ -2127,15 +2202,18 @@ fn snapshot_unfolded_bootstrap_preserves_owned_value_and_reports_the_actual_back
     let boot = bootstrap();
     w.commit(boot.clone()).unwrap();
     let snapshot = w.snapshot().unwrap();
-    assert_eq!(snapshot.head, boot.capsule.statement.successor.value);
+    assert_eq!(snapshot.head, boot.capsule.body().statement.successor.value);
     assert_eq!(
         snapshot.credential_digest,
         boot.credential.credential_digest()
     );
-    assert_eq!(snapshot.balance, boot.capsule.successor_state.core.balance);
+    assert_eq!(
+        snapshot.balance,
+        boot.capsule.body().successor_state.core.balance
+    );
     assert_eq!(
         snapshot.known_burned_total,
-        boot.capsule.successor_state.core.burned_total
+        boot.capsule.body().successor_state.core.burned_total
     );
     assert_eq!(snapshot.owned_balance, 20);
     assert_eq!(snapshot.folded_balance, None);
@@ -2161,7 +2239,7 @@ fn snapshot_only_the_exact_current_fold_reports_folded_balance() {
     );
     w.commit(receive.clone()).unwrap();
     let after = w.snapshot().unwrap();
-    assert_eq!(after.head, receive.capsule.statement.successor.value);
+    assert_eq!(after.head, receive.capsule.body().statement.successor.value);
     assert_eq!(after.verified_fold.unwrap().head, before.head);
     assert_eq!(after.verified_fold.unwrap().sequence, 0);
     assert_eq!(after.owned_balance, 20);
@@ -2362,7 +2440,7 @@ fn snapshot_retiring_reports_folded_remaining_value_without_an_operation_permiss
     let step = w.released_steps().unwrap().remove(0);
     let fold = w.read_fold(&step).unwrap().unwrap();
     let mut retiring = frozen(Some(&boot), KagemushaWalletEffectV1::Retiring);
-    let c = &mut retiring.capsule;
+    let mut c = retiring.capsule.body().clone();
     // Retiring consumes the exact recorded Ω, including its authenticated lineage fields.
     c.predecessor_lineage = KagemushaWalletLineageSlotV1::Present {
         lineage: fold.record.lineage.clone(),
@@ -2378,6 +2456,11 @@ fn snapshot_retiring_reports_folded_remaining_value_without_an_operation_permiss
         &c.payment_digest,
     )
     .unwrap();
+    retiring.capsule = c
+        .freeze()
+        .expect("valid synthetic body")
+        .seal([0; 32])
+        .expect("synthetic opening");
     retiring.validate().unwrap();
     w.commit(retiring).unwrap();
     snapshot_test_fold(&mut w);
@@ -2405,7 +2488,7 @@ fn snapshot_fold_burns_cannot_regress_below_the_selected_core() {
         },
     );
     // Explicit mock relation admits this inconsistent successor for a projection rejection test.
-    let c = &mut load.capsule;
+    let mut c = load.capsule.body().clone();
     c.successor_state.core.burned_total = 5;
     // Load does not consume Ω, so its statement lineage inputs remain zero. The explicit
     // mock still admits the inconsistent core to exercise snapshot's burn regression error.
@@ -2417,6 +2500,11 @@ fn snapshot_fold_burns_cannot_regress_below_the_selected_core() {
         &c.payment_digest,
     )
     .unwrap();
+    load.capsule = c
+        .freeze()
+        .expect("valid synthetic body")
+        .seal([0; 32])
+        .expect("synthetic opening");
     load.validate().unwrap();
     w.commit(load).unwrap();
     assert!(matches!(
@@ -2450,12 +2538,15 @@ fn source_reads_preserve_exact_released_head_without_signing() {
     wallet.commit(frozen.clone()).unwrap();
     let signatures = wallet.custody.signatures;
     let snapshot = wallet.snapshot().unwrap();
-    assert_eq!(snapshot.head, frozen.capsule.statement.successor.value);
+    assert_eq!(
+        snapshot.head,
+        frozen.capsule.body().statement.successor.value
+    );
     assert!(snapshot.verified_fold.is_none());
     let step = wallet.released_steps().unwrap().pop().unwrap();
     assert_eq!(step.frozen.capsule, frozen.capsule);
     assert_eq!(
-        wallet.retry(&frozen.capsule.operation_id).unwrap(),
+        wallet.retry(&frozen.capsule.body().operation_id).unwrap(),
         Some(Completion::Complete(step.retained.record.output.clone()))
     );
     assert_eq!(wallet.custody.signatures, signatures);
@@ -2470,11 +2561,176 @@ fn source_reads_preserve_exact_released_head_without_signing() {
             .unwrap()
             .record
             .capsule_digest,
-        frozen.capsule.capsule_digest().unwrap()
+        frozen.capsule.custody_digest()
     );
     assert_eq!(
         snapshot.verified_fold.unwrap().head,
-        frozen.capsule.statement.successor.value
+        frozen.capsule.body().statement.successor.value
     );
     assert_eq!(wallet.custody.signatures, signatures);
+}
+
+#[test]
+fn retry_rejects_forged_output_header_sequence_and_private_public_pair() {
+    for mutation in 0..8 {
+        let mut w = wallet();
+        let boot = bootstrap();
+        w.commit(boot.clone()).unwrap();
+        let operation = boot.capsule.body().operation_id;
+        let retained = w.custody.retained.get_mut(&operation).unwrap();
+        match mutation {
+            0 => retained.record.output[0] ^= 1,
+            1 => retained.record.output[6] ^= 1,
+            2 => retained.record.output[4] = 2,
+            3 => retained.record.output[39] ^= 2,
+            4 => {
+                let mut package: KagemushaWalletPackageV1 =
+                    archive::decode(&retained.record.output).unwrap();
+                package.statement.sequence += 1;
+                retained.record.output = archive::encode(&package).unwrap();
+            }
+            5 => {
+                retained.record.capsule_digest[0] ^= 1;
+                retained.capsule_digest = retained.record.capsule_digest;
+            }
+            6 => retained.record.receipt.capsule_commitment[0] ^= 1,
+            _ => retained.record.output.push(0),
+        }
+        retained.frame = retained.record.to_canonical_bytes().unwrap();
+        retained.completion_digest = retained.record.completion_digest().unwrap();
+        let signatures = w.custody.signatures;
+        assert!(w.retry(&operation).is_err(), "mutation {mutation}");
+        assert_eq!(w.custody.signatures, signatures);
+    }
+}
+
+#[test]
+fn retry_requires_exact_authenticated_step_metadata() {
+    for mutation in 0..5 {
+        let mut w = wallet();
+        let boot = bootstrap();
+        w.commit(boot.clone()).unwrap();
+        let (root, mut manifest) = w.manifest().unwrap();
+        let mut entry = w.step_entry(&manifest, 0).unwrap();
+        match mutation {
+            0 => entry.capsule[0] ^= 1,
+            1 => entry.completion[0] ^= 1,
+            2 => entry.operation[0] ^= 1,
+            3 => entry.selected_generation += 1,
+            _ => entry.kind = KagemushaWalletOperationKindV1::Load,
+        }
+        manifest.steps = manifest
+            .steps
+            .set(
+                &mut w.archive,
+                manifest::sequence_key(0),
+                &archive::encode(&entry).unwrap(),
+            )
+            .unwrap();
+        w.publish_manifest(root, &manifest).unwrap();
+        let signatures = w.custody.signatures;
+        assert!(
+            w.retry(&boot.capsule.body().operation_id).is_err(),
+            "source mutation {mutation}"
+        );
+        assert_eq!(w.custody.signatures, signatures);
+    }
+}
+
+#[test]
+fn retry_authenticates_released_before_index_and_preserves_pending_historical_reads() {
+    let mut w = wallet();
+    let boot = bootstrap();
+    // Existing publication fault leaves the actual Released marker before indexing.
+    w.custody.fail_publication = Some(false);
+    assert!(w.commit(boot.clone()).is_err());
+    assert!(matches!(w.status().unwrap(), SlotStatus::Released(_)));
+    let operation = boot.capsule.body().operation_id;
+    let exact = w
+        .custody
+        .retained
+        .get(&operation)
+        .unwrap()
+        .record
+        .output
+        .clone();
+    let before = w.archive.reads.load(Ordering::SeqCst);
+    assert_eq!(
+        w.retry(&operation).unwrap(),
+        Some(Completion::Complete(exact.clone()))
+    );
+    assert!(w.archive.reads.load(Ordering::SeqCst) - before <= 4);
+    w.sync_manifest().unwrap();
+    let next = frozen(
+        Some(&boot),
+        KagemushaWalletEffectV1::Load {
+            load_ordinal: 0,
+            receipt_digest: field(31),
+            amount: 1,
+            online_charge: 0,
+        },
+    );
+    w.custody.pause = true;
+    assert_eq!(w.commit(next.clone()).unwrap(), Completion::Pending);
+    let signatures = w.custody.signatures;
+    assert_eq!(
+        w.retry(&operation).unwrap(),
+        Some(Completion::Complete(exact))
+    );
+    assert_eq!(
+        w.retry(&next.capsule.body().operation_id).unwrap(),
+        Some(Completion::Pending)
+    );
+    assert_eq!(w.custody.signatures, signatures);
+}
+
+#[test]
+fn retry_preserves_collected_load_control_output_with_bounded_source_join() {
+    let mut w = wallet();
+    let boot = bootstrap();
+    w.commit(boot.clone()).unwrap();
+    snapshot_test_fold(&mut w);
+    let first = frozen(
+        Some(&boot),
+        KagemushaWalletEffectV1::Load {
+            load_ordinal: 0,
+            receipt_digest: field(31),
+            amount: 1,
+            online_charge: 0,
+        },
+    );
+    let exact = w.commit(first.clone()).unwrap();
+    snapshot_test_fold(&mut w);
+    let next = frozen(
+        Some(&first),
+        KagemushaWalletEffectV1::Load {
+            load_ordinal: 1,
+            receipt_digest: field(32),
+            amount: 1,
+            online_charge: 0,
+        },
+    );
+    w.commit(next).unwrap();
+    snapshot_test_fold(&mut w);
+    for _ in 0..16 {
+        if w.collect_retained_step(1).unwrap() == CollectionStatus::Collected(1) {
+            break;
+        }
+    }
+    let (_, manifest) = w.manifest().unwrap();
+    assert!(w.step_entry(&manifest, 1).unwrap().collected);
+    assert!(
+        w.archive
+            .get(ArchiveKey::Capsule(first.capsule.custody_digest()), 100_000)
+            .unwrap()
+            .is_none()
+    );
+    let signatures = w.custody.signatures;
+    let before = w.archive.reads.load(Ordering::SeqCst);
+    assert_eq!(
+        w.retry(&first.capsule.body().operation_id).unwrap(),
+        Some(exact)
+    );
+    assert!(w.archive.reads.load(Ordering::SeqCst) - before <= 260);
+    assert_eq!(w.custody.signatures, signatures);
 }

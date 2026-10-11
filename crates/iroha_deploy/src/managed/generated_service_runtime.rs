@@ -304,9 +304,19 @@ pub(super) struct GeneratedServiceRuntime {
     authority: ServiceAuthority,
 }
 impl GeneratedServiceRuntime {
+    #[cfg(test)]
     pub(super) fn open(prepared: &PreparedLocalnet) -> Result<Self> {
         Ok(Self {
             authority: ServiceAuthority::open_network(prepared, NetworkPurpose::GeneratedRuntime)?,
+        })
+    }
+    /// Retain the parent's immutable constructor input through fresh native purpose admission.
+    pub(super) fn open_from_original(parent: &ServiceAuthority) -> Result<Self> {
+        Ok(Self {
+            authority: ServiceAuthority::open_network_from_original(
+                parent,
+                NetworkPurpose::GeneratedRuntime,
+            )?,
         })
     }
     pub(super) fn prepare_catalog(

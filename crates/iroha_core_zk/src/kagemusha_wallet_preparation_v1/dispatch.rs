@@ -21,6 +21,12 @@ pub(super) fn proof<T>(result: core::result::Result<T, Error>) -> Result<T> {
     result.map_err(|error| match error {
         Error::Unavailable => state::Error::ArtifactsUnavailable("native operation artifact"),
         Error::Cancelled => state::Error::Cancelled,
+        Error::Entropy => {
+            crate::kagemusha_wallet_advance_v1::KagemushaWalletProviderErrorV1::Unavailable(
+                crate::kagemusha_wallet_advance_v1::KagemushaWalletUnavailableV1::Platform(0),
+            )
+            .into()
+        }
         _ => state::Error::Proof("installed native operation preparation"),
     })
 }
@@ -299,12 +305,12 @@ impl PreparedOperationV1 {
         frozen: &state::FrozenTransition,
         budget: MemoryBudget,
     ) -> Result<()> {
-        let expected = self.freeze(preparation, frozen.capsule.step_proof.clone(), budget)?;
-        if &expected != frozen {
-            return Err(state::Error::Proof(
-                "prepared capsule differs from native derivation",
-            ));
-        }
+        let expected = self.body(
+            preparation,
+            frozen.capsule.body().step_proof.clone(),
+            budget,
+        )?;
+        proof(expected.require_matches(frozen))?;
         Ok(())
     }
 
@@ -314,19 +320,28 @@ impl PreparedOperationV1 {
         sigma: KagemushaWalletStepProofV1,
         budget: MemoryBudget,
     ) -> Result<state::FrozenTransition> {
+        proof(self.body(preparation, sigma, budget)?.seal_fresh())
+    }
+
+    fn body(
+        &self,
+        preparation: &PreparationV1<'_>,
+        sigma: KagemushaWalletStepProofV1,
+        budget: MemoryBudget,
+    ) -> Result<super::freeze::PreparedRecoveryV1> {
         match &self.step {
-            Step::Load(s) => proof(preparation.freeze_load(&self.owner, s, sigma, budget)),
-            Step::Archive(s) => proof(preparation.freeze_archive(&self.owner, s, sigma, budget)),
-            Step::Monetary(s) => proof(preparation.freeze_monetary(
+            Step::Load(s) => proof(preparation.body_load(&self.owner, s, sigma, budget)),
+            Step::Archive(s) => proof(preparation.body_archive(&self.owner, s, sigma, budget)),
+            Step::Monetary(s) => proof(preparation.body_monetary(
                 &self.owner,
                 s,
                 self.predecessor.as_ref(),
                 sigma,
                 budget,
             )),
-            Step::Refresh(s) => proof(preparation.freeze_refresh(&self.owner, s, sigma, budget)),
+            Step::Refresh(s) => proof(preparation.body_refresh(&self.owner, s, sigma, budget)),
             Step::Consuming(s) => proof(
-                preparation.freeze_consuming(
+                preparation.body_consuming(
                     &self.owner,
                     s,
                     self.predecessor
@@ -440,7 +455,7 @@ impl PreparationV1<'_> {
         let certificates = required_original(custody, Original::EnrollmentCertificates)?;
         let owner = self.authenticate_credential_set(&credential, &certificates)?;
         let released = source.released();
-        let before = &released.frozen.capsule.successor_state;
+        let before = &released.frozen.capsule.body().successor_state;
         let predecessor = if request.kind().consumes_lineage() {
             Some(proof(self.folded_state(
                 &owner,
@@ -596,8 +611,12 @@ impl PreparationV1<'_> {
                     };
                     let frozen_request = frozen
                         .map(|frozen| {
-                            let mut originals =
-                                frozen.capsule.retained_inputs.iter().filter(|input| {
+                            let mut originals = frozen
+                                .capsule
+                                .body()
+                                .retained_inputs
+                                .iter()
+                                .filter(|input| {
                                     input.role == KagemushaWalletRetainedInputRoleV1::Request
                                 });
                             let original = originals

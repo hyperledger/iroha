@@ -199,7 +199,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         step: &ReleasedStep,
     ) -> Result<(), Error> {
         if !matches!(
-            step.frozen.capsule.statement.effect,
+            step.frozen.capsule.body().statement.effect,
             KagemushaWalletEffectV1::Send { .. }
         ) {
             return Ok(());
@@ -224,6 +224,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         let request = step
             .frozen
             .capsule
+            .body()
             .retained_inputs
             .iter()
             .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::Request)

@@ -77,6 +77,23 @@ pub(in crate::managed) trait SemanticSuccessor:
     -> Result<()>;
 }
 
+// A completed exact predecessor has already passed this sealed reader's last wallet
+// callback and current-body closure. Only immutable receipt checks remain adjacent to
+// binding the next body. Every later body's own namespace/Original checks stay fresh,
+// and the reader closes the complete predecessor graph before any result can escape.
+// A decoder activated after admission and every different/seeded owner use the original
+// local/full source recipe. No effectful caller can manufacture this completed coverage.
+fn require_predecessor_binding(
+    prior: &VerifiedUnsignedClosure,
+    pass: Option<&EnrollmentReadPass<'_>>,
+) -> Result<()> {
+    if pass.is_some_and(|pass| pass.completed_predecessor(prior)) {
+        prior.require_receipt()
+    } else {
+        prior.require_retained_with_pass(pass)
+    }
+}
+
 struct BodyScopeState {
     evidence: Arc<dyn EnrollmentScopeEvidence>,
     // Moving the verified predecessor keeps its exact local custody attached to the count.
@@ -110,7 +127,7 @@ impl BodyDispatchScope {
         let root_identity = evidence.root().identity()?;
         let operation_identity = evidence.operation().identity()?;
         if let Some(prior) = &predecessor {
-            prior.require_retained_with_pass(pass)?;
+            require_predecessor_binding(prior, pass)?;
             if prior.purpose() != binding.purpose
                 || prior.outer_intent() != binding.outer_intent
                 || prior.root_identity() != root_identity
@@ -373,4 +390,18 @@ pub(super) fn is_enrollment(purpose: Purpose) -> bool {
         purpose,
         Purpose::CustodyEnroll(_) | Purpose::CustodyRenewal { .. }
     )
+}
+
+#[cfg(test)]
+impl History {
+    pub(in crate::managed) fn test_require_predecessor_binding(
+        &self,
+        pass: Option<&EnrollmentReadPass<'_>>,
+    ) -> Result<()> {
+        let prior = self
+            .scope
+            .predecessor()
+            .ok_or_else(|| invalid("test history predecessor absent"))?;
+        require_predecessor_binding(prior, pass)
+    }
 }

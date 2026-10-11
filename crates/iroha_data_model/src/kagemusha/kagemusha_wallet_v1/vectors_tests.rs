@@ -587,7 +587,7 @@ fn build_world() -> VectorWorld {
         kagemusha_wallet_proof_digest_v1(KagemushaWalletOperationKindV1::Receive, None, &proof)
             .expect("σ-only proof digest");
     let retained = |role, bytes| KagemushaWalletRetainedInputV1 { role, bytes };
-    let capsule = KagemushaWalletRecoveryCapsuleV1 {
+    let capsule = KagemushaWalletRecoveryBodyV1 {
         version: KAGEMUSHA_WALLET_VERSION_V1,
         scheme_id,
         wallet_id: receiver.body.wallet_id,
@@ -629,14 +629,19 @@ fn build_world() -> VectorWorld {
         )
         .expect("output"),
     };
-    let capsule_digest = capsule.capsule_digest().expect("capsule digest");
+    let capsule = capsule
+        .freeze()
+        .expect("fixed Receive body")
+        .seal(field_value(1))
+        .expect("fixed vector opening");
+    let capsule_commitment = capsule.receipt_commitment();
     let receiver_signer =
         KagemushaWalletReceiptSignerV1::from_credential(&receiver).expect("receiver signer");
     let receipt_body = KagemushaWalletReceiptBodyV1::derive(
         &receiver_signer,
         &statement,
         &proof_digest,
-        capsule_digest,
+        capsule_commitment,
         payment_digest,
     )
     .expect("receipt body");
@@ -644,7 +649,7 @@ fn build_world() -> VectorWorld {
         &receiver,
         &statement,
         &proof_digest,
-        capsule_digest,
+        capsule_commitment,
         payment_digest,
         raw_output(&f.receiver.payment, &receipt_body.signing_message()),
     )
@@ -679,7 +684,7 @@ fn build_world() -> VectorWorld {
         &status_signer,
         &status.statement,
         &status.proof_digest,
-        status.receipt.capsule_digest,
+        status.receipt.capsule_commitment,
         status.receipt.payment_digest,
     )
     .expect("status receipt body");
@@ -687,7 +692,7 @@ fn build_world() -> VectorWorld {
         &receiver,
         &status.statement,
         &status.proof_digest,
-        status.receipt.capsule_digest,
+        status.receipt.capsule_commitment,
         status.receipt.payment_digest,
         raw_output(&f.receiver.payment, &status_receipt_body.signing_message()),
     )
@@ -1099,7 +1104,7 @@ fn digest_vectors(w: &VectorWorld) -> Vec<DigestVector> {
                 &digests.payment,
             ),
             false,
-            Some(w.capsule.output.digest),
+            Some(w.capsule.body().output.digest),
         ),
         digest_vector(
             Role::Marker,
@@ -1109,11 +1114,21 @@ fn digest_vectors(w: &VectorWorld) -> Vec<DigestVector> {
             Some(w.marker.marker_digest().expect("marker digest")),
         ),
         digest_vector(
+            Role::CapsuleBody,
+            "Receive recovery body frame",
+            w.capsule.body().to_canonical_bytes().expect("body frame"),
+            true,
+            Some(kagemusha_wallet_digest_v1(
+                Role::CapsuleBody,
+                &w.capsule.body().to_canonical_bytes().expect("body frame"),
+            )),
+        ),
+        digest_vector(
             Role::Capsule,
             "Receive recovery capsule frame",
-            w.capsule.to_canonical_bytes().expect("capsule frame"),
+            w.capsule.to_canonical_bytes(),
             true,
-            Some(w.capsule.capsule_digest().expect("capsule digest")),
+            Some(w.capsule.custody_digest()),
         ),
         digest_vector(
             Role::Completion,
@@ -2003,6 +2018,10 @@ fn frame_pins() -> Vec<FramePin> {
             "KagemushaWalletMarkerV1",
             KAGEMUSHA_WALLET_MARKER_MAX_BYTES_V1,
         ),
+        frame_pin::<KagemushaWalletRecoveryBodyV1>(
+            "KagemushaWalletRecoveryBodyV1",
+            KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1,
+        ),
         frame_pin::<KagemushaWalletRecoveryCapsuleV1>(
             "KagemushaWalletRecoveryCapsuleV1",
             KAGEMUSHA_WALLET_CAPSULE_MAX_BYTES_V1,
@@ -2372,6 +2391,20 @@ fn ledger_objects(w: &VectorWorld) -> LedgerObjects {
 /// Encode `$value` with its own bounded encoder, decode it with its own bounded decoder under
 /// `$expected`, and pin the frame.
 macro_rules! framed_pin {
+    (KagemushaWalletRecoveryCapsuleV1, $variant:literal, $value:expr, $expected:expr, $stand_in:expr) => {{
+        let value = &$value;
+        let frame = value.to_canonical_bytes();
+        let decoded = KagemushaWalletRecoveryCapsuleV1::decode_canonical(&frame, $expected)
+            .expect("validated recovery capsule");
+        object_pin(
+            "KagemushaWalletRecoveryCapsuleV1",
+            $variant,
+            value,
+            frame,
+            &decoded,
+            $stand_in,
+        )
+    }};
     ($ty:ident, $variant:literal, $value:expr, $expected:expr, $stand_in:expr) => {{
         let value = &$value;
         let frame = value.to_canonical_bytes().expect(stringify!($ty));
@@ -2471,7 +2504,7 @@ fn quota_custody_objects(
     )
     .unwrap();
     let set = KagemushaWalletCertificateSetV1::new(vec![w.f.regulator_certificate]).unwrap();
-    let capsule = KagemushaWalletRecoveryCapsuleV1 {
+    let capsule = KagemushaWalletRecoveryBodyV1 {
         version: 1,
         scheme_id: w.scheme_id(),
         wallet_id: w.payer().body.wallet_id,
@@ -2506,6 +2539,11 @@ fn quota_custody_objects(
         .unwrap(),
     };
     capsule.validate().unwrap();
+    let capsule = capsule
+        .freeze()
+        .expect("fixed quota body")
+        .seal(field_value(2))
+        .expect("fixed vector opening");
     (witness, capsule)
 }
 
@@ -2665,6 +2703,13 @@ fn object_pins(w: &VectorWorld) -> Vec<ObjectPin> {
             l.abandoned_marker,
             &scheme_id,
             false
+        ),
+        framed_pin!(
+            KagemushaWalletRecoveryBodyV1,
+            "Receive",
+            w.capsule.body().clone(),
+            &scheme_id,
+            true
         ),
         framed_pin!(
             KagemushaWalletRecoveryCapsuleV1,
@@ -2890,10 +2935,7 @@ fn enum_tag_table(w: &VectorWorld) -> Vec<EnumTags> {
     ];
     let markers = [
         ("Enrollment", w.marker.state),
-        (
-            "Head",
-            w.capsule.head_marker_state().expect("head marker state"),
-        ),
+        ("Head", w.capsule.head_marker_state()),
         (
             "Terminal",
             MarkerState::Terminal {
@@ -3608,7 +3650,7 @@ fn field_encodings_json(w: &VectorWorld) -> Value {
     let payment = &w.payment;
     let send = &payment.send.statement;
     let receive = &w.receive.statement;
-    let state = &w.capsule.successor_state;
+    let state = &w.capsule.body().successor_state;
     let digests = payment.digests().expect("payment digests");
     let send_entry = payment.send_chain_entry().expect("send chain entry");
     let recv_entry = payment.recv_chain_entry().expect("recv chain entry");
@@ -4065,7 +4107,7 @@ fn poseidon_json(w: &VectorWorld) -> Value {
                     &digests.credit_id,
                 )
                 .expect("Receive operation items"),
-                &w.capsule.operation_id,
+                &w.capsule.body().operation_id,
             ),
         ),
         (
@@ -4618,6 +4660,36 @@ fn vectors_file_text(w: &VectorWorld) -> String {
         ("digests", digest_vectors_json(&digests)),
         ("object_digests", object_digest_vectors_json(w)),
         (
+            "capsule_commitment",
+            json_object(vec![
+                (
+                    "scope",
+                    json_text("Receive private-custody codec sample; proof bytes remain stand-ins"),
+                ),
+                ("body_type", json_text("KagemushaWalletRecoveryBodyV1")),
+                (
+                    "wrapper_type",
+                    json_text("KagemushaWalletRecoveryCapsuleV1"),
+                ),
+                ("opening_le32_hex", json_hex(&field_value(1))),
+                (
+                    "body_digest_hex",
+                    json_hex(&kagemusha_wallet_digest_v1(
+                        Role::CapsuleBody,
+                        &w.capsule.body().to_canonical_bytes().expect("body frame"),
+                    )),
+                ),
+                (
+                    "private_custody_digest_hex",
+                    json_hex(&w.capsule.custody_digest()),
+                ),
+                (
+                    "public_receipt_commitment_hex",
+                    json_hex(&w.capsule.receipt_commitment()),
+                ),
+            ]),
+        ),
+        (
             "ordinary_load_receipt",
             json_object(vec![
                 (
@@ -4704,6 +4776,7 @@ fn kagemusha_wallet_v1_vectors_are_deterministic_and_parse() {
     for key in [
         "digests",
         "object_digests",
+        "capsule_commitment",
         "signatures",
         "signature_boundaries",
         "envelopes",
@@ -4740,7 +4813,13 @@ fn kagemusha_wallet_v1_vectors_cover_every_role_once_in_order() {
         .collect();
     assert_eq!(
         labelled,
-        ["verifying-key-set", "capsule", "completion", "fold"]
+        [
+            "verifying-key-set",
+            "capsule-body",
+            "capsule",
+            "completion",
+            "fold"
+        ]
     );
 }
 
@@ -5098,8 +5177,12 @@ fn kagemusha_wallet_v1_every_version_field_precedes_the_scheme() {
     let mut abandonment = l.abandonment;
     abandonment.control.body.version = 2;
     assert_version_error(abandonment.require_versions(), "ledger_control.version");
-    let mut capsule = w.capsule.clone();
+    let mut capsule = w.capsule.body().clone();
     capsule.successor_state.version = 2;
+    let capsule = super::custody::KagemushaWalletRecoveryCapsuleFrameV1 {
+        body_frame: norito::encode_canonical(&capsule).expect("malformed body DATA"),
+        opening: field_value(1),
+    };
     assert_version_error(
         KagemushaWalletRecoveryCapsuleV1::decode_canonical(
             &norito::encode_canonical(&capsule).expect("encode"),
@@ -5343,11 +5426,11 @@ fn kagemusha_wallet_v1_vector_artifacts_bind_manifest_and_exact_proof_lengths() 
         .receive
         .verifying_key_selector(Some(&w.request.body))
         .expect("Receive selector");
-    assert_eq!(w.capsule.kind, kind);
+    assert_eq!(w.capsule.body().kind, kind);
     w.allowlist
-        .check_step_proof(kind, mask, &w.capsule.step_proof)
+        .check_step_proof(kind, mask, &w.capsule.body().step_proof)
         .expect("capsule σ length");
-    if let Some(lineage) = w.capsule.predecessor_lineage.lineage() {
+    if let Some(lineage) = w.capsule.body().predecessor_lineage.lineage() {
         w.allowlist
             .check_lineage(lineage)
             .expect("capsule Ω length");

@@ -68,6 +68,12 @@ fn proof<T>(value: Result<T, ProofError>) -> Result<T, Error> {
     value.map_err(|error| match error {
         ProofError::Unavailable => Error::ArtifactsUnavailable("native operation artifact"),
         ProofError::Cancelled => Error::Cancelled,
+        ProofError::Entropy => {
+            crate::kagemusha_wallet_advance_v1::KagemushaWalletProviderErrorV1::Unavailable(
+                crate::kagemusha_wallet_advance_v1::KagemushaWalletUnavailableV1::Platform(0),
+            )
+            .into()
+        }
         _ => Error::Proof("native operation source or proof"),
     })
 }
@@ -274,7 +280,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
     ) -> Result<Self::AdvanceCheck, Error> {
         next.validate()?;
         let preparation = proof(PreparationV1::new(&self.installed))?;
-        if next.capsule.kind == KagemushaWalletOperationKindV1::Bootstrap {
+        if next.capsule.body().kind == KagemushaWalletOperationKindV1::Bootstrap {
             if predecessor.is_some()
                 || folded.is_some()
                 || custody.prepared().is_some()
@@ -288,24 +294,22 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
             )?;
             let KagemushaWalletEffectV1::Bootstrap {
                 enrollment_marker, ..
-            } = next.capsule.statement.effect
+            } = next.capsule.body().statement.effect
             else {
                 return Err(Error::Proof("Bootstrap effect"));
             };
             let expected = proof(preparation.prepare_bootstrap(
                 &owner,
                 enrollment_marker,
-                next.capsule.successor_state.core.state_nonce,
+                next.capsule.body().successor_state.core.state_nonce,
             ))?;
-            let frozen = proof(preparation.freeze_bootstrap(
+            let frozen = proof(preparation.body_bootstrap(
                 &owner,
                 &expected,
-                next.capsule.step_proof.clone(),
+                next.capsule.body().step_proof.clone(),
                 self.budget,
             ))?;
-            if &frozen != next {
-                return Err(Error::Proof("Bootstrap derived capsule"));
-            }
+            proof(frozen.require_matches(next))?;
             return Ok(NativeAdvanceCheckV1::without_time());
         }
         let source = PreparationSourceV1 {

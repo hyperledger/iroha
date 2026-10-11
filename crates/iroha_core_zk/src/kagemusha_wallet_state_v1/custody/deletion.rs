@@ -110,7 +110,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> AdvanceHandle<F, P> {
                 field: "custody.review changed",
             });
         }
-        let core = &capsule.successor_state.core;
+        let core = &capsule.body().successor_state.core;
         let KagemushaWalletMarkerStateV1::Head { sequence, head, .. } = record.marker().state
         else {
             return Err(ProviderError::Invalid {
@@ -122,7 +122,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> AdvanceHandle<F, P> {
         let projection = CustodyDeletionReviewV1 {
             pending,
             lifecycle: core.lifecycle,
-            operation_kind: capsule.kind,
+            operation_kind: capsule.body().kind,
             pending_outgoing: core.pending_outgoing_root != empty,
             fee_claims: core.fee_claim_root != empty,
             load_redeem: core.load_redeem_recovery_root != empty,

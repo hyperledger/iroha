@@ -81,7 +81,7 @@ impl KagemushaWalletFrozenFrameV1 for KagemushaWalletRecoveryCapsuleV1 {
     type Binding = [u8; 32];
 
     fn encode_frame(&self) -> Result<Vec<u8>, KagemushaWalletValidationErrorV1> {
-        self.to_canonical_bytes()
+        Ok(self.to_canonical_bytes())
     }
 
     fn decode_frame(

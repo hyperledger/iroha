@@ -36,7 +36,8 @@ pub(super) mod identity_tests;
 
 /// ASCII name of the single V1 provider contract: the §4 Advance journal-and-marker contract
 /// and its receipt format.
-pub const KAGEMUSHA_WALLET_PROVIDER_CONTRACT_NAME_V1: &str = "kagemusha-advance-journal-marker-v1";
+pub const KAGEMUSHA_WALLET_PROVIDER_CONTRACT_NAME_V1: &str =
+    "kagemusha-advance-pedersen-capsule-v1";
 /// Exact `provider-contract` transcript bytes: `LE16 version || name zero-padded to 64`.
 pub const KAGEMUSHA_WALLET_PROVIDER_CONTRACT_TRANSCRIPT_BYTES_V1: usize =
     2 + PROVIDER_CONTRACT_NAME_FIELD_BYTES;

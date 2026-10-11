@@ -425,33 +425,38 @@ fn streamed_parity<C: PastaCurve>() {
             let mut workspace = QuotientWorkspace::new(elements * size_of::<C::ScalarExt>());
             for omission in omissions {
                 let filter = OmitTerm(omission);
-                let expected =
-                    row_wise_reference(&pk, &protocol, &compiled, &inputs, challenges, &filter)
-                        .unwrap();
-                for workers in [1, 4] {
-                    let pool = rayon::ThreadPoolBuilder::new()
-                        .num_threads(workers)
-                        .build()
-                        .unwrap();
-                    let actual = pool
-                        .install(|| {
-                            evaluate_with_workspace(
-                                &pk,
-                                &protocol,
-                                &compiled,
-                                &inputs,
-                                challenges,
-                                &filter,
-                                &mut workspace,
-                            )
-                        })
-                        .unwrap();
-                    assert_eq!(
-                        actual, expected,
-                        "L={lookup_count}, workers={workers}, omitted={omission:?}"
-                    );
-                    assert!(workspace.is_zeroized());
-                    assert_eq!(workspace.allocated_bytes(), workspace.maximum_bytes());
+                // Keep the nondegenerate exponent check and exercise zero/one
+                // through the complete independent lookup fold on both fields.
+                for y in [challenges.y, C::ScalarExt::ZERO, C::ScalarExt::ONE] {
+                    let challenges = Challenges { y, ..challenges };
+                    let expected =
+                        row_wise_reference(&pk, &protocol, &compiled, &inputs, challenges, &filter)
+                            .unwrap();
+                    for workers in [1, 4] {
+                        let pool = rayon::ThreadPoolBuilder::new()
+                            .num_threads(workers)
+                            .build()
+                            .unwrap();
+                        let actual = pool
+                            .install(|| {
+                                evaluate_with_workspace(
+                                    &pk,
+                                    &protocol,
+                                    &compiled,
+                                    &inputs,
+                                    challenges,
+                                    &filter,
+                                    &mut workspace,
+                                )
+                            })
+                            .unwrap();
+                        assert_eq!(
+                            actual, expected,
+                            "L={lookup_count}, workers={workers}, y={y:?}, omitted={omission:?}"
+                        );
+                        assert!(workspace.is_zeroized());
+                        assert_eq!(workspace.allocated_bytes(), workspace.maximum_bytes());
+                    }
                 }
             }
             if lookup_count > 0 {

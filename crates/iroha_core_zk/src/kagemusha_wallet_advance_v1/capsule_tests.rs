@@ -49,11 +49,8 @@ fn wallet_advance_v1_capsule_frame_trait_matches_g1() {
     let f = wallet_fixture(0x20);
     let capsule = bootstrap_capsule(&f);
     let frame = capsule.encode_frame().expect("frame");
-    assert_eq!(frame, capsule.to_canonical_bytes().expect("canonical"));
-    assert_eq!(
-        Capsule::frame_digest(&frame),
-        capsule.capsule_digest().expect("digest")
-    );
+    assert_eq!(frame, capsule.to_canonical_bytes());
+    assert_eq!(Capsule::frame_digest(&frame), capsule.custody_digest());
     assert_eq!(
         Capsule::decode_frame(&frame, &f.scheme_id()).ok().as_ref(),
         Some(&capsule)
@@ -71,7 +68,7 @@ fn wallet_advance_v1_capsule_stage_and_load() {
     let f = wallet_fixture(0x21);
     let (fs, store, enrollment) = enrolled(&f);
     let capsule = bootstrap_capsule(&f);
-    let digest = capsule.capsule_digest().expect("digest");
+    let digest = capsule.custody_digest();
     let staged = kagemusha_wallet_stage_capsule_v1(
         &store,
         &enrollment,
@@ -100,10 +97,7 @@ fn wallet_advance_v1_capsule_stage_and_load() {
         kagemusha_wallet_load_capsule_v1::<_, Capsule>(&store, &f.slot, 1, &digest, &f.scheme_id())
             .expect("load");
     assert_eq!(loaded.value(), &capsule);
-    assert_eq!(
-        loaded.frame(),
-        capsule.to_canonical_bytes().expect("frame").as_slice()
-    );
+    assert_eq!(loaded.frame(), capsule.to_canonical_bytes().as_slice());
     assert_eq!(loaded.frame_digest(), &digest);
     assert_eq!(loaded.selected_generation(), 1);
     for copy in KagemushaWalletCopyV1::BOTH {
@@ -148,17 +142,17 @@ fn wallet_advance_v1_quota_witness_survives_power_loss_replica_repair_and_replay
         .unwrap();
     let original = hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap();
     let capsule: Capsule = norito::decode_canonical(&original).unwrap();
-    let witness = capsule.quota_refresh_witness().unwrap().unwrap();
+    let witness = capsule.body().quota_refresh_witness().unwrap().unwrap();
     assert_eq!(witness.predecessor_usage.iter().flatten().count(), 64);
     let f = wallet_fixture(0x42);
     let (fs, store, enrollment) = enrolled(&f);
-    let digest = capsule.capsule_digest().unwrap();
+    let digest = capsule.custody_digest();
     let staged = kagemusha_wallet_stage_capsule_v1(
         &store,
         &enrollment,
         &Ok(BOOT_A),
         &capsule,
-        &capsule.scheme_id,
+        &capsule.body().scheme_id,
     )
     .unwrap();
     assert_eq!(staged.capsule_digest, digest);
@@ -170,11 +164,11 @@ fn wallet_advance_v1_quota_witness_survives_power_loss_replica_repair_and_replay
         &f.slot,
         1,
         &digest,
-        &capsule.scheme_id,
+        &capsule.body().scheme_id,
     )
     .unwrap();
     assert_eq!(
-        loaded.value().quota_refresh_witness().unwrap(),
+        loaded.value().body().quota_refresh_witness().unwrap(),
         Some(witness)
     );
     assert_eq!(loaded.frame(), original);
@@ -186,18 +180,18 @@ fn wallet_advance_v1_quota_witness_survives_power_loss_replica_repair_and_replay
         &f.slot,
         1,
         &digest,
-        &capsule.scheme_id,
+        &capsule.body().scheme_id,
     )
     .unwrap();
     assert_eq!(replay.frame(), original);
     assert_eq!(
-        replay.value().quota_refresh_witness().unwrap(),
+        replay.value().body().quota_refresh_witness().unwrap(),
         Some(witness)
     );
     for copy in KagemushaWalletCopyV1::BOTH {
         assert_eq!(replay.state(copy), KagemushaWalletCopyStateV1::Valid);
     }
-    let mut changed = capsule;
+    let mut changed = capsule.body().clone();
     let retained = changed
         .retained_inputs
         .iter_mut()
@@ -206,10 +200,16 @@ fn wallet_advance_v1_quota_witness_survives_power_loss_replica_repair_and_replay
     let mut swapped = witness;
     swapped.predecessor_usage[63].as_mut().unwrap().used += 1;
     retained.bytes = swapped.to_canonical_bytes().unwrap();
+    let changed = changed.freeze().unwrap().seal([0; 32]).unwrap();
     assert_ne!(
-        changed.capsule_digest().unwrap(),
+        changed.custody_digest(),
         digest,
-        "every retained usage value is covered by the receipt's capsule digest"
+        "every retained usage value is covered by the private wrapper digest"
+    );
+    assert_ne!(
+        changed.receipt_commitment(),
+        capsule.receipt_commitment(),
+        "every retained usage value is covered by the public commitment"
     );
 }
 
@@ -218,23 +218,17 @@ fn wallet_advance_v1_capsule_stage_requires_enrollment_or_released() {
     let f = wallet_fixture(0x22);
     let (_fs, store, enrollment) = enrolled(&f);
     let capsule = bootstrap_capsule(&f);
-    let mut invalid = capsule.clone();
+    let mut invalid = capsule.body().clone();
     invalid.map_openings = vec![Vec::new()];
-    assert_eq!(
-        kagemusha_wallet_stage_capsule_v1(
-            &store,
-            &enrollment,
-            &Ok(BOOT_A),
-            &invalid,
-            &f.scheme_id()
-        ),
-        Err(KagemushaWalletProviderErrorV1::Invalid { field: "capsule" })
+    assert!(
+        invalid.freeze().is_err(),
+        "malformed opening cannot enter staged capsule custody"
     );
     let selected = durable(
         &store,
         enrollment
             .record()
-            .select(capsule.head_marker_state().expect("head"), BOOT_A)
+            .select(capsule.head_marker_state(), BOOT_A)
             .expect("select"),
     );
     assert_eq!(
@@ -249,11 +243,11 @@ fn wallet_advance_v1_capsule_stage_requires_enrollment_or_released() {
 fn wallet_advance_v1_capsule_stage_adopts_or_replaces_leftovers() {
     let f = wallet_fixture(0x23);
     let capsule = bootstrap_capsule(&f);
-    let digest = capsule.capsule_digest().expect("digest");
+    let digest = capsule.custody_digest();
     let names = kagemusha_wallet_capsule_names_v1(1, &digest);
     // A valid primary left by an interrupted attempt: adopted on a fresh inode, replica added.
     let (fs, store, enrollment) = enrolled(&f);
-    let frame = capsule.to_canonical_bytes().expect("frame");
+    let frame = capsule.to_canonical_bytes();
     store.write_new(
         &dir(&f),
         &names[0],
@@ -300,7 +294,7 @@ fn wallet_advance_v1_capsule_load_from_either_copy_and_classify() {
     let f = wallet_fixture(0x24);
     let (fs, store, enrollment) = enrolled(&f);
     let capsule = bootstrap_capsule(&f);
-    let digest = capsule.capsule_digest().expect("digest");
+    let digest = capsule.custody_digest();
     let scheme = f.scheme_id();
     kagemusha_wallet_stage_capsule_v1(&store, &enrollment, &Ok(BOOT_A), &capsule, &scheme)
         .expect("stage");
@@ -344,16 +338,14 @@ fn wallet_advance_v1_capsule_load_from_either_copy_and_classify() {
         Err(KagemushaWalletProviderErrorV1::Unavailable(_))
     ));
     // Wrong generation, wrong digest name and oversized copies are invalid.
-    let frame = capsule.to_canonical_bytes().expect("frame");
+    let frame = capsule.to_canonical_bytes();
     store.remove_file(&dir(&f), &names[0]);
     store.write_new(
         &dir(&f),
         &names[0],
         &encode_file::<Capsule>(2, BOOT_A, &frame).expect("file"),
     );
-    let next = next_capsule(&f, &capsule)
-        .to_canonical_bytes()
-        .expect("frame");
+    let next = next_capsule(&f, &capsule).to_canonical_bytes();
     store.write_new(
         &dir(&f),
         &names[1],
@@ -376,7 +368,7 @@ fn wallet_advance_v1_capsule_repair_and_settle() {
     let f = wallet_fixture(0x25);
     let (fs, store, enrollment) = enrolled(&f);
     let capsule = bootstrap_capsule(&f);
-    let digest = capsule.capsule_digest().expect("digest");
+    let digest = capsule.custody_digest();
     let scheme = f.scheme_id();
     kagemusha_wallet_stage_capsule_v1(&store, &enrollment, &Ok(BOOT_B), &capsule, &scheme)
         .expect("stage");
@@ -386,8 +378,7 @@ fn wallet_advance_v1_capsule_repair_and_settle() {
     store.write_new(
         &dir(&f),
         &names[1],
-        &encode_file::<Capsule>(1, BOOT_B, &capsule.to_canonical_bytes().expect("frame"))
-            .expect("file"),
+        &encode_file::<Capsule>(1, BOOT_B, &capsule.to_canonical_bytes()).expect("file"),
     );
     store.write_new(&dir(&f), &names[0], b"corrupt");
     let mut loaded =
@@ -438,7 +429,7 @@ fn wallet_advance_v1_capsule_discard_staged_only_above_current() {
     let f = wallet_fixture(0x26);
     let (fs, store, enrollment) = enrolled(&f);
     let capsule = bootstrap_capsule(&f);
-    let digest = capsule.capsule_digest().expect("digest");
+    let digest = capsule.custody_digest();
     kagemusha_wallet_stage_capsule_v1(&store, &enrollment, &Ok(BOOT_A), &capsule, &f.scheme_id())
         .expect("stage");
     assert_eq!(
@@ -515,7 +506,7 @@ fn wallet_advance_v1_capsule_stage_fault_matrix() {
     // is durable. Loading never returns a torn or foreign capsule.
     let f = wallet_fixture(0x28);
     let capsule = bootstrap_capsule(&f);
-    let digest = capsule.capsule_digest().expect("digest");
+    let digest = capsule.custody_digest();
     let scheme = f.scheme_id();
     let (base, _store, enrollment) = enrolled(&f);
     let probe = base.fork();
@@ -607,14 +598,14 @@ fn wallet_advance_v1_capsule_refuses_superseded_current_marker() {
     let f = wallet_fixture(0x29);
     let (_fs, store, enrollment) = enrolled(&f);
     let capsule = bootstrap_capsule(&f);
-    let digest = capsule.capsule_digest().expect("digest");
+    let digest = capsule.custody_digest();
     kagemusha_wallet_stage_capsule_v1(&store, &enrollment, &Ok(BOOT_A), &capsule, &f.scheme_id())
         .expect("stage");
     durable(
         &store,
         enrollment
             .record()
-            .select(capsule.head_marker_state().expect("head"), BOOT_A)
+            .select(capsule.head_marker_state(), BOOT_A)
             .expect("select"),
     );
     let superseded = KagemushaWalletProviderErrorV1::Invalid {
@@ -638,4 +629,18 @@ fn wallet_advance_v1_capsule_refuses_superseded_current_marker() {
     );
     kagemusha_wallet_load_capsule_v1::<_, Capsule>(&store, &f.slot, 1, &digest, &f.scheme_id())
         .expect("bound capsule intact");
+}
+
+#[test]
+fn wallet_advance_v1_capsule_recovery_requires_original_opening_and_never_accepts_body_only() {
+    let f = wallet_fixture(0x43);
+    let capsule = bootstrap_capsule(&f);
+    let original = capsule.to_canonical_bytes();
+    let recovered = Capsule::decode_frame(&original, &f.scheme_id()).unwrap();
+    assert_eq!(recovered.to_canonical_bytes(), original);
+    assert_eq!(recovered.custody_digest(), capsule.custody_digest());
+    assert_eq!(recovered.receipt_commitment(), capsule.receipt_commitment());
+    let body_only = capsule.body().to_canonical_bytes().unwrap();
+    assert!(Capsule::decode_frame(&body_only, &f.scheme_id()).is_err());
+    assert!(Capsule::decode_frame(&original[..original.len() - 1], &f.scheme_id()).is_err());
 }

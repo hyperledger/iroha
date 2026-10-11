@@ -73,7 +73,7 @@ struct Source {
     current: KagemushaWalletCredentialV1,
     successor: KagemushaWalletCredentialV1,
     state: KagemushaWalletStateV1,
-    capsule: KagemushaWalletRecoveryCapsuleV1,
+    capsule: KagemushaWalletRecoveryBodyV1,
     certificate: KagemushaWalletSignerCertificateV1,
     signing: SigningKey,
     complete_blacklist: Option<Vec<u8>>,
@@ -147,8 +147,10 @@ impl Source {
             sign(&root(), &body.signing_message()),
         )
         .unwrap();
-        let mut capsule: KagemushaWalletRecoveryCapsuleV1 =
-            fixture("KagemushaWalletRecoveryCapsuleV1");
+        let mut capsule: KagemushaWalletRecoveryBodyV1 =
+            fixture::<KagemushaWalletRecoveryCapsuleV1>("KagemushaWalletRecoveryCapsuleV1")
+                .body()
+                .clone();
         capsule.kind = KagemushaWalletOperationKindV1::RefreshPolicy;
         capsule.map_openings.clear();
         let set = KagemushaWalletCertificateSetV1::new(vec![certificate]).unwrap();

@@ -32,13 +32,14 @@ fn inputs() -> (
     let capsule: KagemushaWalletRecoveryCapsuleV1 =
         archive::decode(&hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap()).unwrap();
     let certificates = capsule
+        .body()
         .retained_inputs
         .iter()
         .find(|input| input.role == KagemushaWalletRetainedInputRoleV1::CertificateSet)
         .unwrap()
         .bytes
         .clone();
-    let mut state = capsule.successor_state;
+    let mut state = capsule.body().successor_state;
     // This local state projection exercises custody joins only; it is never released/proved.
     state.rest.blacklist = list.blacklist_digest();
     state.core.blacklist_version = list.body.list_version;
@@ -154,8 +155,8 @@ fn bounded_selected_index_restores_exact_full_and_certificate_originals_after_ca
         "signed policy digest and archive content hash are distinct selectors"
     );
     let capsule: KagemushaWalletRecoveryCapsuleV1 = fixture("KagemushaWalletRecoveryCapsuleV1");
-    let capsule_bytes = capsule.to_canonical_bytes().unwrap();
-    let capsule_key = ArchiveKey::Capsule(capsule.capsule_digest().unwrap());
+    let capsule_bytes = capsule.to_canonical_bytes();
+    let capsule_key = ArchiveKey::Capsule(capsule.custody_digest());
     objects.put(capsule_key, &capsule_bytes).unwrap();
     objects.remove(capsule_key).unwrap();
     // Reopened archive capability over the same exact durable objects and selected root.

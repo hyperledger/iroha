@@ -14,10 +14,10 @@ fn commit_preserving_source(wallet: &mut Wallet, next: FrozenTransition) {
         .unwrap();
     let source = wallet.source_custody(&manifest, &previous).unwrap();
     source
-        .require(&mut wallet.archive, &next.capsule.successor_state)
+        .require(&mut wallet.archive, &next.capsule.body().successor_state)
         .unwrap();
     wallet
-        .retain_source_custody(next.capsule.capsule_digest().unwrap(), &source)
+        .retain_source_custody(next.capsule.custody_digest(), &source)
         .unwrap();
     wallet.commit(next).unwrap();
 }
@@ -31,7 +31,7 @@ fn retiring() -> Wallet {
     let step = w.released_steps().unwrap().remove(0);
     let fold = w.read_fold(&step).unwrap().unwrap();
     let mut next = frozen(Some(&boot), KagemushaWalletEffectV1::Retiring);
-    let c = &mut next.capsule;
+    let mut c = next.capsule.body().clone();
     c.predecessor_lineage = KagemushaWalletLineageSlotV1::Present {
         lineage: fold.record.lineage.clone(),
     };
@@ -46,6 +46,11 @@ fn retiring() -> Wallet {
         &c.payment_digest,
     )
     .unwrap();
+    next.capsule = c
+        .freeze()
+        .expect("valid synthetic body")
+        .seal([0; 32])
+        .expect("synthetic opening");
     next.validate().unwrap();
     commit_preserving_source(&mut w, next);
     w
@@ -99,6 +104,17 @@ fn closure_uses_released_retiring_source_and_rejects_active_or_rebound_originals
     assert!(altered.output(&bytes).is_err());
     altered = plan.clone();
     altered.capsule = field(7);
+    assert!(
+        altered
+            .require_source(
+                &w.step_entry(&manifest, plan.package.statement.sequence)
+                    .unwrap()
+            )
+            .is_err()
+    );
+    assert!(w.finish_close_loads(&altered, &bytes).is_err());
+    altered = plan.clone();
+    altered.capsule_commitment[0] ^= 1;
     assert!(altered.require(&w.scheme_id, &w.wallet_id).is_err());
     altered = plan.clone();
     altered.package.statement.next_load += 1;
@@ -157,8 +173,7 @@ fn closure_uncertainty_restart_and_later_head_preserve_exact_selected_output() {
     }
 }
 
-fn rebind(value: &mut FrozenTransition) {
-    let c = &mut value.capsule;
+fn rebind(value: &mut FrozenTransition, mut c: KagemushaWalletRecoveryBodyV1) {
     c.statement.successor = c.successor_state.commitment().unwrap();
     c.operation_id = c.statement.operation_id(&c.wallet_id).unwrap();
     c.output = KagemushaWalletOutputDescriptorV1::for_transition(
@@ -167,6 +182,11 @@ fn rebind(value: &mut FrozenTransition) {
         &c.payment_digest,
     )
     .unwrap();
+    value.capsule = c
+        .freeze()
+        .expect("valid synthetic body")
+        .seal([0; 32])
+        .expect("synthetic opening");
     value.validate().unwrap();
 }
 #[test]
@@ -191,9 +211,10 @@ fn preissued_load_then_complete_consumer_can_select_new_closure_and_replay_both_
             online_charge: 0,
         },
     );
-    load.capsule.statement.lifecycle = KagemushaWalletLifecycleV1::Retiring;
-    load.capsule.successor_state.core.lifecycle = KagemushaWalletLifecycleV1::Retiring;
-    rebind(&mut load);
+    let mut body = load.capsule.body().clone();
+    body.statement.lifecycle = KagemushaWalletLifecycleV1::Retiring;
+    body.successor_state.core.lifecycle = KagemushaWalletLifecycleV1::Retiring;
+    rebind(&mut load, body);
     commit_preserving_source(&mut w, load.clone());
     assert!(
         w.close_loads_plan([2; 32]).is_err(),
@@ -213,7 +234,7 @@ fn preissued_load_then_complete_consumer_can_select_new_closure_and_replay_both_
             charge_quote: [0; 32],
         },
     );
-    let c = &mut unload.capsule;
+    let mut c = unload.capsule.body().clone();
     c.predecessor_lineage = KagemushaWalletLineageSlotV1::Present {
         lineage: fold.record.lineage.clone(),
     };
@@ -222,7 +243,7 @@ fn preissued_load_then_complete_consumer_can_select_new_closure_and_replay_both_
     c.statement.lineage_burned_total = fold.record.lineage.public.burned_total;
     c.statement.lineage_pending_outgoing_root = fold.record.lineage.public.pending_outgoing_root;
     c.successor_state.core.burned_total = c.statement.lineage_burned_total;
-    rebind(&mut unload);
+    rebind(&mut unload, c);
     commit_preserving_source(&mut w, unload);
     let second = w.close_loads_plan([2; 32]).unwrap();
     assert!(matches!(

@@ -44,6 +44,9 @@ pub enum Error {
     /// This is neither proof rejection nor loss of monetary custody.
     #[error("wallet proof artifacts unavailable")]
     Unavailable,
+    /// Independent native opening entropy failed or exhausted its bounded sampler.
+    #[error("wallet opening entropy unavailable")]
+    Entropy,
     /// Descriptor, key, curve, instance types, parameters or proof layout differ.
     #[error("invalid wallet proof artifact profile")]
     Profile,
@@ -205,7 +208,7 @@ fn inventory_size<'a>(items: impl IntoIterator<Item = (&'a [u8], &'a [u8])>) -> 
 // Each required Request is one exact retained original, never an independently supplied
 // selector DTO. A second matching role is ambiguous even when its bytes happen to agree.
 fn retained_request(
-    capsule: &KagemushaWalletRecoveryCapsuleV1,
+    capsule: &KagemushaWalletRecoveryBodyV1,
 ) -> Result<KagemushaWalletRequestV1, Error> {
     let mut originals = capsule
         .retained_inputs
@@ -229,7 +232,7 @@ fn retained_request(
 // turn a retained incoming Payment's soft validity into a hard acceptance prerequisite.
 fn capsule_selector(
     scheme: &KagemushaWalletSchemeV1,
-    capsule: &KagemushaWalletRecoveryCapsuleV1,
+    capsule: &KagemushaWalletRecoveryBodyV1,
     credential: &KagemushaWalletCredentialV1,
 ) -> Result<(KagemushaWalletOperationKindV1, u32), Error> {
     authority(capsule.to_canonical_bytes())?;
@@ -538,6 +541,19 @@ impl ArtifactSet {
     pub fn verify_capsule_proofs_cancellable(
         &self,
         capsule: &KagemushaWalletRecoveryCapsuleV1,
+        credential: &KagemushaWalletCredentialV1,
+        budget: MemoryBudget,
+        cancellation: Option<&iroha_pasta::CancellationToken>,
+    ) -> Result<(), Error> {
+        self.verify_body_proofs_cancellable(capsule.body(), credential, budget, cancellation)
+    }
+
+    /// Verify a fixed recovery body before independent commitment-opening entropy.
+    /// # Errors
+    /// Preserves canonical/context, proof and cancellation failures.
+    pub(crate) fn verify_body_proofs_cancellable(
+        &self,
+        capsule: &KagemushaWalletRecoveryBodyV1,
         credential: &KagemushaWalletCredentialV1,
         budget: MemoryBudget,
         cancellation: Option<&iroha_pasta::CancellationToken>,

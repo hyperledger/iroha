@@ -1538,3 +1538,6 @@ fn retained_parent_custody_inspection_keeps_native_rename_refusal_and_original_r
     assert!(!path.join("submission.json").exists());
     assert_eq!(transport.requests.load(Ordering::SeqCst), 0);
 }
+
+#[path = "operations_terminal_reader_tests.rs"]
+mod terminal_reader_tests;

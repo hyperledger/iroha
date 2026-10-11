@@ -98,7 +98,8 @@ fn quota_effect_requires_exactly_one_typed_original_and_other_effects_refuse_it(
         .find(|row| row["type"].as_str() == Some("KagemushaWalletRecoveryCapsuleV1"))
         .unwrap();
     let bytes = hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap();
-    let mut capsule: KagemushaWalletRecoveryCapsuleV1 = norito::decode_canonical(&bytes).unwrap();
+    let capsule: KagemushaWalletRecoveryCapsuleV1 = norito::decode_canonical(&bytes).unwrap();
+    let mut capsule = capsule.body().clone();
     assert!(capsule.quota_refresh_witness().unwrap().is_none());
     let input = KagemushaWalletRetainedInputV1 {
         role: KagemushaWalletRetainedInputRoleV1::QuotaRefreshWitness,

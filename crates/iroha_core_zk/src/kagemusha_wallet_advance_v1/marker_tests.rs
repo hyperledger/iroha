@@ -38,14 +38,11 @@ fn chain(f: &WalletFixtureV1) -> ChainV1 {
     let enrollment = f.enrollment_record(BOOT_A);
     let first = bootstrap_capsule(f);
     let selected = enrollment
-        .select(first.head_marker_state().expect("head"), BOOT_A)
+        .select(first.head_marker_state(), BOOT_A)
         .expect("select");
     let released = selected.release([0xc1; 32], BOOT_A).expect("release");
     let next = released
-        .select(
-            next_capsule(f, &first).head_marker_state().expect("head"),
-            BOOT_A,
-        )
+        .select(next_capsule(f, &first).head_marker_state(), BOOT_A)
         .expect("next");
     ChainV1 {
         enrollment,
@@ -890,7 +887,7 @@ fn wallet_advance_v1_marker_anchor_kind_is_bound_to_the_slot() {
         Ok(&keychain)
     );
     // Every successor inherits it.
-    let head = bootstrap_capsule(&f).head_marker_state().expect("head");
+    let head = bootstrap_capsule(&f).head_marker_state();
     let selected = keychain.select(head, BOOT_A).expect("select");
     let released = selected.release([0xc9; 32], BOOT_A).expect("release");
     let terminal = released

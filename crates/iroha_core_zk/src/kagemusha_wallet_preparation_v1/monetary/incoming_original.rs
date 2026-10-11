@@ -71,7 +71,7 @@ pub(super) fn payment(bytes: &[u8]) -> Result<IncomingOriginalV1, Error> {
         successor: payment.send.statement.successor,
         statement_digest,
         proof_digest,
-        capsule_digest: original.capsule_digest,
+        capsule_commitment: original.capsule_commitment,
         payment_digest: original.payment_digest,
     };
     let receipt_digest = kagemusha_wallet_signed_object_digest_v1(

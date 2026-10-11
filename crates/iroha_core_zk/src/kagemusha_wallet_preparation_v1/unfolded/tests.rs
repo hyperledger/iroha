@@ -28,6 +28,7 @@ fn fixture() -> (
         norito::decode_from_bytes(&hex::decode(row["canonical_hex"].as_str().unwrap()).unwrap())
             .unwrap();
     let original = capsule
+        .body()
         .retained_inputs
         .iter()
         .find(|v| v.role == KagemushaWalletRetainedInputRoleV1::Request)
@@ -37,8 +38,8 @@ fn fixture() -> (
     // deliberately never admitted, and no FoldedState is constructed.
     (
         request.receiver_credential,
-        capsule.successor_state,
-        capsule.statement,
+        capsule.body().successor_state,
+        capsule.body().statement,
     )
 }
 

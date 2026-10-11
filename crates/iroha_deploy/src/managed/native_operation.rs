@@ -31,6 +31,9 @@ const MAX_REPLAY_SUCCESSORS: u64 = 16;
 #[path = "native_operation/attempts.rs"]
 pub(super) mod attempts;
 
+#[path = "native_operation/initial_intent.rs"]
+pub(super) mod initial_intent;
+
 #[path = "native_operation/authorization.rs"]
 pub(super) mod authorization;
 

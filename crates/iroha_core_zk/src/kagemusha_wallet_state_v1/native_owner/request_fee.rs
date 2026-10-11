@@ -55,7 +55,7 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1, S: OriginalSourceV1 +
         let before = self.snapshot()?;
         let (_, manifest) = self.manifest()?;
         let source = self.indexed_step(&manifest, before.sequence)?;
-        let state = source.frozen.capsule.successor_state;
+        let state = source.frozen.capsule.body().successor_state;
         self.source_custody(&manifest, &source)?;
         if valid(state.commitment())?.value != before.head || self.snapshot()? != before {
             return Err(Error::WitnessLost("Request fee selection changed"));

@@ -813,7 +813,7 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         reason: "KAGEMUSHA wallet-wire domain prefix and wallet advance provider-contract identity: these name or hash one application record or message",
         literals: &[
             r"iroha:kagemusha:wallet:v1:",
-            r"kagemusha-advance-journal-marker-v1",
+            r"kagemusha-advance-pedersen-capsule-v1",
         ],
     },
     OtherDomains {

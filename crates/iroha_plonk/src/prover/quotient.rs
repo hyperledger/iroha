@@ -811,6 +811,11 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
     } = challenges;
     let gate_fold = GateFold::new(y);
     let one = C::ScalarExt::ONE;
+    // Public powers shared by every row and lookup; no inverse of y is used.
+    let y2 = y.square();
+    let y3 = y2 * y;
+    let y4 = y2.square();
+    let y5 = y4 * y;
     let delta = <C::ScalarExt as ff::PrimeField>::DELTA;
     let mut cosets = SecretColumns::new(Vec::with_capacity(shape.quotient_pieces));
     let elements = workspace_elements(pk, protocol)?;
@@ -1076,34 +1081,38 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                             let r_next = (row + 1) & mask;
                             let r_prev = (row + mask) & mask;
                             let a_minus_s = input[row] - table[row];
-                            let mut push = |part, contribution: C::ScalarExt| {
+                            // Evaluate every unmasked contribution before filtering,
+                            // preserving all five keeps calls in the serial order.
+                            let kept = |part, contribution: C::ScalarExt| {
                                 let term = ConstraintTerm::Lookup {
                                     lookup: index,
                                     part,
                                 };
-                                *value = *value * y
-                                    + if filter.keeps(term) {
-                                        contribution
-                                    } else {
-                                        C::ScalarExt::ZERO
-                                    };
+                                if filter.keeps(term) {
+                                    contribution
+                                } else {
+                                    C::ScalarExt::ZERO
+                                }
                             };
-                            push(LookupConstraint::First, (one - product[row]) * l0[row]);
-                            push(
-                                LookupConstraint::Last,
-                                (product[row].square() - product[row]) * l_last[row],
-                            );
-                            push(
+                            let first = kept(LookupConstraint::First, one - product[row]);
+                            let last =
+                                kept(LookupConstraint::Last, product[row].square() - product[row]);
+                            let product_term = kept(
                                 LookupConstraint::Product,
-                                (product[r_next] * (input[row] + beta) * (table[row] + gamma)
-                                    - product[row] * numerator[row])
-                                    * l_active[row],
+                                product[r_next] * (input[row] + beta) * (table[row] + gamma)
+                                    - product[row] * numerator[row],
                             );
-                            push(LookupConstraint::Start, a_minus_s * l0[row]);
-                            push(
+                            let start = kept(LookupConstraint::Start, a_minus_s);
+                            let step = kept(
                                 LookupConstraint::Step,
-                                a_minus_s * (input[row] - input[r_prev]) * l_active[row],
+                                a_minus_s * (input[row] - input[r_prev]),
                             );
+                            // Expand five Horner positions, factoring only equal
+                            // public masks. Omitted terms still retain their powers.
+                            *value = *value * y5
+                                + l0[row] * (y4 * first + y * start)
+                                + l_last[row] * (y3 * last)
+                                + l_active[row] * (y2 * product_term + step);
                         }
                     });
             }

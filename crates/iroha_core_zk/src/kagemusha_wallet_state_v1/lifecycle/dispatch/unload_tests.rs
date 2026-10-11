@@ -87,7 +87,7 @@ fn prepared() -> (Wallet, OperationRequestV1, AccountId, [u8; 32], [u8; 32]) {
             charge_quote: [0; 32],
         },
     );
-    let c = &mut next.capsule;
+    let mut c = next.capsule.body().clone();
     c.predecessor_lineage = KagemushaWalletLineageSlotV1::Present {
         lineage: lineage.clone(),
     };
@@ -102,7 +102,13 @@ fn prepared() -> (Wallet, OperationRequestV1, AccountId, [u8; 32], [u8; 32]) {
         &c.payment_digest,
     )
     .unwrap();
-    let capsule = c.capsule_digest().unwrap();
+    next.capsule = c
+        .freeze()
+        .expect("valid synthetic body")
+        .seal([0; 32])
+        .expect("synthetic opening");
+    let c = &next.capsule;
+    let capsule = c.custody_digest();
     w.retain_source_custody(capsule, &source).unwrap();
     w.commit(next.clone()).unwrap();
     let (root, mut manifest) = w.sync_manifest().unwrap();
@@ -126,7 +132,7 @@ fn prepared() -> (Wallet, OperationRequestV1, AccountId, [u8; 32], [u8; 32]) {
         request_id: request.request_id,
         kind: KagemushaWalletOperationKindV1::Unload,
         request: digest("wallet-preparation-request", &original),
-        source: boot.capsule.capsule_digest().unwrap(),
+        source: boot.capsule.custody_digest(),
         native: vec![1],
         request_object,
         draft: source,
@@ -139,7 +145,8 @@ fn prepared() -> (Wallet, OperationRequestV1, AccountId, [u8; 32], [u8; 32]) {
         request: request_object,
         plan: Some(address),
         capsule: Some(capsule),
-        operation: Some(next.capsule.operation_id),
+        capsule_commitment: Some(next.capsule.receipt_commitment()),
+        operation: Some(next.capsule.body().operation_id),
     };
     manifest.preparations = manifest
         .preparations
@@ -184,7 +191,7 @@ fn permanent_plan_projects_after_capsule_collection_and_restart_without_signing(
     let source = w.source_custody(&manifest, &previous).unwrap();
     let lineage = w.read_fold(&previous).unwrap().unwrap().record.lineage;
     let mut next = frozen(Some(&previous.frozen), KagemushaWalletEffectV1::Retiring);
-    let c = &mut next.capsule;
+    let mut c = next.capsule.body().clone();
     c.predecessor_lineage = KagemushaWalletLineageSlotV1::Present {
         lineage: lineage.clone(),
     };
@@ -199,7 +206,13 @@ fn permanent_plan_projects_after_capsule_collection_and_restart_without_signing(
         &c.payment_digest,
     )
     .unwrap();
-    w.retain_source_custody(c.capsule_digest().unwrap(), &source)
+    next.capsule = c
+        .freeze()
+        .expect("valid synthetic body")
+        .seal([0; 32])
+        .expect("synthetic opening");
+    let c = &next.capsule;
+    w.retain_source_custody(c.custody_digest(), &source)
         .unwrap();
     w.commit(next).unwrap();
     w.fold_once().unwrap();
@@ -224,6 +237,17 @@ fn permanent_plan_projects_after_capsule_collection_and_restart_without_signing(
     assert_eq!(w.custody.signatures, signatures);
     let claim = KagemushaWalletUnloadClaimV1::decode_canonical(&original, &w.scheme_id).unwrap();
     assert_eq!(claim.payout().unwrap().account_payout, 10);
+    let (_, selected) = w.manifest().unwrap();
+    let operation = w.step_entry(&selected, 1).unwrap().operation;
+    let Lookup::Retained(retained) = w.custody.lookup(&operation).unwrap() else {
+        panic!("exact completion remains retained after capsule collection");
+    };
+    let exact = retained.record.output;
+    assert_eq!(
+        w.retry(&operation).unwrap(),
+        Some(Completion::Complete(exact))
+    );
+    assert_eq!(w.custody.signatures, signatures);
 }
 
 #[test]

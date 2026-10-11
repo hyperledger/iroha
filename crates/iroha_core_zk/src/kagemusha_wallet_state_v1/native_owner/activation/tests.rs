@@ -159,6 +159,15 @@ fn activation_binds_bootstrap_originals_nonce_asset_and_signed_output() {
     assert!(changed.require(&w.scheme_id, &w.wallet_id, &asset).is_err());
     changed = plan.clone();
     changed.capsule = field(11);
+    let (_, selected) = w.manifest().unwrap();
+    assert!(
+        changed
+            .require_source(&w.step_entry(&selected, 0).unwrap())
+            .is_err()
+    );
+    assert!(w.finish_activation(&changed, &exact).is_err());
+    changed = plan.clone();
+    changed.capsule_commitment[0] ^= 1;
     assert!(changed.require(&w.scheme_id, &w.wallet_id, &asset).is_err());
     assert!(plan.require(&field(13), &w.wallet_id, &asset).is_err());
     assert!(plan.require(&w.scheme_id, &field(13), &asset).is_err());
@@ -209,4 +218,15 @@ fn collection_requires_the_complete_selected_activation_copy() {
     }
     let plan = w.activation_plan(&asset).unwrap();
     assert_eq!(w.retained_activation(&plan).unwrap(), Some(bytes));
+    let operation = plan.bootstrap.receipt.operation_id;
+    let Lookup::Retained(retained) = w.custody.lookup(&operation).unwrap() else {
+        panic!("exact completion remains retained after capsule collection");
+    };
+    let exact = retained.record.output;
+    let signatures = w.custody.signatures;
+    assert_eq!(
+        w.retry(&operation).unwrap(),
+        Some(Completion::Complete(exact))
+    );
+    assert_eq!(w.custody.signatures, signatures);
 }

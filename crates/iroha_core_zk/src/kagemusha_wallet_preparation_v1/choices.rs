@@ -43,6 +43,11 @@ fn sample_nonce(
     for _ in 0..128 {
         let mut nonce = [0; 32];
         fill(&mut nonce)?;
+        // Discard only the unused top bit, never reduce modulo p. Each 255-bit
+        // candidate has exactly two uniform raw preimages. Canonical rejection
+        // remains uniform over Fp excluding zero and the previous nonce; even
+        // with both exclusions, each fill succeeds with probability above 1/2.
+        nonce[31] &= 0x7f;
         if nonce != [0; 32] && nonce != *previous && bool::from(Fp::from_repr(nonce).is_some()) {
             return Ok(nonce);
         }
@@ -56,6 +61,7 @@ fn needs_time(request: &NativeIntentV1, source: &PreparationSourceV1<'_>) -> boo
             .released()
             .frozen
             .capsule
+            .body()
             .successor_state
             .send_requires_time_anchor()
 }
@@ -66,12 +72,7 @@ fn bindings(
 ) -> Result<([u8; 32], [u8; 32])> {
     let bytes =
         norito::to_bytes(request).map_err(|_| state::Error::Invalid("native request encoding"))?;
-    let source = source
-        .released()
-        .frozen
-        .capsule
-        .capsule_digest()
-        .map_err(|_| state::Error::Invalid("native source digest"))?;
+    let source = source.released().frozen.capsule.custody_digest();
     Ok((source, digest("native-preparation-choices-request", &bytes)))
 }
 
@@ -96,6 +97,7 @@ impl NativeChoicesV1 {
                 .released()
                 .frozen
                 .capsule
+                .body()
                 .successor_state
                 .core
                 .state_nonce,
@@ -154,6 +156,7 @@ impl NativeChoicesV1 {
                 .released()
                 .frozen
                 .capsule
+                .body()
                 .successor_state
                 .core
                 .state_nonce,
@@ -235,6 +238,90 @@ mod tests {
             .is_err()
         );
         assert_eq!(attempts, 128);
+    }
+    #[test]
+    fn nonce_sampling_masks_only_the_unused_bit_and_preserves_exact_boundaries() {
+        let previous = Fp::from(7).to_repr();
+        let expected = (-Fp::from(1)).to_repr();
+        let mut modulus = expected;
+        modulus[0] += 1;
+        let mut above = modulus;
+        above[0] += 1;
+        for high_bit in [0, 0x80] {
+            let mut candidates = [[0; 32], previous, modulus, above, [255; 32], expected]
+                .map(|mut value| {
+                    value[31] |= high_bit;
+                    value
+                })
+                .into_iter();
+            let mut calls = 0;
+            assert_eq!(
+                sample_nonce(&previous, |bytes| {
+                    calls += 1;
+                    *bytes = candidates.next().unwrap();
+                    Ok(())
+                })
+                .unwrap(),
+                expected
+            );
+            assert_eq!(calls, 6);
+            assert!(candidates.next().is_none());
+        }
+        // Bootstrap's zero predecessor excludes only zero, not another scalar.
+        let mut fills = 0;
+        assert_eq!(
+            sample_nonce(&[0; 32], |bytes| {
+                fills += 1;
+                *bytes = Fp::from(1).to_repr();
+                bytes[31] |= 0x80;
+                Ok(())
+            })
+            .unwrap(),
+            Fp::from(1).to_repr()
+        );
+        assert_eq!(fills, 1);
+    }
+    #[test]
+    fn nonce_sampling_never_retries_entropy_errors_or_draws_beyond_the_limit() {
+        let previous = Fp::from(7).to_repr();
+        let mut fills = 0;
+        assert!(matches!(
+            sample_nonce(&previous, |_| {
+                fills += 1;
+                Err(entropy_unavailable())
+            }),
+            Err(state::Error::Provider(_))
+        ));
+        assert_eq!(fills, 1);
+        let mut fills = 0;
+        assert!(
+            sample_nonce(&previous, |bytes| {
+                fills += 1;
+                assert!(fills <= 128);
+                *bytes = previous;
+                bytes[31] |= 0x80;
+                Ok(())
+            })
+            .is_err()
+        );
+        assert_eq!(fills, 128);
+        let mut fills = 0;
+        assert_eq!(
+            sample_nonce(&previous, |bytes| {
+                fills += 1;
+                assert!(fills <= 128);
+                *bytes = if fills == 128 {
+                    Fp::from(1).to_repr()
+                } else {
+                    previous
+                };
+                bytes[31] |= 0x80;
+                Ok(())
+            })
+            .unwrap(),
+            Fp::from(1).to_repr()
+        );
+        assert_eq!(fills, 128);
     }
     #[test]
     fn retained_choices_bind_every_source_and_optional_clock_without_resampling() {

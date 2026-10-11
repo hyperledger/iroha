@@ -62,6 +62,7 @@ fn original(
 ) -> bool {
     let mut inputs = frozen
         .capsule
+        .body()
         .retained_inputs
         .iter()
         .filter(|input| input.role == role);
@@ -69,12 +70,11 @@ fn original(
 }
 
 fn policy_original(
-    frozen: &FrozenTransition,
+    body: &KagemushaWalletRecoveryBodyV1,
     kind: KagemushaWalletPolicyUpdateKindV1,
     complete: &[u8],
 ) -> bool {
-    let mut inputs = frozen
-        .capsule
+    let mut inputs = body
         .retained_inputs
         .iter()
         .filter(|input| input.role == KagemushaWalletRetainedInputRoleV1::PolicyUpdate);
@@ -84,7 +84,7 @@ fn policy_original(
     inputs.next().is_none()
         && super::super::verify_policy_update_original(
             kind,
-            &frozen.capsule.scheme_id,
+            &body.scheme_id,
             &input.bytes,
             complete,
         )
@@ -99,7 +99,8 @@ fn require_frozen(
     use KagemushaWalletRetainedInputRoleV1 as R;
     frozen.validate()?;
     let capsule = &frozen.capsule;
-    if capsule.kind != request.kind() || capsule.predecessor_capsule_digest != *source {
+    if capsule.body().kind != request.kind() || capsule.body().predecessor_capsule_digest != *source
+    {
         return Err(Error::Invalid("prepared capsule identity"));
     }
     let matches = if let Some(archive) = request.archive_request() {
@@ -133,9 +134,9 @@ fn require_frozen(
                 update,
                 certificates,
             } => {
-                policy_original(frozen, *kind, update)
+                policy_original(frozen.capsule.body(), *kind, update)
                     && original(frozen, R::CertificateSet, certificates)
-                    && matches!(capsule.statement.effect, KagemushaWalletEffectV1::RefreshPolicy { update_kind: actual, .. } if actual == *kind)
+                    && matches!(capsule.body().statement.effect, KagemushaWalletEffectV1::RefreshPolicy { update_kind: actual, .. } if actual == *kind)
             }
             OperationActionV1::Unload { amount, charge } => {
                 let quote = charge
@@ -143,17 +144,17 @@ fn require_frozen(
                     .map(|charge| {
                         KagemushaWalletChargeQuoteV1::decode_canonical(
                             &charge.quote,
-                            &capsule.scheme_id,
+                            &capsule.body().scheme_id,
                         )
                         .map(|quote| quote.charge_quote_digest())
                     })
                     .transpose()
                     .map_err(|_| Error::Invalid("prepared charge quote"))?;
-                matches!(capsule.statement.effect, KagemushaWalletEffectV1::Unload { amount: actual, charge_quote, .. }
+                matches!(capsule.body().statement.effect, KagemushaWalletEffectV1::Unload { amount: actual, charge_quote, .. }
                 if actual == *amount && charge_quote == quote.unwrap_or([0; 32]))
             }
             OperationActionV1::Retire => {
-                capsule.statement.effect == KagemushaWalletEffectV1::Retiring
+                capsule.body().statement.effect == KagemushaWalletEffectV1::Retiring
             }
         }
     };
@@ -169,7 +170,22 @@ struct Entry {
     request: [u8; 32],
     plan: Option<[u8; 32]>,
     capsule: Option<[u8; 32]>,
+    capsule_commitment: Option<[u8; 32]>,
     operation: Option<[u8; 32]>,
+}
+
+impl Entry {
+    fn require_binding(&self) -> Result<(), Error> {
+        if self.capsule.is_some() != self.operation.is_some()
+            || self.capsule.is_some() != self.capsule_commitment.is_some()
+            || self.capsule == Some([0; 32])
+            || self.capsule_commitment == Some([0; 32])
+            || self.operation == Some([0; 32])
+        {
+            return Err(Error::WitnessLost("preparation private/public binding"));
+        }
+        Ok(())
+    }
 }
 
 impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
@@ -181,7 +197,11 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         manifest
             .preparations
             .get(&mut self.archive, request_id)?
-            .map(|bytes| archive::decode(&bytes))
+            .map(|bytes| {
+                let entry: Entry = archive::decode(&bytes)?;
+                entry.require_binding()?;
+                Ok(entry)
+            })
             .transpose()
     }
 
@@ -192,6 +212,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         request_id: [u8; 32],
         entry: &Entry,
     ) -> Result<(), Error> {
+        entry.require_binding()?;
         manifest.preparations =
             manifest
                 .preparations
@@ -205,7 +226,7 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         manifest: &manifest::Manifest,
         frozen: &FrozenTransition,
     ) -> Result<Option<PreparedTransitionV1>, Error> {
-        let capsule = valid(frozen.capsule.capsule_digest())?;
+        let capsule = frozen.capsule.custody_digest();
         let Some(address) = manifest.capsule_plans.get(&mut self.archive, &capsule)? else {
             return Ok(None);
         };
@@ -226,7 +247,8 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         if entry.request != plan.request_object
             || entry.plan != Some(address)
             || entry.capsule != Some(capsule)
-            || entry.operation != Some(frozen.capsule.operation_id)
+            || entry.capsule_commitment != Some(frozen.capsule.receipt_commitment())
+            || entry.operation != Some(frozen.capsule.body().operation_id)
         {
             return Err(Error::WitnessLost("capsule plan mapping"));
         }
@@ -238,6 +260,46 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         }))
     }
 
+    // The permanent source-selected Entry binds both identities from one validated W.
+    // Retained output and tombstones must still name that exact private custody object.
+    fn retry_bound_operation(
+        &mut self,
+        capsule: &[u8; 32],
+        commitment: &[u8; 32],
+        operation: &[u8; 32],
+    ) -> Result<Option<Completion>, Error> {
+        Ok(match self.custody.lookup(operation)? {
+            Lookup::Retained(retained) => {
+                if retained.operation_id != *operation
+                    || retained.capsule_digest != *capsule
+                    || retained.record.operation_id != *operation
+                    || retained.record.wallet_id != self.wallet_id
+                    || retained.record.capsule_digest != *capsule
+                    || retained.record.receipt.capsule_commitment != *commitment
+                {
+                    return Err(Error::WitnessLost(
+                        "prepared retained private/public binding",
+                    ));
+                }
+                Some(Completion::Complete(retained.record.output))
+            }
+            Lookup::Archived(tombstone) => {
+                if tombstone.operation_id != *operation || tombstone.capsule_digest != *capsule {
+                    return Err(Error::WitnessLost("prepared tombstone binding"));
+                }
+                Some(Completion::Archived)
+            }
+            Lookup::SelectedUnsigned { capsule_digest } => {
+                if capsule_digest != *capsule {
+                    return Err(Error::WitnessLost("prepared selected binding"));
+                }
+                Some(Completion::Pending)
+            }
+            Lookup::DeliveryDataLoss => Some(Completion::DeliveryDataLoss),
+            Lookup::Unknown => None,
+        })
+    }
+
     /// Replay through the permanent credit index after old Receive output collection.
     /// The exact original request and source-selected operation/capsule mapping must agree
     /// with the first consumed credit; the latest covering native Ω supplies fresh evidence.
@@ -245,9 +307,10 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
         &mut self,
         request: &NativeIntentV1,
         capsule: &[u8; 32],
+        commitment: &[u8; 32],
         operation: &[u8; 32],
     ) -> Result<Option<Completion>, Error> {
-        let completion = self.retry(operation)?;
+        let completion = self.retry_bound_operation(capsule, commitment, operation)?;
         if completion != Some(Completion::Archived) {
             return Ok(completion);
         }
@@ -289,15 +352,20 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
     ) -> Result<(), Error> {
         // Explicit simulator-only mapping: test proofs/custody cannot install a Native owner.
         let request = NativeIntentV1::user(request);
-        require_frozen(&request, &frozen.capsule.predecessor_capsule_digest, frozen)?;
+        require_frozen(
+            &request,
+            &frozen.capsule.body().predecessor_capsule_digest,
+            frozen,
+        )?;
         let (mut selected, mut manifest) = self.manifest()?;
         let entry = Entry {
             request: self
                 .archive
                 .write_object(&archive::encode(&request)?, REQUEST_MAX_BYTES)?,
             plan: None,
-            capsule: Some(valid(frozen.capsule.capsule_digest())?),
-            operation: Some(frozen.capsule.operation_id),
+            capsule: Some(frozen.capsule.custody_digest()),
+            capsule_commitment: Some(frozen.capsule.receipt_commitment()),
+            operation: Some(frozen.capsule.body().operation_id),
         };
         self.publish_preparation(&mut selected, &mut manifest, request.request_id(), &entry)
     }
@@ -365,6 +433,9 @@ impl<C: Custody, A: ArchiveStore, N: NativeProofs> Coordinator<C, A, N> {
                     &entry
                         .capsule
                         .ok_or(Error::WitnessLost("prepared capsule"))?,
+                    &entry
+                        .capsule_commitment
+                        .ok_or(Error::WitnessLost("prepared commitment"))?,
                     &operation,
                 )?
                 .map_or(RequestStatusV1::Preparing, RequestStatusV1::Outcome)),
@@ -429,6 +500,9 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
                     &entry
                         .capsule
                         .ok_or(Error::WitnessLost("prepared capsule"))?,
+                    &entry
+                        .capsule_commitment
+                        .ok_or(Error::WitnessLost("prepared commitment"))?,
                     &operation,
                 )? {
                     return Ok(completion);
@@ -457,6 +531,7 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
                 request: self.archive.write_object(&bytes, REQUEST_MAX_BYTES)?,
                 plan: None,
                 capsule: None,
+                capsule_commitment: None,
                 operation: None,
             };
             self.publish_preparation(&mut selected, &mut manifest, request.request_id(), &entry)?;
@@ -473,13 +548,16 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
                 &entry
                     .capsule
                     .ok_or(Error::WitnessLost("prepared capsule"))?,
+                &entry
+                    .capsule_commitment
+                    .ok_or(Error::WitnessLost("prepared commitment"))?,
                 &operation,
             )? {
                 return Ok(completion);
             }
         }
         let released = self.indexed_step(&manifest, sequence)?;
-        let source_digest = valid(released.frozen.capsule.capsule_digest())?;
+        let source_digest = released.frozen.capsule.custody_digest();
         let held_plan = entry
             .plan
             .map(|plan| archive::decode::<Plan>(&self.archive.read_object(&plan, PLAN_BOUND)?))
@@ -580,16 +658,17 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
             if archive::encode(&custody.snapshot())? != archive::encode(&plan.draft)? {
                 return Err(Error::WitnessLost("prover changed custody draft"));
             }
-            custody.finish(&frozen.capsule.successor_state)?;
+            custody.finish(&frozen.capsule.body().successor_state)?;
             require_frozen(&request, &source_digest, &frozen)?;
             let original = archive::encode(&frozen)?;
             if original.len() > FROZEN_BOUND {
                 return Err(Error::Invalid("prepared capsule size"));
             }
-            let capsule = valid(frozen.capsule.capsule_digest())?;
+            let capsule = frozen.capsule.custody_digest();
             self.archive.put(ArchiveKey::Capsule(capsule), &original)?;
             entry.capsule = Some(capsule);
-            entry.operation = Some(frozen.capsule.operation_id);
+            entry.capsule_commitment = Some(frozen.capsule.receipt_commitment());
+            entry.operation = Some(frozen.capsule.body().operation_id);
             let address = entry
                 .plan
                 .ok_or(Error::WitnessLost("prepared capsule plan"))?;
@@ -606,7 +685,9 @@ impl<C: Custody, A: ArchiveStore, N: NativePreparation> Coordinator<C, A, N> {
             frozen
         };
         require_frozen(&request, &source_digest, &frozen)?;
-        if entry.operation != Some(frozen.capsule.operation_id) {
+        if entry.operation != Some(frozen.capsule.body().operation_id)
+            || entry.capsule_commitment != Some(frozen.capsule.receipt_commitment())
+        {
             return Err(Error::WitnessLost("prepared operation identity"));
         }
         // Recheck source selection after any preparation/publication work. This is under the
@@ -625,6 +706,31 @@ mod tests {
     use crate::kagemusha_wallet_state_v1::{BlacklistOriginalReferenceV1, tests::fixture};
 
     #[test]
+    fn permanent_preparation_pair_is_complete_nonzero_and_fits_existing_index() {
+        let full = Entry {
+            request: [1; 32],
+            plan: Some([2; 32]),
+            capsule: Some([3; 32]),
+            capsule_commitment: Some([4; 32]),
+            operation: Some([5; 32]),
+        };
+        full.require_binding().unwrap();
+        assert!(archive::encode(&full).unwrap().len() <= index::INDEX_VALUE_LIMIT);
+        for mutation in 0..6 {
+            let mut changed: Entry = archive::decode(&archive::encode(&full).unwrap()).unwrap();
+            match mutation {
+                0 => changed.capsule = None,
+                1 => changed.capsule_commitment = None,
+                2 => changed.operation = None,
+                3 => changed.capsule = Some([0; 32]),
+                4 => changed.capsule_commitment = Some([0; 32]),
+                _ => changed.operation = Some([0; 32]),
+            }
+            assert!(changed.require_binding().is_err(), "mutation {mutation}");
+        }
+    }
+
+    #[test]
     fn prepared_blacklist_binds_the_complete_original_through_its_retained_reference() {
         let blacklist: KagemushaWalletBlacklistV1 = fixture("KagemushaWalletBlacklistV1");
         let complete = blacklist.to_canonical_bytes().unwrap();
@@ -633,33 +739,33 @@ mod tests {
                 .unwrap()
                 .to_canonical_bytes()
                 .unwrap();
-        let mut frozen = FrozenTransition {
-            credential: fixture("KagemushaWalletCredentialV1"),
-            capsule: fixture("KagemushaWalletRecoveryCapsuleV1"),
-        };
+        let mut body =
+            fixture::<KagemushaWalletRecoveryCapsuleV1>("KagemushaWalletRecoveryCapsuleV1")
+                .body()
+                .clone();
         // This test checks original binding only, not capsule or issuer admission.
-        frozen.capsule.scheme_id = blacklist.body.scheme_id;
-        frozen.capsule.retained_inputs = vec![KagemushaWalletRetainedInputV1 {
+        body.scheme_id = blacklist.body.scheme_id;
+        body.retained_inputs = vec![KagemushaWalletRetainedInputV1 {
             role: KagemushaWalletRetainedInputRoleV1::PolicyUpdate,
             bytes: reference,
         }];
         let kind = KagemushaWalletPolicyUpdateKindV1::Blacklist;
-        assert!(policy_original(&frozen, kind, &complete));
+        assert!(policy_original(&body, kind, &complete));
         let mut changed = complete.clone();
         *changed.last_mut().unwrap() ^= 1;
-        assert!(!policy_original(&frozen, kind, &changed));
-        frozen.capsule.retained_inputs[0].bytes = complete.clone();
-        assert!(!policy_original(&frozen, kind, &complete));
+        assert!(!policy_original(&body, kind, &changed));
+        body.retained_inputs[0].bytes = complete.clone();
+        assert!(!policy_original(&body, kind, &complete));
     }
 
     #[test]
     fn prepared_policy_original_requires_one_exact_retained_input() {
         let complete = vec![1, 2, 3];
-        let mut frozen = FrozenTransition {
-            credential: fixture("KagemushaWalletCredentialV1"),
-            capsule: fixture("KagemushaWalletRecoveryCapsuleV1"),
-        };
-        frozen.capsule.retained_inputs = vec![KagemushaWalletRetainedInputV1 {
+        let mut body =
+            fixture::<KagemushaWalletRecoveryCapsuleV1>("KagemushaWalletRecoveryCapsuleV1")
+                .body()
+                .clone();
+        body.retained_inputs = vec![KagemushaWalletRetainedInputV1 {
             role: KagemushaWalletRetainedInputRoleV1::PolicyUpdate,
             bytes: complete.clone(),
         }];
@@ -669,18 +775,15 @@ mod tests {
             KagemushaWalletPolicyUpdateKindV1::TimeAnchor,
             KagemushaWalletPolicyUpdateKindV1::QuotaShare,
         ] {
-            assert!(policy_original(&frozen, kind, &complete));
-            assert!(!policy_original(&frozen, kind, &[1, 2, 4]));
-            frozen
-                .capsule
-                .retained_inputs
-                .push(frozen.capsule.retained_inputs[0].clone());
-            assert!(!policy_original(&frozen, kind, &complete));
-            frozen.capsule.retained_inputs.pop();
+            assert!(policy_original(&body, kind, &complete));
+            assert!(!policy_original(&body, kind, &[1, 2, 4]));
+            body.retained_inputs.push(body.retained_inputs[0].clone());
+            assert!(!policy_original(&body, kind, &complete));
+            body.retained_inputs.pop();
         }
-        frozen.capsule.retained_inputs.clear();
+        body.retained_inputs.clear();
         assert!(!policy_original(
-            &frozen,
+            &body,
             KagemushaWalletPolicyUpdateKindV1::Credential,
             &complete,
         ));

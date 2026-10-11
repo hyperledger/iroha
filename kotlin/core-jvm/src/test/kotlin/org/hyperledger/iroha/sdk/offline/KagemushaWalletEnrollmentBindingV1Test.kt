@@ -43,8 +43,8 @@ class KagemushaWalletEnrollmentBindingV1Test {
         )
         assertContentEquals(hex(challenge.getValue("digest_hex").jsonPrimitive.content), selected.challengeDigest())
         // Independently produced by the repository's Python WalletEnrollmentScope and request_hash_text.
-        assertContentEquals(hex("0a88912dab0eb378beab219c2bb26ad035c57df6b78cdf29c6c6af4743840d9d"), selected.enrollmentKeyBinding())
-        assertEquals("CoiRLasOs3i-qyGcK7Jq0DXFffa3jN8pxsavR0OEDZ0", selected.playIntegrityRequestHash())
+        assertContentEquals(hex("a8041c147e4b68874d89e732e91a033c3d5e2cd8a87634537efb61ffb748f892"), selected.enrollmentKeyBinding())
+        assertEquals("qAQcFH5LaIdNiecy6RoDPD1eLNiodjRTfvth_7dI-JI", selected.playIntegrityRequestHash())
     }
 
     @Test fun `reject wrong extent version and every zero E1 binding`() {
