@@ -215,7 +215,6 @@ CORE_RECOVERY_SUPPORT_PATHS = tuple(
         "executor_fastpq_rejection_tail/tests.rs",
         "executor_fastpq_rejection_tail/sponsored_alias_tests.rs",
         "executor_sns_attempt_tests.rs",
-        "executor_ordinary_mint_permission_tests.rs",
         "executor_runtime_memory_tests.rs",
         "executor_public_pin_admission_tests.rs",
         "executor_opaque_monetary_tests.rs",

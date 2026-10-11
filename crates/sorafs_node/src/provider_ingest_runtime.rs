@@ -43,7 +43,6 @@ use iroha_data_model::{
     transaction::{SignedTransaction, TransactionPayload},
 };
 use norito::codec::Encode as _;
-use norito::decode_from_bytes_with_limits;
 use norito::{
     core::DecodeLimits,
     decode_canonical_with_limits,

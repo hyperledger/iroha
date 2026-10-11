@@ -245,6 +245,10 @@ enum PortKey<'a> {
     ),
 }
 
+#[expect(
+    single_use_lifetimes,
+    reason = "anonymous lifetimes in impl Trait are unstable on the pinned Rust compiler"
+)]
 fn visit_ports<'a>(
     kinds: impl Iterator<Item = Result<QuantityKindInput<'a>, QuantityCaptureIssue>>,
     mut visit: impl FnMut(PortKey<'_>, &Quantity, &Quantity) -> Result<(), QuantityWritePlanError>,

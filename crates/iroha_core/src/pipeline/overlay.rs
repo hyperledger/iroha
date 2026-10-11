@@ -37,6 +37,8 @@ use iroha_crypto::{Hash, streaming::TransportCapabilityResolutionSnapshot};
 #[cfg(test)]
 use iroha_data_model::block::BlockHeader;
 #[cfg(any(test, feature = "iroha-core-tests"))]
+use iroha_data_model::isi::smart_contract_code::ActivateContractInstance;
+#[cfg(any(test, feature = "iroha-core-tests"))]
 use iroha_data_model::transaction::executable::ContractInvocation;
 use iroha_data_model::{
     errors::CanonicalErrorKind,
@@ -44,9 +46,7 @@ use iroha_data_model::{
     isi::{
         InstructionBox,
         settlement::{DvpIsi, PvpIsi, SettleAtomic, SettleFxCorridor, SettlementInstructionBox},
-        smart_contract_code::{
-            ActivateContractInstance, RegisterSmartContractBytes, RegisterSmartContractCode,
-        },
+        smart_contract_code::{RegisterSmartContractBytes, RegisterSmartContractCode},
     },
     nexus::AxtRejectContext,
     prelude::{AccountId, ValidationFail},
@@ -56,17 +56,19 @@ use iroha_data_model::{
 };
 use iroha_model_base::metadata::Metadata;
 use iroha_model_base::{name::Name, state_path::StatePath};
+#[cfg(any(test, feature = "iroha-core-tests"))]
 use ivm::host::IVMHost;
 use ivm::{VMError as IvmError, analysis::ProgramAnalysisError};
 use mv::storage::StorageReadOnly;
 use norito::{codec::Encode as NoritoEncode, streaming::CapabilityFlags};
 #[cfg(test)]
 use sha2::{Digest as _, Sha256};
+#[cfg(any(test, feature = "iroha-core-tests"))]
+use std::mem;
 #[cfg(all(test, feature = "telemetry"))]
 use std::time::Instant;
 use std::{
     collections::BTreeMap,
-    mem,
     num::NonZeroU64,
     sync::{Arc, OnceLock},
 };
@@ -125,6 +127,7 @@ struct OverlayLifecycleCompletion {
     contract_address: ContractAddress,
     pending: code::PendingContractLifecycle,
 }
+#[cfg(any(test, feature = "iroha-core-tests"))]
 fn smart_contract_heap_limit(state: &impl StateReadOnly) -> u64 {
     state.world().parameters().smart_contract().memory().get()
 }
@@ -185,6 +188,7 @@ fn validate_overlay_contract_runtime_context(
 }
 enum ContractDispatchSource<'a> {
     Bytecode(&'a [u8]),
+    #[cfg(any(test, feature = "iroha-core-tests"))]
     Prepared(&'a ivm::PreparedContract),
 }
 impl ContractDispatchSource<'_> {
@@ -197,6 +201,7 @@ impl ContractDispatchSource<'_> {
                         "invalid contract artifact for contract call dispatch: {err}"
                     ))
                 }),
+            #[cfg(any(test, feature = "iroha-core-tests"))]
             Self::Prepared(_) => Ok(true),
         }
     }
@@ -237,6 +242,7 @@ impl ContractDispatchSource<'_> {
                     descriptor.argument_schema.clone(),
                 ))
             }
+            #[cfg(any(test, feature = "iroha-core-tests"))]
             Self::Prepared(contract) => {
                 let descriptor = contract.entrypoint_descriptor(selector).ok_or_else(|| {
                     OverlayBuildError::ContractCall(format!(
@@ -272,6 +278,7 @@ fn parse_raw_contract_call_execution_context(
         None,
     )
 }
+#[cfg(any(test, feature = "iroha-core-tests"))]
 fn parse_prepared_contract_call_execution_context(
     metadata: &Metadata,
     contract: &ivm::PreparedContract,
@@ -545,6 +552,7 @@ fn map_artifact_admission_error(error: ivm::ContractArtifactError) -> OverlayBui
     }
     OverlayBuildError::HeaderPolicy(IvmAdmissionError::BytecodeDecodingFailed(error.to_string()))
 }
+#[cfg(any(test, feature = "iroha-core-tests"))]
 fn map_program_summary_error(error: ivm::VMError) -> OverlayBuildError {
     if crate::execution_attempt::ExecutionDeferred::from_vm_error(&error).is_some() {
         return OverlayBuildError::IvmLoad(error);
@@ -610,6 +618,7 @@ fn apply_contract_call_execution_context(
     }
     Ok(())
 }
+#[cfg(any(test, feature = "iroha-core-tests"))]
 fn begin_overlay_access_log<QS>(
     host: &mut crate::smartcontracts::ivm::host::CoreHostImpl<QS>,
     capture_access_log: bool,
@@ -623,6 +632,7 @@ where
     }
     Ok(())
 }
+#[cfg(any(test, feature = "iroha-core-tests"))]
 fn finish_overlay_access_log<QS>(
     host: &mut crate::smartcontracts::ivm::host::CoreHostImpl<QS>,
     capture_access_log: bool,
@@ -1120,12 +1130,14 @@ fn append_verified_contract_metadata_registration_without_state(
     }
     Ok(())
 }
+#[cfg(any(test, feature = "iroha-core-tests"))]
 pub(crate) fn prune_redundant_contract_ops<R: StateReadOnly>(
     state_ro: &R,
     queued: &mut Vec<InstructionBox>,
 ) {
     prune_redundant_contract_ops_with_metadata::<R, ()>(state_ro, queued, None);
 }
+#[cfg(any(test, feature = "iroha-core-tests"))]
 fn prune_redundant_contract_ops_with_metadata<R, M>(
     state_ro: &R,
     queued: &mut Vec<InstructionBox>,
@@ -6609,8 +6621,7 @@ seiyaku GuardedOverlayRebound {
 
     #[test]
     fn overlay_appends_manifest_only_when_missing() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         // Build state with a domain/account and optionally pre-seeded manifest
         let (authority_id, kp) = gen_account_in("wonderland");
         let domain: iroha_data_model::domain::Domain = iroha_data_model::domain::Domain::new(
@@ -6632,7 +6643,13 @@ seiyaku GuardedOverlayRebound {
         let code_hash = verified_manifest
             .code_hash
             .expect("verified manifest code hash");
-        let manifest = verified_manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &kp).expect("sign bounded fixture manifest");
+        let manifest = verified_manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &kp,
+            )
+            .expect("sign bounded fixture manifest");
         let mut md = iroha_model_base::metadata::Metadata::default();
         md.insert(
             "contract_entrypoint".parse().expect("metadata key"),
@@ -7353,8 +7370,7 @@ seiyaku ProtectedProved {
     }
     #[test]
     fn overlay_rejects_manifest_abi_mismatch_before_execution() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::prelude::{AccountId, TransactionBuilder};
         use iroha_model_base::metadata::Metadata;
         use iroha_primitives::json::Json;
@@ -7389,7 +7405,12 @@ seiyaku ProtectedProved {
                 error_types: None,
                 provenance: None,
             }
-            .try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &kp).expect("sign bounded fixture manifest"),
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &kp,
+            )
+            .expect("sign bounded fixture manifest"),
         );
         let state = test_support::state_after_genesis(world);
         // Build a contract-call style transaction that references the instance.
@@ -7586,8 +7607,7 @@ seiyaku AliasBoundArguments {
     }
     #[test]
     fn raw_and_proved_ivm_reject_header_substitution_for_bound_contract() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             prelude::{AccountId, IvmBytecode, TransactionBuilder},
             transaction::IvmProved,
@@ -7647,7 +7667,12 @@ seiyaku AliasBoundArguments {
                 error_types: None,
                 provenance: None,
             }
-            .try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &kp).expect("sign bounded fixture manifest"),
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &kp,
+            )
+            .expect("sign bounded fixture manifest"),
         );
         let kura = Arc::new(crate::kura::Kura::blank_kura_for_testing());
         let query = crate::query::store::LiveQueryStore::start_test();
@@ -7806,8 +7831,7 @@ seiyaku AliasBoundArguments {
     }
     #[test]
     fn overlay_rejects_contract_binding_code_hash_mismatch() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::prelude::{AccountId, TransactionBuilder};
         use iroha_model_base::metadata::Metadata;
         use iroha_primitives::json::Json;
@@ -7839,7 +7863,12 @@ seiyaku AliasBoundArguments {
                 error_types: None,
                 provenance: None,
             }
-            .try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &kp).expect("sign bounded fixture manifest"),
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &kp,
+            )
+            .expect("sign bounded fixture manifest"),
         );
         let state = test_support::state_after_genesis(world);
         let mut metadata = Metadata::default();
@@ -7903,8 +7932,7 @@ seiyaku AliasBoundArguments {
     }
     #[test]
     fn overlay_requires_manifest_abi_for_bound_instance() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::prelude::{AccountId, TransactionBuilder};
         use iroha_model_base::metadata::Metadata;
         use iroha_primitives::json::Json;
@@ -7934,7 +7962,12 @@ seiyaku AliasBoundArguments {
                 error_types: None,
                 provenance: None,
             }
-            .try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &kp).expect("sign bounded fixture manifest"),
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &kp,
+            )
+            .expect("sign bounded fixture manifest"),
         );
         let state = test_support::state_after_genesis(world);
         let mut metadata = Metadata::default();
@@ -7974,7 +8007,12 @@ seiyaku AliasBoundArguments {
                 error_types: None,
                 provenance: None,
             }
-            .try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &kp).expect("sign bounded fixture manifest"),
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &kp,
+            )
+            .expect("sign bounded fixture manifest"),
         );
         let state = test_support::state_after_genesis(world);
         let res = build_overlay_for_transaction(&tx, &*execution_block(&state));
@@ -8259,6 +8297,7 @@ fn run_vm(vm: &mut ivm::IVM) -> Result<(), OverlayBuildError> {
         }
     }
 }
+#[cfg(any(test, feature = "iroha-core-tests"))]
 fn run_vm_with_host<QS: crate::smartcontracts::ivm::host::QueryStateAccess + Default>(
     vm: &mut ivm::IVM,
     host: &mut crate::smartcontracts::ivm::host::CoreHostImpl<QS>,
@@ -8268,6 +8307,7 @@ fn run_vm_with_host<QS: crate::smartcontracts::ivm::host::QueryStateAccess + Def
     finish_vm_run_with_host(host, result)
 }
 
+#[cfg(any(test, feature = "iroha-core-tests"))]
 fn finish_vm_run_with_host<QS: crate::smartcontracts::ivm::host::QueryStateAccess + Default>(
     host: &mut crate::smartcontracts::ivm::host::CoreHostImpl<QS>,
     result: Result<(), ivm::VMError>,

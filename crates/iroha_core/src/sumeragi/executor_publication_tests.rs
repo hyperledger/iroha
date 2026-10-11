@@ -35,7 +35,7 @@ pub(super) fn with_worker(
     );
 }
 
-fn with_worker_from(
+pub(super) fn with_worker_from(
     make_chain: impl FnOnce() -> CertifiedTestChain + Send + 'static,
     consensus_mode: ConsensusMode,
     test: impl FnOnce(
@@ -496,7 +496,7 @@ pub(super) fn proposal_with_transaction(
             proposer: 0,
             skipped_leaders: Vec::new(),
             control_witness: iroha_sumeragi::types::ControlWitness::empty(),
-            attest: height == scheduled.epoch.last_height,
+            attest: proposal_requires_attestation(&proposal, scheduled.epoch.last_height),
         },
         payload,
     )

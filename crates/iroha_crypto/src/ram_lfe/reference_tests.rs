@@ -917,3 +917,175 @@ fn sixty_five_valid_queries_determine_an_affine_function_at_fixed_associated_dat
         );
     }
 }
+
+/// The ordered-output frame, declared again from the specification.
+#[derive(norito::Encode, norito::NoritoSchema)]
+#[norito_schema(
+    name = "iroha_crypto::ram_lfe::RamLfeOrderedOutputInputV1",
+    frame = "iroha_crypto::ram_lfe::RamLfeOrderedOutputInputV1"
+)]
+struct OwnedOrderedOutputFrame {
+    blinding: Vec<u8>,
+    output_count: u16,
+    scalars: Vec<u8>,
+}
+
+/// The output commitment of an opening, with the frame recomputed independently.
+fn output_commitment(output: &RamLfeOrderedOutputV1, output_count: u16) -> [u8; 32] {
+    use crate::ram_lfe::canonical::{RamLfeOutputBlindingV1, RamLfeOutputCommitmentV1};
+
+    let commitment = *RamLfeOutputCommitmentV1::commit(
+        output,
+        &RamLfeOutputBlindingV1::from_bytes([3; 32]).unwrap(),
+    )
+    .unwrap()
+    .as_bytes();
+    let frame = norito::encode_canonical(&OwnedOrderedOutputFrame {
+        blinding: vec![3; 32],
+        output_count,
+        scalars: output
+            .scalars()
+            .iter()
+            .flat_map(|scalar| scalar.to_le_bytes())
+            .collect(),
+    })
+    .unwrap();
+    let mut hasher = blake3::Hasher::new_derive_key("iroha.ram_lfe.v1.ordered_output");
+    hasher.update(&frame);
+    assert_eq!(&commitment, hasher.finalize().as_bytes());
+    commitment
+}
+
+#[test]
+fn an_opening_commits_the_sixty_four_padded_output_slots() {
+    let output = |scalars: &[u16]| RamLfeOrderedOutputV1::from_scalars(scalars).unwrap();
+    let slots = |scalars: &[u16]| {
+        let mut slots = [0_u16; RAM_LFE_V1_MAX_OUTPUTS];
+        slots[..scalars.len()].copy_from_slice(scalars);
+        slots
+    };
+
+    // A short output: the scalars in order, then zeros up to 64 slots. A zero
+    // the tape emitted between two scalars keeps its place.
+    let short = output(&[7, 0, 256]);
+    let padded = short.padded_for_opening();
+    assert_eq!(padded.scalars(), slots(&[7, 0, 256]));
+    assert_eq!(padded.scalars().len(), 64);
+    // The opening commits the 64 slots: `output_count` is 64 in its frame, and
+    // the commitment is not the one of the three emitted scalars.
+    assert_ne!(output_commitment(&padded, 64), output_commitment(&short, 3));
+    // The reference output is unchanged: padding is a rule for openings.
+    assert_eq!(short.scalars(), [7, 0, 256]);
+
+    // Trailing zeros the tape emitted are indistinguishable from padding: every
+    // output count from the last nonzero slot on gives the same 64 slots and
+    // the same commitment under one blinding.
+    let opened = output_commitment(&output(&[7]).padded_for_opening(), 64);
+    for count in 1..=64 {
+        let mut emitted = vec![0_u16; count];
+        emitted[0] = 7;
+        let padded = output(&emitted).padded_for_opening();
+        assert_eq!(padded.scalars(), slots(&[7]));
+        assert_eq!(output_commitment(&padded, 64), opened);
+        // What the 64 slots do tell: the count reaches the last nonzero slot.
+        let last_nonzero = padded.scalars().iter().rposition(|&scalar| scalar != 0);
+        assert_eq!(last_nonzero, Some(0));
+        assert!(count > last_nonzero.unwrap());
+    }
+    // An output of zeros only tells nothing about its count.
+    for count in [1, 2, 63, 64] {
+        assert_eq!(
+            output(&vec![0; count]).padded_for_opening().scalars(),
+            [0; 64]
+        );
+    }
+
+    // 64 outputs fill every slot: nothing is added, and the opening commits
+    // exactly what the reference output is.
+    let full: Vec<u16> = (0..64).map(|slot| 256 - slot).collect();
+    let full = output(&full);
+    assert_eq!(full.padded_for_opening(), full);
+    assert_eq!(
+        output_commitment(&full.padded_for_opening(), 64),
+        output_commitment(&full, 64)
+    );
+    // Padding an opened output again changes nothing.
+    assert_eq!(padded.padded_for_opening(), padded);
+}
+
+#[test]
+fn opened_slots_of_two_tapes_differ_only_where_their_outputs_do() {
+    // The differential check of an opening against the reference: the 64
+    // opened slots equal the reference output padded with zeros.
+    let one = [Op::LoadInput(0, 1), Op::AddPlain(0, 0, 1), Op::Output(0)];
+    // The same tape followed by two outputs that are zero for every input.
+    let mut two = one.to_vec();
+    two.extend([Op::LoadConst(1, 0), Op::Output(1), Op::Output(1)]);
+    // And one whose second output is zero for exactly one input byte.
+    let mut three = one.to_vec();
+    three.extend([Op::SubPlain(1, 0, 6), Op::Output(1)]);
+    let opened = |tape: &[Op], byte: u8| {
+        let execution = ram_lfe_reference_execute_v1(
+            RamLfeClassV1::Affine,
+            &build(tape),
+            &memory([0; 32]),
+            &RamLfeReferenceInputV1::from_bytes(&[byte]).unwrap(),
+        )
+        .unwrap();
+        let padded = execution.output().padded_for_opening();
+        assert_eq!(padded.scalars().len(), 64);
+        assert_eq!(
+            padded.scalars()[..execution.output().scalars().len()],
+            *execution.output().scalars()
+        );
+        (execution.output().scalars().len(), padded)
+    };
+    for byte in 0..=255_u8 {
+        let (count_one, slots_one) = opened(&one, byte);
+        let (count_two, slots_two) = opened(&two, byte);
+        let (count_three, slots_three) = opened(&three, byte);
+        assert_eq!((count_one, count_two, count_three), (1, 3, 2));
+        // One output or three: the opener and the beneficiary see the same
+        // 64 slots for every input, so the count reaches neither of them.
+        assert_eq!(slots_one, slots_two);
+        // A second output that is not always zero shows where it is not.
+        assert_eq!(slots_one == slots_three, byte == 5, "{byte}");
+    }
+}
+
+#[test]
+fn field_slots_bypass_admission_for_tests_only() {
+    // 64 scalars no admitted input has: a length slot of 256 and byte slots
+    // of 256.
+    let slots = [256_u16; RAM_LFE_V1_INPUT_SLOTS];
+    assert!(RamLfeReferenceInputV1::from_slots(&slots).is_err());
+    let input = RamLfeReferenceInputV1::from_field_slots(&slots);
+    assert_eq!(input.slots(), &slots);
+    // The interpreter computes on them as on any scalar of the field.
+    let execution = ram_lfe_reference_execute_v1(
+        RamLfeClassV1::Bounded,
+        &build(&[
+            Op::LoadInput(0, 0),
+            Op::LoadInput(1, 63),
+            Op::Mul(2, 0, 1),
+            Op::Output(2),
+            Op::Output(0),
+        ]),
+        &memory([0; 32]),
+        &input,
+    )
+    .unwrap();
+    assert_eq!(execution.output().scalars(), [1, 256]);
+    // An admitted input is the same owner through either constructor.
+    let admitted = RamLfeReferenceInputV1::from_bytes(b"ab").unwrap();
+    assert_eq!(
+        RamLfeReferenceInputV1::from_field_slots(admitted.slots()).slots(),
+        admitted.slots()
+    );
+    // A value outside the field is refused here too.
+    let mut outside = [0_u16; RAM_LFE_V1_INPUT_SLOTS];
+    outside[9] = 257;
+    assert!(
+        std::panic::catch_unwind(|| RamLfeReferenceInputV1::from_field_slots(&outside)).is_err()
+    );
+}

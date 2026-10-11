@@ -16,6 +16,7 @@ use iroha_executor_data_model::permission::sorafs::{
 };
 use norito::{JsonDeserialize, JsonSerialize};
 
+mod capture;
 mod compliance_material;
 pub use compliance_material::RetainedGatewayCompliancePlan;
 mod native_attestation;
@@ -1209,16 +1210,30 @@ pub(super) fn validate_signed_profile(
     Ok(registered_roles)
 }
 
-// Sole bounded canonical parser for fixed private service credential names. Closed callers
-// independently select and check the exact algorithm/account/public-key purpose.
+// Private storage implementations share one syntax decoder. No public source can implement this
+// trait; captured bytes and live role access preserve their own native admission boundaries.
+trait ServiceKeySource {
+    fn service_key(&self, filename: &str) -> crate::managed::Result<KeyPair>;
+}
+impl ServiceKeySource for iroha_fs::PrivateDirectory {
+    fn service_key(&self, filename: &str) -> crate::managed::Result<KeyPair> {
+        let invalid = || Error::Invalid("invalid original service role credential".into());
+        let bytes = self
+            .read(filename, MAX_ROLE_CREDENTIAL_BYTES)
+            .map_err(|_| invalid())?;
+        let key = decode_service_private_key(&bytes)?;
+        self.revalidate().map_err(|_| invalid())?;
+        Ok(key)
+    }
+}
 fn read_service_private_key(
-    directory: &iroha_fs::PrivateDirectory,
+    directory: &impl ServiceKeySource,
     filename: &str,
 ) -> crate::managed::Result<KeyPair> {
+    directory.service_key(filename)
+}
+fn decode_service_private_key(bytes: &[u8]) -> crate::managed::Result<KeyPair> {
     let invalid = || Error::Invalid("invalid original service role credential".into());
-    let bytes = directory
-        .read(filename, MAX_ROLE_CREDENTIAL_BYTES)
-        .map_err(|_| invalid())?;
     let text = bytes
         .strip_suffix(b"\n")
         .and_then(|bytes| std::str::from_utf8(bytes).ok())
@@ -1228,13 +1243,11 @@ fn read_service_private_key(
     if Zeroizing::new(exposed.try_to_multihash_string().map_err(|_| invalid())?).as_str() != text {
         return Err(invalid());
     }
-    let key = KeyPair::from_private_key(exposed.0).map_err(|_| invalid())?;
-    directory.revalidate().map_err(|_| invalid())?;
-    Ok(key)
+    KeyPair::from_private_key(exposed.0).map_err(|_| invalid())
 }
 
 fn read_role_key(
-    directory: &iroha_fs::PrivateDirectory,
+    directory: &impl ServiceKeySource,
     authority: &StreamTokenAuthority,
 ) -> crate::managed::Result<KeyPair> {
     let key = read_service_private_key(directory, authority.role.credential_filename())?;
@@ -1293,7 +1306,7 @@ pub(crate) fn custody_attester_key(
     )
 }
 fn read_network_role_key(
-    directory: &iroha_fs::PrivateDirectory,
+    directory: &impl ServiceKeySource,
     authority: &NetworkServiceAuthority,
 ) -> crate::managed::Result<KeyPair> {
     let key = read_service_private_key(directory, authority.role.credential_filename())?;
@@ -1346,9 +1359,97 @@ fn require_entries(
     Ok(())
 }
 
+/// Private original intent plus its complete native byte custody. No positive current-state cache.
+pub(crate) struct RetainedServiceProfile {
+    image: capture::CapturedProfile,
+    prepared: PreparedLocalnet,
+    manifest: StreamTokenAuthorityManifest,
+    plans: [RetainedProviderServicePlan; PROVIDER_COUNT],
+    // Public original client intent retained by the same one-time canonical parse.
+    chain: String,
+    address_discriminant: u16,
+}
+
+/// Move typed constructor outputs into the existing operation owner without duplicating genesis.
+pub(crate) struct ValidatedServiceProfile {
+    pub(crate) retained: RetainedServiceProfile,
+    pub(crate) config: iroha::config::Config,
+    pub(crate) genesis: crate::verify::finality::GenesisAnchor,
+    pub(crate) peer_ids: [iroha_model_base::peer::PeerId; 4],
+}
+impl RetainedServiceProfile {
+    pub(crate) fn manifest(&self) -> &StreamTokenAuthorityManifest {
+        &self.manifest
+    }
+    pub(crate) fn runtime(&self) -> &iroha_fs::PrivateDirectory {
+        self.image.runtime()
+    }
+    pub(crate) fn revalidate(
+        &self,
+        prepared: &PreparedLocalnet,
+        manifest: &StreamTokenAuthorityManifest,
+    ) -> crate::managed::Result<()> {
+        if prepared != &self.prepared || manifest != &self.manifest {
+            return Err(Error::Invalid(
+                "original service authority profile changed".into(),
+            ));
+        }
+        self.image.revalidate()
+    }
+    // These are original public intents only. ServiceAuthority validates full custody before use.
+    pub(crate) fn original_plans(&self) -> &[RetainedProviderServicePlan; PROVIDER_COUNT] {
+        &self.plans
+    }
+    pub(crate) fn original_compliance_plan(
+        &self,
+        provider: ProviderId,
+    ) -> crate::managed::Result<RetainedGatewayCompliancePlan> {
+        compliance_material::retained(&self.manifest, provider)
+            .map_err(|_| Error::Invalid("retained generated compliance plan differs".into()))
+    }
+    pub(crate) fn original_publication_plan(
+        &self,
+    ) -> crate::managed::Result<RetainedPublicationServicePlan> {
+        let generation = self
+            .prepared
+            .context
+            .client_config
+            .parent()
+            .ok_or_else(|| Error::Invalid("original publication generation is absent".into()))?;
+        publication_material::retained_from_parts(
+            &self.manifest,
+            &self.chain,
+            self.address_discriminant,
+            generation,
+        )
+        .map_err(|_| Error::Invalid("retained generated publication plan differs".into()))
+    }
+    pub(crate) fn original_plan(
+        &self,
+        provider: ProviderId,
+    ) -> crate::managed::Result<RetainedProviderServicePlan> {
+        self.plans
+            .iter()
+            .find(|plan| plan.provider_id() == provider)
+            .cloned()
+            .ok_or_else(|| Error::Invalid("selected service provider plan is absent".into()))
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn count_profile_validations<T>(action: impl FnOnce() -> T) -> (T, usize) {
+    capture::count_semantic_validations(action)
+}
+
 pub(crate) fn validate_retained(
     prepared: &PreparedLocalnet,
 ) -> crate::managed::Result<Option<StreamTokenAuthorityManifest>> {
+    capture_retained(prepared).map(|profile| profile.map(|profile| profile.retained.manifest))
+}
+
+pub(crate) fn capture_retained(
+    prepared: &PreparedLocalnet,
+) -> crate::managed::Result<Option<ValidatedServiceProfile>> {
     let invalid =
         || Error::Invalid("retained stream-token authority prerequisites are invalid".into());
     let root = prepared
@@ -1356,7 +1457,6 @@ pub(crate) fn validate_retained(
         .client_config
         .parent()
         .ok_or_else(invalid)?;
-    let directory = root.join(LOCALNET_RUNTIME_DIRECTORY).join(DIRECTORY);
     if prepared.context.client_config.file_name() != Some(std::ffi::OsStr::new("client.toml"))
         || prepared.peers.len() != 4
         || prepared
@@ -1368,45 +1468,47 @@ pub(crate) fn validate_retained(
         return Err(invalid());
     }
     init_instruction_registry();
-    let bytes =
-        iroha_fs::read_private(root.join("genesis.signed.nrt"), SIGNED_GENESIS_MAX_BYTES_V1)?;
-    let block =
-        iroha_data_model::block::decode_framed_signed_block(&bytes).map_err(|_| invalid())?;
-    iroha_data_model::sumeragi_finality::genesis_epoch(&block).map_err(|_| invalid())?;
-    let registered_roles = validate_signed_profile(prepared, &block)?;
+    let generation = iroha_fs::PrivateDirectory::open_exact(root)?;
     if prepared.service_profile == LocalnetServiceProfile::Standard {
+        let bytes = generation.read("genesis.signed.nrt", SIGNED_GENESIS_MAX_BYTES_V1)?;
+        let block =
+            iroha_data_model::block::decode_framed_signed_block(&bytes).map_err(|_| invalid())?;
+        iroha_data_model::sumeragi_finality::genesis_epoch(&block).map_err(|_| invalid())?;
+        validate_signed_profile(prepared, &block)?;
+        generation.revalidate()?;
         return Ok(None);
     }
+    let image = capture::CapturedProfile::open(generation)?;
+    #[cfg(test)]
+    capture::record_semantic_validation();
+    let block = iroha_data_model::block::decode_framed_signed_block(
+        image
+            .generation()
+            .read("genesis.signed.nrt", SIGNED_GENESIS_MAX_BYTES_V1)?,
+    )
+    .map_err(|_| invalid())?;
+    let epoch =
+        iroha_data_model::sumeragi_finality::genesis_epoch(&block).map_err(|_| invalid())?;
+    let registered_roles = validate_signed_profile(prepared, &block)?;
     if prepared.context.dataspace_id != 0
         || prepared.context.dataspace_alias != "universal"
         || registered_roles.len() != NETWORK_ROLES.len() + PROVIDER_COUNT * ROLES.len() + 2
     {
         return Err(invalid());
     }
-    let client = prepared.context.load_client_config()?;
+    let (client, _) = iroha::config::Config::load_bytes_with_musubi_publication_and_file_source(
+        &prepared.context.client_config,
+        image.client_bytes()?,
+        &image,
+    )
+    .map_err(|_| Error::Invalid("managed client configuration is invalid".into()))?;
+    prepared.context.validate_client_config(&client)?;
     let _address_profile = ChainDiscriminantGuard::enter(client.account_chain_discriminant);
-    let retained = iroha_fs::PrivateDirectory::open_exact(&directory)?;
-    require_entries(
-        &retained,
-        [MANIFEST, NETWORK_DIRECTORY, PROVIDERS_DIRECTORY].map(std::ffi::OsString::from),
-    )?;
-    let network_directory = retained.open_child(NETWORK_DIRECTORY)?;
-    require_entries(
-        &network_directory,
-        NETWORK_ROLES
-            .into_iter()
-            .map(|role| role.credential_filename())
-            .chain(network_material::COUNCIL_KEYS)
-            .map(std::ffi::OsString::from),
-    )?;
-    let provider_directories = retained.open_child(PROVIDERS_DIRECTORY)?;
-    require_entries(
-        &provider_directories,
-        (0..PROVIDER_COUNT).map(|slot| std::ffi::OsString::from(slot.to_string())),
-    )?;
+    let retained = image.authority();
+    let network_directory = image.network();
     let bytes = retained.read(MANIFEST, MAX_MANIFEST)?;
     let manifest: StreamTokenAuthorityManifest =
-        norito::json::from_slice(&bytes).map_err(|_| invalid())?;
+        norito::json::from_slice(bytes).map_err(|_| invalid())?;
     if manifest.network_id.to_string() != prepared.context.network_id
         || manifest.manager != client.account
         || manifest.network_id != client.network_id
@@ -1466,27 +1568,18 @@ pub(crate) fn validate_retained(
         {
             return Err(invalid());
         }
-        read_network_role_key(&network_directory, authority)?;
+        read_network_role_key(network_directory, authority)?;
         expected_funding.insert(authority.account.clone());
     }
     network
-        .validate_keys(&network_directory, &mut keys)
+        .validate_keys(network_directory, &mut keys)
         .map_err(|_| invalid())?;
     let mut provider_ids = BTreeSet::new();
     for (slot, provider) in manifest.providers.iter().enumerate() {
         if usize::from(provider.slot) != slot || !provider_ids.insert(provider.provider_id) {
             return Err(invalid());
         }
-        let directory = open_provider_directory(&retained, provider.slot)?;
-        require_entries(
-            &directory,
-            ROLES
-                .into_iter()
-                .map(|role| role.credential_filename())
-                .chain(provider_material::filenames())
-                .chain(compliance_material::filenames())
-                .map(std::ffi::OsString::from),
-        )?;
+        let directory = image.provider(provider.slot)?;
         for role in ROLES {
             let authority = provider.authority(role)?;
             if !unique_accounts.insert(authority.account.clone())
@@ -1501,7 +1594,7 @@ pub(crate) fn validate_retained(
             {
                 return Err(invalid());
             }
-            read_role_key(&directory, authority)?;
+            read_role_key(directory, authority)?;
             if role.transacts() {
                 expected_funding.insert(authority.account.clone());
             }
@@ -1519,7 +1612,7 @@ pub(crate) fn validate_retained(
             return Err(invalid());
         }
         provider_material::validate_retained(
-            &directory,
+            directory,
             provider,
             &network,
             &mut keys,
@@ -1527,7 +1620,7 @@ pub(crate) fn validate_retained(
         )
         .map_err(|_| invalid())?;
         compliance_material::validate_retained(
-            &directory,
+            directory,
             &manifest,
             provider,
             network.creation_time_ms,
@@ -1599,11 +1692,23 @@ pub(crate) fn validate_retained(
             ))
         })
         .collect::<crate::managed::Result<std::collections::BTreeMap<_, _>>>()?;
+    if epoch.network_id != client.network_id {
+        return Err(invalid());
+    }
+    let expected: BTreeSet<_> = epoch
+        .committee
+        .iter()
+        .map(|member| member.validator.clone())
+        .collect();
+    let mut peer_ids = Vec::with_capacity(4);
     for (index, peer) in prepared.peers.iter().enumerate() {
-        let bytes = iroha_fs::read_private(&peer.config_path, 1024 * 1024)?;
-        let text = std::str::from_utf8(&bytes).map_err(|_| invalid())?;
-        let config =
-            parse_localnet_peer_config(text, Some(&peer.config_path)).map_err(|_| invalid())?;
+        let config = image.parse_peer(&peer.config_path, &format!("peer{index}.toml"))?;
+        let peer_id =
+            iroha_model_base::peer::PeerId::new(config.common.key_pair.public_key().clone());
+        if !expected.contains(&peer_id) {
+            return Err(invalid());
+        }
+        peer_ids.push(peer_id);
         provider_material::validate_peer_https(
             &manifest,
             root,
@@ -1630,8 +1735,48 @@ pub(crate) fn validate_retained(
             return Err(invalid());
         }
     }
-    retained.revalidate()?;
-    Ok(Some(manifest))
+    if peer_ids.len() != expected.len()
+        || peer_ids.iter().cloned().collect::<BTreeSet<_>>() != expected
+    {
+        return Err(invalid());
+    }
+    let validators = epoch
+        .committee
+        .iter()
+        .map(
+            |member| iroha_data_model::sumeragi_finality::FinalityValidator {
+                public_key: member.validator.public_key().clone(),
+                proof_of_possession: member.proof_of_possession.clone(),
+            },
+        )
+        .collect();
+    let plans = manifest
+        .providers
+        .iter()
+        .map(|provider| provider_material::retained(&manifest, provider.provider_id))
+        .collect::<Result<Vec<_>>>()
+        .map_err(|_| invalid())?
+        .try_into()
+        .map_err(|_| invalid())?;
+    image.revalidate()?;
+    Ok(Some(ValidatedServiceProfile {
+        retained: RetainedServiceProfile {
+            image,
+            prepared: prepared.clone(),
+            manifest,
+            plans,
+            chain: client.chain.to_string(),
+            address_discriminant: client.account_chain_discriminant,
+        },
+        genesis: crate::verify::finality::GenesisAnchor {
+            network_id: client.network_id,
+            chain_id: client.chain.to_string(),
+            genesis: block,
+            validators,
+        },
+        config: client,
+        peer_ids: peer_ids.try_into().map_err(|_| invalid())?,
+    }))
 }
 
 fn validate_genesis_material(

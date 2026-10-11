@@ -1,17 +1,28 @@
-//! Key generation, proving and verification of the **prototype** step
-//! relations ([`SigmaProver`], [`SigmaVerifier`]).
+//! Key generation, proving and verification of the step relations
+//! ([`SigmaProver`], [`SigmaVerifier`]), and the σ verifying-key allowlist a
+//! consumer selects them from ([`SigmaAllowlist`], owner answer Q11).
 //!
 //! A verifier needs only the descriptor bytes, the verifying-key bytes, the
-//! pinned parameters of `k` and the public outputs (spec section 8): it never
+//! pinned parameters of `k` and the public input (spec section 8): it never
 //! configures the circuit. [`SigmaProver::prove`] refuses a witness that
 //! breaks the relation ([`SigmaError::RelationViolated`]) before the engine
 //! runs; the circuit itself has no satisfying assignment for one either.
+//!
+//! # Allowlist
+//!
+//! Statements carry one scheme-level relation identity; a consumer selects
+//! σ's verifying key by the operation tag and, for Send, by Ω(pred)'s
+//! enabled-controls mask: the G1 selector `(tag, mask)`
+//! ([`SigmaRelation::selector`]). [`SigmaAllowlist`] holds one verifier per
+//! selector and emits the G1 `KagemushaWalletVerifyingKeyEntryV1`
+//! transcript of each entry ([`VerifyingKeyEntry`]) with its exact proof
+//! length.
 
 use core::fmt;
 
 use iroha_pasta::{PastaCurve, msm::MemoryBudget, poseidon::PoseidonField};
 use iroha_plonk::{
-    DescriptorBinding, KeyError, ProverConfig, ProverError, ProverRandomness, ProvingKey,
+    DescriptorBinding, KeyError, Protocol, ProverConfig, ProverError, ProverRandomness, ProvingKey,
     VerifyError, VerifyingKey,
     cs::{CsError, DescriptorError},
     frontend::Error,
@@ -24,7 +35,7 @@ use iroha_plonk_gadgets::statement::StepRelation;
 use crate::{
     circuit::{ParamsError, SigmaCircuit},
     shape::{ProofFormat, SigmaShape},
-    witness::{StepPublic, StepWitness, Violation},
+    witness::{SigmaRelation, StepPublic, StepWitness, Violation},
 };
 
 /// Why a step-relation operation failed.
@@ -71,9 +82,12 @@ pub enum SigmaError {
     },
     /// The witness breaks the relation.
     RelationViolated(Vec<Violation>),
-    /// The public outputs do not match the relation (a credit identifier
-    /// for `sigma_recv`, or none for `sigma_send`).
-    PublicShape,
+    /// The allowlist has no verifier for the selector `(tag, mask)`.
+    NoVerifier((u8, u32)),
+    /// The allowlist already has a verifier for the selector `(tag, mask)`.
+    DuplicateSelector((u8, u32)),
+    /// A proof length does not fit the allowlist's `u32` field.
+    ProofLength(usize),
     /// The engine failed to prove.
     Prover(ProverError),
     /// The proof was rejected.
@@ -106,7 +120,13 @@ impl fmt::Display for SigmaError {
             Self::RelationViolated(violations) => {
                 write!(f, "the witness breaks the relation: {violations:?}")
             }
-            Self::PublicShape => f.write_str("the public outputs do not match the relation"),
+            Self::NoVerifier(selector) => {
+                write!(f, "no allowlisted verifier for selector {selector:?}")
+            }
+            Self::DuplicateSelector(selector) => {
+                write!(f, "selector {selector:?} is already allowlisted")
+            }
+            Self::ProofLength(bytes) => write!(f, "a proof length of {bytes} bytes"),
             Self::Prover(error) => write!(f, "prover: {error}"),
             Self::Verify(error) => write!(f, "verifier: {error:?}"),
         }
@@ -134,26 +154,18 @@ impl KeyOptions {
     };
 }
 
-/// A step proof and the public outputs it proves.
+/// A step proof and the public input it proves.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SigmaProof<F> {
-    /// The public outputs.
+    /// The public input.
     pub public: StepPublic<F>,
     /// The proof bytes.
     pub bytes: Vec<u8>,
 }
 
-/// The public outputs as the single instance column, checked against the
-/// relation.
-fn instance<F: Copy>(
-    relation: StepRelation,
-    public: &StepPublic<F>,
-) -> Result<Vec<Vec<F>>, SigmaError> {
-    let credit = public.credit_id.is_some();
-    if credit != (relation == StepRelation::Send) {
-        return Err(SigmaError::PublicShape);
-    }
-    Ok(vec![public.instance()])
+/// The public input as the single instance column.
+fn instance<F: Copy>(public: &StepPublic<F>) -> Vec<Vec<F>> {
+    vec![public.instance()]
 }
 
 /// The proving side of one step shape: parameters and proving key.
@@ -261,7 +273,7 @@ where
         &self,
         witness: &StepWitness<C::ScalarExt>,
     ) -> Result<SigmaCircuit<C::ScalarExt>, SigmaError> {
-        let expected = self.shape.params.relation().step;
+        let expected = self.shape.params.relation().step();
         let found = witness.relation();
         if expected != found {
             return Err(SigmaError::WrongRelation { expected, found });
@@ -289,7 +301,7 @@ where
             return Err(SigmaError::RelationViolated(native.violations.clone()));
         }
         let public = native.public();
-        let instances = instance(witness.relation(), &public)?;
+        let instances = instance(&public);
         let bytes = prove_circuit(
             &self.params,
             &self.pk,
@@ -306,7 +318,7 @@ where
     #[must_use]
     pub fn verifier(&self) -> SigmaVerifier<C> {
         SigmaVerifier {
-            relation: self.shape.params.relation().step,
+            relation: self.shape.params.relation().relation,
             params: self.params.clone(),
             binding: self.pk.binding().clone(),
             vk: self.pk.vk().clone(),
@@ -315,11 +327,12 @@ where
     }
 }
 
-/// The verifying side: the descriptor, the verifying key and the pinned
-/// parameters (no circuit code).
+/// The verifying side: the relation it verifies (its allowlist selector),
+/// the descriptor, the verifying key and the pinned parameters (no circuit
+/// code).
 #[derive(Clone, Debug)]
 pub struct SigmaVerifier<C: PastaCurve> {
-    relation: StepRelation,
+    relation: SigmaRelation,
     params: PinnedParams<C>,
     binding: DescriptorBinding,
     vk: VerifyingKey<C>,
@@ -338,7 +351,7 @@ where
     /// decoding, and [`SigmaError::ParamsK`] when `params` are for another
     /// `k`.
     pub fn from_bytes(
-        relation: StepRelation,
+        relation: SigmaRelation,
         params: PinnedParams<C>,
         descriptor: &[u8],
         vk: &[u8],
@@ -361,10 +374,56 @@ where
         })
     }
 
+    /// The relation this verifier verifies.
+    #[must_use]
+    pub const fn relation(&self) -> SigmaRelation {
+        self.relation
+    }
+
     /// The canonical descriptor bytes.
     #[must_use]
     pub fn descriptor_bytes(&self) -> &[u8] {
         self.binding.encoded()
+    }
+
+    /// The verifying-key digest of the allowlist entry: the PIPA-v1
+    /// `transcript_repr` of the key (`BLAKE2b` over the descriptor digest and
+    /// the verifying-key bytes, reduced into the scalar field; spec
+    /// `plonk_ipa_v1.md` 6.3), which every proof absorbs first.
+    // TODO(G3): the frozen artifact set fixes the verifying-key digest rule
+    // of the allowlist; this is the interim choice.
+    #[must_use]
+    pub fn verifying_key_digest(&self) -> [u8; 32] {
+        self.vk.transcript_repr_bytes()
+    }
+
+    /// The exact proof length the descriptor admits.
+    ///
+    /// # Errors
+    ///
+    /// [`SigmaError::Protocol`] when the protocol tables cannot be derived.
+    pub fn proof_bytes(&self) -> Result<usize, SigmaError> {
+        Ok(Protocol::new(self.binding.descriptor())
+            .map_err(SigmaError::Protocol)?
+            .proof_length())
+    }
+
+    /// The G1 allowlist entry of this verifier: its selector, verifying-key
+    /// digest and exact proof length.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::proof_bytes`], and [`SigmaError::ProofLength`] for a
+    /// length above `u32::MAX`.
+    pub fn allowlist_entry(&self) -> Result<VerifyingKeyEntry, SigmaError> {
+        let bytes = self.proof_bytes()?;
+        let (kind, enabled_controls) = self.relation.selector();
+        Ok(VerifyingKeyEntry {
+            kind,
+            enabled_controls,
+            verifying_key_digest: self.verifying_key_digest(),
+            proof_bytes: u32::try_from(bytes).map_err(|_| SigmaError::ProofLength(bytes))?,
+        })
     }
 
     /// The verifying-key bytes.
@@ -395,14 +454,13 @@ where
     ///
     /// # Errors
     ///
-    /// [`SigmaError::PublicShape`] for outputs of the wrong shape and
     /// [`SigmaError::Verify`] with the engine's typed rejection.
     pub fn verify(
         &self,
         public: &StepPublic<C::ScalarExt>,
         proof: &[u8],
     ) -> Result<(), SigmaError> {
-        let instances = instance(self.relation, public)?;
+        let instances = instance(public);
         verify_full(
             &self.params,
             &self.binding,
@@ -415,39 +473,179 @@ where
     }
 }
 
+/// Bytes of one allowlist entry transcript: `tag kind || LE32 mask ||
+/// verifying_key_digest || LE32 proof_bytes` (G1
+/// `KAGEMUSHA_WALLET_VERIFYING_KEY_ENTRY_TRANSCRIPT_BYTES_V1`).
+pub const VERIFYING_KEY_ENTRY_TRANSCRIPT_BYTES: usize = 1 + 4 + 32 + 4;
+
+/// One σ entry of the G1 verifying-key allowlist
+/// (`KagemushaWalletVerifyingKeyEntryV1`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VerifyingKeyEntry {
+    /// The operation tag.
+    pub kind: u8,
+    /// The enabled-controls mask of a Send relation; zero otherwise.
+    pub enabled_controls: u32,
+    /// The verifying-key digest.
+    pub verifying_key_digest: [u8; 32],
+    /// The exact proof length.
+    pub proof_bytes: u32,
+}
+
+impl VerifyingKeyEntry {
+    /// The selector `(tag, mask)` that orders the allowlist.
+    #[must_use]
+    pub const fn selector(&self) -> (u8, u32) {
+        (self.kind, self.enabled_controls)
+    }
+
+    /// The exact entry transcript of the `verifying-key-set` digest.
+    #[must_use]
+    pub fn transcript(&self) -> [u8; VERIFYING_KEY_ENTRY_TRANSCRIPT_BYTES] {
+        let mut bytes = [0_u8; VERIFYING_KEY_ENTRY_TRANSCRIPT_BYTES];
+        bytes[0] = self.kind;
+        bytes[1..5].copy_from_slice(&self.enabled_controls.to_le_bytes());
+        bytes[5..37].copy_from_slice(&self.verifying_key_digest);
+        bytes[37..].copy_from_slice(&self.proof_bytes.to_le_bytes());
+        bytes
+    }
+}
+
+/// The G1 selector of a consumer's statement: the operation tag and, for
+/// Send, the enabled-controls mask (equal to Ω(pred)'s by the consumer
+/// checks); every other operation selects the empty mask (G1
+/// `KagemushaWalletPackageV1::verifying_key_selector`).
+#[must_use]
+pub const fn selector_for(step: StepRelation, enabled_controls: u32) -> SigmaRelation {
+    match step {
+        StepRelation::Send => SigmaRelation::send(enabled_controls),
+        StepRelation::Receive => SigmaRelation::RECEIVE,
+    }
+}
+
+/// σ verifiers keyed by their G1 selector `(tag, mask)`.
+#[derive(Clone, Debug)]
+pub struct SigmaAllowlist<C: PastaCurve> {
+    verifiers: std::collections::BTreeMap<(u8, u32), SigmaVerifier<C>>,
+}
+
+impl<C: PastaCurve> Default for SigmaAllowlist<C> {
+    fn default() -> Self {
+        Self {
+            verifiers: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
+impl<C: PastaCurve> SigmaAllowlist<C>
+where
+    C::ScalarExt: PoseidonField,
+{
+    /// An empty allowlist.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Adds `verifier` under its relation's selector.
+    ///
+    /// # Errors
+    ///
+    /// [`SigmaError::DuplicateSelector`] when the selector is taken.
+    pub fn insert(&mut self, verifier: SigmaVerifier<C>) -> Result<(), SigmaError> {
+        let selector = verifier.relation().selector();
+        if self.verifiers.contains_key(&selector) {
+            return Err(SigmaError::DuplicateSelector(selector));
+        }
+        self.verifiers.insert(selector, verifier);
+        Ok(())
+    }
+
+    /// The verifier of `relation`'s selector.
+    ///
+    /// # Errors
+    ///
+    /// [`SigmaError::NoVerifier`] when the allowlist has none (for example
+    /// a Send mask with no allowlisted relation).
+    pub fn select(&self, relation: SigmaRelation) -> Result<&SigmaVerifier<C>, SigmaError> {
+        let selector = relation.selector();
+        self.verifiers
+            .get(&selector)
+            .ok_or(SigmaError::NoVerifier(selector))
+    }
+
+    /// Selects the verifier of `relation` and verifies `proof` for `public`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::select`] and [`SigmaVerifier::verify`].
+    pub fn verify(
+        &self,
+        relation: SigmaRelation,
+        public: &StepPublic<C::ScalarExt>,
+        proof: &[u8],
+    ) -> Result<(), SigmaError> {
+        self.select(relation)?.verify(public, proof)
+    }
+
+    /// The allowlist entries, strictly ascending by selector (the G1 order).
+    ///
+    /// # Errors
+    ///
+    /// As [`SigmaVerifier::allowlist_entry`].
+    pub fn entries(&self) -> Result<Vec<VerifyingKeyEntry>, SigmaError> {
+        self.verifiers
+            .values()
+            .map(SigmaVerifier::allowlist_entry)
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use ff::Field;
     use iroha_pasta::Fp;
 
     use super::*;
+    use crate::witness::CONTROL_BLACKLIST;
 
     #[test]
-    fn instances_follow_the_relation() {
-        let send = StepPublic {
-            statement: Fp::ONE,
-            credit_id: Some(Fp::ZERO),
+    fn instances_are_the_statement_digest() {
+        let public = StepPublic { statement: Fp::ONE };
+        assert_eq!(instance(&public), vec![vec![Fp::ONE]]);
+    }
+
+    #[test]
+    fn selectors_follow_g1() {
+        assert_eq!(selector_for(StepRelation::Send, 0), SigmaRelation::SEND);
+        assert_eq!(
+            selector_for(StepRelation::Send, CONTROL_BLACKLIST).selector(),
+            (3, 1)
+        );
+        // Every operation other than Send selects the empty mask.
+        assert_eq!(
+            selector_for(StepRelation::Receive, CONTROL_BLACKLIST),
+            SigmaRelation::RECEIVE
+        );
+        let entry = VerifyingKeyEntry {
+            kind: 3,
+            enabled_controls: 0x0102_0304,
+            verifying_key_digest: [0xab; 32],
+            proof_bytes: 3_296,
         };
-        let receive = StepPublic {
-            statement: Fp::ONE,
-            credit_id: None,
-        };
-        assert_eq!(
-            instance(StepRelation::Send, &send),
-            Ok(vec![vec![Fp::ONE, Fp::ZERO]])
-        );
-        assert_eq!(
-            instance(StepRelation::Receive, &receive),
-            Ok(vec![vec![Fp::ONE]])
-        );
-        assert_eq!(
-            instance(StepRelation::Send, &receive),
-            Err(SigmaError::PublicShape)
-        );
-        assert_eq!(
-            instance(StepRelation::Receive, &send),
-            Err(SigmaError::PublicShape)
-        );
+        let transcript = entry.transcript();
+        assert_eq!(transcript.len(), VERIFYING_KEY_ENTRY_TRANSCRIPT_BYTES);
+        assert_eq!(transcript[0], 3);
+        assert_eq!(transcript[1..5], [4, 3, 2, 1]);
+        assert_eq!(transcript[5..37], [0xab; 32]);
+        assert_eq!(transcript[37..], 3_296_u32.to_le_bytes());
+        assert_eq!(entry.selector(), (3, 0x0102_0304));
+        let empty = SigmaAllowlist::<iroha_pasta::Eq>::new();
+        assert!(matches!(
+            empty.select(SigmaRelation::RECEIVE),
+            Err(SigmaError::NoVerifier((4, 0)))
+        ));
+        assert_eq!(empty.entries(), Ok(Vec::new()));
     }
 
     #[test]
@@ -455,7 +653,9 @@ mod tests {
         for error in [
             SigmaError::NoShape,
             SigmaError::DoesNotFit { k: 9 },
-            SigmaError::PublicShape,
+            SigmaError::NoVerifier((3, 1)),
+            SigmaError::DuplicateSelector((4, 0)),
+            SigmaError::ProofLength(usize::MAX),
             SigmaError::UnknownCurve,
             SigmaError::ParamsK {
                 expected: 10,

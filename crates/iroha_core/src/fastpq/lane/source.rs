@@ -40,7 +40,7 @@ pub(super) struct PreparedSourceEntry<'a> {
 pub(super) fn allocation_bytes(
     entry: &CapturedQuantityEntry<'_>,
     proving: ProvingLimits,
-    verification: ExecutionEffectVerificationLimits,
+    verification: &ExecutionEffectVerificationLimits,
 ) -> Result<usize, SourceWorkError> {
     let materialize = materialization_allocation_bytes(
         entry.effects(),
@@ -64,7 +64,7 @@ pub(super) fn prepare<'a>(
     source: &'a AdmittedFinalizedFastpqSource,
     index: usize,
     proving: ProvingLimits,
-    verification: ExecutionEffectVerificationLimits,
+    verification: &ExecutionEffectVerificationLimits,
 ) -> Result<PreparedSourceEntry<'a>, SourceWorkError> {
     let original = source.entry(index).map_err(SourceWorkError::Source)?;
     let bytes = allocation_bytes(&original, proving, verification)?;

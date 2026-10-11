@@ -412,6 +412,17 @@ payload against the original frame through the existing streaming canonical
 writer. It preserves original codec/resource causes separately from local
 prepared-destination failures; neither is retried through an owning decoder.
 
+The prepared entry preserves the caller's original owning boundary. The canonical
+field entry keeps its whole-payload field-length check and record depth before the
+first child. `decode_canonical_archive_into`, used by the prepared SignedBlock
+reader, instead follows `ArchiveView::decode`: it authenticates the frame and type,
+installs the original schema/layout flags, derives limits from the payload length,
+and enters the generated record without an extra whole-record field or depth.
+The first field and every child still use the sole bounded framing kernels. Both
+entries share the positional walk, destination/refusal custody and exact complete
+canonical frame comparison; neither introduces another V1 representation, a
+scratch archived decoder or a limit override.
+
 Prepared sequence destinations supply initialized `SequenceSpan` scratch and
 initialized output storage. The existing scalar sequence walker validates the
 complete span plan before any element callback, preserving late-framing error
@@ -578,10 +589,16 @@ metadata keys `fee_sponsor`, `gas_asset_id`, and `gas_limit` are not alternate
 encodings of this field and are rejected by transaction construction and
 admission. Native queue admission is the sole transaction path; the retired
 `admission_intent` field has no wire slot or decoder.
-`attachments` is the ordered optional proof-attachment list and remains part of
-the signed transaction identity. SDK encoders and fixture exporters must emit
-this nine-field V1 layout. Missing fields, retired extra slots, and unknown JSON
-fields fail closed; there is no metadata-marker or legacy payload fallback.
+`attachments` is `Option<SignedAttachmentsV1>`: the ordered intent descriptor
+and the signed inline attachment occurrences described under
+[Signed attachments and ordered intent](#signed-attachments-and-ordered-intent).
+It remains part of the signed transaction identity. A transaction without
+attachments encodes the field as the single `None` byte `0x00`; that encoding
+is unchanged. The former proof-attachment list is not a transaction field and
+is not decoded there: a payload that carries it fails to decode. SDK encoders
+and fixture exporters must emit this nine-field V1 layout. Missing fields,
+retired extra slots, and unknown JSON fields fail closed; there is no
+metadata-marker or legacy payload fallback.
 `time_to_live_ms` retains its canonical option discriminant so a malformed
 signed payload can be decoded into a typed admission rejection, but
 first-release transactions must encode `Some(positive milliseconds)`. Safe
@@ -661,6 +678,137 @@ and contract-call gas consume that shared limit, and fee settlement happens
 once for the transaction rather than once per item. Trigger actions may store
 the same `Batch` form. One trigger invocation executes the items atomically and
 shares its deterministic trigger gas budget across the complete sequence.
+
+### Signed attachments and ordered intent
+
+Owner: `crates/iroha_data_model/src/transaction/signed_attachments.rs`
+(schema, bounds, validation) and
+`crates/iroha_data_model/src/transaction/signed/ordered_intent.rs` (projection,
+digests, binding to the payload). Shared vectors:
+`fixtures/zk/signed_attachments_v1/vectors.json`.
+
+All records below are ordinary derived records (see
+[Derived Record Layout](#derived-record-layout)): fields in declaration order,
+each `[len][payload]`; an enum is its little-endian `u32` tag followed by the
+variant's fields; a 32-byte digest is one `[u8; 32]` field.
+
+```text
+SignedAttachmentsV1
+  actions      Vec<ActionIntentV1>               1..=16, action_index == position
+  occurrences  Vec<SignedAttachmentOccurrenceV1> 0..=16, index == position
+
+ActionIntentV1
+  action_index          u32
+  operation             ActionOperationV1
+  role                  ActionRoleV1
+  authority             ActionAuthorityBindingV1
+  invocation            ActionInvocationBindingV1
+  public_inputs_digest  [u8; 32]
+  statement_digest      [u8; 32]
+  attachments           Vec<AttachmentReferenceV1>
+
+AttachmentReferenceV1
+  index         u32
+  kind          AttachmentKindV1
+  role          AttachmentRoleV1
+  length        u64
+  content_hash  [u8; 32]
+
+SignedAttachmentOccurrenceV1
+  index         u32
+  kind          AttachmentKindV1
+  length        u64
+  content_hash  [u8; 32]
+  bytes         Vec<u8>
+```
+
+Variant tags, in declaration order from `0`:
+
+```text
+AttachmentKindV1           0 Proof  1 KeyMaterial
+AttachmentRoleV1           0 ActionProof  1 VerifyingKey  2 LanePrivacyProof  3 ExecutionProof
+ActionOperationV1          0 NativeInstruction(String wire id)  1 TransactionProof  2 IvmProvedExecution
+ActionRoleV1               0 ProofEffect  1 ProofVerification  2 Administrative  3 Effect
+ActionAuthorityBindingV1   0 TransactionAuthority  1 ContractSubject(AccountId)  2 Account(AccountId)
+ActionInvocationBindingV1  0 Transaction  1 Direct { instruction_index: u32 }
+                           2 Contract { root_index: u32, call_path: Vec<u32> }
+```
+
+`content_hash` is `BLAKE3(bytes)` and `length` is the byte length of `bytes`.
+A `Proof` occurrence is generated after the ordered intent exists;
+`KeyMaterial` is supplied independently. `TransactionProof` and
+`IvmProvedExecution` carry one `Proof` occurrence whose bytes are the canonical
+Norito frame of one `ProofAttachment`; every other operation carries the
+registered canonical encoding of its own proof, a ceiling-sized native proof as
+raw proof bytes.
+
+Bounds (all inclusive): 9,437,184 bytes per occurrence (a wrapper counts toward
+it), 16 occurrences, 16 actions, 32 child ordinals in a contract call path, 128
+bytes of printable ASCII in an instruction wire id, and 9,502,720 bytes for the
+complete canonical frame of `SignedAttachmentsV1` (the 40-byte header,
+alignment padding and the bare payload). The frame bound is one ceiling-sized
+occurrence plus a 64 KiB aggregate allowance, so sixteen maximal occurrences do
+not fit. The decoder checks the frame size, both sequence counts and each
+declared byte count before it allocates. The complete signed transaction is
+still measured against the committed `transaction.max_tx_bytes`, and the sum of
+occurrence bytes against `transaction.max_decompressed_bytes`.
+
+Decoding and admission apply the same typed checks
+(`SignedAttachmentErrorV1`). Independent of the rest of the payload: at least
+one action; contiguous positional ordinals of actions and occurrences
+(reorder); each occurrence's declared length and hash equal those of its bytes;
+no two `Proof` occurrences with identical bytes; the references enumerate the
+occurrences exactly once and in order (omission, duplication, unused
+declaration, reorder); each reference agrees with its occurrence in type,
+length and hash (substitution) and declares a role its type can play; non-zero
+digests; and the closed rules of each operation (role class, authority,
+invocation binding, attachment count and roles). Against the payload: a named
+instruction wire id is registered; a `Direct` binding names an instruction of
+that wire id in the instruction list or batch, at most one action per
+instruction; a `Contract` binding names a contract root; an execution carrier
+is declared at most once and only for an `IvmProved` executable; each wrapped
+carrier decodes as one canonical, structurally valid `ProofAttachment` whose
+role agrees with its lane privacy witness and whose proof-free digest equals
+`public_inputs_digest`; and each `statement_digest` equals the value derived
+below. A node additionally refuses an operation no executor route consumes;
+today that is every `NativeInstruction` action.
+
+The JSON form of the field is the canonical padded standard base64 of the
+complete canonical frame.
+
+Hashing order. The transaction signature covers the complete canonical payload,
+every occurrence byte included. A proof binds only the *ordered intent*, which
+excludes generated values:
+
+1. Normalize the payload: clear every occurrence's `bytes`; for every `Proof`
+   occurrence and every reference to one set `length = 0` and `content_hash` to
+   32 zero bytes; set every `statement_digest` to 32 zero bytes; apply the
+   per-submission privacy normalization to each direct `SubmitPrivacyProofV1`;
+   for an `IvmProved` executable clear the overlay and set both output
+   commitments to the zero hash. `KeyMaterial` lengths and hashes and every
+   other field stay as signed.
+2. `intent_digest = BLAKE3("iroha.transaction.ordered-intent-digest.v1" ||
+   u64le(len) || frame)`, where `frame` is the canonical Norito frame of the
+   normalized payload.
+3. For action `k`, `statement_digest = BLAKE3(
+   "iroha.transaction.action-statement-digest.v1" || u64le(len) || frame)`
+   over the canonical frame of `ActionStatementV1 { intent_digest,
+   action_index, operation, role, authority, invocation,
+   public_inputs_digest }`. The proof of action `k` is generated for this
+   statement.
+4. Record each occurrence's bytes with its exact length and hash, in the
+   occurrence and in its reference.
+5. Sign the complete canonical payload.
+
+For a wrapped carrier, `public_inputs_digest = BLAKE3(
+"iroha.transaction.proof-carrier-public-inputs-digest.v1" || u64le(len) ||
+frame)` over the canonical frame of the `ProofAttachment` with its proof bytes
+cleared and its envelope hash removed.
+
+Descriptor checks reject a stale or foreign binding before any proof is
+verified. Cryptographic replay rejection requires verifying the proof against
+the recomputed statement; the preverification of a `TransactionProof` carrier
+does not establish that binding.
 
 ## Block execution context
 

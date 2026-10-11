@@ -1,0 +1,140 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "cancel_while_proving_never_submits",
+  "category": "cancellation",
+  "rules": [
+    "cancellation_is_sticky_and_never_rolls_back"
+  ],
+  "description": "Cancellation before any dispatch ends the workflow as cancelled and marks the step cancelled_before_submission. Later runs build, sign and send nothing. Cancelling again is a no-op.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "cancel-while-proving-never-submits",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      },
+      {
+        "label": "activate",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "interrupt"
+        ]
+      },
+      "expect": {
+        "result": "interrupted",
+        "effects": [
+          "build:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "proving",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0,
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "cancel",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "status": "cancelled",
+        "steps": [
+          "cancelled_before_submission",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0,
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "cancel_requested": true,
+        "sequence": 4
+      }
+    },
+    {
+      "op": "run",
+      "options": {
+        "retransmit_identical_bytes": true,
+        "retry_rejected_step": true
+      },
+      "expect": {
+        "result": {
+          "error": "CancelledBeforeSubmission",
+          "stage": "cancel",
+          "step": 0,
+          "resumable": false
+        },
+        "effects": [],
+        "status": "cancelled",
+        "steps": [
+          "cancelled_before_submission",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0,
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "cancel",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "status": "cancelled",
+        "steps": [
+          "cancelled_before_submission",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0,
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "sequence": 4
+      }
+    }
+  ]
+}

@@ -22,8 +22,8 @@
 
 use iroha_data_model::kagemusha::{
     KAGEMUSHA_WALLET_ABANDONMENT_MAX_BYTES_V1, KAGEMUSHA_WALLET_VERSION_V1,
-    KagemushaWalletAbandonmentV1, KagemushaWalletDigestRoleV1, KagemushaWalletLedgerControlV1,
-    KagemushaWalletMarkerStateV1, KagemushaWalletTerminalReasonV1,
+    KagemushaWalletAbandonmentV1, KagemushaWalletLedgerControlV1, KagemushaWalletMarkerStateV1,
+    KagemushaWalletSigningDomainV1, KagemushaWalletTerminalReasonV1,
 };
 use rand::rand_core::TryRngCore as _;
 
@@ -211,7 +211,7 @@ where
             &self.platform,
             slot,
             terminal.payment_key(),
-            KagemushaWalletDigestRoleV1::LedgerControlBody,
+            KagemushaWalletSigningDomainV1::LedgerControl,
             &body.transcript(),
         )?;
         let abandonment = KagemushaWalletAbandonmentV1 {

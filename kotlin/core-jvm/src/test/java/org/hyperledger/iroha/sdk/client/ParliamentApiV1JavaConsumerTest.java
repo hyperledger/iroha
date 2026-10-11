@@ -4,14 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -58,47 +54,20 @@ final class ParliamentApiV1JavaConsumerTest {
   }
 
   @Test
-  void retiredReleaseFixturesAreRejectedByTheKotlinParser() throws Exception {
-    String install = "kagemusha_verifier_release_install_v1.json";
-    byte[] installBytes = Files.readAllBytes(fixturePath(install));
-    assertEquals("proposal.kind is unknown or retired",
-        assertThrows(IllegalArgumentException.class,
-            () -> ParliamentApiV1.Proposal.fromJson(installBytes)).getMessage());
-    Map<String, Object> installPayload = objectValue(objectValue(installBytes).get("payload"));
-    objectValue(installPayload.get("manifest")).put("retired_alias", true);
-    assertThrows(IllegalArgumentException.class,
-        () -> ParliamentApiV1.Proposal.fromJson(encode(map(
-            "kind", "KagemushaVerifierReleaseInstall", "payload", installPayload))));
-
-    String activate = "kagemusha_verifier_release_activate_v1.json";
-    byte[] activateBytes = Files.readAllBytes(fixturePath(activate));
-    assertEquals("proposal.kind is unknown or retired",
-        assertThrows(IllegalArgumentException.class,
-            () -> ParliamentApiV1.Proposal.fromJson(activateBytes)).getMessage());
-    Map<String, Object> activatePayload = objectValue(objectValue(activateBytes).get("payload"));
-    Map<String, Object> predecessor = objectValue(activatePayload.get("expected_predecessor"));
-    List<?> releases = (List<?>) predecessor.get("releases");
-    objectValue(releases.get(0)).put("status", 3);
-    assertThrows(IllegalArgumentException.class,
-        () -> ParliamentApiV1.Proposal.fromJson(encode(map(
-            "kind", "KagemushaVerifierReleaseActivate", "payload", activatePayload))));
-  }
-
-  @Test
-  void retiredStandbyRetirementIsRejectedByTheKotlinParser() throws Exception {
-    byte[] original = Files.readAllBytes(fixturePath("kagemusha_verifier_release_retire_v1.json"));
-    assertEquals("proposal.kind is unknown or retired",
-        assertThrows(IllegalArgumentException.class,
-            () -> ParliamentApiV1.Proposal.fromJson(original)).getMessage());
-    Map<String, Object> payload = objectValue(objectValue(original).get("payload"));
-    Map<String, Object> predecessor = objectValue(payload.get("expected_predecessor"));
-    List<?> rows = (List<?>) predecessor.get("releases");
-    predecessor.put("releases", rows.stream()
-        .filter(row -> !objectValue(row).get("release_id").equals(payload.get("standby_release_id")))
-        .collect(java.util.stream.Collectors.toList()));
-    assertThrows(IllegalArgumentException.class,
-        () -> ParliamentApiV1.Proposal.fromJson(encode(map(
-            "kind", "KagemushaVerifierReleaseRetire", "payload", payload))));
+  void retiredKagemushaProposalKindsAreRejectedByTheKotlinParser() {
+    for (String kind : Arrays.asList(
+        "KagemushaVerifierPolicyInstall",
+        "KagemushaVerifierReleaseInstall",
+        "KagemushaVerifierReleaseActivate",
+        "KagemushaVerifierReleaseRetire")) {
+      for (Object payload : Arrays.asList(null, Collections.emptyMap(),
+          map("proposal_operator", "invalid"))) {
+        assertEquals("proposal.kind is unknown or retired",
+            assertThrows(IllegalArgumentException.class,
+                () -> ParliamentApiV1.Proposal.fromJson(encode(map(
+                    "kind", kind, "payload", payload)))).getMessage());
+      }
+    }
   }
 
   @Test
@@ -185,13 +154,5 @@ final class ParliamentApiV1JavaConsumerTest {
     StringBuilder result = new StringBuilder(value.length() * count);
     for (int index = 0; index < count; index++) result.append(value);
     return result.toString();
-  }
-
-  private static Path fixturePath(String name) {
-    for (Path current = Paths.get("").toAbsolutePath(); current != null; current = current.getParent()) {
-      Path candidate = current.resolve("fixtures/governance").resolve(name);
-      if (Files.isRegularFile(candidate)) return candidate;
-    }
-    throw new AssertionError("missing governed release fixture " + name);
   }
 }

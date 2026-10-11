@@ -35,28 +35,11 @@ final class ToriiGovernanceDecodingTests: XCTestCase {
         "[" + Array(repeating: String(value), count: count).joined(separator: ",") + "]"
     }
 
-    private func kagemushaSigner(_ seed: UInt8) throws -> String {
+    private func ed25519Signer(_ seed: UInt8) throws -> String {
         let key = try Curve25519.Signing.PrivateKey(
             rawRepresentation: Data(repeating: seed, count: 32)
         ).publicKey.rawRepresentation
         return CanonicalNorito.publicKeyMultihash(algorithm: .ed25519, payload: key)
-    }
-
-    private func kagemushaPolicyInstallJSON(
-        proposalOperator: String,
-        networkId: String,
-        predecessor: String,
-        authoritySetId: String,
-        threshold: Int,
-        signers: [String]
-    ) -> Data {
-        let signersJSON = signers.map { "\"\($0)\"" }.joined(separator: ",")
-        return proposalKindJSON(
-            kind: "KagemushaVerifierPolicyInstall",
-            payload: """
-            {"proposal_operator":"\(proposalOperator)","network_id":"\(networkId)","expected_predecessor":\(predecessor),"authority_policy":{"version":1,"authority_set_id":\(authoritySetId),"threshold":\(threshold),"authorized_signers":[\(signersJSON)]}}
-            """
-        )
     }
 
     private func proposalKindJSON(kind: String, payload: String) -> Data {
@@ -133,7 +116,7 @@ final class ToriiGovernanceDecodingTests: XCTestCase {
         }
     }
 
-    func testGovernanceLockRecordAcceptsExplicitNullLegacyCustody() throws {
+    func testGovernanceLockRecordAcceptsExplicitNullCustody() throws {
         let record = try JSONDecoder().decode(
             ToriiGovernanceLockRecord.self,
             from: governanceLockJSON(custodyJSON: "null")
@@ -198,6 +181,20 @@ final class ToriiGovernanceDecodingTests: XCTestCase {
         """.data(using: .utf8)!
 
         XCTAssertThrowsError(try JSONDecoder().decode(ToriiGovernanceTallyResponse.self, from: json))
+    }
+
+    func testGovernanceProposalKindRejectsRetiredKagemushaVariants() {
+        for kind in [
+            "KagemushaVerifierPolicyInstall",
+            "KagemushaVerifierReleaseInstall",
+            "KagemushaVerifierReleaseActivate",
+            "KagemushaVerifierReleaseRetire",
+        ] {
+            XCTAssertThrowsError(try JSONDecoder().decode(
+                ToriiGovernanceProposalKind.self,
+                from: proposalKindJSON(kind: kind, payload: "{}")
+            ))
+        }
     }
 
     func testGovernanceProposalKindDecodesExistingV1Variants() throws {
@@ -335,145 +332,45 @@ final class ToriiGovernanceDecodingTests: XCTestCase {
         }
         XCTAssertEqual(triggerPermissionPayload.authority, Self.governanceOwner)
         XCTAssertEqual(triggerPermissionPayload.action, .grant)
-
-        let signers = try [kagemushaSigner(1), kagemushaSigner(2)].sorted()
-        let kagemusha = kagemushaPolicyInstallJSON(
-            proposalOperator: Self.governanceOwner,
-            networkId: TestNetworkIds.canonical.literal,
-            predecessor: "{\"version\":1,\"authority_policy\":null,\"active_release_id\":null,\"releases\":[]}",
-            authoritySetId: fixedBytes(7), threshold: 2, signers: signers
-        )
-        guard case .kagemushaVerifierPolicyInstall(let kagemushaPayload) =
-            try JSONDecoder().decode(ToriiGovernanceProposalKind.self, from: kagemusha) else {
-            return XCTFail("expected KagemushaVerifierPolicyInstall")
-        }
-        XCTAssertEqual(kagemushaPayload.proposalOperator, Self.governanceOwner)
-        XCTAssertEqual(kagemushaPayload.networkId, TestNetworkIds.canonical)
-        XCTAssertEqual(kagemushaPayload.expectedPredecessor.version, 1)
-        XCTAssertEqual(kagemushaPayload.authorityPolicy.authoritySetId, Data(repeating: 7, count: 32))
-        XCTAssertEqual(kagemushaPayload.authorityPolicy.threshold, 2)
-        XCTAssertEqual(kagemushaPayload.authorityPolicy.authorizedSigners, signers)
-        XCTAssertThrowsError(try ToriiParliamentProposalV1(validating: kagemusha))
     }
 
-    func testKagemushaPolicyInstallRejectsNoncanonicalOrNoninitialPayloads() throws {
-        let ordered = try [kagemushaSigner(1), kagemushaSigner(2)].sorted()
-        let canonicalEmpty = "{\"version\":1,\"authority_policy\":null,\"active_release_id\":null,\"releases\":[]}"
-        let valid = kagemushaPolicyInstallJSON(
-            proposalOperator: Self.governanceOwner,
-            networkId: TestNetworkIds.canonical.literal,
-            predecessor: canonicalEmpty,
-            authoritySetId: fixedBytes(7), threshold: 1, signers: ordered
-        )
-        XCTAssertNoThrow(try JSONDecoder().decode(ToriiGovernanceProposalKind.self, from: valid))
+    func testGovernancePublicKeyOrderAcceptsOnlyCanonicalMultihashes() throws {
+        let first = try ed25519Signer(1)
+        let second = try ed25519Signer(2)
+        let firstOrder = try governancePublicKeyOrderV1(first, codingPath: [])
+        let secondOrder = try governancePublicKeyOrderV1(second, codingPath: [])
+        XCTAssertEqual(firstOrder, try governancePublicKeyOrderV1(first, codingPath: []))
+        XCTAssertNotEqual(firstOrder, secondOrder)
+        XCTAssertEqual(firstOrder < secondOrder, first < second)
 
-        let predecessors = [
-            "{\"version\":2,\"authority_policy\":null,\"active_release_id\":null,\"releases\":[]}",
-            "{\"version\":1,\"authority_policy\":null,\"active_release_id\":null,\"releases\":[{}]}",
-            "{\"version\":1,\"authority_policy\":{},\"active_release_id\":null,\"releases\":[]}",
-            "{\"version\":1,\"authority_policy\":null,\"active_release_id\":\(fixedBytes(7)),\"releases\":[]}",
-            "{\"version\":1,\"authority_policy\":null,\"releases\":[]}",
-            "{\"version\":1,\"authority_policy\":null,\"active_release_id\":null,\"releases\":[],\"retired\":null}",
-        ]
-        for predecessor in predecessors {
-            let malformed = kagemushaPolicyInstallJSON(
-                proposalOperator: Self.governanceOwner,
-                networkId: TestNetworkIds.canonical.literal,
-                predecessor: predecessor,
-                authoritySetId: fixedBytes(7), threshold: 1, signers: ordered
-            )
-            XCTAssertThrowsError(
-                try JSONDecoder().decode(ToriiGovernanceProposalKind.self, from: malformed)
-            )
-        }
-
-        let policies: [(String, Int, [String])] = [
-            (fixedBytes(0), 1, ordered),
-            (fixedBytes(7, count: 31), 1, ordered),
-            (fixedBytes(7), 0, ordered),
-            (fixedBytes(7), 3, ordered),
-            (fixedBytes(7), 1, []),
-            (fixedBytes(7), 1, Array(repeating: ordered[0], count: 33)),
-            (fixedBytes(7), 1, [ordered[0], ordered[0]]),
-            (fixedBytes(7), 1, Array(ordered.reversed())),
-            (fixedBytes(7), 1, [ordered[0].lowercased()]),
-            (fixedBytes(7), 1, ["ed25519:\(ordered[0])"]),
-            (fixedBytes(7), 1, ["ed0120" + String(repeating: "00", count: 32)]),
-            (fixedBytes(7), 1, ["ed0121" + String(repeating: "11", count: 32)]),
-            (fixedBytes(7), 1, [CanonicalNorito.publicKeyMultihash(
-                algorithm: .secp256k1, payload: Data(repeating: 1, count: 32)
-            )]),
-            (fixedBytes(7), 1, [CanonicalNorito.publicKeyMultihash(
-                algorithm: .blsNormal, payload: Data(repeating: 1, count: 47)
-            )]),
-            (fixedBytes(7), 1, [CanonicalNorito.publicKeyMultihash(
-                algorithm: .blsSmall, payload: Data(repeating: 1, count: 95)
-            )]),
-            (fixedBytes(7), 1, [CanonicalNorito.publicKeyMultihash(
-                algorithm: .mlDsa, payload: Data(repeating: 1, count: 1_951)
-            )]),
-            (fixedBytes(7), 1, [CanonicalNorito.publicKeyMultihash(
-                algorithm: .gost2012_256A, payload: Data(repeating: 1, count: 63)
-            )]),
-            (fixedBytes(7), 1, [CanonicalNorito.publicKeyMultihash(
-                algorithm: .sm2, payload: Data(repeating: 1, count: 64)
-            )]),
-            (fixedBytes(7), 1, [CanonicalNorito.publicKeyMultihash(
-                algorithm: .sm2, payload: Data([0x04] + Array(repeating: 1, count: 64))
-            )]),
-        ]
-        for (authoritySetId, threshold, signers) in policies {
-            let malformed = kagemushaPolicyInstallJSON(
-                proposalOperator: Self.governanceOwner,
-                networkId: TestNetworkIds.canonical.literal,
-                predecessor: canonicalEmpty,
-                authoritySetId: authoritySetId, threshold: threshold, signers: signers
-            )
-            XCTAssertThrowsError(
-                try JSONDecoder().decode(ToriiGovernanceProposalKind.self, from: malformed)
-            )
-        }
-
-        for (operatorId, networkId) in [
-            ("alice@wonderland", TestNetworkIds.canonical.literal),
-            (Self.governanceOwner, "sora-taira"),
-        ] {
-            let malformed = kagemushaPolicyInstallJSON(
-                proposalOperator: operatorId, networkId: networkId,
-                predecessor: canonicalEmpty,
-                authoritySetId: fixedBytes(7), threshold: 1, signers: ordered
-            )
-            XCTAssertThrowsError(
-                try JSONDecoder().decode(ToriiGovernanceProposalKind.self, from: malformed)
-            )
-        }
-
-        let validText = String(decoding: valid, as: UTF8.self)
         for malformed in [
-            validText.replacingOccurrences(
-                of: "\"authority_policy\":{\"version\":1",
-                with: "\"authority_policy\":{\"version\":2"
+            first.lowercased(),
+            "ed25519:\(first)",
+            "ed0120" + String(repeating: "00", count: 32),
+            "ed0121" + String(repeating: "11", count: 32),
+            CanonicalNorito.publicKeyMultihash(
+                algorithm: .secp256k1, payload: Data(repeating: 1, count: 32)
             ),
-            validText.replacingOccurrences(
-                of: "\"threshold\":1",
-                with: "\"threshold\":1,\"retired\":true"
+            CanonicalNorito.publicKeyMultihash(
+                algorithm: .blsNormal, payload: Data(repeating: 1, count: 47)
             ),
-            validText.replacingOccurrences(
-                of: ",\"expected_predecessor\":\(canonicalEmpty)",
-                with: ""
+            CanonicalNorito.publicKeyMultihash(
+                algorithm: .blsSmall, payload: Data(repeating: 1, count: 95)
             ),
-            validText.replacingOccurrences(
-                of: "\"network_id\":",
-                with: "\"retired\":null,\"network_id\":"
+            CanonicalNorito.publicKeyMultihash(
+                algorithm: .mlDsa, payload: Data(repeating: 1, count: 1_951)
+            ),
+            CanonicalNorito.publicKeyMultihash(
+                algorithm: .gost2012_256A, payload: Data(repeating: 1, count: 63)
+            ),
+            CanonicalNorito.publicKeyMultihash(
+                algorithm: .sm2, payload: Data(repeating: 1, count: 64)
+            ),
+            CanonicalNorito.publicKeyMultihash(
+                algorithm: .sm2, payload: Data([0x04] + Array(repeating: 1, count: 64))
             ),
         ] {
-            XCTAssertNotEqual(malformed, validText)
-            XCTAssertThrowsError(
-                try JSONDecoder().decode(
-                    ToriiGovernanceProposalKind.self,
-                    from: Data(malformed.utf8)
-                )
-            )
+            XCTAssertThrowsError(try governancePublicKeyOrderV1(malformed, codingPath: []), malformed)
         }
     }
 
@@ -799,370 +696,5 @@ final class ToriiGovernanceDecodingTests: XCTestCase {
         XCTAssertThrowsError(
             try JSONDecoder().decode(ToriiGovernanceProposalRecord.self, from: inexactHeight)
         )
-    }
-
-    private func kagemushaReleaseInstallFixture() throws -> Data {
-        var root = URL(fileURLWithPath: #filePath)
-        for _ in 0..<4 {
-            root.deleteLastPathComponent()
-        }
-        return try Data(contentsOf: root.appendingPathComponent(
-            "fixtures/governance/kagemusha_verifier_release_install_v1.json"
-        ))
-    }
-
-    private func mutatedKagemushaReleaseInstallFixture(
-        _ mutation: (inout [String: Any]) -> Void
-    ) throws -> Data {
-        var fixture = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: kagemushaReleaseInstallFixture()) as? [String: Any]
-        )
-        mutation(&fixture)
-        return try JSONSerialization.data(withJSONObject: fixture, options: [.sortedKeys])
-    }
-
-    func testKagemushaHardwareCapabilityMaskUsesCompleteUInt32Range() throws {
-        let fixture = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: kagemushaReleaseInstallFixture()) as? [String: Any])
-        let payload = try XCTUnwrap(fixture["payload"] as? [String: Any])
-        let manifest = try XCTUnwrap(payload["manifest"] as? [String: Any])
-        let profiles = try XCTUnwrap(manifest["enabled_profiles"] as? [[String: Any]])
-        var hardware = try XCTUnwrap(profiles.first?["hardware_profile"] as? [String: Any])
-        hardware["capability_mask"] = UInt64(UInt32.max)
-        let encoded = try JSONSerialization.data(withJSONObject: hardware)
-        let decoded = try JSONDecoder().decode(
-            ToriiGovernanceKagemushaHardwareProfileV1.self, from: encoded)
-        XCTAssertEqual(decoded.capabilityMask, UInt32.max)
-        hardware["capability_mask"] = UInt64(UInt32.max) + 1
-        XCTAssertThrowsError(try JSONDecoder().decode(
-            ToriiGovernanceKagemushaHardwareProfileV1.self,
-            from: JSONSerialization.data(withJSONObject: hardware)))
-    }
-
-    private func releaseEvidenceField<T: Decodable>(
-        _ type: T.Type, data: Data, field: String
-    ) throws -> T {
-        _ = try governanceValidatedProposalJSON(data)
-        let fixture = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        let payload = try XCTUnwrap(fixture["payload"] as? [String: Any])
-        let value = try XCTUnwrap(payload[field])
-        let encoded = try JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed])
-        return try JSONDecoder().decode(type, from: encoded)
-    }
-
-    private func releaseInstallEvidence(_ data: Data) throws -> (
-        expectedPredecessor: ToriiGovernanceKagemushaGovernedVerifierRegistryV1,
-        manifest: ToriiGovernanceKagemushaReleaseManifestV1,
-        receipt: ToriiGovernanceKagemushaInternalValidationReceiptV1,
-        attestation: ToriiGovernanceKagemushaReleaseAttestationV1
-    ) {
-        (
-            try releaseEvidenceField(ToriiGovernanceKagemushaGovernedVerifierRegistryV1.self,
-                                     data: data, field: "expected_predecessor"),
-            try releaseEvidenceField(ToriiGovernanceKagemushaReleaseManifestV1.self,
-                                     data: data, field: "manifest"),
-            try releaseEvidenceField(ToriiGovernanceKagemushaInternalValidationReceiptV1.self,
-                                     data: data, field: "receipt"),
-            try releaseEvidenceField(ToriiGovernanceKagemushaReleaseAttestationV1.self,
-                                     data: data, field: "attestation")
-        )
-    }
-
-    func testKagemushaReleaseInstallEvidenceDecodesExactFixture() throws {
-        let fixture = try kagemushaReleaseInstallFixture()
-        XCTAssertThrowsError(try ToriiParliamentProposalV1(validating: fixture))
-        let release = try releaseInstallEvidence(fixture)
-        XCTAssertNotNil(release.expectedPredecessor.authorityPolicy)
-        XCTAssertNil(release.expectedPredecessor.activeReleaseId)
-        XCTAssertTrue(release.expectedPredecessor.releases.isEmpty)
-        XCTAssertEqual(release.manifest.version, 1)
-        XCTAssertEqual(release.manifest.networkId, try releaseEvidenceField(
-            NetworkId.self, data: fixture, field: "network_id"))
-        XCTAssertEqual(release.manifest.purpose, .production)
-        XCTAssertEqual(release.manifest.releaseId.bytes.count, 32)
-        XCTAssertEqual(release.manifest.helperProtocols.count, 7)
-        XCTAssertEqual(release.manifest.enabledProfiles.count, 2)
-        XCTAssertEqual(release.manifest.artifacts.count, 54)
-        XCTAssertEqual(release.receipt.profileQualifications.count, 2)
-        XCTAssertEqual(release.receipt.fuzzCases, 10_000_000)
-        XCTAssertEqual(release.attestation.approvals.count, 2)
-        XCTAssertEqual(release.manifest.releaseId, release.attestation.subject.releaseId)
-    }
-
-    func testKagemushaOrdinaryAppGuardArtifactRolesUseClosedTaggedShapes() throws {
-        let decoder = JSONDecoder()
-        let roles: [(String, ToriiGovernanceKagemushaArtifactRoleTagV1)] = [
-            ("ordinary_app_guard_pk_eq", .ordinaryAppGuardPkEq),
-            ("ordinary_app_guard_vk_eq", .ordinaryAppGuardVkEq),
-            ("ordinary_app_guard_pk_ep", .ordinaryAppGuardPkEp),
-            ("ordinary_app_guard_vk_ep", .ordinaryAppGuardVkEp),
-        ]
-        for (rawRole, expected) in roles {
-            let data = Data("{\"role\":\"\(rawRole)\",\"value\":null}".utf8)
-            let decoded = try decoder.decode(ToriiGovernanceKagemushaArtifactRoleV1.self, from: data)
-            XCTAssertEqual(decoded.role, expected)
-        }
-        for invalid in [
-            #"{"role":"ordinary_app_guard","value":null}"#,
-            #"{"role":"ordinary_app_guard_pk","value":null}"#,
-            #"{"role":"OrdinaryAppGuardPkEq","value":null}"#,
-            #"{"role":"ordinary_app_guard_pk_eq"}"#,
-            #"{"role":"ordinary_app_guard_pk_eq","value":{}}"#,
-            #"{"role":"ordinary_app_guard_pk_eq","value":null,"retired":null}"#,
-        ] {
-            XCTAssertThrowsError(try decoder.decode(
-                ToriiGovernanceKagemushaArtifactRoleV1.self, from: Data(invalid.utf8)))
-        }
-    }
-
-    func testKagemushaOrdinaryAppGuardHelperUsesClosedTaggedShape() throws {
-        let decoder = JSONDecoder()
-        let data = Data(#"{"helper":"ordinary_app_guard","value":null}"#.utf8)
-        let decoded = try decoder.decode(ToriiGovernanceKagemushaQualifiedHelperCircuitV1.self, from: data)
-        XCTAssertEqual(decoded.helper, .ordinaryAppGuard)
-        for invalid in [
-            #"{"helper":"ordinary_app_guard_pk_eq","value":null}"#,
-            #"{"helper":"ordinary_app_guard_unknown","value":null}"#,
-            #"{"helper":"ordinary_app_guard"}"#,
-            #"{"helper":"ordinary_app_guard","value":{}}"#,
-            #"{"helper":"ordinary_app_guard","value":null,"retired":null}"#,
-        ] {
-            XCTAssertThrowsError(try decoder.decode(
-                ToriiGovernanceKagemushaQualifiedHelperCircuitV1.self, from: Data(invalid.utf8)))
-        }
-    }
-
-    func testKagemushaReleasePurposeUsesClosedTaggedShapes() throws {
-        let decoder = JSONDecoder()
-        let production = Data(#"{"kind":"production","value":null}"#.utf8)
-        XCTAssertEqual(
-            try decoder.decode(ToriiGovernanceKagemushaReleasePurposeV1.self, from: production),
-            .production
-        )
-        let scope = "{\"asset_identity_digest\":\(fixedBytes(1)),\"asset_incarnation\":\(fixedBytes(2)),\"asset_scale\":28,\"liability_pool_id\":\(fixedBytes(3))}"
-        let experiment = Data("{\"kind\":\"testnet_experiment\",\"value\":\(scope)}".utf8)
-        guard case .testnetExperiment(let parsed) = try decoder.decode(
-            ToriiGovernanceKagemushaReleasePurposeV1.self, from: experiment
-        ) else { return XCTFail("expected scoped testnet experiment") }
-        XCTAssertEqual(parsed.assetScale, 28)
-        for invalid in [
-            #"{"kind":"production"}"#,
-            #"{"kind":"production","value":{}}"#,
-            #"{"kind":"unknown","value":null}"#,
-            #"{"kind":"testnet_experiment","value":null}"#,
-            String(decoding: experiment, as: UTF8.self).replacingOccurrences(
-                of: "\"asset_scale\":28", with: "\"asset_scale\":29"),
-            String(decoding: experiment, as: UTF8.self).replacingOccurrences(
-                of: "\"asset_scale\":28", with: "\"asset_scale\":28,\"retired\":null"),
-        ] {
-            XCTAssertThrowsError(try decoder.decode(
-                ToriiGovernanceKagemushaReleasePurposeV1.self, from: Data(invalid.utf8)))
-        }
-    }
-
-    func testKagemushaReleaseInstallRejectsNestedSchemaMutations() throws {
-        let unknownNestedField = try mutatedKagemushaReleaseInstallFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            var manifest = payload["manifest"] as! [String: Any]
-            manifest["retired"] = true
-            payload["manifest"] = manifest
-            fixture["payload"] = payload
-        }
-        let missingRequiredField = try mutatedKagemushaReleaseInstallFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            var manifest = payload["manifest"] as! [String: Any]
-            manifest.removeValue(forKey: "halo2_k")
-            payload["manifest"] = manifest
-            fixture["payload"] = payload
-        }
-        let shortDigest = try mutatedKagemushaReleaseInstallFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            var receipt = payload["receipt"] as! [String: Any]
-            receipt["source_tree_digest"] = Array(repeating: 1, count: 31)
-            payload["receipt"] = receipt
-            fixture["payload"] = payload
-        }
-        let retiredArtifactRole = try mutatedKagemushaReleaseInstallFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            var manifest = payload["manifest"] as! [String: Any]
-            var artifacts = manifest["artifacts"] as! [[String: Any]]
-            var role = artifacts[0]["role"] as! [String: Any]
-            role["role"] = "retired_artifact"
-            artifacts[0]["role"] = role
-            manifest["artifacts"] = artifacts
-            payload["manifest"] = manifest
-            fixture["payload"] = payload
-        }
-        let missingUnitValue = try mutatedKagemushaReleaseInstallFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            var manifest = payload["manifest"] as! [String: Any]
-            var helpers = manifest["helper_protocols"] as! [[String: Any]]
-            var helper = helpers[0]["helper"] as! [String: Any]
-            helper.removeValue(forKey: "value")
-            helpers[0]["helper"] = helper
-            manifest["helper_protocols"] = helpers
-            payload["manifest"] = manifest
-            fixture["payload"] = payload
-        }
-        let inexactNumber = try mutatedKagemushaReleaseInstallFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            var receipt = payload["receipt"] as! [String: Any]
-            receipt["fuzz_cases"] = 9_007_199_254_740_992 as UInt64
-            payload["receipt"] = receipt
-            fixture["payload"] = payload
-        }
-        let invalidP256Key = try mutatedKagemushaReleaseInstallFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            var manifest = payload["manifest"] as! [String: Any]
-            var profiles = manifest["enabled_profiles"] as! [[String: Any]]
-            var profile = profiles[0]["hardware_profile"] as! [String: Any]
-            profile["governance_credential_public_key"] = ["04" + String(repeating: "00", count: 64)]
-            profiles[0]["hardware_profile"] = profile
-            manifest["enabled_profiles"] = profiles
-            payload["manifest"] = manifest
-            fixture["payload"] = payload
-        }
-        let highSSignature = try mutatedKagemushaReleaseInstallFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            var receipt = payload["receipt"] as! [String: Any]
-            var providers = receipt["provider_policy"] as! [[String: Any]]
-            let original = (providers[0]["issuer_signature"] as! [String])[0]
-            providers[0]["issuer_signature"] = [
-                String(original.prefix(64))
-                    + "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632550"
-            ]
-            receipt["provider_policy"] = providers
-            payload["receipt"] = receipt
-            fixture["payload"] = payload
-        }
-        for (name, data) in [
-            ("unknown nested field", unknownNestedField),
-            ("missing required field", missingRequiredField),
-            ("short digest", shortDigest),
-            ("retired artifact role", retiredArtifactRole),
-            ("missing unit value", missingUnitValue),
-            ("inexact integer", inexactNumber),
-            ("invalid P-256 point", invalidP256Key),
-            ("high-S P-256 signature", highSSignature),
-        ] {
-            XCTAssertThrowsError(try releaseInstallEvidence(data), name)
-        }
-    }
-
-    private func kagemushaReleaseActivateFixture() throws -> Data {
-        var root = URL(fileURLWithPath: #filePath)
-        for _ in 0..<4 {
-            root.deleteLastPathComponent()
-        }
-        return try Data(contentsOf: root.appendingPathComponent(
-            "fixtures/governance/kagemusha_verifier_release_activate_v1.json"
-        ))
-    }
-
-    private func mutatedKagemushaReleaseActivateFixture(
-        _ mutation: (inout [String: Any]) -> Void
-    ) throws -> Data {
-        var fixture = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: kagemushaReleaseActivateFixture()) as? [String: Any]
-        )
-        mutation(&fixture)
-        return try JSONSerialization.data(withJSONObject: fixture, options: [.sortedKeys])
-    }
-
-    func testKagemushaReleaseActivateEvidenceKeepsTheStandbyRegistry() throws {
-        let fixture = try kagemushaReleaseActivateFixture()
-        XCTAssertThrowsError(try ToriiParliamentProposalV1(validating: fixture))
-        let registry = try releaseEvidenceField(
-            ToriiGovernanceKagemushaGovernedVerifierRegistryV1.self,
-            data: fixture, field: "expected_predecessor"
-        )
-        XCTAssertNotNil(registry.authorityPolicy)
-        XCTAssertNil(registry.activeReleaseId)
-        XCTAssertEqual(registry.releases.count, 1)
-        XCTAssertEqual(registry.releases[0].status, .standby)
-        XCTAssertEqual(
-            try releaseEvidenceField(ToriiGovernanceKagemushaBytes32V1.self,
-                                     data: fixture, field: "successor_release_id"),
-            registry.releases[0].releaseId
-        )
-    }
-
-    func testRetiredKagemushaReleaseActivateRejectsAllPayloadShapes() throws {
-        let extraPayloadField = try mutatedKagemushaReleaseActivateFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            payload["retired"] = true
-            fixture["payload"] = payload
-        }
-        let shortSuccessor = try mutatedKagemushaReleaseActivateFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            payload["successor_release_id"] = Array(repeating: 1, count: 31)
-            fixture["payload"] = payload
-        }
-        let missingSuccessor = try mutatedKagemushaReleaseActivateFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            payload.removeValue(forKey: "successor_release_id")
-            fixture["payload"] = payload
-        }
-        let ungoverned = try mutatedKagemushaReleaseActivateFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            var predecessor = payload["expected_predecessor"] as! [String: Any]
-            predecessor["authority_policy"] = NSNull()
-            payload["expected_predecessor"] = predecessor
-            fixture["payload"] = payload
-        }
-        let alreadyActive = try mutatedKagemushaReleaseActivateFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            var predecessor = payload["expected_predecessor"] as! [String: Any]
-            predecessor["active_release_id"] = String(repeating: "AA", count: 32)
-            payload["expected_predecessor"] = predecessor
-            fixture["payload"] = payload
-        }
-        let unknownTarget = try mutatedKagemushaReleaseActivateFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            payload["successor_release_id"] = Array(repeating: 99, count: 32)
-            fixture["payload"] = payload
-        }
-        let nonstandbyTarget = try mutatedKagemushaReleaseActivateFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            var predecessor = payload["expected_predecessor"] as! [String: Any]
-            var releases = predecessor["releases"] as! [[String: Any]]
-            releases[0]["status"] = 3
-            predecessor["releases"] = releases
-            payload["expected_predecessor"] = predecessor
-            fixture["payload"] = payload
-        }
-        let secondStandby = try mutatedKagemushaReleaseActivateFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            var predecessor = payload["expected_predecessor"] as! [String: Any]
-            var releases = predecessor["releases"] as! [[String: Any]]
-            var second = releases[0]
-            second["release_id"] = Array(repeating: 255, count: 32)
-            releases.append(second)
-            predecessor["releases"] = releases
-            payload["expected_predecessor"] = predecessor
-            fixture["payload"] = payload
-        }
-        let extraNestedField = try mutatedKagemushaReleaseActivateFixture { fixture in
-            var payload = fixture["payload"] as! [String: Any]
-            var predecessor = payload["expected_predecessor"] as! [String: Any]
-            var releases = predecessor["releases"] as! [[String: Any]]
-            releases[0]["legacy_alias"] = "retired"
-            predecessor["releases"] = releases
-            payload["expected_predecessor"] = predecessor
-            fixture["payload"] = payload
-        }
-        for (name, data) in [
-            ("unknown payload field", extraPayloadField),
-            ("short successor", shortSuccessor),
-            ("missing successor", missingSuccessor),
-            ("ungoverned predecessor", ungoverned),
-            ("already active", alreadyActive),
-            ("unknown target", unknownTarget),
-            ("nonstandby target", nonstandbyTarget),
-            ("second standby", secondStandby),
-            ("unknown release field", extraNestedField),
-        ] {
-            XCTAssertThrowsError(try ToriiParliamentProposalV1(validating: data), name)
-        }
     }
 }

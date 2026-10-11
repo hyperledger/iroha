@@ -1577,12 +1577,6 @@ fn validate_secret_free_config_template_v1(config: &toml::Value) -> color_eyre::
         "Taira SoraNet transport private-key handle",
     )?;
     let torii = toml_table_field_v1(root, "torii", "Taira config")?;
-    expect_toml_string_v1(
-        toml_table_field_v1(torii, "kagemusha_v1_commands", "Taira torii config")?,
-        "redemption_private_key_file",
-        "/run/secrets/iroha/taira-kagemusha-v1-redemption-private-key",
-        "Taira KAGEMUSHA V1 redemption private-key handle",
-    )?;
     let onboarding = toml_table_field_v1(torii, "account_onboarding", "Taira torii config")?;
     let onboarding_keys = onboarding
         .keys()

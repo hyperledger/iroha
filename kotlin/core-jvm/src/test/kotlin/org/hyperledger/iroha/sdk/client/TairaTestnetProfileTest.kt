@@ -17,10 +17,10 @@ class TairaTestnetProfileTest {
         assertEquals(369, TairaTestnetProfile.I105_DISCRIMINANT)
         assertEquals(
             "7ZepsJTHCVLKsrFFNZGSRGZgvBhv",
-            TairaTestnetProfile.KAGEMUSHA_ASSET_DEFINITION_ID,
+            TairaTestnetProfile.DIGITAL_SHEKEL_ASSET_DEFINITION_ID,
         )
-        assertEquals("ds#boi.is", TairaTestnetProfile.KAGEMUSHA_ASSET_ALIAS)
-        assertEquals(2, TairaTestnetProfile.KAGEMUSHA_ASSET_SCALE)
+        assertEquals("ds#boi.is", TairaTestnetProfile.DIGITAL_SHEKEL_ASSET_ALIAS)
+        assertEquals(2, TairaTestnetProfile.DIGITAL_SHEKEL_ASSET_SCALE)
     }
 
     private companion object {

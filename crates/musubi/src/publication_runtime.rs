@@ -1291,7 +1291,6 @@ fn encode_attestation_set_checkpoint(
             "PROVIDER_ATTESTATION_SET_CHECKPOINT_INVALID",
         ));
     }
-    norito::core::reserve_decode_allocation(length).map_err(|_| invalid())?;
     norito::core::to_bytes_bounded(checkpoint, length).map_err(|_| invalid())
 }
 fn encode_provider_attestation_checkpoint(
@@ -4145,6 +4144,32 @@ private_key = "{}"
             "MUSUBI_PUBLICATION_DELEGATION_DELEGATE_MISMATCH"
         );
     }
+    #[test]
+    fn attestation_set_checkpoint_encoder_charges_one_exact_frame_without_renewal() {
+        let fixture = rebase_fixture();
+        let checkpoint = PublicationProviderAttestationSetCheckpointV1::new(
+            fixture.request.operation_id(),
+            1,
+            fixture.response.archive.archive_id,
+            fixture.response.replication_order,
+            coordinator_provider_attestations(&fixture).to_vec(),
+        )
+        .unwrap();
+        let expected = norito::encode_canonical(&checkpoint).unwrap();
+        let limits =
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, expected.len(), 128);
+        norito::with_decode_limits_scope(limits, || {
+            assert_eq!(
+                encode_attestation_set_checkpoint(&checkpoint).unwrap(),
+                expected
+            );
+            assert!(
+                encode_attestation_set_checkpoint(&checkpoint).is_err(),
+                "a second frame cannot renew the original cumulative allowance"
+            );
+        });
+    }
+
     include!("publication_runtime/provider_inventory_tests.rs");
 }
 

@@ -249,19 +249,13 @@ fn provider(purpose: Purpose) -> Option<ProviderId> {
     }
 }
 fn profile_expiry(authority: &ServiceAuthority, original: &Original) -> Result<u64> {
-    let plans = authority
-        .prepared
-        .provider_service_plans()?
-        .ok_or_else(|| invalid("original provider plans absent"))?;
+    let plans = authority.provider_plans()?;
     let mut end = u64::MAX;
     let now = now_ms()?;
     for plan in plans {
         let selected = original.policies.provider(plan.provider_id())?;
         let admission = plan.admission_material();
-        let compliance = authority
-            .prepared
-            .gateway_compliance_plan(plan.provider_id())?
-            .ok_or_else(|| invalid("original compliance plan absent"))?;
+        let compliance = authority.gateway_compliance_plan(plan.provider_id())?;
         let start = admission
             .issued_at
             .checked_mul(1_000)

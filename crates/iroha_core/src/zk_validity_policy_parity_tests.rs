@@ -606,7 +606,8 @@ fn authorized_change_governs_the_next_block_without_grandfathering() {
         assert_eq!(policy_of(&chain.state().view().zk), smaller);
         // The node kept only its local resources throughout.
         assert!(
-            node_validity_overrides(&node_local_resources(chain.state().installed_zk().clone())).is_empty()
+            node_validity_overrides(&node_local_resources(chain.state().installed_zk().clone()))
+                .is_empty()
         );
         histories.push((certified_history(&chain), before, after));
     }

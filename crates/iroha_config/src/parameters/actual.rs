@@ -189,7 +189,7 @@ pub struct Root {
     pub confidential: Confidential,
     /// Cryptography feature toggles and defaults.
     pub crypto: Crypto,
-    /// Settlement configuration for KAGEMUSHA and conversion routing.
+    /// Settlement conversion-routing configuration.
     pub settlement: Settlement,
     /// Streaming configuration (control-plane key material).
     pub streaming: Streaming,
@@ -327,12 +327,10 @@ pub enum NodeSecretFile {
     /// TODO(P2): reserved for the deploy engine's network-authority keys (spec §7.2); no
     /// configuration key reads it yet, so the node never opens it.
     SorafsCouncilAuthority,
-    /// KAGEMUSHA redemption authority private key.
-    KagemushaRedemptionAuthority,
 }
 impl NodeSecretFile {
     /// Every fixed secret file, in a stable order.
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 9] = [
         Self::Validator,
         Self::Transport,
         Self::Streaming,
@@ -342,7 +340,6 @@ impl NodeSecretFile {
         Self::FaucetAuthority,
         Self::OnboardingAuthority,
         Self::SorafsCouncilAuthority,
-        Self::KagemushaRedemptionAuthority,
     ];
     /// Path of this file relative to `<data_dir>/secrets/`.
     #[must_use]
@@ -358,7 +355,6 @@ impl NodeSecretFile {
             Self::FaucetAuthority => names::FAUCET_AUTHORITY_KEY,
             Self::OnboardingAuthority => names::ONBOARDING_AUTHORITY_KEY,
             Self::SorafsCouncilAuthority => names::SORAFS_COUNCIL_AUTHORITY_KEY,
-            Self::KagemushaRedemptionAuthority => names::KAGEMUSHA_REDEMPTION_AUTHORITY_KEY,
         }
     }
 }
@@ -506,7 +502,6 @@ mod data_dir_tests {
                 "authority/faucet.key",
                 "authority/onboarding.key",
                 "authority/sorafs_council.key",
-                "authority/kagemusha_redemption.key",
             ]
         );
         assert_eq!(
@@ -4741,9 +4736,6 @@ pub fn execution_policy_digest_v1(
     policy.push("content.immutable_bundles", &content.immutable_bundles);
     policy.push("content.default_auth_mode", &content.default_auth_mode);
     policy.push("content.stripe_layout", &content.stripe_layout);
-    // KAGEMUSHA primitives are universal. Reserve custody accounts are
-    // deterministically derived when a KAGEMUSHA instruction executes, so no
-    // process-local KAGEMUSHA setting participates in consensus policy.
     policy.push(
         "settlement.router.twap_window",
         &execution_policy_duration(settlement.router.twap_window),
@@ -7305,9 +7297,6 @@ pub struct Torii {
     pub account_onboarding: Option<AccountOnboarding>,
     /// Optional app-facing faucet configuration.
     pub faucet: Option<ToriiFaucet>,
-    /// Optional KAGEMUSHA V1 command capacity and redemption authority customization.
-    /// Command admission remains active with bounded defaults when absent.
-    pub kagemusha_v1_commands: Option<ToriiKagemushaV1Commands>,
     /// Optional RAM-LFE runtime configuration.
     pub ram_lfe: Option<ToriiRamLfe>,
     /// Optional transaction-history visibility/auth configuration.
@@ -7363,10 +7352,6 @@ impl fmt::Debug for Torii {
                 &RedactedSecret::present(self.account_onboarding.is_some()),
             )
             .field("faucet_configured", &self.faucet.is_some())
-            .field(
-                "kagemusha_v1_commands",
-                &RedactedSecret::present(self.kagemusha_v1_commands.is_some()),
-            )
             .field(
                 "ram_lfe_program_count",
                 &self
@@ -7896,26 +7881,6 @@ pub struct ToriiFaucet {
     pub pow_adaptive_max_extra_bits: u8,
     /// Whether finalized global threshold-beacon seeds are mixed into faucet challenges.
     pub pow_beacon_seed_enabled: bool,
-}
-/// KAGEMUSHA V1 command-admission configuration exposed to Torii.
-#[derive(Debug, Clone)]
-pub struct ToriiKagemushaV1Commands {
-    /// Optional issuer used only for server-signed redemption transactions.
-    pub redemption_issuer: Option<ToriiKagemushaV1RedemptionIssuer>,
-    /// Maximum number of accepted bindings plus in-flight reservations retained in memory.
-    pub operation_registry_max_entries: NonZeroUsize,
-    /// Maximum canonical bytes reserved by accepted bindings and in-flight operations.
-    pub operation_registry_max_bytes: NonZeroUsize,
-}
-/// Optional KAGEMUSHA V1 redemption issuer exposed to Torii.
-#[derive(Debug, Clone)]
-pub struct ToriiKagemushaV1RedemptionIssuer {
-    /// Account derived from the redemption key; must hold `CanManageKagemushaReserve`.
-    pub authority: AccountId,
-    /// Key pair used only to submit typed KAGEMUSHA V1 redemption instructions.
-    pub key_pair: KeyPair,
-    /// Minimum live XOR balance required for the self-funded redemption authority.
-    pub minimum_xor_balance: Quantity,
 }
 /// RAM-LFE runtime configuration exposed to Torii.
 #[derive(Debug, Clone)]
@@ -10747,15 +10712,12 @@ impl StreamingSync {
 impl_default!(StreamingSync => {
         Self::from_defaults()
 });
-/// Settlement execution state and conversion routing configuration.
-#[derive(Debug, Clone, Default)]
+/// Settlement conversion routing configuration.
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Settlement {
-    /// KAGEMUSHA cash-protocol state plus optional proof-release cache controls.
-    pub kagemusha: Kagemusha,
     /// Router configuration for XOR conversion.
     pub router: Router,
 }
-include!("actual/kagemusha.rs");
 /// Router configuration controlling shadow-price and buffer guard rails.
 #[derive(Debug, Clone, Copy)]
 pub struct Router {

@@ -1,17 +1,15 @@
 //! Explicit wire identifiers for the built-in instruction registry.
 use super::*;
 use crate::isi::{kagemusha_v1, retail_daily_limit};
-#[cfg(test)]
 type TypeName = fn() -> &'static str;
 /// One built-in instruction's Rust type and path-independent wire identity.
 #[derive(Clone, Copy)]
 pub(super) struct BuiltInWireId {
     #[cfg(test)]
     pub(super) type_label: &'static str,
-    #[cfg(test)]
     pub(super) type_name: TypeName,
-    #[cfg(test)]
     pub(super) wire_id: &'static str,
+    frame_len: fn(usize) -> Option<usize>,
     #[cfg(test)]
     pub(super) governance_only: bool,
     register: Registrar,
@@ -21,10 +19,9 @@ macro_rules! built_in_wire_id_with_scope {
         BuiltInWireId {
             #[cfg(test)]
             type_label: stringify!($ty),
-            #[cfg(test)]
             type_name: std::any::type_name::<$ty>,
-            #[cfg(test)]
             wire_id: $wire_id,
+            frame_len: crate::isi::framed_instruction_payload_len_for::<$ty>,
             #[cfg(test)]
             governance_only: $governance_only,
             register: $register,
@@ -474,6 +471,18 @@ pub(super) const ALL: &[BuiltInWireId] = &[
     built_in_wire_id!(runtime_upgrade::ActivateRuntimeUpgrade => "iroha.runtime_upgrade.activate"),
     built_in_wire_id!(runtime_upgrade::CancelRuntimeUpgrade => "iroha.runtime_upgrade.cancel"),
 ];
+/// Borrow encoding metadata from this same canonical registration inventory.
+pub(super) fn encoding_entry(
+    type_name: &'static str,
+) -> Option<crate::isi::InstructionEncodingEntry> {
+    ALL.iter()
+        .find(|entry| (entry.type_name)() == type_name)
+        .map(|entry| crate::isi::InstructionEncodingEntry {
+            wire_id: entry.wire_id,
+            frame_len: entry.frame_len,
+        })
+}
+
 /// Register every built-in instruction using its canonical typed codec constructor.
 pub(super) fn register_all() -> InstructionRegistry {
     ALL.iter()

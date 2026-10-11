@@ -149,7 +149,6 @@ pub const PROFILE_NODE_KEYS: &[&str] = &[
     "torii.account_onboarding.authority",
     "torii.account_onboarding.credentials",
     "torii.faucet.authority",
-    "torii.kagemusha_v1_commands.redemption_authority",
     "genesis",
     "soracloud_runtime.submission.signer",
     "soracloud_runtime.inrou.enabled",

@@ -575,7 +575,7 @@ impl JsonDeserialize for AbiVersion {
 /// structurally shared runtime, Musubi, or SCCP types a context-specific string encoding.
 pub const FIRST_RELEASE_MAX_EXACT_JSON_U64: u64 = (1_u64 << 53) - 1;
 /// Governance proposal kinds supported today.
-#[expect(
+#[allow(
     clippy::large_enum_variant,
     reason = "proposal variants retain their canonical public Norito payload shapes"
 )]

@@ -443,6 +443,19 @@ fn catalog_first_launch_retains_exact_siblings_roles_topology_and_originals_with
     let policies = select(&prepared);
     let owner = GeneratedServiceRuntime::open(&prepared).unwrap();
     assert!(GeneratedServiceRuntime::open(&prepared).is_err());
+    let expected_publication = prepared.publication_service_plan().unwrap().unwrap();
+    let (selection, parses) =
+        crate::localnet::service_authorities::count_profile_validations(|| {
+            RuntimeSelection::read(&owner.authority).unwrap()
+        });
+    // The bootstrap owner and three custody owners independently authenticate their profiles.
+    // Reading original provider/compliance/publication plans on this live owner adds no parse.
+    assert_eq!(parses, 4);
+    assert_eq!(
+        selection.publication.configuration_table().unwrap(),
+        expected_publication.configuration_table().unwrap()
+    );
+    assert!(selection.initial.iter().all(Option::is_none));
     let revision = owner.prepare_catalog(options().deadline).unwrap();
     assert_eq!(revision.stage(), GeneratedRuntimeStage::Catalog);
     assert!(revision.required_transactions().is_empty());

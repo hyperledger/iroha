@@ -88,16 +88,7 @@ tasks.test {
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/validator_staking/norito_v1.tsv"))
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/numeric_v1_golden.json"))
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/torii/list_query/vectors.json"))
-    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/offline/kagemusha_v1.json"))
-    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/offline/kagemusha_enrolled_open_selector_v1.json"))
-    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/offline/kagemusha_enrolled_open_challenge_v1.json"))
-    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/offline/kagemusha_sender_reservation_v1.json"))
-    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/offline/kagemusha_core_coordinator_frame_v1.tsv"))
-    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/offline/kagemusha_core_coordinator_archives_v1.json"))
-    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/offline/kagemusha_ordinary_app_enrollment_v1.json"))
-    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/kagemusha/participant_enrollment_http_v1.json"))
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/kagemusha/wallet_v1_vectors.json"))
-    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/offline/kagemusha_app_platform_messages_v1.tsv"))
     inputs.dir(rootProject.layout.projectDirectory.dir("..").dir("fixtures/petal"))
     inputs.file(
         rootProject.layout.projectDirectory
@@ -120,6 +111,19 @@ tasks.test {
             .dir("..")
             .dir("fixtures/sorafs_manifest/reference_sdk"),
     )
+    // OfflinePackageSurfaceV1Test pins KAGEMUSHA file names and ServiceLoader registrations
+    // across the three SDK modules, so their names are test inputs.
+    for (module in listOf("core-jvm", "client-android", "kagemusha-wallet-android")) {
+        inputs.files(
+            rootProject.layout.projectDirectory.dir("$module/src").asFileTree.matching {
+                include { element ->
+                    element.isDirectory ||
+                        element.name.lowercase().startsWith("kagemusha") ||
+                        element.path.contains("META-INF/services")
+                }
+            },
+        ).withPropertyName("packageSurface-$module").ignoreEmptyDirectories()
+    }
 
     // Release CI supplies a freshly built, isolated ABI-25 bridge. Local
     // development retains the conventional root target/debug fallback.

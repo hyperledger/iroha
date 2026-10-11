@@ -309,8 +309,11 @@ fn recorder_full_delivery_policy_and_bounds_are_retained() {
     let terms_bytes = encode(&terms, 64 * 1024).unwrap();
     let restored_terms: Terms = norito::decode_canonical(&terms_bytes).unwrap();
     assert!(restored_terms == terms);
-    let original =
-        codec_original(Intent::reputation(&owner.inner.authority, label, &policy).unwrap());
+    let (intent, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
+        Intent::reputation(&owner.inner.authority, label, &policy).unwrap()
+    });
+    assert_eq!(parses, 0);
+    let original = codec_original(intent);
     let directory = owner
         .inner
         .authority

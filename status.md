@@ -21,7 +21,7 @@ hold detailed acceptance criteria. Routine repair receipts belong in PRs and CI.
 | Torii collection queries | Seventeen collections and eleven explorer feeds share the [query contract](specs/torii/collection_queries.md) across Rust, Kotlin/Java, Swift, JavaScript, Python, C#, CLI and MCP. Identity-ordered reads seek and stream; authenticated history checkpoints bound deep reads. Global-state collections execute once per read for exact totals and aggregates. History and explorer feeds explicitly reject unsupported controls. Signed query selectors have one feature-independent layout; client network context is explicit. | Current-candidate live multi-dataspace paging and full SDK/native delivery qualification remain open. The genuine ABI-25 Swift framework, full native Swift package suites, ordinary SwiftPM Release consumers and checked-in iOS demo simulator suite pass; physical-device and signed public-release qualification remain separate. JS and Python native suites require matching authenticated artifacts. See the [completion goals](specs/torii/query_completion_goals.md). |
 | Norito | Declared identities own canonical frames; payload serialization/reconstruction and explicit JSON key contracts are integrated. | Consumer/feature closure, fallible allocation ownership, physical model extraction and workspace lint/runtime coverage. |
 | IVM/Kotodama | IVM is the sole VM with ABI V1 and program header 1.1; header 1.0 is rejected. Compiler separation and state-free proof owners reduce normal dependency graphs. Source bundles support declaration includes and explicit module exports; authenticated error-message catalogs preserve nominal schemas. FASTPQ Metal uses one embedded-bundle admission owner; runtime source/path loading is removed. Ordinary Linux/Windows daemon dependencies include driver-loaded IVM CUDA; genuine bundle absence permits CPU build/startup, and supplied unapproved material is rejected. Original-pool idle-runtime rows and scoped committed/frozen account-rekey, trigger-contract and all four trigger-action captures are integrated; fresh compilation and runtime validation remain pending. | Lifecycle/custody closure, complete State/Kura publication, native execution proofs, anchored private invocation/AXT, coherent SDK regeneration and hardware validation. FASTPQ has no approved Metal bundle. IVM CUDA approval is `None`; genuine signed ten-family artifacts, driverless runtime checks and physical qualification remain open. |
-| ZK delivery plan | The [plan](specs/zk_delivery_plan.md) and its [task graph](specs/zk_delivery_graph.json) own the ZK, privacy, authenticated-State and FHE work. Landed as source-checked contracts and inventories: plan and graph checks; the zk-X509 presentation interval with shared vectors; the FASTPQ `air` interface with the shared-backend inventory; the IVM proof-coverage inventory; the first-release history and cutover contract with a pinned history; the FHE ownership inventory; the RAM-LFE V1 policy, receipt, opening, class and query-limit contract with a cleartext reference; the State table and root inventory with the keyed-commitment contract (`specs/sumeragi.md` §16); and the unified resource contract. Two shared crates exist: `iroha_fhe` (exact RNS, NTT, basis-conversion and rounding arithmetic used by BFV, ZK-AMS, Jindo and Bootle-Lantern) and `iroha_measurement` (phase and resource records, with `scripts/zk_resource_harness.py`). | No new proof relation, FHE construction, native ISI or SDK operation exists yet, and nothing consumes the RAM-LFE V1 types. The certified State root is still the World-only accumulator (inventory defects G1-D1 to G1-D11). The resource contract records thirteen relations violated today, so a maximum zk-X509 proof transaction cannot be committed under current defaults. AVX2 on a physical x86-64 CPU, Metal/CUDA parity, Linux `RLIMIT_AS` enforcement, a complete X509 proof under the harness and four-validator evidence are unexecuted. |
+| ZK delivery plan | The [plan](specs/zk_delivery_plan.md) and its [task graph](specs/zk_delivery_graph.json) own the ZK, privacy, authenticated-State and FHE work. Landed as source-checked contracts and inventories: plan and graph checks; the zk-X509 presentation interval with shared vectors; the FASTPQ `air` interface with the shared-backend inventory; the IVM proof-coverage inventory; the first-release history and cutover contract with a pinned history and a declared `abi` cutover (ABI V1 hash golden and carriers regenerated); the FHE ownership inventory; the RAM-LFE V1 contract with a cleartext reference; the State table and root inventory with the keyed-commitment contract (`specs/sumeragi.md` §16); the unified resource contract; the operation and admission-route inventory; the primitive and workload audit; and the runtime-validity census. The ZK validity limits and windows (49 bounds) and the pipeline execution limits (15) are committed chain policy (`zk_validity_policy_v1`, `pipeline_validity_policy_v1`), and verification gas uses the schedule frozen in each block. Shared crates: `iroha_fhe` (exact RNS, NTT, basis-conversion and rounding arithmetic, and the RNS-BGV starting candidate `iroha_fhe::bgv` with independent vectors and a tape-level cost model) and `iroha_measurement` (phase and resource records, with `scripts/zk_resource_harness.py`). Four development-only State-commitment candidates are measured natively and in-circuit (`specs/state_commitment_candidates.json`). | No new proof relation, native ISI or SDK operation exists yet, and nothing consumes the RAM-LFE V1 types or the BGV candidate. No BGV profile is qualified: the Lattice Estimator had not been run when the candidate landed, and no candidate holds the maximum V1 class shape under instruction-by-instruction lowering, so the plan requires a proved normalizing lowering with one fixed public schedule per class profile. No State-commitment candidate is selected, and the certified State root is still the World-only accumulator (inventory defects G1-D1 to G1-D11). The primitive audit leaves BN254 Poseidon and post-quantum findings open (F.5). Runtime validity is moved only in part (F.4): the `[nexus]` bounds (10) and the governance, crypto-algorithm, oracle-fraud, content, settlement-router, pipeline gas-identity and execution-policy digest families still read node configuration; the Halo2, STARK and confidential switches remain; Cargo features (`zk-stark`, the Halo2 family, fault injection, test-network hooks) and activation, qualification, lifecycle and manifest gates still decide validity. The resource contract still records relations violated today, so a maximum zk-X509 proof transaction cannot be committed under current defaults. AVX2 on a physical x86-64 CPU, Metal/CUDA parity, Linux `RLIMIT_AS` enforcement, a complete X509 proof under the harness and four-validator evidence are unexecuted. |
 | SoraFS | Software signing, canonical manifests and storage/billing/publication ownership are implemented; the ordinary Node library tests pass. | Matched daemon/harness, provider resilience and L1/L2 promotion. |
 | KAGEMUSHA | Single-design G1 canonical objects (`kagemusha_wallet_v1`) and shared Rust/Kotlin/Swift vectors are implemented and tested; no relation, provider or ledger consumes them yet. The empty `iroha_kagemusha_attested`/`iroha_kagemusha_issuer` crates are deleted; results are in the [checklist](specs/kagemusha_evidence_gate.md#8-recorded-results). | Owner decisions on proof size versus R9 and 2 s p95 (measured: one in-circuit P-256 check alone gives a 10,112-byte k=16 proof); stock-OS journal/marker Advance, the single recursive relation, ledger load/unload and device recovery measurements. |
 | Petal Stream | `iroha_petal` implements the [Petal Stream](specs/petal_stream.md) animated optical transport (`天` orientation field, katakana, tile polarity and ring dots as three Reed–Solomon lanes under a rateless fountain) with decoder, renderer, camera simulator and `iroha offline petal`. A gain-free tile read keeps lanes `P` and `K` alive under over-exposure, veiling light and shadows. Swift, Kotlin/JVM, JavaScript, Python and C# ports reproduce the shared fixtures and decode the golden captures to the recorded lanes. Three corner blossoms suffice (a thumb, glare or frame edge may hide the fourth) and sessions track the pose between frames (about 4× cheaper per frame). Simulated reads complete a 10,000-byte KAGEMUSHA message in 11.5 s (45 s from lanes `P` and `D` alone). | All evidence is simulated: physical-camera reads on the governed Android/iOS device matrix, lane `K` at 480p or soft focus, and the public guides in `iroha-docs`. |
@@ -95,33 +95,41 @@ fault, leakage, performance and release campaigns remain open. Earlier source or
 component observations do not qualify the final combined candidate.
 See the [protocol](specs/private_settlement.md).
 
-Focused runs on the combined tree at `d651d51715` (the ZK-plan work with the
-upstream merges of 2026-10-05) pass `cargo check` for `iroha_core`,
-`iroha_torii` and `irohad`; the workspace gates were not run. Measured on this
-tree: four `fastpq_prover` lib tests fail (1,218 pass), in `axt_binding`,
-`compact_execution_effect_batch`, the compact quantity artifact and the
-public-transfer execution effect; and `ivm`
-`abi_hash_versions::abi_hash_matches_v1_golden` fails, because commit
-`a5d2617d6a` replaced the callable-schema body in the ABI V1 descriptor without
-regenerating the hash golden or the demo manifests and Kotodama, JavaScript and
-Android fixtures that carry the previous hash. The rest was measured on
-2026-10-05 before the upstream merges and not re-run. Torii lib tests: 106 of
-5,437 fail repeatably and at least three more intermittently in a full
-parallel run; all five `address_parsing::explorer` tests of
-`torii_core_routes` and 15 of 54 `agent_alias` tests of `torii_protocols` fail.
-`irohad_lib`: a full lib-test run aborts on a stack overflow in
-`beacon_bootstrap::seat_attempt::aggregate_tests` after five `durable::tests`
-failures, and two `musubi_publication_service::finality` tests fail.
-`iroha_core`:
-`sumeragi::node::tests::every_committed_block_contains_work_before_and_after_restart`
-(second transaction not committed within 30 s), three `sumeragi::executor`
-archive, publication and replay tests and `state` reserve-account tests fail.
-The `fastpq_prover` four-quadrant tree capacity test (124 retained nodes
-against 127) fails. Four `ivm` Metal vector tests fail intermittently in a
-loaded full run and pass alone. Three repository guards are red for committed
-changes that predate the ZK-plan work: the trusted release-surface digest, the
-panic-recovery boundary inventory and the generated-source registry
-(`crates/iroha_petal/src/glyph_templates.rs` has no owner).
+Focused runs on 2026-10-06 on `13343a33c1` with the upstream merge
+`23fae0094f` applied (the merge was not yet committed) pass `cargo check` for
+`iroha_core` and `iroha_torii`; the workspace gates were not run. The rest was
+measured before that merge and not re-run. On 2026-10-06, a complete
+`iroha_core` lib run had 16 failing tests, each failing the same way on a
+binary built before the ZK-plan wave: two block-sequence rejections, two
+FASTPQ finalized-source and lane counters, a signer-check query, three MUSUBI
+pin-outbox and publication-admission tests, the trigger contract-capture work
+limits, an IVM host state-read gas test, two State authorization-reader tests,
+a State capacity refusal, a state-certificate pairing refusal, the autoscale
+elastic-lane liveness test and an autoscale-route validation test. `ivm`
+`dead_numeric_register_cycle_executes_all_branches_on_both_hosts` fails
+(`ActiveMemoryCapacity`); `iroha_config`
+`musubi_private_tls_listener_rejects_retired_mount_configuration` fails; the
+`iroha_core` benches `queries` and `validation` do not compile; 30 tests of
+the `zk_verify`, `zk_ledger_scaffold`, `zk_proof_retention` and
+`overlay_bounds` integration modules are stale and marked `TODO:`; and
+`zk::PruneProofs` has no executor admission class, so no transaction can carry
+it although the CLI builds one. On `d651d51715`: four `fastpq_prover` lib
+tests fail (1,218 pass), in `axt_binding`, `compact_execution_effect_batch`,
+the compact quantity artifact and the public-transfer execution effect, and
+the four-quadrant tree capacity test fails (124 retained nodes against 127).
+On 2026-10-05 before the upstream merges: Torii lib tests, 106 of 5,437 fail
+repeatably and at least three more intermittently in a full parallel run; all
+five `address_parsing::explorer` tests of `torii_core_routes` and 15 of 54
+`agent_alias` tests of `torii_protocols` fail; `irohad_lib` aborts on a stack
+overflow in `beacon_bootstrap::seat_attempt::aggregate_tests` after five
+`durable::tests` failures, and two `musubi_publication_service::finality`
+tests fail; four `ivm` Metal vector tests fail intermittently in a loaded full
+run and pass alone. Three guards are red on the merged tree: the trusted
+release-surface digest (stale across the upstream merges), the
+generated-source registry (`crates/iroha_petal/src/glyph_templates.rs` has no
+owner), and `scripts/check_state_commitment_candidates.py`, because the merge
+removed State tables and the candidates were measured over the previous table
+schema (to be measured again by G.2 or G.3).
 
 ## Deployment state
 
@@ -296,14 +304,17 @@ SDK Native custody and genuine production proving are mandatory even with SDK
 defaults disabled; assembly tools remain explicit `dev-tools` targets. FASTPQ
 uses the existing STARK feature. The current manifest inventory has 127 source
 manifests and 121 workspace members, protecting the inactive Wayland patch.
-On the recorded cut, the source-cost ratchet matches all 72 measurements exactly; all 21
-locked offline boundaries, feature hygiene, the legacy-codec guard and all 253
-checker controls pass on their recorded input cuts. Shipping Oracle
-denials and the sole aggregate-model test exception remain intact. Native
-qualification remains separate. The model’s live Pasta field/hash dependency
-and proof crate’s development-only timing dependency account for the reviewed
-cost changes. The unused direct daemon Sumeragi edge is removed; Core retains
-consensus ownership. Subsequent selected input changes require requalification.
+On the current recorded manifest cut, all 72 source-cost measurements match
+exactly; all 21 locked offline boundaries, feature hygiene, the legacy-codec guard
+and 309 checker controls pass. Shipping Oracle denials and the sole aggregate-model
+test exception remain intact. The reviewed cost changes include the model’s live
+Pasta field/hash dependency, direct allocation-owner dependencies and the proof
+crate’s development-only timing dependency. The unused direct daemon Sumeragi
+edge is removed; Core retains consensus ownership. Later Model/Torii repairs leave
+the graph unchanged. The vendor Tokio test feature refreshes the manifest
+fingerprint with every cost limit unchanged. Resolved metadata requires canonical
+`deps` and rejects malformed entries. Native qualification and requalification of changed selected
+inputs remain required.
 
 ABI argument-record and static numeric encoding belong to `ivm_abi`; consumers
 import the owner directly. IVM retains decoding, gas and memory custody.
@@ -313,13 +324,15 @@ feature scope. Current strict Core ZK, toolchain, direct IVM/SDK, Wallet and
 workspace validation remain open. The 52 failed ordinary Privacy cases remain
 ordinary tests and require current regressions followed by the full suite.
 
-After the reviewed Norito lint repairs, the shared Journal owner passes strict
-lint and all 11 unfiltered ordinary cases on its recorded cut, with no
-ignores and all 1,489 protected source/generated/traversal inputs, invocation and
-executable custody unchanged. Wallet now rejects unknown native journal material
-in its shared retained reader before record decoding, signing or HTTP. Its
-prospective macOS inventory contains 216 cases, retaining all 191 earlier names
-and 15 custody controls; native qualification remains open.
+Norito passes 581 ordinary tests, the original ignored snapshot utility and eight
+public heap controls on its recorded cut, before later Model/Torii changes.
+Journal strict lint and all 11 unfiltered ordinary tests pass on their current
+selected inputs, with zero ignores. Strict lint preserves 1,476 protected inputs;
+the test interval preserves all 1,490 inputs, invocation, tools and executable
+custody.
+Wallet rejects unknown native material in its shared retained reader before
+decoding, signing or HTTP. Its prospective macOS inventory retains all 191 earlier
+names and 15 custody controls across 216 cases; native qualification remains open.
 Foundation CI selection passes all 88 controls. The compiler fixture seal is
 current: 308 includes and 616 test names, with all 43 source-reader controls
 passing on their finite recorded cut. These reader tests do not qualify compiled

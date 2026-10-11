@@ -279,10 +279,6 @@ jobs:
           python-version: "3.11"
       - name: Install pinned router-test dependency
         run: python3 -m pip install --disable-pip-version-check pytest==9.0.3
-      - name: Verify the KAGEMUSHA first-release package surface
-        run: |
-          python3 -m pytest -q \
-            scripts/tests/kagemusha_package_surface_test.py
       - name: Verify exhaustive Rust lane ownership
         run: |
           python3 -I -S scripts/check_build_efficiency_provenance.py
@@ -319,6 +315,7 @@ jobs:
             scripts/tests/check_zk_runtime_validity_test.py \
             scripts/tests/check_zk_feature_parity_test.py \
             scripts/tests/check_zk_operation_inventory_test.py \
+            scripts/tests/check_zk_economic_invariants_test.py \
             scripts/tests/check_zk_primitive_workloads_test.py \
             scripts/tests/check_state_commitment_candidates_test.py \
             scripts/tests/zk_resource_harness_test.py \
@@ -356,6 +353,7 @@ jobs:
           python3 -I -S scripts/check_zk_resource_contract.py
           python3 -I -S scripts/check_zk_runtime_validity.py
           python3 -I -S scripts/check_zk_operation_inventory.py
+          python3 -I -S scripts/check_zk_economic_invariants.py
           python3 -I -S scripts/check_zk_primitive_workloads.py
           python3 -I -S scripts/check_state_commitment_candidates.py
           python3 -I -S scripts/check_fhe_ownership_map.py

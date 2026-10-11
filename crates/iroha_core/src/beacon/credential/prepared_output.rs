@@ -129,6 +129,10 @@ impl PreparedGlobalBeaconCredentialV1 {
     /// # Errors
     /// Rejects changed inventory/qualification, duplicate sessions, foreign public
     /// owners, invalid seats, excessive frames, or the original admission/allocator cause.
+    #[expect(
+        single_use_lifetimes,
+        reason = "anonymous lifetimes in impl Trait are unstable on the pinned Rust compiler"
+    )]
     pub fn new<'a>(
         network: NetworkId,
         handle: &str,

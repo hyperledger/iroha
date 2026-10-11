@@ -14,8 +14,11 @@ private const val DEFAULT_TRANSACTION_TTL_MS = 100_000L
  * instruction lists, by-reference contract calls, IVM bytecode, and flat mixed batches. `authority`
  * must use the canonical I105 account literal. `networkId` is the exact canonical hash identity of
  * the genesis header. `nonce` uses a [Long] carrier for the full nonzero unsigned 32-bit wire range.
- * Proof attachments are part of the signed payload and therefore affect both authorization
- * signatures and the canonical transaction identifier.
+ * Attachments are part of the signed payload and therefore affect both authorization signatures
+ * and the canonical transaction identifier. On the wire the field is `SignedAttachmentsV1` (the
+ * ordered intent descriptor and signed attachment occurrences). The SDK codec does not implement
+ * that schema yet: a payload whose [attachments] is not `null` is refused at encoding, and a
+ * received payload that carries attachments is refused at decoding.
  */
 class TransactionPayload(
     val networkId: NetworkId,
@@ -46,7 +49,10 @@ class TransactionPayload(
 
     val metadata: Map<String, JsonValue> get() = _metadata
 
-    /** Ordered execution proof attachments included in the signed transaction intent. */
+    /**
+     * Proof attachments requested for the signed transaction. Must be `null` until the SDK codec
+     * implements `SignedAttachmentsV1`; the encoder refuses any other value.
+     */
     val attachments: List<ProofAttachment>? get() = _attachments
 
     init {

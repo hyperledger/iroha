@@ -16,9 +16,10 @@
 //!
 //! Two hash families apply (§3). Every value a step relation computes or opens is a Poseidon
 //! value `P` of the σ field, computed natively with `iroha_pasta`: `credit_id`, the state
-//! commitment, chains, map, blacklist, quota-window and credit-digest trees, the σ statement
-//! digest, and (packed-byte `P_bytes`) `proof_digest` and the Payment digest. Every other digest
-//! is
+//! commitment, chains, the depth-32 indexed map trees, the blacklist, quota-window and
+//! credit-digest trees, the σ statement digest, and (packed-byte `P_bytes`) `proof_digest`, the
+//! Payment digest, the lineage, credit-opening, credit-status and credited digests and every
+//! signing message. The remaining digests are
 //!
 //! ```text
 //! H(role, body) = SHA-256("iroha:kagemusha:wallet:v1:" || role || 0x00 || LE64(len(body)) || body)
@@ -27,11 +28,11 @@
 //! over a fixed-layout transcript: little-endian fixed-width integers, raw 32-byte digests,
 //! 65-byte uncompressed SEC1 keys, 64-byte `r || s` signatures, and enums as one tag byte
 //! followed by a zero-filled union. A reference to a signer certificate is its 32-byte
-//! certificate digest. Signed objects are signed with ECDSA-P256-SHA256 over the exact
-//! preimage of `H(role-body, body)`; the signer output is normalized to low S and verified
-//! before it is frozen into an object. Verifiers reject high-S signatures and never rewrite
-//! received bytes. The digest of a signed object is `H(role, e || signature)`, where `e` is
-//! its signed body digest.
+//! certificate digest. Every P-256 signature signs the 32-byte signing message
+//! `m = P_bytes(d, transcript)` of its body's signing domain `d` with ECDSA-P256-SHA256 (owner
+//! answer A1); the signer output is normalized to low S and verified before it is frozen into an
+//! object. Verifiers recompute `m`, reject high-S signatures and never rewrite received bytes.
+//! The digest of a signed object is `H(role, m || signature)`.
 //!
 //! # Canonical frames
 //!
@@ -85,10 +86,10 @@ pub use self::{
     digest::{
         KAGEMUSHA_WALLET_DIGEST_PREFIX_V1, KAGEMUSHA_WALLET_FIELD_MODULUS_V1,
         KAGEMUSHA_WALLET_SIGNED_OBJECT_TRANSCRIPT_BYTES_V1, KagemushaWalletDigestRoleV1,
-        KagemushaWalletSignerOutputV1, kagemusha_wallet_digest_v1,
+        KagemushaWalletSignerOutputV1, KagemushaWalletSigningDomainV1, kagemusha_wallet_digest_v1,
         kagemusha_wallet_field_from_u128_v1, kagemusha_wallet_freeze_signature_v1,
-        kagemusha_wallet_is_canonical_field_v1, kagemusha_wallet_preimage_v1,
-        kagemusha_wallet_signed_object_digest_v1, kagemusha_wallet_verify_signature_v1,
+        kagemusha_wallet_is_canonical_field_v1, kagemusha_wallet_signed_object_digest_v1,
+        kagemusha_wallet_signing_message_v1, kagemusha_wallet_verify_signature_v1,
     },
     identity::{
         KAGEMUSHA_WALLET_ANDROID_FORBIDDEN_FACTS_V1, KAGEMUSHA_WALLET_ANDROID_REQUIRED_FACTS_V1,
@@ -205,22 +206,31 @@ pub use self::{
     },
     poseidon::{
         KAGEMUSHA_WALLET_BLACKLIST_LEAF_DOMAIN_V1, KAGEMUSHA_WALLET_BLACKLIST_NODE_DOMAIN_V1,
-        KAGEMUSHA_WALLET_CONSUMED_CREDIT_LEAF_DOMAIN_V1, KAGEMUSHA_WALLET_CORE_DOMAIN_V1,
-        KAGEMUSHA_WALLET_CREDIT_DIGEST_LEAF_DOMAIN_V1, KAGEMUSHA_WALLET_CREDIT_DOMAIN_V1,
-        KAGEMUSHA_WALLET_FEE_CLAIM_LEAF_DOMAIN_V1, KAGEMUSHA_WALLET_LOAD_RECOVERY_LEAF_DOMAIN_V1,
+        KAGEMUSHA_WALLET_CONSUMED_CREDIT_VALUE_DOMAIN_V1, KAGEMUSHA_WALLET_CORE_DOMAIN_V1,
+        KAGEMUSHA_WALLET_CREDIT_DIGEST_VALUE_DOMAIN_V1, KAGEMUSHA_WALLET_CREDIT_DOMAIN_V1,
+        KAGEMUSHA_WALLET_CREDIT_OPENING_DOMAIN_V1, KAGEMUSHA_WALLET_CREDIT_STATUS_DOMAIN_V1,
+        KAGEMUSHA_WALLET_CREDITED_DOMAIN_V1, KAGEMUSHA_WALLET_FEE_CLAIM_VALUE_DOMAIN_V1,
+        KAGEMUSHA_WALLET_INDEXED_EMPTY_OPENING_TRANSCRIPT_BYTES_V1,
+        KAGEMUSHA_WALLET_INDEXED_LEAF_DOMAIN_V1,
+        KAGEMUSHA_WALLET_INDEXED_LEAF_OPENING_TRANSCRIPT_BYTES_V1,
+        KAGEMUSHA_WALLET_INDEXED_NODE_DOMAIN_V1, KAGEMUSHA_WALLET_INDEXED_SIBLINGS_BYTES_V1,
+        KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1, KAGEMUSHA_WALLET_INDEXED_TREE_SLOTS_V1,
+        KAGEMUSHA_WALLET_LINEAGE_DOMAIN_V1, KAGEMUSHA_WALLET_LOAD_VALUE_DOMAIN_V1,
         KAGEMUSHA_WALLET_PACKED_CHUNK_BYTES_V1, KAGEMUSHA_WALLET_PAYMENT_DOMAIN_V1,
-        KAGEMUSHA_WALLET_PENDING_OUTGOING_LEAF_DOMAIN_V1, KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1,
+        KAGEMUSHA_WALLET_PENDING_OUTGOING_VALUE_DOMAIN_V1, KAGEMUSHA_WALLET_POSEIDON_DOMAINS_V1,
         KAGEMUSHA_WALLET_PROOF_DOMAIN_V1, KAGEMUSHA_WALLET_QUOTA_NODE_DOMAIN_V1,
-        KAGEMUSHA_WALLET_QUOTA_USAGE_LEAF_DOMAIN_V1, KAGEMUSHA_WALLET_QUOTA_WINDOW_DOMAIN_V1,
-        KAGEMUSHA_WALLET_RECV_CHAIN_DOMAIN_V1, KAGEMUSHA_WALLET_REDEEM_RECOVERY_LEAF_DOMAIN_V1,
+        KAGEMUSHA_WALLET_QUOTA_USAGE_VALUE_DOMAIN_V1, KAGEMUSHA_WALLET_QUOTA_WINDOW_DOMAIN_V1,
+        KAGEMUSHA_WALLET_RECV_CHAIN_DOMAIN_V1, KAGEMUSHA_WALLET_REDEEM_VALUE_DOMAIN_V1,
         KAGEMUSHA_WALLET_REST_DOMAIN_V1, KAGEMUSHA_WALLET_SEND_CHAIN_DOMAIN_V1,
-        KAGEMUSHA_WALLET_SPARSE_EMPTY_DOMAIN_V1, KAGEMUSHA_WALLET_SPARSE_NODE_DOMAIN_V1,
-        KAGEMUSHA_WALLET_SPARSE_TREE_DEPTH_V1, KAGEMUSHA_WALLET_STATEMENT_DOMAIN_V1,
-        KAGEMUSHA_WALLET_STEP_PROOF_DOMAIN_V1, KagemushaWalletSparseOpeningV1,
-        KagemushaWalletSparseTreeV1, kagemusha_wallet_empty_map_root_v1,
+        KAGEMUSHA_WALLET_STATEMENT_DOMAIN_V1, KAGEMUSHA_WALLET_STEP_PROOF_DOMAIN_V1,
+        KagemushaWalletIndexedInsertV1, KagemushaWalletIndexedLeafV1,
+        KagemushaWalletIndexedOpeningV1, KagemushaWalletIndexedRemoveV1,
+        KagemushaWalletIndexedTreeV1, KagemushaWalletIndexedUpdateV1,
+        kagemusha_wallet_empty_map_root_v1, kagemusha_wallet_indexed_empty_subtree_v1,
+        kagemusha_wallet_indexed_node_v1, kagemusha_wallet_indexed_verify_membership_v1,
+        kagemusha_wallet_indexed_verify_non_membership_v1, kagemusha_wallet_integer_cmp_v1,
         kagemusha_wallet_packed_bytes_v1, kagemusha_wallet_pair_key_v1,
         kagemusha_wallet_poseidon_bytes_v1, kagemusha_wallet_poseidon_v1,
-        kagemusha_wallet_sparse_default_v1, kagemusha_wallet_sparse_node_v1,
     },
     state::{
         KAGEMUSHA_WALLET_COMMITMENT_TRANSCRIPT_BYTES_V1, KAGEMUSHA_WALLET_CORE_FIELD_ITEMS_V1,
@@ -276,7 +286,7 @@ pub const KAGEMUSHA_WALLET_MESSAGE_TEXT_MAX_BYTES_V1: usize =
 /// `F_payment`: every byte of the largest valid Payment envelope other than the Ω
 /// transport-proof bytes and the `σ_send` bytes (§8), for proof lengths of 128 to 9,999 bytes
 /// each (pinned by `size_tests`).
-pub const KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1: usize = 1_615;
+pub const KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1: usize = 1_681;
 /// Joint R9 budget of the Ω transport proof and the largest `σ_send`:
 /// `10,000 − F_payment` (§8, owner answer Q6). The σ and Ω byte caps are the exact lengths of
 /// the frozen verifying-key allowlist, which must satisfy this budget; until the artifacts
@@ -372,10 +382,11 @@ pub enum KagemushaWalletValidationErrorV1 {
         /// Stable field label.
         field: &'static str,
     },
-    /// A signature is malformed, high-S, or does not verify under the required key and role.
+    /// A signature is malformed, high-S, or does not verify under the required key over the
+    /// signing message of its domain.
     InvalidSignature {
-        /// Domain role of the signed body.
-        role: KagemushaWalletDigestRoleV1,
+        /// Signing domain of the signed body.
+        domain: KagemushaWalletSigningDomainV1,
     },
     /// Checked integer arithmetic or a length conversion overflowed.
     ArithmeticOverflow {
@@ -406,10 +417,10 @@ impl core::fmt::Display for KagemushaWalletValidationErrorV1 {
             Self::InvalidField { field } => {
                 write!(f, "invalid KAGEMUSHA wallet V1 field `{field}`")
             }
-            Self::InvalidSignature { role } => write!(
+            Self::InvalidSignature { domain } => write!(
                 f,
-                "invalid KAGEMUSHA wallet V1 signature in role `{}`",
-                role.as_str()
+                "invalid KAGEMUSHA wallet V1 signature in signing domain `{}`",
+                domain.as_str()
             ),
             Self::ArithmeticOverflow { field } => {
                 write!(f, "KAGEMUSHA wallet V1 arithmetic overflow in `{field}`")

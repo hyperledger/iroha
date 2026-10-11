@@ -1,14 +1,6 @@
-//! Deterministic settlement router and Kagemusha reserve membership authority.
-//!
-//! The optional proof-release file paths are daemon bootstrap inputs, not
-//! protocol values. The loaded verifier is classified separately by State and
-//! must be authenticated before complete-root publication. Reserve membership
-//! is retained here because account unregistration and reserve mutation read it.
-
-use std::collections::BTreeMap;
+//! Deterministic settlement router authority.
 
 use iroha_config::parameters::actual::Settlement;
-use iroha_data_model::{account::AccountId, asset::AssetDefinitionId};
 use norito::{Decode, Encode, NoritoSchema};
 
 #[derive(Clone, Debug, PartialEq, Eq, Encode, Decode, NoritoSchema)]
@@ -31,11 +23,10 @@ struct SettlementRouterPolicyV1 {
 #[norito_schema(name = "iroha:state:settlement:v1")]
 pub(super) struct SettlementPolicyV1 {
     router: SettlementRouterPolicyV1,
-    reserve_accounts: BTreeMap<AssetDefinitionId, AccountId>,
 }
 
 impl SettlementPolicyV1 {
-    /// Capture the router inputs and current reserve membership from State.
+    /// Capture the router inputs from State.
     pub(super) fn from_actual(config: &Settlement) -> Self {
         let router = &config.router;
         Self {
@@ -49,7 +40,6 @@ impl SettlementPolicyV1 {
                 buffer_halt_pct: router.buffer_halt_pct,
                 buffer_horizon_hours: router.buffer_horizon_hours,
             },
-            reserve_accounts: config.kagemusha.reserve_accounts.clone(),
         }
     }
 }
@@ -57,37 +47,15 @@ impl SettlementPolicyV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iroha_config::parameters::actual::KagemushaV1ProofReleaseFiles;
-    use iroha_crypto::{Algorithm, KeyPair};
-    use std::{path::PathBuf, time::Duration};
+    use std::time::Duration;
 
     fn frame(config: &Settlement) -> Vec<u8> {
         norito::encode_canonical(&SettlementPolicyV1::from_actual(config)).unwrap()
     }
 
-    fn asset(first: u8) -> AssetDefinitionId {
-        let mut bytes = [0_u8; 16];
-        bytes[0] = first;
-        bytes[6] = 0x40;
-        bytes[8] = 0x80;
-        AssetDefinitionId::from_uuid_bytes(bytes).unwrap()
-    }
-
-    fn account(seed: &[u8]) -> AccountId {
-        AccountId::new(
-            KeyPair::from_seed(seed.to_vec(), Algorithm::Ed25519)
-                .public_key()
-                .clone(),
-        )
-    }
-
     #[test]
     fn settlement_policy_has_canonical_v1_roundtrip() {
-        let mut config = Settlement::default();
-        config
-            .kagemusha
-            .reserve_accounts
-            .insert(asset(1), account(b"settlement-reserve-a"));
+        let config = Settlement::default();
         let projected = SettlementPolicyV1::from_actual(&config);
         assert_eq!(
             SettlementPolicyV1::nominal_name(),
@@ -103,12 +71,8 @@ mod tests {
     }
 
     #[test]
-    fn every_router_input_and_reserve_membership_changes_policy() {
-        let mut original = Settlement::default();
-        original
-            .kagemusha
-            .reserve_accounts
-            .insert(asset(1), account(b"settlement-reserve-a"));
+    fn every_router_input_changes_policy() {
+        let original = Settlement::default();
         let expected = frame(&original);
         let mut changed = original.clone();
         changed.router.twap_window += Duration::from_secs(1);
@@ -129,34 +93,5 @@ mod tests {
             change(&mut changed.router);
             assert_ne!(frame(&changed), expected, "{name}");
         }
-        let mut added = original.clone();
-        added
-            .kagemusha
-            .reserve_accounts
-            .insert(asset(2), account(b"settlement-reserve-b"));
-        assert_ne!(frame(&added), expected, "reserve membership");
-        let mut changed = original;
-        changed
-            .kagemusha
-            .reserve_accounts
-            .insert(asset(1), account(b"settlement-reserve-c"));
-        assert_ne!(frame(&changed), expected, "reserve account identity");
-    }
-
-    #[test]
-    fn daemon_artifact_paths_do_not_change_state_policy() {
-        let baseline = Settlement::default();
-        let expected = frame(&baseline);
-        let mut configured = baseline;
-        let file = |name| PathBuf::from(format!("/runtime/kagemusha/{name}"));
-        configured.kagemusha.proof_release = Some(KagemushaV1ProofReleaseFiles {
-            manifest: file("manifest"),
-            validation_receipt: file("validation"),
-            authority_policy: file("authority"),
-            attestation: file("attestation"),
-            recursive_profile: file("profile"),
-            artifact_directory: file("artifacts"),
-        });
-        assert_eq!(frame(&configured), expected);
     }
 }

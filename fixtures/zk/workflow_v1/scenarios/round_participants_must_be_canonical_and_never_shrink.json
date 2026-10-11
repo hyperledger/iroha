@@ -1,0 +1,222 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "round_participants_must_be_canonical_and_never_shrink",
+  "category": "offchain_round",
+  "rules": [
+    "rounds_recover_under_one_identity"
+  ],
+  "description": "Reordered or duplicated participants are a non-canonical report. A participant that was recorded and is now missing is a binding mismatch: a withdrawal must be reported as a round failure. A completion below the required count is invalid. None of these reports changes the journal.",
+  "plan": {
+    "kind": "threshold_opening",
+    "instance": "round-participants-must-be-canonical-and-never-shrink",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "collect",
+        "kind": "offchain_round",
+        "irreversible": true,
+        "participants_required": 2,
+        "custody_handles_required": 0
+      },
+      {
+        "label": "open",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "round_starts": [
+          "waiting:p1"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "RoundPending",
+          "stage": "round",
+          "step": 0
+        },
+        "effects": [
+          "round_start:0"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "round_waiting",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "participants_received": {
+          "0": 1
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "round_recoveries": [
+          "completed_reordered:p1,p2"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "NonCanonicalEncoding",
+          "stage": "round",
+          "step": 0
+        },
+        "effects": [
+          "round_recover:0"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "round_waiting",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "participants_received": {
+          "0": 1
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "round_recoveries": [
+          "completed_duplicate:p1"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "NonCanonicalEncoding",
+          "stage": "round",
+          "step": 0
+        },
+        "effects": [
+          "round_recover:0"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "round_waiting",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "participants_received": {
+          "0": 1
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "round_recoveries": [
+          "waiting:p2"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "BindingMismatch",
+          "stage": "round",
+          "step": 0
+        },
+        "effects": [
+          "round_recover:0"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "round_waiting",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "participants_received": {
+          "0": 1
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "round_recoveries": [
+          "completed:p1"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "InvalidInput",
+          "stage": "round",
+          "step": 0
+        },
+        "effects": [
+          "round_recover:0"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "round_waiting",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "participants_received": {
+          "0": 1
+        }
+      }
+    }
+  ]
+}

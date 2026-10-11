@@ -8,15 +8,10 @@ impl Error {
             queue::Error::Expired | queue::Error::TransactionDomainMismatch(_) => {
                 StatusCode::BAD_REQUEST
             }
-            queue::Error::KagemushaV1OperationCarrierRejected { .. } => StatusCode::BAD_REQUEST,
             queue::Error::UnsupportedTransactionAdmission { .. } => StatusCode::BAD_REQUEST,
             queue::Error::UnresolvedRoute { .. } => StatusCode::BAD_REQUEST,
             queue::Error::InBlockchain => StatusCode::CONFLICT,
             queue::Error::IsInQueue => StatusCode::CONFLICT,
-            queue::Error::KagemushaV1OperationIdConflict { .. } => StatusCode::CONFLICT,
-            queue::Error::KagemushaV1OperationIndexInconsistent { .. } => {
-                StatusCode::SERVICE_UNAVAILABLE
-            }
             queue::Error::UnregisteredAuthority { .. } => StatusCode::FORBIDDEN,
             queue::Error::Governance(_) => StatusCode::INTERNAL_SERVER_ERROR,
             queue::Error::GovernanceNotPermitted { .. } => StatusCode::FORBIDDEN,
@@ -50,10 +45,6 @@ impl Error {
                 "transaction_expired",
                 "transaction expired before admission",
             ),
-            queue::Error::KagemushaV1OperationCarrierRejected { .. } => (
-                "kagemusha_v1_operation_carrier_rejected",
-                "KAGEMUSHA V1 operation carrier failed canonical admission",
-            ),
             // The detail carries the exact reason: an unsupported intent or route, or a
             // transaction larger than any proposer can include.
             queue::Error::UnsupportedTransactionAdmission { .. } => (
@@ -71,14 +62,6 @@ impl Error {
             queue::Error::IsInQueue => (
                 "already_enqueued",
                 "transaction already present in the queue",
-            ),
-            queue::Error::KagemushaV1OperationIdConflict { .. } => (
-                "kagemusha_v1_operation_id_conflict",
-                "KAGEMUSHA V1 operation identifier is already pending",
-            ),
-            queue::Error::KagemushaV1OperationIndexInconsistent { .. } => (
-                "kagemusha_v1_operation_index_inconsistent",
-                "KAGEMUSHA V1 pending-operation index requires recovery",
             ),
             queue::Error::UnregisteredAuthority { .. } => (
                 "unregistered_authority",
@@ -182,10 +165,6 @@ fn queue_rejection_metadata(err: &queue::Error) -> (&'static str, String) {
             "transaction_rejected",
             format!("signed transaction domain differs from committed admission state: {mismatch}"),
         ),
-        queue::Error::KagemushaV1OperationCarrierRejected { reason } => (
-            "PRTRY:KAGEMUSHA_V1_OPERATION_CARRIER_REJECTED",
-            format!("KAGEMUSHA V1 operation carrier failed canonical admission: {reason}"),
-        ),
         queue::Error::UnsupportedTransactionAdmission { reason } => {
             ("PRTRY:UNSUPPORTED_TRANSACTION_ADMISSION", reason.clone())
         }
@@ -200,20 +179,6 @@ fn queue_rejection_metadata(err: &queue::Error) -> (&'static str, String) {
         queue::Error::IsInQueue => (
             "PRTRY:ALREADY_ENQUEUED",
             "transaction already present in the queue".to_owned(),
-        ),
-        queue::Error::KagemushaV1OperationIdConflict {
-            operation_id,
-            existing_entrypoint_hash,
-        } => (
-            "PRTRY:KAGEMUSHA_V1_OPERATION_ID_CONFLICT",
-            format!(
-                "KAGEMUSHA V1 operation {} is already pending as entrypoint {existing_entrypoint_hash}",
-                hex::encode(operation_id)
-            ),
-        ),
-        queue::Error::KagemushaV1OperationIndexInconsistent { reason } => (
-            "PRTRY:KAGEMUSHA_V1_OPERATION_INDEX_INCONSISTENT",
-            format!("KAGEMUSHA V1 pending-operation index requires recovery: {reason}"),
         ),
         queue::Error::UnregisteredAuthority { authority } => (
             "PRTRY:UNREGISTERED_AUTHORITY",

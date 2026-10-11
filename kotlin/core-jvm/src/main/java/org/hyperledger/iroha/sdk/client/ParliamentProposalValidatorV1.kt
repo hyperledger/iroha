@@ -6,7 +6,6 @@ import java.text.Normalizer
 import java.util.Base64
 import org.hyperledger.iroha.sdk.address.AssetDefinitionIdEncoder
 import org.hyperledger.iroha.sdk.address.PublicKeyPayload
-import org.hyperledger.iroha.sdk.address.compactPublicKeyPayload
 import org.hyperledger.iroha.sdk.address.decodePublicKeyLiteral
 import org.hyperledger.iroha.sdk.address.encodePublicKeyMultihash
 import org.hyperledger.iroha.sdk.address.requireCanonicalI105Address
@@ -536,65 +535,6 @@ internal object ParliamentProposalValidatorV1 {
         require(action["value"] == null) {
             "GlobalDataTriggerPermissionGovernance.action.value must be null"
         }
-    }
-
-    private fun kagemushaVerifierPolicyInstall(value: Map<String, Any?>) {
-        val label = "KagemushaVerifierPolicyInstall"
-        exact(
-            value,
-            setOf("proposal_operator", "network_id", "expected_predecessor", "authority_policy"),
-            label,
-        )
-        account(value["proposal_operator"], "$label.proposal_operator")
-        NetworkId.parse(text(value["network_id"], "$label.network_id"))
-
-        val predecessor = objectValue(value["expected_predecessor"], "$label.expected_predecessor")
-        exact(
-            predecessor,
-            setOf("version", "authority_policy", "active_release_id", "releases"),
-            "$label.expected_predecessor",
-        )
-        require(uint(predecessor["version"], "$label.expected_predecessor.version") == BigInteger.ONE &&
-            predecessor["authority_policy"] == null && predecessor["active_release_id"] == null &&
-            list(predecessor["releases"], "$label.expected_predecessor.releases").isEmpty()) {
-            "$label.expected_predecessor must be the exact empty V1 verifier registry"
-        }
-
-        val policy = objectValue(value["authority_policy"], "$label.authority_policy")
-        exact(
-            policy,
-            setOf("version", "authority_set_id", "threshold", "authorized_signers"),
-            "$label.authority_policy",
-        )
-        require(uint(policy["version"], "$label.authority_policy.version") == BigInteger.ONE) {
-            "$label.authority_policy.version must equal 1"
-        }
-        bytes(policy["authority_set_id"], 32, "$label.authority_policy.authority_set_id", true)
-        val signers = list(policy["authorized_signers"], "$label.authority_policy.authorized_signers")
-        require(signers.size in 1..32) { "$label.authority_policy needs 1..32 signers" }
-        val threshold = uint(policy["threshold"], "$label.authority_policy.threshold")
-        require(threshold >= BigInteger.ONE && threshold <= BigInteger.valueOf(signers.size.toLong())) {
-            "$label.authority_policy.threshold exceeds the signer set"
-        }
-        var previous: ByteArray? = null
-        signers.forEachIndexed { index, signer ->
-            val parsed = canonicalPublicKey(signer, "$label.authority_policy.authorized_signers[$index]")
-            val current = compactPublicKeyPayload(parsed.curveId, parsed.keyBytes)
-            previous?.let { earlier ->
-                require(compareUnsignedBytes(earlier, current) < 0) {
-                    "$label.authority_policy.authorized_signers must be strictly ordered and unique"
-                }
-            }
-            previous = current
-        }
-    }
-
-    private fun compareUnsignedBytes(left: ByteArray, right: ByteArray): Int {
-        for (index in 0 until minOf(left.size, right.size)) {
-            val comparison = (left[index].toInt() and 0xff).compareTo(right[index].toInt() and 0xff)
-            if (comparison != 0) return comparison
-        }
-        return left.size.compareTo(right.size)
     }
 
     private fun contractEmergencyHold(value: Map<String, Any?>) {

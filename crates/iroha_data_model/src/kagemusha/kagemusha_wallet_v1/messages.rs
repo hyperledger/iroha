@@ -22,10 +22,10 @@ use super::{
     KAGEMUSHA_WALLET_VERSION_V1, KagemushaWalletValidationErrorV1, WalletResult, WalletVersionsV1,
     decode_frame_v1,
     digest::{
-        KagemushaWalletDigestRoleV1 as Role, KagemushaWalletSignerOutputV1, WalletFieldItemsV1,
-        WalletTranscriptV1, kagemusha_wallet_digest_v1, kagemusha_wallet_freeze_signature_v1,
-        kagemusha_wallet_preimage_v1, kagemusha_wallet_signed_object_digest_v1,
-        kagemusha_wallet_verify_signature_v1,
+        KagemushaWalletDigestRoleV1 as Role, KagemushaWalletSignerOutputV1,
+        KagemushaWalletSigningDomainV1 as Domain, WalletFieldItemsV1, WalletTranscriptV1,
+        kagemusha_wallet_freeze_signature_v1, kagemusha_wallet_signed_object_digest_v1,
+        kagemusha_wallet_signing_message_v1, kagemusha_wallet_verify_signature_v1,
     },
     encode_frame_v1,
     identity::{
@@ -39,8 +39,10 @@ use super::{
         KagemushaWalletFeeScheduleV1, KagemushaWalletSchemePolicyV1, KagemushaWalletTimeIntervalV1,
     },
     poseidon::{
-        KAGEMUSHA_WALLET_CREDIT_DOMAIN_V1, KAGEMUSHA_WALLET_PAYMENT_DOMAIN_V1,
-        KagemushaWalletSparseOpeningV1, kagemusha_wallet_poseidon_bytes_v1, poseidon_items_v1,
+        KAGEMUSHA_WALLET_CREDIT_DOMAIN_V1, KAGEMUSHA_WALLET_CREDIT_OPENING_DOMAIN_V1,
+        KAGEMUSHA_WALLET_CREDIT_STATUS_DOMAIN_V1, KAGEMUSHA_WALLET_CREDITED_DOMAIN_V1,
+        KAGEMUSHA_WALLET_PAYMENT_DOMAIN_V1, KagemushaWalletIndexedLeafV1,
+        KagemushaWalletIndexedOpeningV1, kagemusha_wallet_poseidon_bytes_v1, poseidon_items_v1,
     },
     require_canonical_field_v1, require_nonzero_field_v1, require_nonzero_v1, require_scheme_v1,
     require_version_v1,
@@ -60,7 +62,6 @@ pub(super) mod messages_tests;
 
 const DIGEST_BYTES: usize = 32;
 const U16_BYTES: usize = 2;
-const U32_BYTES: usize = 4;
 const U64_BYTES: usize = 8;
 const U128_BYTES: usize = 16;
 
@@ -69,9 +70,9 @@ pub const KAGEMUSHA_WALLET_OFFER_BODY_TRANSCRIPT_BYTES_V1: usize =
     U16_BYTES + 5 * DIGEST_BYTES + 2 * U128_BYTES;
 /// Exact `request-body` transcript bytes.
 pub const KAGEMUSHA_WALLET_REQUEST_BODY_TRANSCRIPT_BYTES_V1: usize =
-    U16_BYTES + 9 * DIGEST_BYTES + 3 * U128_BYTES + 2 * U64_BYTES;
+    U16_BYTES + 11 * DIGEST_BYTES + 3 * U128_BYTES + 2 * U64_BYTES;
 /// σ-field elements of the Request body hashed into `credit_id` (§5.1).
-pub const KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1: usize = 24;
+pub const KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1: usize = 28;
 /// Exact `payment` transcript bytes:
 /// `LE16 version || request_digest || payer_payment_key || payer_credential_digest ||
 /// package_digest`.
@@ -86,11 +87,9 @@ pub const KAGEMUSHA_WALLET_CREDIT_STATUS_TRANSCRIPT_BYTES_V1: usize = U16_BYTES 
 /// Exact `credited` transcript bytes:
 /// `LE16 version || u8 tag || credit_id || payment_digest || evidence_digest`.
 pub const KAGEMUSHA_WALLET_CREDITED_TRANSCRIPT_BYTES_V1: usize = U16_BYTES + 1 + 3 * DIGEST_BYTES;
-/// Depth of the lineage-level credit-digest tree whose compressed opening `CreditStatus`
-/// carries: the depth-256 sparse Poseidon tree keyed by the canonical `credit_id` bits (§3,
-/// owner answer Q7). An opening carries at most this many siblings.
+/// Fixed depth of the indexed credit-digest membership opening carried by `CreditStatus`.
 pub const KAGEMUSHA_WALLET_CREDIT_OPENING_DEPTH_V1: usize =
-    super::poseidon::KAGEMUSHA_WALLET_SPARSE_TREE_DEPTH_V1;
+    super::poseidon::KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1;
 
 const SETUP_DECLINED_FIELDS_BYTES: usize = U16_BYTES;
 const UNSUPPORTED_SCHEME_FIELDS_BYTES: usize = 0;
@@ -171,7 +170,7 @@ pub(super) fn verify_credential_with_set_v1(
 // Offer (§5.1, design §4.1)
 // ---------------------------------------------------------------------------------------
 
-/// Body of a payer Offer, signed by the payer payment key under `offer-body`.
+/// Body of a payer Offer, signed by the payer payment key under `kgwoffr1`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletOfferBodyV1"
@@ -211,16 +210,10 @@ impl KagemushaWalletOfferBodyV1 {
             .finish()
     }
 
-    /// Signed body digest `H("offer-body", transcript)`.
+    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
     #[must_use]
-    pub fn body_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_digest_v1(Role::OfferBody, &self.transcript())
-    }
-
-    /// Exact ECDSA message the payer payment key signs.
-    #[must_use]
-    pub fn signing_message(&self) -> Vec<u8> {
-        kagemusha_wallet_preimage_v1(Role::OfferBody, &self.transcript())
+    pub fn signing_message(&self) -> [u8; 32] {
+        kagemusha_wallet_signing_message_v1(Domain::Offer, &self.transcript())
     }
 
     /// Validate the body's fields.
@@ -261,7 +254,7 @@ pub struct KagemushaWalletOfferV1 {
     pub payer_credential: KagemushaWalletCredentialV1,
     /// Exactly the payer credential's issuer certificate.
     pub certificates: KagemushaWalletCertificateSetV1,
-    /// Payer payment-key signature over `offer-body`.
+    /// Payer payment-key signature over the `kgwoffr1` signing message.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -312,8 +305,8 @@ impl KagemushaWalletOfferV1 {
         validate_offer_parts_v1(&body, &payer_credential, &certificates)?;
         let signature = kagemusha_wallet_freeze_signature_v1(
             &payer_credential.body.payment_key,
-            Role::OfferBody,
-            &body.transcript(),
+            Domain::Offer,
+            &body.signing_message(),
             signer_output,
         )?;
         Ok(Self {
@@ -335,8 +328,8 @@ impl KagemushaWalletOfferV1 {
         validate_offer_parts_v1(&self.body, &self.payer_credential, &self.certificates)?;
         kagemusha_wallet_verify_signature_v1(
             &self.payer_credential.body.payment_key,
-            Role::OfferBody,
-            &self.body.transcript(),
+            Domain::Offer,
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -414,9 +407,9 @@ impl KagemushaWalletFeeScheduleSlotV1 {
     }
 }
 
-/// Body of a receiver Request, signed by the receiver payment key under `request-body`.
+/// Body of a receiver Request, signed by the receiver payment key under `kgwrqst1`.
 ///
-/// Its 24 σ-field elements define `credit_id = P(kgwcrdt1, elements)` (§5.1).
+/// Its 28 σ-field elements define `credit_id = P(kgwcrdt1, elements)` (§5.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletRequestBodyV1"
@@ -430,8 +423,12 @@ pub struct KagemushaWalletRequestBodyV1 {
     pub asset_digest: [u8; 32],
     /// Paying wallet.
     pub payer_wallet_id: [u8; 32],
+    /// Account digest of the payer credential.
+    pub payer_account_digest: [u8; 32],
     /// Receiving wallet; the receiver credential's wallet.
     pub receiver_wallet_id: [u8; 32],
+    /// Account digest of the receiver credential.
+    pub receiver_account_digest: [u8; 32],
     /// Payer send ordinal `s` this quote is scoped to.
     pub send_ordinal: u128,
     /// Digest of the receiver credential carried beside the body.
@@ -463,7 +460,9 @@ impl KagemushaWalletRequestBodyV1 {
             .digest(&self.scheme_id)
             .digest(&self.asset_digest)
             .digest(&self.payer_wallet_id)
+            .digest(&self.payer_account_digest)
             .digest(&self.receiver_wallet_id)
+            .digest(&self.receiver_account_digest)
             .u128(self.send_ordinal)
             .digest(&self.receiver_credential_digest)
             .u128(self.amount)
@@ -477,22 +476,17 @@ impl KagemushaWalletRequestBodyV1 {
             .finish()
     }
 
-    /// Signed body digest `e = H("request-body", transcript)`.
+    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
     #[must_use]
-    pub fn body_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_digest_v1(Role::RequestBody, &self.transcript())
-    }
-
-    /// Exact ECDSA message the receiver payment key signs.
-    #[must_use]
-    pub fn signing_message(&self) -> Vec<u8> {
-        kagemusha_wallet_preimage_v1(Role::RequestBody, &self.transcript())
+    pub fn signing_message(&self) -> [u8; 32] {
+        kagemusha_wallet_signing_message_v1(Domain::Request, &self.transcript())
     }
 
     /// σ-field elements of the body in request-body order (§5.1): version; scheme id (2);
-    /// asset digest (2); payer wallet (2); receiver wallet (2); send ordinal; receiver
+    /// asset digest (2); payer wallet (2); payer account (2); receiver wallet (2); receiver
+    /// account (2); send ordinal; receiver
     /// credential digest (2); amount; fee schedule (2); fee; policy epoch; scheme policy (2);
-    /// receiver accepted time; certificate-set digest (2); nonce (2) — 24 elements.
+    /// receiver accepted time; certificate-set digest (2); nonce (2) — 28 elements.
     #[must_use]
     pub fn field_items(&self) -> Vec<[u8; 32]> {
         let items = WalletFieldItemsV1::with_capacity(KAGEMUSHA_WALLET_REQUEST_BODY_FIELD_ITEMS_V1)
@@ -500,7 +494,9 @@ impl KagemushaWalletRequestBodyV1 {
             .digest(&self.scheme_id)
             .digest(&self.asset_digest)
             .digest(&self.payer_wallet_id)
+            .digest(&self.payer_account_digest)
             .digest(&self.receiver_wallet_id)
+            .digest(&self.receiver_account_digest)
             .integer(self.send_ordinal)
             .digest(&self.receiver_credential_digest)
             .integer(self.amount)
@@ -535,7 +531,12 @@ impl KagemushaWalletRequestBodyV1 {
             ("request.scheme_id", &self.scheme_id),
             ("request.asset_digest", &self.asset_digest),
             ("request.payer_wallet_id", &self.payer_wallet_id),
+            ("request.payer_account_digest", &self.payer_account_digest),
             ("request.receiver_wallet_id", &self.receiver_wallet_id),
+            (
+                "request.receiver_account_digest",
+                &self.receiver_account_digest,
+            ),
             (
                 "request.receiver_credential_digest",
                 &self.receiver_credential_digest,
@@ -581,7 +582,7 @@ pub struct KagemushaWalletRequestV1 {
     pub fee_schedule: KagemushaWalletFeeScheduleSlotV1,
     /// Receiver issuer certificate and fee-schedule signer certificate.
     pub certificates: KagemushaWalletCertificateSetV1,
-    /// Receiver payment-key signature over `request-body`.
+    /// Receiver payment-key signature over the `kgwrqst1` signing message.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -600,6 +601,9 @@ fn validate_request_parts_v1(
     }
     if body.receiver_wallet_id != receiver.wallet_id {
         return Err(invalid_v1("request.receiver_wallet_id"));
+    }
+    if body.receiver_account_digest != receiver.account_digest {
+        return Err(invalid_v1("request.receiver_account_digest"));
     }
     if body.receiver_credential_digest != credential.credential_digest() {
         return Err(invalid_v1("request.receiver_credential_digest"));
@@ -643,14 +647,48 @@ fn validate_request_parts_v1(
     Ok(())
 }
 
+/// Bind a payer credential to a Request body and a distinct receiver key.
+fn require_request_payer_v1(
+    body: &KagemushaWalletRequestBodyV1,
+    receiver_payment_key: &KagemushaDevicePublicKeyV1,
+    payer_credential: &KagemushaWalletCredentialV1,
+) -> WalletResult<()> {
+    payer_credential.validate()?;
+    let payer = &payer_credential.body;
+    require_scheme_v1(
+        "request.payer_credential.scheme_id",
+        &payer.scheme_id,
+        &body.scheme_id,
+    )?;
+    if payer.asset_digest != body.asset_digest {
+        return Err(invalid_v1("request.payer_credential.asset_digest"));
+    }
+    if payer.wallet_id != body.payer_wallet_id {
+        return Err(invalid_v1("request.payer_wallet_id"));
+    }
+    if payer.account_digest != body.payer_account_digest {
+        return Err(invalid_v1("request.payer_account_digest"));
+    }
+    if payer.payment_key == *receiver_payment_key {
+        return Err(invalid_v1("request.payment_key"));
+    }
+    Ok(())
+}
+
 impl KagemushaWalletRequestV1 {
-    /// Freeze the receiver payment-key signature over `body`.
+    /// Accept the receiver payment-key signer output only after authenticating its payer Offer.
+    ///
+    /// The output is already produced: this constructor enforces context before freezing the
+    /// signature. The receiver platform must authenticate this context before invoking its key.
     ///
     /// # Errors
     ///
     /// Rejects what [`Self::validate`] rejects before the signature, and a signature that does
-    /// not verify under the receiver payment key.
+    /// not verify under the receiver payment key. The Offer and its issuer must verify under
+    /// `scheme`, and its credential must match the Request payer wallet, account and asset.
     pub fn sign(
+        scheme: &KagemushaWalletSchemeV1,
+        offer: &KagemushaWalletOfferV1,
         body: KagemushaWalletRequestBodyV1,
         receiver_credential: KagemushaWalletCredentialV1,
         fee_schedule: KagemushaWalletFeeScheduleSlotV1,
@@ -658,10 +696,19 @@ impl KagemushaWalletRequestV1 {
         signer_output: KagemushaWalletSignerOutputV1<'_>,
     ) -> WalletResult<Self> {
         validate_request_parts_v1(&body, &receiver_credential, &fee_schedule, &certificates)?;
+        // The Offer's credential and issuer are authenticated before any signer output is
+        // frozen into a Request. A caller cannot choose another payer account in the body.
+        require_scheme_v1("request.scheme_id", &body.scheme_id, &scheme.scheme_id())?;
+        offer.verify(scheme)?;
+        require_request_payer_v1(
+            &body,
+            &receiver_credential.body.payment_key,
+            &offer.payer_credential,
+        )?;
         let signature = kagemusha_wallet_freeze_signature_v1(
             &receiver_credential.body.payment_key,
-            Role::RequestBody,
-            &body.transcript(),
+            Domain::Request,
+            &body.signing_message(),
             signer_output,
         )?;
         Ok(Self {
@@ -679,12 +726,12 @@ impl KagemushaWalletRequestV1 {
         self.body.credit_id()
     }
 
-    /// Request digest `H("request", e || signature)`.
+    /// Request digest `H("request", m || signature)`.
     #[must_use]
     pub fn request_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
             Role::Request,
-            &self.body.body_digest(),
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -707,8 +754,8 @@ impl KagemushaWalletRequestV1 {
         )?;
         kagemusha_wallet_verify_signature_v1(
             &self.receiver_credential.body.payment_key,
-            Role::RequestBody,
-            &self.body.transcript(),
+            Domain::Request,
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -778,6 +825,9 @@ impl KagemushaWalletRequestV1 {
         if body.payer_wallet_id != core.wallet_id {
             return Err(invalid_v1("request.payer_wallet_id"));
         }
+        if body.payer_account_digest != payer_credential.body.account_digest {
+            return Err(invalid_v1("request.payer_account_digest"));
+        }
         if body.receiver_wallet_id == core.wallet_id {
             return Err(invalid_v1("request.receiver_wallet_id"));
         }
@@ -806,26 +856,13 @@ impl KagemushaWalletRequestV1 {
         Ok(())
     }
 
-    /// Require that `payer_credential` is the payer this Request names: same scheme and asset,
-    /// the Request's payer wallet, and a payment key other than the receiver's (design C5).
+    /// Require the Request's exact payer credential account and a distinct payment key.
     fn require_payer(&self, payer_credential: &KagemushaWalletCredentialV1) -> WalletResult<()> {
-        let body = &self.body;
-        let payer = &payer_credential.body;
-        require_scheme_v1(
-            "request.payer_credential.scheme_id",
-            &payer.scheme_id,
-            &body.scheme_id,
-        )?;
-        if payer.asset_digest != body.asset_digest {
-            return Err(invalid_v1("request.payer_credential.asset_digest"));
-        }
-        if payer.wallet_id != body.payer_wallet_id {
-            return Err(invalid_v1("request.payer_wallet_id"));
-        }
-        if payer.payment_key == self.receiver_credential.body.payment_key {
-            return Err(invalid_v1("request.payment_key"));
-        }
-        Ok(())
+        require_request_payer_v1(
+            &self.body,
+            &self.receiver_credential.body.payment_key,
+            payer_credential,
+        )
     }
 
     /// Send effect of this Request at the effective accepted time `interval` (§7).
@@ -878,7 +915,7 @@ impl KagemushaWalletRequestV1 {
 pub struct KagemushaWalletSignedRequestV1 {
     /// Signed body.
     pub body: KagemushaWalletRequestBodyV1,
-    /// Receiver payment-key signature over `request-body`.
+    /// Receiver payment-key signature over the `kgwrqst1` signing message.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -902,12 +939,12 @@ impl KagemushaWalletSignedRequestV1 {
         self.body.credit_id()
     }
 
-    /// Request digest `H("request", e || signature)`.
+    /// Request digest `H("request", m || signature)`.
     #[must_use]
     pub fn request_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
             Role::Request,
-            &self.body.body_digest(),
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -926,8 +963,8 @@ impl KagemushaWalletSignedRequestV1 {
         }
         kagemusha_wallet_verify_signature_v1(
             &receiver_credential.body.payment_key,
-            Role::RequestBody,
-            &self.body.transcript(),
+            Domain::Request,
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -1230,6 +1267,9 @@ impl KagemushaWalletPaymentV1 {
         if body.receiver_wallet_id != receiver.wallet_id {
             return Err(invalid_v1("payment.receiver_wallet_id"));
         }
+        if body.receiver_account_digest != receiver.account_digest {
+            return Err(invalid_v1("payment.receiver_account_digest"));
+        }
         if receiver.payment_key != request.receiver_credential.body.payment_key {
             return Err(invalid_v1("payment.receiver_payment_key"));
         }
@@ -1400,7 +1440,7 @@ impl KagemushaWalletLineageMessageV1 {
         self.lineage.validate()
     }
 
-    /// Lineage digest `H("lineage", Ω bytes)`.
+    /// Lineage digest `P_bytes(kgwlin_1, Ω bytes)`.
     #[must_use]
     pub fn lineage_digest(&self) -> [u8; 32] {
         self.lineage.lineage_digest()
@@ -1442,50 +1482,55 @@ impl KagemushaWalletLineageMessageV1 {
 // CreditStatus and Credited (§§3.1, 5.1, design §6.5 and §6.6)
 // ---------------------------------------------------------------------------------------
 
-/// Compressed opening of `credit_id → (Payment digest, burned flag)` in an Ω's credit-digest
-/// root (§§3, 5.1, owner answer Q7).
-///
-/// The credit-digest tree is the depth-256 sparse Poseidon tree of [`super::poseidon`] keyed by
-/// the canonical `credit_id`. `path_bitmap` marks which of the
-/// [`KAGEMUSHA_WALLET_CREDIT_OPENING_DEPTH_V1`] siblings are non-default (bit `h` of byte
-/// `h / 8`, least significant first, for the sibling at height `h`); `siblings` holds exactly
-/// those, root-ward, as concatenated 32-byte canonical σ-field values. The flat byte string
-/// costs 32 bytes per sibling in the canonical frame; a sequence of 32-byte arrays would cost
-/// 65 in Norito, which matters inside the 10,000-byte Credited bound (§8).
+/// Indexed membership opening of `credit_id → (Payment digest, burned flag)` in Ω's
+/// credit-digest root (§§3.2, 3.4). The slot is nonzero and exactly 32 canonical siblings
+/// open the linked leaf `(credit_id, P(kgwcdig1, [credit_id, payment_digest, burned]), next_key)`.
 #[derive(Debug, Clone, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletCreditOpeningV1"
 )]
 pub struct KagemushaWalletCreditOpeningV1 {
-    /// Credit identity (the tree key), a canonical σ-field value.
+    /// Credit identity (the indexed map key), a nonzero canonical σ-field value.
     pub credit_id: [u8; 32],
-    /// Digest of the full canonical Payment recorded for the credit, a canonical σ-field value.
+    /// Full canonical Payment digest, a nonzero canonical σ-field value.
     pub payment_digest: [u8; 32],
-    /// Whether `Λ_recv` took the burn branch for the credit.
+    /// Whether the Receive relation took the burn branch.
     pub burned: bool,
-    /// Presence bitmap of the non-default siblings.
-    pub path_bitmap: [u8; 32],
-    /// Non-default siblings, root-ward: concatenated 32-byte canonical σ-field values.
+    /// Next larger credit key, or zero for the last linked leaf.
+    pub next_key: [u8; 32],
+    /// Allocated membership slot; slot zero is the sentinel and cannot prove a credit.
+    pub slot: u32,
+    /// Exactly 1,024 canonical sibling bytes in increasing height.
     pub siblings: Vec<u8>,
 }
 
 impl KagemushaWalletCreditOpeningV1 {
-    /// Compressed opening of `leaf` from the credit-digest tree `opening` of its key.
-    #[must_use]
+    /// Build a credit opening from the value record and its actual indexed membership leaf.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a leaf with another key or value and an invalid opening shape.
     pub fn new(
         leaf: &KagemushaWalletCreditDigestLeafV1,
-        opening: &KagemushaWalletSparseOpeningV1,
-    ) -> Self {
-        Self {
+        indexed_leaf: &KagemushaWalletIndexedLeafV1,
+        opening: &KagemushaWalletIndexedOpeningV1,
+    ) -> WalletResult<Self> {
+        if *indexed_leaf != leaf.indexed_leaf(indexed_leaf.next_key)? {
+            return Err(invalid_v1("credit_opening.leaf"));
+        }
+        let result = Self {
             credit_id: leaf.credit_id,
             payment_digest: leaf.payment_digest,
             burned: leaf.burned,
-            path_bitmap: opening.path_bitmap,
-            siblings: opening.siblings.concat(),
-        }
+            next_key: indexed_leaf.next_key,
+            slot: opening.slot,
+            siblings: opening.sibling_bytes(),
+        };
+        result.validate()?;
+        Ok(result)
     }
 
-    /// Credit-digest leaf this opening proves.
+    /// Credit-digest value record this opening proves.
     #[must_use]
     pub const fn leaf(&self) -> KagemushaWalletCreditDigestLeafV1 {
         KagemushaWalletCreditDigestLeafV1 {
@@ -1495,8 +1540,7 @@ impl KagemushaWalletCreditOpeningV1 {
         }
     }
 
-    /// The non-default siblings, root-ward, as 32-byte values (a trailing partial value is
-    /// dropped; [`Self::validate`] rejects it).
+    /// Sibling values, height zero first; validation rejects a trailing partial value.
     pub fn sibling_values(&self) -> impl Iterator<Item = [u8; 32]> + '_ {
         self.siblings.chunks_exact(DIGEST_BYTES).map(|chunk| {
             let mut value = [0_u8; 32];
@@ -1505,79 +1549,64 @@ impl KagemushaWalletCreditOpeningV1 {
         })
     }
 
-    /// The sparse-tree opening of the carried path.
-    fn sparse_opening(&self) -> KagemushaWalletSparseOpeningV1 {
-        KagemushaWalletSparseOpeningV1 {
-            path_bitmap: self.path_bitmap,
-            siblings: self.sibling_values().collect(),
-        }
+    fn indexed_opening(&self) -> WalletResult<KagemushaWalletIndexedOpeningV1> {
+        KagemushaWalletIndexedOpeningV1::from_sibling_bytes(self.slot, &self.siblings)
     }
 
-    /// Validate the opening's structure.
+    /// Validate the exact membership opening shape, key order and canonical field values.
     ///
     /// # Errors
     ///
-    /// Rejects a zero or noncanonical credit identity or Payment digest, sibling bytes that are
-    /// not whole 32-byte values, a sibling count other than the bitmap's population count, and
-    /// a noncanonical sibling.
+    /// Rejects a zero or noncanonical credit or Payment digest, slot zero, a noncanonical
+    /// next key or one not above the credit, another sibling length and a noncanonical sibling.
     pub fn validate(&self) -> WalletResult<()> {
         require_nonzero_field_v1("credit_opening.credit_id", &self.credit_id)?;
         require_nonzero_field_v1("credit_opening.payment_digest", &self.payment_digest)?;
-        if !self.siblings.len().is_multiple_of(DIGEST_BYTES) {
-            return Err(invalid_v1("credit_opening.siblings"));
+        if self.slot == 0 {
+            return Err(invalid_v1("credit_opening.slot"));
         }
-        let present: u32 = self.path_bitmap.iter().map(|byte| byte.count_ones()).sum();
-        if usize::try_from(present).ok() != Some(self.siblings.len() / DIGEST_BYTES) {
-            return Err(invalid_v1("credit_opening.siblings"));
-        }
-        for sibling in self.sibling_values() {
-            require_canonical_field_v1("credit_opening.sibling", &sibling)?;
-        }
+        self.leaf().indexed_leaf(self.next_key)?;
+        self.indexed_opening()?;
         Ok(())
     }
 
-    /// Credit-digest root this opening recomputes from its leaf
-    /// `P(kgwcdig1, [credit_id, payment_digest, burned])`.
+    /// Recompute the indexed credit-digest root of this membership opening.
     ///
     /// # Errors
     ///
-    /// Rejects what [`Self::validate`] rejects and a present sibling equal to the default
-    /// subtree of its height (a non-canonical opening).
+    /// Rejects an invalid opening.
     pub fn root(&self) -> WalletResult<[u8; 32]> {
         self.validate()?;
-        let leaf = self.leaf();
-        self.sparse_opening().root(&leaf.key(), &leaf.leaf_value()?)
+        self.indexed_opening()?
+            .leaf_root(&self.leaf().indexed_leaf(self.next_key)?)
     }
 
-    /// Exact `credit-opening` transcript:
-    /// `credit_id || payment_digest || u8 burned || path_bitmap || LE32 n || siblings`.
+    /// Exact 1,125-byte transcript:
+    /// `credit_id || payment_digest || u8 burned || next_key || LE32 slot || siblings`.
     ///
     /// # Errors
     ///
     /// Rejects an invalid opening.
     pub fn transcript(&self) -> WalletResult<Vec<u8>> {
         self.validate()?;
-        let count = u32::try_from(self.siblings.len() / DIGEST_BYTES)
-            .map_err(|_| overflow_v1("credit_opening.siblings"))?;
-        let capacity = (3 * DIGEST_BYTES + 1 + U32_BYTES).saturating_add(self.siblings.len());
-        Ok(WalletTranscriptV1::with_capacity(capacity)
+        Ok(WalletTranscriptV1::with_capacity(1_125)
             .digest(&self.credit_id)
             .digest(&self.payment_digest)
             .u8(u8::from(self.burned))
-            .digest(&self.path_bitmap)
-            .u32(count)
+            .digest(&self.next_key)
+            .u32(self.slot)
             .bytes(&self.siblings)
             .finish())
     }
 
-    /// Opening digest `H("credit-opening", transcript)`.
+    /// Canonical σ-field opening digest `P_bytes(kgwcopn1, transcript)`.
     ///
     /// # Errors
     ///
     /// Rejects an invalid opening.
     pub fn opening_digest(&self) -> WalletResult<[u8; 32]> {
-        Ok(kagemusha_wallet_digest_v1(
-            Role::CreditOpening,
+        Ok(kagemusha_wallet_poseidon_bytes_v1(
+            KAGEMUSHA_WALLET_CREDIT_OPENING_DOMAIN_V1,
             &self.transcript()?,
         ))
     }
@@ -1620,7 +1649,7 @@ pub struct KagemushaWalletCreditStatusV1 {
 
 impl KagemushaWalletCreditStatusV1 {
     /// Validate the status, verify τ(h) under `Ω(h).payment_key` and return its digest
-    /// `H("credit-status", transcript)`.
+    /// `P_bytes(kgwcsts1, transcript)`.
     ///
     /// Checks: the statement's successor is `Ω(h).head`; scheme, relation, credential digest
     /// and lifecycle equal Ω's; τ(h) verifies over the carried statement and `proof_digest`
@@ -1672,8 +1701,8 @@ impl KagemushaWalletCreditStatusV1 {
             return Err(invalid_v1("credit_status.opening"));
         }
         let opening = self.opening.opening_digest()?;
-        Ok(kagemusha_wallet_digest_v1(
-            Role::CreditStatus,
+        Ok(kagemusha_wallet_poseidon_bytes_v1(
+            KAGEMUSHA_WALLET_CREDIT_STATUS_DOMAIN_V1,
             &WalletTranscriptV1::with_capacity(KAGEMUSHA_WALLET_CREDIT_STATUS_TRANSCRIPT_BYTES_V1)
                 .u16(self.version)
                 .digest(&self.statement.statement_digest())
@@ -1949,8 +1978,8 @@ impl KagemushaWalletCreditedV1 {
                 (status.credit_status_digest()?, delivery)
             }
         };
-        let digest = kagemusha_wallet_digest_v1(
-            Role::Credited,
+        let digest = kagemusha_wallet_poseidon_bytes_v1(
+            KAGEMUSHA_WALLET_CREDITED_DOMAIN_V1,
             &WalletTranscriptV1::with_capacity(KAGEMUSHA_WALLET_CREDITED_TRANSCRIPT_BYTES_V1)
                 .u16(self.version)
                 .u8(self.evidence.tag())
@@ -2067,7 +2096,7 @@ pub enum KagemushaWalletSessionAuthV1 {
     /// Request in the session.
     #[codec(index = 0)]
     Unsigned,
-    /// Signed by the sender payment key under `session-control-body`.
+    /// Signed by the sender payment key under `kgwsctl1`.
     #[codec(index = 1)]
     Signed {
         /// Payment-key signature.
@@ -2159,16 +2188,10 @@ impl KagemushaWalletSessionControlV1 {
             .finish()
     }
 
-    /// Signed body digest `H("session-control-body", transcript)`.
+    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
     #[must_use]
-    pub fn body_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_digest_v1(Role::SessionControlBody, &self.transcript())
-    }
-
-    /// Exact ECDSA message the sender payment key signs.
-    #[must_use]
-    pub fn signing_message(&self) -> Vec<u8> {
-        kagemusha_wallet_preimage_v1(Role::SessionControlBody, &self.transcript())
+    pub fn signing_message(&self) -> [u8; 32] {
+        kagemusha_wallet_signing_message_v1(Domain::SessionControl, &self.transcript())
     }
 
     /// Freeze the sender payment-key signature over this control.
@@ -2190,8 +2213,8 @@ impl KagemushaWalletSessionControlV1 {
         self.require_sender(sender_credential)?;
         let signature = kagemusha_wallet_freeze_signature_v1(
             &sender_credential.body.payment_key,
-            Role::SessionControlBody,
-            &self.transcript(),
+            Domain::SessionControl,
+            &self.signing_message(),
             signer_output,
         )?;
         self.auth = KagemushaWalletSessionAuthV1::Signed { signature };
@@ -2277,8 +2300,8 @@ impl KagemushaWalletSessionControlV1 {
                 self.require_sender(credential)?;
                 kagemusha_wallet_verify_signature_v1(
                     &credential.body.payment_key,
-                    Role::SessionControlBody,
-                    &self.transcript(),
+                    Domain::SessionControl,
+                    &self.signing_message(),
                     &signature,
                 )
             }

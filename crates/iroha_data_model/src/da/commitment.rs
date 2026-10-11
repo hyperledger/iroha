@@ -12,6 +12,20 @@ use norito::{
 };
 use std::{fmt, str::FromStr};
 use thiserror::Error;
+
+/// Last completed admission/fill milestone for one original DA source.
+///
+/// Partial physical allocations remain in their original slots at the current
+/// milestone. Advancing never releases a charge or skips a refused allocation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum PreparationPhase {
+    Unadmitted,
+    MetadataAdmitted,
+    Planned,
+    PayloadAdmitted,
+    Ready,
+}
+
 /// Proof scheme used to authenticate DA commitments.
 #[derive(
     Clone,

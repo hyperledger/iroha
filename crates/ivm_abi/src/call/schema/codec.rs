@@ -1,7 +1,5 @@
 //! Sole CS1 callable tape codec, with header-advertised Norito child layouts.
 
-use std::io::Write;
-
 use norito::Error;
 use norito::core::{Archived, DecodeFromSlice, DeserializePayload, Encoder, SerializePayload};
 

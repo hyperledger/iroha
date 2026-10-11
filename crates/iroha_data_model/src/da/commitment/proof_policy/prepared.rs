@@ -1,7 +1,7 @@
 //! Source-bound original policy-array, UTF-8 leaf and immutable control preparation.
 
 use super::{CanonicalParts, DaProofPolicy, DaProofPolicyBundle, Storage};
-use crate::da::commitment::DaProofScheme;
+use crate::da::commitment::{DaProofScheme, PreparationPhase};
 use iroha_allocation::{
     AllocationBudget, AllocationCharge, AllocationRefusal, ChargedBuffer,
     ChargedBufferFromChargeError, ChargedShared, ReservedChargedShared, RetainedPayload,
@@ -327,10 +327,7 @@ pub struct PreparedDaProofPolicyBundle {
     ledger: Slot<AllocationCharge>,
     shell_charge: Option<AllocationCharge>,
     shell: Option<ReservedChargedShared<RetainedPayload<CanonicalParts>>>,
-    metadata_admitted: bool,
-    planned: bool,
-    payload_admitted: bool,
-    ready: bool,
+    phase: PreparationPhase,
     budget: AllocationBudget,
 }
 impl PreparedDaProofPolicyBundle {
@@ -385,10 +382,7 @@ impl PreparedDaProofPolicyBundle {
             ledger: Slot::default(),
             shell_charge: None,
             shell: None,
-            metadata_admitted: false,
-            planned: false,
-            payload_admitted: false,
-            ready: false,
+            phase: PreparationPhase::Unadmitted,
             budget: budget.clone(),
         })
     }
@@ -509,7 +503,10 @@ impl PreparedDaProofPolicyBundle {
                     }
                 },
             )?;
-            if sequence.used() != bytes.len() || sequence.len() != rows.len() {
+            if sequence.used() != bytes.len() {
+                return Err(norito::Error::LengthMismatch);
+            }
+            if sequence.len() != rows.len() {
                 return Err(norito::Error::LengthMismatch);
             }
             sequence
@@ -539,10 +536,10 @@ impl PreparedDaProofPolicyBundle {
     /// Retains every allocated sibling and original pending charge through exact refusal/retry.
     pub fn prepare(&mut self, input: &ChargedBuffer<u8>) -> Result<(), DaProofPolicyCustodyError> {
         self.check(input)?;
-        if self.ready {
+        if self.phase == PreparationPhase::Ready {
             return Ok(());
         }
-        if !self.metadata_admitted {
+        if self.phase < PreparationPhase::MetadataAdmitted {
             let layouts = self.planning_layouts()?;
             let mut reservation = self.budget.try_reserve_layouts(layouts)?;
             self.rows.charge = Some(
@@ -555,7 +552,7 @@ impl PreparedDaProofPolicyBundle {
                     .try_split(layouts[1])
                     .expect("exact admitted span layout"),
             );
-            self.metadata_admitted = true;
+            self.phase = PreparationPhase::MetadataAdmitted;
         }
         self.rows.allocate(self.count)?;
         self.spans.allocate(self.count)?;
@@ -567,11 +564,11 @@ impl PreparedDaProofPolicyBundle {
         while spans.as_slice().len() < self.count {
             spans.push_reserved(SequenceSpan { start: 0, end: 0 });
         }
-        if !self.planned {
+        if self.phase < PreparationPhase::Planned {
             self.walk_rows(input, false)?;
-            self.planned = true;
+            self.phase = PreparationPhase::Planned;
         }
-        if !self.payload_admitted {
+        if self.phase < PreparationPhase::PayloadAdmitted {
             let layouts = self.payload_layouts()?;
             let rows = self
                 .rows
@@ -618,7 +615,7 @@ impl PreparedDaProofPolicyBundle {
                         .expect("exact original alias charge"),
                 );
             }
-            self.payload_admitted = true;
+            self.phase = PreparationPhase::PayloadAdmitted;
         }
         self.values.allocate(self.count)?;
         self.ledger.allocate(
@@ -666,7 +663,7 @@ impl PreparedDaProofPolicyBundle {
             }
         }
         self.walk_rows(input, true)?;
-        self.ready = true;
+        self.phase = PreparationPhase::Ready;
         Ok(())
     }
     /// Move the identical complete original array, UTF-8 allocations and ledger into its shell.
@@ -686,7 +683,7 @@ impl PreparedDaProofPolicyBundle {
         if let Err(error) = self.check(input) {
             return Err((self, error));
         }
-        if !self.ready || self.shell.is_none() {
+        if self.phase != PreparationPhase::Ready || self.shell.is_none() {
             return Err((self, DaProofPolicyCustodyError::Incomplete));
         }
         // All required fields are checked before moving an allocation or its charge.

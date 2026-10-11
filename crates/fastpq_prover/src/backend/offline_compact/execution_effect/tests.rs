@@ -49,7 +49,7 @@ fn ordinary_demand_includes_each_preparation_tree_roots_and_both_contexts() {
     let view = SourceExecutionEffectStatement::from_owned(&statement);
     let public = preparation_allocation_bytes(&statement.effects, limits.public_policy()).unwrap();
     let batch =
-        quantity_ordinary_verification_allocation_bytes(&statement.effects, limits).unwrap();
+        quantity_ordinary_verification_allocation_bytes(&statement.effects, &limits).unwrap();
     let exact_batch = ExecutionEffectBatch::allocation_bytes(
         &view,
         &source,
@@ -73,7 +73,7 @@ fn ordinary_demand_includes_each_preparation_tree_roots_and_both_contexts() {
                 .min(proving.private_smt.max_unique_keys),
         )
         .unwrap();
-    let demand = quantity_ordinary_allocation_bytes(&statement.effects, proving, limits).unwrap();
+    let demand = quantity_ordinary_allocation_bytes(&statement.effects, proving, &limits).unwrap();
     assert_eq!(
         demand,
         public + tree + array_bytes::<[u8; 32]>(n - 1).unwrap() + 2 * batch
@@ -82,10 +82,10 @@ fn ordinary_demand_includes_each_preparation_tree_roots_and_both_contexts() {
     assert!(array_bytes::<PublicStatement>(usize::MAX).is_err());
     let mut empty = statement.effects.clone();
     empty.effects.clear();
-    assert!(quantity_ordinary_verification_allocation_bytes(&empty, limits).is_err());
+    assert!(quantity_ordinary_verification_allocation_bytes(&empty, &limits).is_err());
     let mut narrow = limits;
     narrow.bundle.max_segments = n - 1;
-    assert!(quantity_ordinary_verification_allocation_bytes(&statement.effects, narrow).is_err());
+    assert!(quantity_ordinary_verification_allocation_bytes(&statement.effects, &narrow).is_err());
 }
 #[test]
 fn full_expected_source_and_statement_are_checked_before_any_child_success() {
@@ -114,7 +114,7 @@ fn full_expected_source_and_statement_are_checked_before_any_child_success() {
     };
     let bytes = norito::encode_canonical(&model).unwrap();
     let demand =
-        quantity_ordinary_verification_allocation_bytes(&model.statement.effects, limits).unwrap();
+        quantity_ordinary_verification_allocation_bytes(&model.statement.effects, &limits).unwrap();
     let budget = AllocationBudget::new(demand);
     // Mutation of position alone is not represented in the statement tape, so
     // this also proves the outer comparison is of the full independently owned leaf.
@@ -160,7 +160,7 @@ fn full_expected_source_and_statement_are_checked_before_any_child_success() {
                     source: &expected_source,
                     statement: facts
                 },
-                limits,
+                &limits,
                 &budget,
                 &mut reservation
             ),
@@ -182,7 +182,7 @@ fn full_expected_source_and_statement_are_checked_before_any_child_success() {
                 source: &source,
                 statement: bad
             },
-            limits,
+            &limits,
             &budget,
             &mut reservation
         ),
@@ -197,7 +197,7 @@ fn full_expected_source_and_statement_are_checked_before_any_child_success() {
     let mut reservation = budget.try_reserve_bytes(demand).unwrap();
     assert!(matches!(verify_quantity_ordinary_artifact(
         &bytes, ExpectedExecutionEffects { source: &source, statement: bad_effects },
-        limits, &budget, &mut reservation),
+        &limits, &budget, &mut reservation),
         Err(VerificationError::Verify(Error::TransferInvariant { details }))
             if details == "execution effect source digest expectation mismatch"));
     assert_eq!(reservation.remaining_bytes(), demand);
@@ -212,7 +212,7 @@ fn full_expected_source_and_statement_are_checked_before_any_child_success() {
                 source: &source,
                 statement: facts
             },
-            limits,
+            &limits,
             &budget,
             &mut reservation
         ),
@@ -227,7 +227,7 @@ fn full_expected_source_and_statement_are_checked_before_any_child_success() {
                 source: &source,
                 statement: facts
             },
-            limits,
+            &limits,
             &budget,
             &mut reservation
         )

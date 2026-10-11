@@ -9,9 +9,9 @@ embed an exact package-local mirror at
 `crates/iroha_torii/assets/openapi/torii.json`, while
 `artifacts/openapi/versions/current/torii.json` is the release alias. All three
 files must remain byte-identical. Runtime parses this authority, installs
-security and Kagemusha definitions, prunes disabled catalog operations and
-retired schemas, and serializes the compiled projection. Its response is not a
-claim that the authored JSON bytes were served unchanged.
+catalog security schemes, prunes disabled catalog operations, and serializes
+the compiled projection. Retired schemas are absent from the authored authority.
+Its response is not a claim that the authored JSON bytes were served unchanged.
 
 The xtask and release wrappers load the static authority through a live Torii
 router, validate its OpenAPI shape and route contract, and emit the bytes for

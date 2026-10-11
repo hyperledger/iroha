@@ -3,6 +3,7 @@
 use std::{cell::Cell, sync::Arc};
 
 use iroha_primitives::const_vec::ConstVec;
+use norito::codec::Encode;
 use norito::core::{
     Archived, DecodeFlagsGuard, DeserializePayload, Encoder, Error, Header, SerializePayload,
     encoded_payload_len, from_bytes, serialize_to_buffer, supported_header_flags, to_bytes,
@@ -179,4 +180,64 @@ fn instruction_box_preserves_scalar_frame_and_tuple_bytes_in_every_layout() {
             Some(&CountedInstruction(0xa5))
         );
     }
+}
+
+#[test]
+fn borrowed_encoding_lookup_preserves_authoritative_empty_and_custom_local_registries() {
+    struct Restore(Option<Arc<InstructionRegistry>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            INSTRUCTION_REGISTRY_OVERRIDE.with(|slot| *slot.borrow_mut() = self.0.take());
+        }
+    }
+    let restore = Restore(
+        INSTRUCTION_REGISTRY_OVERRIDE
+            .with(|slot| slot.replace(Some(Arc::new(InstructionRegistry::new())))),
+    );
+    let boxed = super::Log::new(crate::Level::INFO, "original".into()).into();
+    assert_eq!(super::instruction_wire_id(&boxed), None);
+    assert_eq!(SerializePayload::encoded_len_exact(&boxed), None);
+    assert_eq!(SerializePayload::encoded_len_hint(&boxed), None);
+    assert!(matches!(
+        norito::canonical_frame_len(&boxed),
+        Err(Error::InvalidValue {
+            context: "unregistered instruction"
+        })
+    ));
+    let custom = InstructionRegistry::new().register_with_id::<super::Log>("test.original.log");
+    INSTRUCTION_REGISTRY_OVERRIDE.with(|slot| *slot.borrow_mut() = Some(Arc::new(custom)));
+    assert_eq!(
+        super::instruction_wire_id(&boxed),
+        Some("test.original.log")
+    );
+    let framed = super::framed_instruction_payload(&boxed).expect("original custom registry frame");
+    let expected = (framed.0.to_owned(), framed.1).encode();
+    assert_eq!(boxed.encode(), expected);
+    assert_eq!(
+        SerializePayload::encoded_len_exact(&boxed),
+        Some(expected.len())
+    );
+    assert_eq!(
+        SerializePayload::encoded_len_hint(&boxed),
+        Some(expected.len())
+    );
+    drop(restore);
+}
+
+#[test]
+fn cold_encoding_inventory_is_the_exact_default_registry_and_frame_geometry() {
+    let default = super::registry::default();
+    for (type_name, wire_id) in super::registry::encoding_inventory_for_tests() {
+        let cold =
+            super::registry::default_encoding_entry(type_name).expect("same static inventory");
+        let installed = default
+            .entry_for_type_name(type_name)
+            .expect("same default registry");
+        assert_eq!(cold.wire_id, wire_id);
+        assert_eq!(cold.wire_id, installed.wire_id);
+        for length in [0, 1, 127, 128, 65_536] {
+            assert_eq!((cold.frame_len)(length), (installed.frame_len)(length));
+        }
+    }
+    assert!(super::registry::default_encoding_entry("unregistered.public.synthetic").is_none());
 }

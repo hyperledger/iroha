@@ -21,6 +21,7 @@ import zk_blake3_reference as blake3_reference  # noqa: E402
 import zk_bn254_poseidon_reference as poseidon  # noqa: E402
 import zk_pq_kat_reference as kat  # noqa: E402
 import zk_rust_lexical_index as rust_index  # noqa: E402
+import zk_semantic_profile_reference as profile_reference  # noqa: E402
 
 SPEC_PATH = ROOT / checker.DEFAULT_SPEC
 
@@ -1431,6 +1432,348 @@ class WorkloadAndTranscriptChecks(TreeFixture):
         spec = self.mutated()
         spec["shared_transcript_requirements"]["engine_inventory"] = "specs/missing.json"
         self.assertReported(self.transcript_errors(spec), "engine inventory")
+
+
+class SemanticProfiles(TreeFixture):
+    """The H.2 section: identities, dispositions, the frozen transcript and measurement binding."""
+
+    TRANSCRIPT = "fastpq.transcript.q77.v1"
+    NATIVE = "native.commitment.blake3-256.frame-v1"
+
+    def profile_errors(self, spec: dict) -> list:
+        return self.errors(checker.check_semantic_profiles, spec, ROOT)
+
+    @staticmethod
+    def profile(spec: dict, name: str) -> dict:
+        section = spec["semantic_profiles"]
+        return next(entry for entry in section["profiles"] + section["retained_profiles"] if entry["name"] == name)
+
+    @staticmethod
+    def parameter(profile: dict, key: str) -> dict:
+        return next(entry for entry in profile["parameters"] if entry["key"] == key)
+
+    @staticmethod
+    def measurement(identities: dict) -> dict:
+        return {
+            "id": "test/measurement", "label": "exploratory", "qualification": False, "source_commit": "c",
+            "hardware": "h", "command": "x", "conditions": "y", "results": {"a": 1}, "profile_identities": identities,
+        }  # fmt: skip
+
+    @staticmethod
+    def workload(spec: dict, identifier: str) -> dict:
+        return next(entry for entry in spec["workloads"]["definitions"] if entry["id"] == identifier)
+
+    def test_tracked_section_is_consistent(self) -> None:
+        self.assertEqual(self.profile_errors(self.spec), [])
+        section = self.spec["semantic_profiles"]
+        self.assertEqual(set(section["role_dispositions"]), {role["key"] for role in self.spec["digest_roles"]})
+        self.assertEqual(len(section["profiles"]), 7)
+        self.assertEqual(section["shared_transcript"]["grinding"]["bits"], 0)
+
+    def test_reference_frame_and_identity_vectors(self) -> None:
+        profile_reference.self_test()
+        frame = profile_reference.encode_profile("key-derivation", "x", [])
+        self.assertEqual(frame.hex(), "69726f68613a73656d616e7469632d70726f66696c653a7631000e0000006b65792d64657269766174696f6e010000007800000000")
+        self.assertEqual(profile_reference.profile_identity(frame), "3d7890a841af88bace65d95a3a7edcdbb8091b2ce94c9ecd9325fc67ea7b8467")
+        # The Norito framing subset reproduces a statement context that the Rust tests pin independently.
+        statement = b"complete public context without a private witness"
+        model = profile_reference.TranscriptModel(
+            self.profile(self.spec, self.TRANSCRIPT),
+            "iroha-privacy-exact12-v1",
+            "profile-binding:fixed-candidate:v1",
+            self.spec["semantic_profiles"]["shared_transcript"]["known_answers"]["inputs"]["layout"],
+            statement,
+        )
+        self.assertEqual(len(model.context), 401)
+        self.assertEqual(model.context[:22].hex(), "4e52543000001ec15f6de0edd014c1b2850c0a244fad")
+        self.assertEqual(model.context[31:39].hex(), "8d93a47c1df47da9")
+        self.assertEqual(model.leaf(1, 0, 0, bytes(301 * 8)).hex(), "38ef710754bc29fa9c8b489157fb669c84db05d3f4f63189f21cee014a0b0e29")
+        with self.assertRaises(profile_reference.Abort):
+            model.commit(bytes(32))
+        with self.assertRaises(profile_reference.Abort):
+            model.queries(bytes(744))
+        with self.assertRaises(profile_reference.Abort):
+            model.ood_point(bytes(80))
+
+    def test_every_identity_is_recomputed_from_its_parameters(self) -> None:
+        for name in [entry["name"] for entry in self.spec["semantic_profiles"]["profiles"]]:
+            spec = self.mutated()
+            self.profile(spec, name)["parameters"][0]["value"] = 2
+            self.assertReported(self.profile_errors(spec), f"profile {name}: recorded identity")
+        spec = self.mutated()
+        self.profile(spec, self.NATIVE)["parameters"].append({"key": "Bad Key", "type": "u64", "value": 1})
+        self.assertReported(self.profile_errors(spec), "not a canonical profile")
+        spec = self.mutated()
+        spec["semantic_profiles"]["profiles"].append(copy.deepcopy(self.profile(spec, self.NATIVE)))
+        self.assertReported(self.profile_errors(spec), "listed twice")
+
+    def test_a_changed_frozen_profile_invalidates_its_measurements(self) -> None:
+        current = self.profile(self.spec, self.TRANSCRIPT)["identity"]
+        spec = self.mutated()
+        workload = self.workload(spec, "h1.transcript.candidates")
+        tracked = [entry["id"] for entry in workload["exploratory_measurements"]]
+        self.assertTrue(tracked)
+        workload["exploratory_measurements"].append(self.measurement({self.TRANSCRIPT: current}))
+        self.assertEqual([error for error in self.profile_errors(spec) if "inapplicable" in error], [])
+        # Change one frozen parameter and re-identify the profile: the measurement names the old identity.
+        profile = self.profile(spec, self.TRANSCRIPT)
+        self.parameter(profile, "queries")["value"] = 78
+        profile["identity"] = profile_reference.identity_of(profile)
+        self.assertNotEqual(profile["identity"], current)
+        errors = self.profile_errors(spec)
+        self.assertReported(errors, "measurement test/measurement: inapplicable")
+        self.assertReported(errors, f"it names identity {current}")
+        # The measurement the tracked record holds is invalidated in the same way.
+        for identifier in tracked:
+            self.assertReported(errors, f"measurement {identifier}: inapplicable")
+        # Moving it to the inapplicable list clears that error; nothing else is needed.
+        moved = workload["exploratory_measurements"].pop()
+        spec["semantic_profiles"]["measurement_binding"]["inapplicable_measurements"].append(moved)
+        self.assertEqual([error for error in self.profile_errors(spec) if "test/measurement" in error], [])
+        # An inapplicable entry whose identities are all current belongs with its workload.
+        spec = self.mutated()
+        spec["semantic_profiles"]["measurement_binding"]["inapplicable_measurements"].append(self.measurement({self.TRANSCRIPT: current}))
+        self.assertReported(self.profile_errors(spec), "every identity it names is current")
+
+    def test_a_measurement_names_the_identities_it_measured(self) -> None:
+        current = self.profile(self.spec, self.TRANSCRIPT)["identity"]
+        cases = (
+            (lambda m: m.pop("profile_identities"), "`profile_identities` is missing"),
+            (lambda m: m.__setitem__("profile_identities", {}), "names no profile identity and does not say why"),
+            (lambda m: m.__setitem__("profile_identities", {"unknown.profile": current}), "names the unknown profile"),
+            (lambda m: m.__setitem__("profile_identities", {self.NATIVE: current}), "that its workload does not depend on"),
+        )
+        for mutate, expected in cases:
+            spec = self.mutated()
+            measurement = self.measurement({self.TRANSCRIPT: current})
+            mutate(measurement)
+            self.workload(spec, "h1.transcript.candidates")["exploratory_measurements"] = [measurement]
+            self.assertReported(self.profile_errors(spec), expected)
+        spec = self.mutated()
+        measurement = self.measurement({})
+        measurement["profile_binding"] = "none: bare primitives"
+        self.workload(spec, "h1.transcript.candidates")["exploratory_measurements"] = [measurement]
+        self.assertEqual([error for error in self.profile_errors(spec) if "test/measurement" in error], [])
+        # The tracked record binds at least one real measurement to a frozen identity.
+        bound = [
+            identities
+            for _, _, entry in checker.recorded_measurements(self.spec)
+            if (identities := entry.get("profile_identities"))
+        ]
+        self.assertTrue(bound)
+
+    def test_workloads_name_the_profiles_of_their_roles(self) -> None:
+        for workload in self.spec["workloads"]["definitions"]:
+            names, pending = checker.workload_profiles(self.spec, workload)
+            self.assertEqual(workload["profiles"], names)
+            self.assertEqual(workload.get("profiles_not_frozen", []), pending)
+            if workload["kind"] == "shared-backend":
+                self.assertIn(self.TRANSCRIPT, names)
+        spec = self.mutated()
+        self.workload(spec, "h1.shared-backend.axt")["profiles"] = []
+        self.assertReported(self.profile_errors(spec), "`profiles` differs from the profiles of its roles")
+        spec = self.mutated()
+        self.workload(spec, "h1.in-circuit-digest.air-cost").pop("profiles_not_frozen")
+        self.assertReported(self.profile_errors(spec), "`profiles_not_frozen` differs")
+        # One identity names the ordered profiles of a workload in the bounded harness field.
+        workload = self.workload(self.spec, "h1.shared-backend.axt")
+        self.assertEqual(workload["profiles"], [self.TRANSCRIPT])
+        transcript = self.profile(self.spec, self.TRANSCRIPT)["identity"]
+        self.assertEqual(workload["profile_set_identity"], profile_reference.profile_set_identity([transcript]))
+        self.assertNotEqual(workload["profile_set_identity"], transcript)
+        field = f"semantic={workload['profile_set_identity']}+release"
+        self.assertLessEqual(len(field), 160)
+        self.assertRegex(field, r"\A[A-Za-z0-9_.:/+@=,-]+\Z")
+        spec = self.mutated()
+        self.workload(spec, "h1.shared-backend.axt")["profile_set_identity"] = "00" * 32
+        self.assertReported(self.profile_errors(spec), "`profile_set_identity` differs")
+        spec = self.mutated()
+        profile = self.profile(spec, self.TRANSCRIPT)
+        self.parameter(profile, "queries")["value"] = 78
+        profile["identity"] = profile_reference.identity_of(profile)
+        self.assertReported(self.profile_errors(spec), "workload h1.shared-backend.axt: `profile_set_identity` differs")
+        checker.refresh_semantic_profiles(spec)
+        self.assertNotEqual(self.workload(spec, "h1.shared-backend.axt")["profile_set_identity"], workload["profile_set_identity"])
+        with self.assertRaises(profile_reference.ProfileError):
+            profile_reference.profile_set_identity(["00"])
+        self.assertIsNone(checker.workload_profile_set(self.spec, ["unknown.profile"]))
+        self.assertIsNone(checker.workload_profile_set(self.spec, []))
+
+    def test_a_retained_profile_follows_its_role_record(self) -> None:
+        spec = self.mutated()
+        self.role(spec, "halo2.transcript-blake2b")["output_bytes"] = 32
+        self.assertReported(self.profile_errors(spec), "parameters differ from the role record")
+        before = self.profile(spec, "retained.halo2.transcript-blake2b")["identity"]
+        checker.refresh_semantic_profiles(spec)
+        after = self.profile(spec, "retained.halo2.transcript-blake2b")["identity"]
+        self.assertNotEqual(before, after)
+        self.assertEqual(self.profile_errors(spec), self.profile_errors(self.spec))
+        spec = self.mutated()
+        self.profile(spec, "retained.halo2.transcript-blake2b")["kind"] = "native-commitment"
+        self.assertReported(self.profile_errors(spec), "kind does not follow the role family")
+
+    def test_refresh_decides_only_roles_that_are_already_retained(self) -> None:
+        self.assertEqual(self.spec, (lambda spec: (checker.refresh_semantic_profiles(spec), spec)[1])(self.mutated()))
+        spec = self.mutated()
+        retained = copy.deepcopy(self.role(spec, "halo2.transcript-blake2b"))
+        retained["key"] = "halo2.second-transcript"
+        six_lane = copy.deepcopy(self.role(spec, "zk-ace.identity-digest384"))
+        six_lane["key"] = "new.six-lane-role"
+        spec["digest_roles"] += [retained, six_lane]
+        spec["semantic_profiles"]["role_dispositions"]["removed.role"] = {"disposition": "retained", "profiles": ["retained.removed.role"]}
+        checker.refresh_semantic_profiles(spec)
+        dispositions = spec["semantic_profiles"]["role_dispositions"]
+        self.assertEqual(dispositions["halo2.second-transcript"], {"disposition": "retained", "profiles": ["retained.halo2.second-transcript"]})
+        self.assertEqual(self.profile(spec, "retained.halo2.second-transcript")["status"], "retained")
+        self.assertNotIn("new.six-lane-role", dispositions)
+        self.assertNotIn("removed.role", dispositions)
+        self.assertReported(self.profile_errors(spec), "role dispositions differ from the digest roles: ['new.six-lane-role']")
+        without = self.mutated()
+        without.pop("semantic_profiles")
+        checker.refresh_semantic_profiles(without)
+        self.assertNotIn("semantic_profiles", without)
+
+    def test_the_six_lane_digest_is_never_retained_or_frozen(self) -> None:
+        spec = self.mutated()
+        section = spec["semantic_profiles"]
+        section["role_dispositions"]["zk-ace.identity-digest384"] = {"disposition": "retained", "profiles": ["retained.x"]}
+        self.assertReported(self.profile_errors(spec), "the unqualified six-lane digest is retained or frozen")
+        spec = self.mutated()
+        spec["semantic_profiles"]["role_dispositions"]["catalog.exact12-commitment"].pop("replaces")
+        self.assertReported(self.profile_errors(spec), "the unqualified six-lane digest is retained or frozen")
+        spec = self.mutated()
+        profile = self.profile(spec, self.NATIVE)
+        self.parameter(profile, "algorithm")["value"] = "GoldilocksDigest384V1"
+        profile["identity"] = profile_reference.identity_of(profile)
+        self.assertReported(self.profile_errors(spec), "a frozen profile names the unqualified six-lane digest")
+        for entry in self.spec["semantic_profiles"]["not_frozen"]:
+            self.assertTrue(entry["missing"] and entry["excluded"], entry["id"])
+
+    def test_every_role_and_defect_has_a_disposition(self) -> None:
+        cases = (
+            (lambda s: s["role_dispositions"].pop("kaigi.authorization-identity"), "role dispositions differ from the digest roles"),
+            (lambda s: s["role_dispositions"]["kaigi.authorization-identity"].pop("accepted_level"), "`accepted_level` of the selected native commitment is missing"),
+            (lambda s: s["role_dispositions"]["privacy.statement-digest-blake3"].pop("required_property"), "`required_property` is missing"),
+            (lambda s: s["role_dispositions"]["kaigi.authorization-identity"].__setitem__("profiles", ["unknown"]), "unknown profile 'unknown'"),
+            (lambda s: s["role_dispositions"].__setitem__("confidential.spentness-tree", {"disposition": "frozen-profile", "profiles": [self.NATIVE], "replaces": "x", "required_property": "p", "accepted_level": "l"}), "a provisional role must stay deferred"),
+            (lambda s: s["role_dispositions"]["zk-ace.identity-digest384"].__setitem__("not_frozen", "missing"), "its not-frozen entry does not list it"),
+            (lambda s: s["role_dispositions"]["zk-ace.identity-digest384"].__setitem__("disposition", "deferred"), "disposition differs from its not-frozen entry"),
+            (lambda s: s["not_frozen"][1].__setitem__("missing", []), "`missing` is missing"),
+            (lambda s: s["not_frozen"][1].__setitem__("status", "frozen"), "unknown status"),
+            (lambda s: s["defect_dispositions"].pop(0), "no disposition for defect BN254-POSEIDON-D1"),
+            (lambda s: s["defect_dispositions"][4].__setitem__("disposition", "accepted"), "unknown disposition 'accepted'"),
+            (lambda s: s["defect_dispositions"][5].__setitem__("profile", "retained.pq.mldsa-shake"), "is not a frozen profile"),
+            (lambda s: s["defect_dispositions"][1].__setitem__("vectors_required", ""), "`vectors_required` is missing"),
+            (lambda s: s.__setitem__("task", "H.1"), "the section belongs to H.2"),
+        )
+        for mutate, expected in cases:
+            spec = self.mutated()
+            mutate(spec["semantic_profiles"])
+            self.assertReported(self.profile_errors(spec), expected)
+        spec = self.mutated()
+        spec["bn254_poseidon"]["defects"].append({"id": "BN254-POSEIDON-D9"})
+        self.assertReported(self.profile_errors(spec), "defect BN254-POSEIDON-D9 of this file has no disposition")
+
+    def test_frozen_parameters_follow_their_records_and_generators(self) -> None:
+        def changed(name: str, key: str, value) -> list:
+            spec = self.mutated()
+            profile = self.profile(spec, name)
+            self.parameter(profile, key)["value"] = value
+            profile["identity"] = profile_reference.identity_of(profile)
+            return self.profile_errors(spec)
+
+        self.assertReported(changed("bn254.poseidon.x5-t3.v1", "partial_rounds", 56), "the defective repository round count is frozen")
+        self.assertReported(changed("bn254.poseidon.x5-t6.v1", "partial_rounds", 57), "width or round numbers differ from the frozen correction")
+        self.assertReported(changed("bn254.poseidon.x5-t6.v1", "capacity", 0), "the mode has no single capacity coordinate")
+        self.assertReported(changed("bn254.poseidon.x5-t3.v1", "tables_sha3_256", "00" * 32), "table digest differs from the regenerated tables")
+        self.assertReported(changed("bn254.poseidon.x5-t3.v1", "vector_hash2_1_2_be", "00" * 32), "corrected hash2 vector differs")
+        self.assertReported(changed("bn254.poseidon.x5-t6.v1", "vector_hash6_1_to_6_be", "00" * 32), "corrected hash6 vector differs")
+        self.assertReported(changed(self.NATIVE, "frame_version", 2), "frame version differs from the frame")
+        self.assertReported(changed(self.NATIVE, "payload_field_count_max", 1), "bound payload_field_count_max differs")
+        self.assertReported(changed(self.NATIVE, "output_bytes", 48), "not raw BLAKE3-256")
+        self.assertReported(changed("pq.ml-kem.fips203.v1", "ml_kem_768_bytes", [1, 2, 3, 4]), "encoded sizes of ml-kem-768 differ")
+        self.assertReported(changed("lantern.trapdoor.falcon512-derived.v1", "labels", "fn-dsa"), "it may be labelled FN-DSA")
+        self.assertReported(changed(self.NATIVE, "profile_version", 1) + ["ok"], "ok")
+        spec = self.mutated()
+        profile = self.profile(spec, self.NATIVE)
+        profile["parameters"].append({"key": "source_revision", "type": "text", "value": "abc"})
+        profile["identity"] = profile_reference.identity_of(profile)
+        self.assertReported(self.profile_errors(spec), "names evidence metadata")
+        spec = self.mutated()
+        state = copy.deepcopy(self.profile(spec, self.NATIVE))
+        state["name"] = "state.tree.blake3"
+        state["identity"] = profile_reference.identity_of(state)
+        spec["semantic_profiles"]["profiles"].append(state)
+        self.assertReported(self.profile_errors(spec), "the State tree and hash are selected by G.3")
+        spec = self.mutated()
+        self.profile(spec, "bn254.poseidon.x5-t3.v1")["checks"]["permutation_0_1_2_coordinate_0_be"] = "00" * 32
+        self.assertReported(self.profile_errors(spec), "the published width-3 reference vector is not reproduced")
+        # The corrected width-3 table is the published one: its first constant and reference vector.
+        values = profile_reference.parameter_map(self.profile(self.spec, "bn254.poseidon.x5-t3.v1"))
+        self.assertEqual(values["first_round_constant_be"], "0ee9a592ba9a9518d05986d656f40c2114c4993c11bb29938d21d47304cd8e6e")
+        self.assertEqual(values["vector_permutation_0_1_2_be"], "115cc0f5e7d690413df64c6b9662e9cf2a3617f2743245519e19607a4417189a")
+
+    def test_the_frozen_transcript_keeps_its_binding_tests_goldens_and_claims(self) -> None:
+        cases = (
+            (lambda t: t["binding_order"].pop(), "binding order does not answer every requirement"),
+            (lambda t: t["binding_order"][3].__setitem__("tests", []), "`bound`, `how` or `tests` is missing"),
+            (lambda t: t["binding_order"][1].__setitem__("tests", ["backend::deep_binding::frozen_tests::missing_test"]), "test missing_test is missing"),
+            (lambda t: t["binding_order"][1].__setitem__("tests", ["not a path"]), "is not a backend test path"),
+            (lambda t: t["security_statement"].__setitem__("qrom", "Established."), "the quantum random-oracle claim must stay open"),
+            (lambda t: t["security_statement"].__setitem__("classical_rom", "Proved."), "the classical random-oracle claim must stay conditional"),
+            (lambda t: t["security_statement"].__setitem__("status", "Qualified."), "qualification must stay recorded as pending"),
+            (lambda t: t["security_statement"].pop("hiding"), "security statement `hiding` is missing"),
+            (lambda t: t["grinding"].__setitem__("bits", 20), "grinding bits differ from the profile"),
+            (lambda t: t["work_limits"].pop("not_bound"), "the work-limit binding statement is missing"),
+            (lambda t: t["engines"].pop(), "differ from the inventory"),
+            (lambda t: t["engines"][2].__setitem__("disposition", "kept"), "unknown disposition"),
+            (lambda t: t["goldens"]["artifact_profile_ids"].__setitem__("quantity_axt", "00" * 32), "artifact profile id quantity_axt is not pinned"),
+            (lambda t: t["goldens"]["proof_pins"].append("fixtures/fastpq/missing.json"), "is missing"),
+            (lambda t: t["known_answers"]["inputs"].__setitem__("relation", "another"), "differs from the known answers the reference computes"),
+            (lambda t: t.__setitem__("construction", "another"), "construction name differs from the profile"),
+            (lambda t: t.__setitem__("profile", "native.commitment.blake3-256.frame-v1"), "names no frozen transcript profile"),
+        )
+        for mutate, expected in cases:
+            spec = self.mutated()
+            mutate(spec["semantic_profiles"]["shared_transcript"])
+            self.assertReported(self.profile_errors(spec), expected)
+        # A changed transcript parameter also leaves the Rust golden and the known answers stale.
+        spec = self.mutated()
+        profile = self.profile(spec, self.TRANSCRIPT)
+        self.parameter(profile, "queries")["value"] = 78
+        profile["identity"] = profile_reference.identity_of(profile)
+        errors = self.profile_errors(spec)
+        self.assertReported(errors, "the Rust golden does not pin the recorded identity")
+        self.assertReported(errors, "differs from the known answers the reference computes")
+        self.assertEqual(
+            (ROOT / self.spec["semantic_profiles"]["shared_transcript"]["known_answers"]["fixture"]).read_text(encoding="utf-8"),
+            profile_reference.fixture_text(self.spec),
+        )
+
+    def test_identity_excludes_evidence_metadata_and_grants_nothing(self) -> None:
+        identity = self.spec["semantic_profiles"]["identity"]
+        self.assertIn("None", identity["authority"])
+        for mutate, expected in (
+            (lambda i: i.__setitem__("excluded_inputs", ["nothing"]), "excluded inputs do not name 'source'"),
+            (lambda i: i["frame"].__setitem__("magic_ascii", "other"), "frame magic differs from the reference"),
+            (lambda i: i["frame"].__setitem__("kinds", ["transcript"]), "the kinds differ from the reference"),
+            (lambda i: i["frame"]["bounds"].__setitem__("parameters", 1), "the frame bounds differ from the reference"),
+            (lambda i: i["rust_owner"].__setitem__("symbol", "pub struct Missing {"), "no longer contains"),
+        ):
+            spec = self.mutated()
+            mutate(spec["semantic_profiles"]["identity"])
+            self.assertReported(self.profile_errors(spec), expected)
+        binding = self.spec["semantic_profiles"]["measurement_binding"]
+        self.assertIn("No signature, approval or runtime switch", binding["no_reviewer_token"])
+        spec = self.mutated()
+        spec["semantic_profiles"]["exploratory_basis"][0]["measurement"] = "missing/measurement"
+        self.assertReported(self.profile_errors(spec), "is neither a recorded measurement nor a tracked record")
+        spec = self.mutated()
+        spec["semantic_profiles"]["exploratory_basis"] = []
+        self.assertReported(self.profile_errors(spec), "the exploratory basis of the selections is missing")
+        spec = self.mutated()
+        spec["semantic_profiles"]["measurement_binding"].pop("no_reviewer_token")
+        self.assertReported(self.profile_errors(spec), "`no_reviewer_token` is missing")
 
 
 class CommandLine(unittest.TestCase):

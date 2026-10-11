@@ -658,7 +658,6 @@ fn numeric_transfer_precheck_preserves_typed_source_and_receiver_controls() {
 
     for (policy, outbound_exempt, credit_exempt) in [
         (Policy::Enforce, false, false),
-        (Policy::KagemushaRedemption, true, false),
         (Policy::OraclePenalty, true, false),
         (Policy::OracleDisputeResolution, true, false),
         (Policy::StakingUnbond, true, false),

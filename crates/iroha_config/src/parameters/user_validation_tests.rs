@@ -264,10 +264,20 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             table.insert("musubi_publication".into(), Value::Table(publication));
             let error = actual::Root::from_toml_source(TomlSource::inline(table))
                 .expect_err("the dedicated listener has only fixed routes");
-            let report = format!("{error:?}");
-            assert!(
-                report.contains("unknown parameter: `musubi_publication.private_mount_prefix`"),
-                "{report}"
+            assert!(error.frames().any(|frame| matches!(
+                frame.downcast_ref::<iroha_config_base::read::Error>(),
+                Some(iroha_config_base::read::Error::UnknownParameters)
+            )));
+            let unknown: Vec<_> = error
+                .frames()
+                .filter_map(|frame| {
+                    frame.downcast_ref::<iroha_config_base::attach::UnknownParameter>()
+                })
+                .map(ToString::to_string)
+                .collect();
+            assert_eq!(
+                unknown,
+                vec!["unknown parameter: `musubi_publication.private_mount_prefix`".to_owned()]
             );
         }
     }
@@ -774,16 +784,6 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
         config.network.soranet_vpn.operator_private_key = Some(private_key.clone());
         config.torii.receipt_public_key = Some(key_pair.public_key().clone());
         config.torii.receipt_private_key = Some(private_key.clone());
-        config.torii.kagemusha_v1_commands = Some(super::ToriiKagemushaV1Commands {
-            redemption_authority: None,
-            redemption_private_key: Some(private_key.clone()),
-            redemption_private_key_file: None,
-            redemption_minimum_xor_balance: Some(Quantity::from(1_u64)),
-            operation_registry_max_entries:
-                defaults::torii::kagemusha_v1_commands::OPERATION_REGISTRY_MAX_ENTRIES,
-            operation_registry_max_bytes:
-                defaults::torii::kagemusha_v1_commands::OPERATION_REGISTRY_MAX_BYTES,
-        });
         config.torii.ram_lfe = Some(super::ToriiRamLfe {
             programs: vec![super::ToriiRamLfeProgram {
                 program_id: "phone_retail".to_owned(),
@@ -797,17 +797,6 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
             ("snapshot", format!("{:?}", config.snapshot)),
             ("SoraNet VPN", format!("{:?}", config.network.soranet_vpn)),
             ("torii receipt", format!("{:?}", config.torii)),
-            (
-                "KAGEMUSHA V1 commands",
-                format!(
-                    "{:?}",
-                    config
-                        .torii
-                        .kagemusha_v1_commands
-                        .as_ref()
-                        .expect("configured commands")
-                ),
-            ),
             (
                 "RAM-LFE program",
                 format!(
@@ -836,10 +825,6 @@ identity_private_key = "8026208F4C15E5D664DA3F13778801D23D4E89B76E94C1B94B389544
                 format!("{:?}", actual.network.soranet_vpn),
             ),
             ("actual Torii", format!("{:?}", actual.torii)),
-            (
-                "actual KAGEMUSHA V1 commands",
-                format!("{:?}", actual.torii.kagemusha_v1_commands),
-            ),
             ("actual RAM-LFE", format!("{:?}", actual.torii.ram_lfe)),
         ] {
             assert!(debug.contains("REDACTED"), "{subtree}: {debug}");
@@ -1092,41 +1077,38 @@ policy_digest_hex = "{policy_digest_hex}"
         }
     }
     #[test]
-    fn kagemusha_v1_command_middleware_needs_no_feature_switch() {
-        let mut table = base_table();
-        let key_pair = KeyPair::try_from_seed(
-            b"iroha:config:test:kagemusha-command-service".to_vec(),
-            Algorithm::Ed25519,
-        )
-        .expect("fixture seed derives command-service keypair");
-        let private_key = ExposedPrivateKey(key_pair.private_key().clone())
-            .try_to_multihash_string()
-            .expect("encode command-service private key");
-        let torii = table
-            .get_mut("torii")
-            .and_then(Value::as_table_mut)
-            .expect("torii table");
-        torii.insert(
-            "kagemusha_v1_commands".into(),
-            Value::Table(Table::from_iter([
-                ("redemption_private_key".into(), Value::String(private_key)),
-                (
-                    "redemption_minimum_xor_balance".into(),
-                    Value::String("1".into()),
-                ),
-                (
-                    "operation_registry_max_entries".into(),
-                    Value::Integer(4096),
-                ),
-                (
-                    "operation_registry_max_bytes".into(),
-                    Value::Integer(593_920),
-                ),
-            ])),
-        );
-        let actual = actual::Root::from_toml_source(TomlSource::inline(table))
-            .expect("KAGEMUSHA command middleware must remain configured");
-        assert!(actual.torii.kagemusha_v1_commands.is_some());
+    fn removed_kagemusha_sections_are_unknown_parameters() {
+        for (parent, child, key, value) in [
+            (
+                "torii",
+                "kagemusha_v1_commands",
+                "operation_registry_max_entries",
+                Value::Integer(4096),
+            ),
+            (
+                "settlement",
+                "kagemusha",
+                "allow_testnet_experimental_release",
+                Value::Boolean(false),
+            ),
+        ] {
+            let mut table = base_table();
+            table
+                .entry(parent)
+                .or_insert_with(|| Value::Table(Table::new()))
+                .as_table_mut()
+                .expect("parent table")
+                .insert(
+                    child.into(),
+                    Value::Table(Table::from_iter([(key.into(), value)])),
+                );
+            let error = actual::Root::from_toml_source(TomlSource::inline(table))
+                .expect_err("removed KAGEMUSHA configuration must be rejected, not aliased");
+            assert!(
+                format!("{error:?}").contains(&format!("`{parent}.{child}`")),
+                "unexpected error: {error:?}"
+            );
+        }
     }
     #[test]
     fn zk_prover_scan_budget_must_fit_one_maximum_body() {
@@ -1170,69 +1152,6 @@ policy_digest_hex = "{policy_digest_hex}"
     include!("user/operator_signature_body_timeout_tests.rs");
     include!("user/verified_source_ingress_tests.rs");
     include!("user/iso_bridge_store_memory_tests.rs");
-    #[test]
-    fn kagemusha_v1_commands_reject_redundant_enabled_switch() {
-        let mut table = base_table();
-        let key_pair = KeyPair::try_from_seed(
-            b"iroha:config:test:kagemusha-v1-enabled-retired".to_vec(),
-            Algorithm::Ed25519,
-        )
-        .expect("fixture seed derives command-service keypair");
-        let private_key = ExposedPrivateKey(key_pair.private_key().clone())
-            .try_to_multihash_string()
-            .expect("encode command-service private key");
-        let torii = table
-            .get_mut("torii")
-            .and_then(Value::as_table_mut)
-            .expect("torii table");
-        torii.insert(
-            "kagemusha_v1_commands".into(),
-            Value::Table(Table::from_iter([
-                ("redemption_private_key".into(), Value::String(private_key)),
-                (
-                    "redemption_minimum_xor_balance".into(),
-                    Value::String("1".into()),
-                ),
-                (
-                    "operation_registry_max_entries".into(),
-                    Value::Integer(4096),
-                ),
-                (
-                    "operation_registry_max_bytes".into(),
-                    Value::Integer(593_920),
-                ),
-                ("enabled".into(), Value::Boolean(false)),
-            ])),
-        );
-        let error = actual::Root::from_toml_source(TomlSource::inline(table))
-            .expect_err("section presence is the only first-release enable switch");
-        let report = format!("{error:?}");
-        assert!(report.contains("enabled"), "unexpected error: {report}");
-        assert!(
-            report.contains("unknown") || report.contains("unexpected"),
-            "retired switch must be reported as an unknown field: {report}"
-        );
-    }
-    #[test]
-    fn enabled_kagemusha_v1_commands_keep_malformed_subordinates_strict() {
-        let mut table = base_table();
-        let torii = table
-            .get_mut("torii")
-            .and_then(Value::as_table_mut)
-            .expect("torii table");
-        torii.insert(
-            "kagemusha_v1_commands".into(),
-            Value::Table(Table::from_iter([
-                ("redemption_private_key".into(), Value::Integer(7)),
-                (
-                    "redemption_minimum_xor_balance".into(),
-                    Value::Array(Vec::new()),
-                ),
-            ])),
-        );
-        let _ = actual::Root::from_toml_source(TomlSource::inline(table))
-            .expect_err("enabled command service must validate subordinate types");
-    }
     #[test]
     fn absence_of_pre_release_switch_does_not_mask_malformed_settlement_parent() {
         let mut table = base_table();
@@ -1837,6 +1756,7 @@ policy_digest_hex = "{policy_digest_hex}"
     struct OnboardingKeyFile(PathBuf);
     impl OnboardingKeyFile {
         fn new(key_pair: &KeyPair) -> Self {
+            use std::io::Write as _;
             use std::sync::atomic::{AtomicU64, Ordering};
             static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
             let path = std::env::temp_dir().join(format!(
@@ -1847,8 +1767,20 @@ policy_digest_hex = "{policy_digest_hex}"
             let encoded = ExposedPrivateKey(key_pair.private_key().clone())
                 .try_to_multihash_string()
                 .expect("encode onboarding test private key");
-            fs::write(&path, format!("{encoded}\n")).expect("write onboarding test key file");
-            Self(path)
+            let mut options = fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                options.mode(0o600);
+            }
+            let mut file = options
+                .open(&path)
+                .expect("create private onboarding test key file");
+            let owned = Self(path);
+            file.write_all(format!("{encoded}\n").as_bytes())
+                .expect("write onboarding test key file");
+            owned
         }
         fn path(&self) -> &Path {
             &self.0

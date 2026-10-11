@@ -58,7 +58,6 @@ fn nonblocking_state_view_retains_exact_header_and_configuration_release_sources
     check!(nexus);
     check!(crypto);
     check!(pipeline_ivm_prepared_cache);
-    check!(kagemusha_v1_runtime_verifier);
     check!(lane_manifests);
     assert_eq!(
         budget.reserved_bytes(),

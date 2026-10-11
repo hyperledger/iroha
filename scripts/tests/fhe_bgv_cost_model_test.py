@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
 import copy
+import hashlib
 import importlib.util
 from io import StringIO
 import json
@@ -38,6 +39,7 @@ CHECKED_FILES = (
     MODEL.COINS_SOURCE,
     MODEL.CHAIN_SOURCE,
     MODEL.ESTIMATOR_SCRIPT,
+    MODEL.ESTIMATOR_OUTPUT,
     MODEL.VECTORS_TEST,
     MODEL.MODEL_VECTORS_PATH,
     MODEL.COMPARISON_SPEC,
@@ -50,9 +52,9 @@ def tracked_summary() -> dict:
 
 
 class ScratchRoot:
-    """A copy of the files the check reads, with one of them edited."""
+    """A copy of the files the check reads, with one of them edited (or none, without a path)."""
 
-    def __init__(self, path: str, old: str, new: str):
+    def __init__(self, path: str = "", old: str = "", new: str = ""):
         self.path, self.old, self.new = path, old, new
 
     def __enter__(self) -> Path:
@@ -62,6 +64,8 @@ class ScratchRoot:
             target = root / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / relative, target)
+        if not self.path:
+            return root
         edited = root / self.path
         text = edited.read_text()
         if text.count(self.old) != 1:
@@ -80,7 +84,7 @@ class TrackedSummaryTest(unittest.TestCase):
             self.assertEqual(MODEL.main([]), 0)
         self.assertIn("consistent", stdout.getvalue())
 
-    def test_every_number_is_classified_measured_projection_or_parameter(self) -> None:
+    def test_every_number_is_classified_measured_projection_parameter_or_estimator(self) -> None:
         summary = tracked_summary()
         self.assertEqual(MODEL.unclassified_numbers(summary), [])
         classes = set()
@@ -96,7 +100,8 @@ class TrackedSummaryTest(unittest.TestCase):
                     walk(item)
 
         walk(summary)
-        self.assertEqual(classes, {"measured", "projection", "parameter"})
+        self.assertEqual(classes, {"measured", "projection", "parameter", "estimator"})
+        self.assertEqual(set(summary["classification"]), classes)
         # A bare number, an unknown class and a missing unit are all reported.
         summary["runs"][0]["process"]["peak_rss_bytes"] = 5
         self.assertIn("/runs[0]/process/peak_rss_bytes: bare number 5", MODEL.unclassified_numbers(summary))
@@ -156,7 +161,7 @@ class TrackedSummaryTest(unittest.TestCase):
         branches = summary["select_branch_comparison_n16"]["evaluation_total"]
         self.assertGreater(branches["zero_branch_wall_ns"]["value"], 0)
         self.assertGreater(branches["nonzero_branch_wall_ns"]["value"], 0)
-        self.assertEqual(summary["security_estimate"]["lattice_estimator"]["status"], "not_run")
+        self.assertEqual(summary["security_estimate"]["lattice_estimator"]["status"], "run")
 
     def test_every_opcode_was_measured_and_reported_the_modelled_work(self) -> None:
         summary = tracked_summary()
@@ -251,9 +256,25 @@ class TrackedSummaryTest(unittest.TestCase):
         mutated = copy.deepcopy(summary)
         mutated["runs"][tape]["final_zeroing_mask"]["noise_bound_bits"]["value"] += 1
         self.assertTrue(any("noise_bound_bits of the output" in problem for problem in MODEL.check_summary(mutated)))
+        # An estimator number, a verdict and the status are held to the tracked output record.
+        expected = f"security_estimate: differs from its recomputation from {MODEL.ESTIMATOR_OUTPUT}"
+        estimator = summary["security_estimate"]["lattice_estimator"]
         mutated = copy.deepcopy(summary)
-        mutated["security_estimate"]["lattice_estimator"]["status"] = "run"
-        self.assertTrue(any("not_run" in problem for problem in MODEL.check_summary(mutated)))
+        mutated["security_estimate"]["lattice_estimator"]["status"] = "not_run"
+        self.assertIn(expected, MODEL.check_summary(mutated))
+        mutated = copy.deepcopy(summary)
+        usvp = mutated["security_estimate"]["lattice_estimator"]["profiles"][AFFINE]["instances"]["QP:n"]["models"]
+        usvp["ADPS16"]["attacks"]["usvp"]["log2_cost"]["value"] += 30
+        self.assertIn(expected, MODEL.check_summary(mutated))
+        mutated = copy.deepcopy(summary)
+        verdict = mutated["security_estimate"]["lattice_estimator"]["profiles"][REFRESH]["verdict"]["ADPS16"]
+        self.assertFalse(verdict["meets_design_target_on_the_attacks_with_a_cost"])
+        verdict["meets_design_target_on_the_attacks_with_a_cost"] = True
+        self.assertIn(expected, MODEL.check_summary(mutated))
+        mutated = copy.deepcopy(summary)
+        mutated["security_estimate"]["lattice_estimator"]["not_covered"].pop()
+        self.assertIn(expected, MODEL.check_summary(mutated))
+        self.assertEqual(estimator["output_record"], MODEL.ESTIMATOR_OUTPUT)
         mutated = copy.deepcopy(summary)
         mutated["runs"][0]["run"]["verdict"] = "rejected"
         self.assertTrue(any("not accepted" in problem for problem in MODEL.check_summary(mutated)))
@@ -335,6 +356,9 @@ class SourceDriftTest(unittest.TestCase):
         for spec, marker in (
             (MODEL.CANDIDATE_SPEC, MODEL.CLASS_FIT_MARKER),
             (MODEL.CANDIDATE_SPEC, MODEL.CANDIDATE_MARKER),
+            (MODEL.CANDIDATE_SPEC, MODEL.ESTIMATOR_MARKER),
+            (MODEL.CANDIDATE_SPEC, MODEL.ESTIMATOR_ATTACKS_MARKER),
+            (MODEL.CANDIDATE_SPEC, MODEL.ESTIMATOR_PROPOSALS_MARKER),
             (MODEL.COMPARISON_SPEC, MODEL.COMPARISON_MARKER),
             (MODEL.COMPARISON_SPEC, MODEL.INSTRUCTION_MARKER),
             (MODEL.COMPARISON_SPEC, MODEL.INPUT_PROOF_MARKER),
@@ -711,11 +735,311 @@ class ReferenceVectorsTest(unittest.TestCase):
         self.assertEqual(empty, "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262")
         abc = reference._Output(reference.IV, b"abc", 0).read(32).hex()
         self.assertEqual(abc, "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85")
-        # The estimator script pins a commit and states that it has not been run.
-        estimator = (ROOT / MODEL.ESTIMATOR_SCRIPT).read_text()
-        self.assertIn("STATUS: NOT RUN", estimator)
-        self.assertRegex(estimator, r'ESTIMATOR_COMMIT = "[0-9a-f]{40}"')
-        self.assertIn("ND.CenteredBinomial(ERROR_ETA)", estimator)
+
+
+class EstimatorRecordTest(unittest.TestCase):
+    """The Lattice Estimator numbers of the summary are the tracked output record, restated."""
+
+    def record(self) -> dict:
+        return MODEL.read_estimator_record((ROOT / MODEL.ESTIMATOR_OUTPUT).read_text())
+
+    def test_the_record_is_the_output_of_the_script_as_it_stands(self) -> None:
+        self.assertEqual(MODEL.estimator_record_problems(ROOT), [])
+        script = (ROOT / MODEL.ESTIMATOR_SCRIPT).read_text()
+        self.assertIn("STATUS: RUN", script)
+        self.assertNotIn("NOT RUN", script)
+        self.assertIn("ND.CenteredBinomial(ZZ(ERROR_ETA))", script)
+        self.assertIn("ND.Uniform(ZZ(-1), ZZ(1))", script)
+        facts = MODEL.estimator_script_facts(ROOT)
+        self.assertRegex(facts["commit"], r"^[0-9a-f]{40}$")
+        record = self.record()
+        self.assertGreaterEqual(len(record["RUN"]), 1)
+        for run, end in record["invocations"]:
+            self.assertEqual(run["estimator_commit"], facts["commit"])
+            self.assertEqual(run["estimator_commit_expected"], facts["commit"])
+            self.assertEqual(run["script_code_sha256"], facts["code_sha256"])
+            self.assertIn("SageMath version", run["sagemath"])
+            self.assertTrue(run["command"].startswith("PYTHONPATH="))
+            self.assertIn(f"sage {MODEL.ESTIMATOR_SCRIPT}", run["command"])
+            self.assertIsNotNone(end)
+        self.assertTrue(all(check["equal_to_LWE_estimate"] for check in record["SELFCHECK"]))
+        # The header of the script does not enter the hash; its code does.
+        with ScratchRoot(MODEL.ESTIMATOR_SCRIPT, "# Purpose\n", "# Purpose of this script\n") as root:
+            self.assertEqual(MODEL.estimator_script_facts(root), facts)
+        with ScratchRoot(MODEL.ESTIMATOR_SCRIPT, "ERROR_ETA = 21\n", "ERROR_ETA = 20\n") as root:
+            self.assertNotEqual(MODEL.estimator_script_facts(root)["code_sha256"], facts["code_sha256"])
+            problems = MODEL.check_summary(tracked_summary(), root)
+        self.assertTrue(any("produced by other code" in problem for problem in problems), problems)
+
+    def test_the_estimated_instances_are_the_moduli_of_the_pinned_profiles(self) -> None:
+        record = self.record()
+        profiles = MODEL.estimated_profiles()
+        self.assertEqual(set(profiles), set(MODEL.CANDIDATES) | {name for name, _shape in MODEL.MEASURED_CONFIGS.values()})
+        tables = MODEL.rust_prime_tables(ROOT)
+        pinned = {
+            AFFINE: (tables["F257_N14_MAIN_PRIMES"], tables["F257_N14_SPECIAL_PRIMES"]),
+            BOUNDED: (tables["F257_N16_MAIN_PRIMES"][:22], tables["F257_N16_SPECIAL_PRIMES"]),
+            REFRESH: (tables["F257_N16_MAIN_PRIMES"], tables["F257_N16_SPECIAL_PRIMES"]),
+        }
+        seen = set()
+        for instance in record["INSTANCE"]:
+            if not instance["pinned"]:
+                continue
+            seen.add((instance["profile"], instance["instance"]))
+            self.assertEqual(instance["error"], "centered binomial, eta = 21")
+            self.assertEqual(instance["secret"], "uniform ternary on {-1, 0, 1}")
+            self.assertAlmostEqual(instance["error_stddev"], math.sqrt(10.5), places=5)
+            self.assertAlmostEqual(instance["secret_stddev"], math.sqrt(2 / 3), places=5)
+            if instance["profile"] in pinned:
+                # The modulus the estimator was given is the product of the primes the Rust file pins.
+                main, special = pinned[instance["profile"]]
+                modulus = math.prod(main) * (math.prod(special) if instance["modulus"] == "QP" else 1)
+                self.assertEqual(instance["q"], str(modulus))
+                self.assertEqual(instance["modulus_bits"], modulus.bit_length())
+        self.assertEqual(seen, {(name, instance) for name in profiles for instance in MODEL.ESTIMATOR_INSTANCES})
+        # A changed dimension, modulus or distribution in the record is detected.
+        for old, new, expected in (
+            ('"n": 16384', '"n": 8192', "the modulus or the dimension"),
+            ('"q": "1', '"q": "2', "the modulus or the dimension"),
+            ("eta = 21", "eta = 3", "the error distribution"),
+            ("uniform ternary on {-1, 0, 1}", "uniform binary", "the secret distribution"),
+        ):
+            with ScratchRoot() as root:
+                path = root / MODEL.ESTIMATOR_OUTPUT
+                self.assertIn(old, path.read_text())
+                path.write_text(path.read_text().replace(old, new))
+                problems = MODEL.estimator_record_problems(root)
+            self.assertTrue(any(expected in problem for problem in problems), (expected, problems))
+
+    def test_every_estimator_number_is_a_result_line_of_the_record(self) -> None:
+        estimator = tracked_summary()["security_estimate"]["lattice_estimator"]
+        results = MODEL.estimator_results(self.record())
+        self.assertEqual(
+            estimator["output_record_sha256"],
+            hashlib.sha256((ROOT / MODEL.ESTIMATOR_OUTPUT).read_bytes()).hexdigest(),
+        )
+        finished = 0
+        for name, block in estimator["profiles"].items():
+            self.assertEqual(set(block["instances"]), set(MODEL.ESTIMATOR_INSTANCES))
+            for instance, item in block["instances"].items():
+                self.assertEqual(set(item["models"]), set(MODEL.ESTIMATOR_MODELS))
+                groups = [(model, entry["attacks"]) for model, entry in item["models"].items()]
+                groups.append((MODEL.ESTIMATOR_MODEL_FREE, item["attacks_without_a_cost_model"]))
+                for model, attacks in groups:
+                    for attack, entry in attacks.items():
+                        result = results.get((name, instance, model, attack))
+                        if result is None:
+                            self.assertEqual(entry["status"], "not_attempted")
+                            self.assertNotIn("log2_cost", entry)
+                            continue
+                        self.assertEqual(entry["status"], result["status"])
+                        if result["status"] != "ok":
+                            # An attack without a cost carries its reason, never a number of bits.
+                            self.assertNotIn("log2_cost", entry)
+                            self.assertEqual(entry["reason"], result["message"])
+                        elif result["log2_rop"] == "oo":
+                            self.assertEqual(entry["log2_cost"], "infinite")
+                        else:
+                            finished += 1
+                            self.assertEqual(entry["log2_cost"], {"value": result["log2_rop"], "unit": "bits", "class": "estimator"})
+                # The minimum of a cost model is the cheapest of its finished attacks.
+                for model, entry in item["models"].items():
+                    costs = [
+                        attack["log2_cost"]["value"]
+                        for attack in entry["attacks"].values()
+                        if isinstance(attack.get("log2_cost"), dict)
+                    ]
+                    if costs:
+                        self.assertEqual(entry["minimum"]["log2_cost"]["value"], min(costs))
+                    else:
+                        self.assertNotIn("minimum", entry)
+        # The four attacks that always finish cover every profile, instance and cost model.
+        self.assertGreaterEqual(finished, 5 * 3 * 3 * 4)
+
+    def test_the_verdicts_follow_the_design_target(self) -> None:
+        estimator = tracked_summary()["security_estimate"]["lattice_estimator"]
+        self.assertEqual(estimator["design_target"]["classical_bits"]["value"], 128)
+        self.assertEqual(estimator["design_target"]["cost_model"], "BDGL16")
+        for name, block in estimator["profiles"].items():
+            for model in MODEL.ESTIMATOR_MODELS:
+                verdict = block["verdict"][model]
+                lowest = min(
+                    entry["minimum"]["log2_cost"]["value"]
+                    for entry in (item["models"][model] for item in block["instances"].values())
+                    if "minimum" in entry
+                )
+                self.assertLessEqual(verdict["minimum_log2_cost"]["value"], lowest)
+                self.assertTrue(verdict["minimum_instance"].startswith("QP"), (name, model))
+                if model in MODEL.ESTIMATOR_CLASSICAL_MODELS:
+                    self.assertEqual(
+                        verdict["meets_design_target_on_the_attacks_with_a_cost"],
+                        verdict["minimum_log2_cost"]["value"] >= 128,
+                    )
+                    self.assertAlmostEqual(
+                        verdict["margin_bits"]["value"], verdict["minimum_log2_cost"]["value"] - 128, places=3
+                    )
+                else:
+                    self.assertNotIn("meets_design_target_on_the_attacks_with_a_cost", verdict)
+            # The quantum exponent is below the classical one of the same model family.
+            self.assertLess(
+                block["verdict"]["ADPS16-quantum"]["minimum_log2_cost"]["value"],
+                block["verdict"]["ADPS16"]["minimum_log2_cost"]["value"],
+            )
+        # What the record says about the three candidates: all pass under the cost model the
+        # design memo names; under core-SVP only the bounded candidate does.
+        verdicts = {name: estimator["profiles"][name]["verdict"] for name in (AFFINE, BOUNDED, REFRESH)}
+        for name in (AFFINE, BOUNDED, REFRESH):
+            self.assertTrue(verdicts[name]["BDGL16"]["meets_design_target_on_the_attacks_with_a_cost"], name)
+        self.assertFalse(verdicts[AFFINE]["ADPS16"]["meets_design_target_on_the_attacks_with_a_cost"])
+        self.assertTrue(verdicts[BOUNDED]["ADPS16"]["meets_design_target_on_the_attacks_with_a_cost"])
+        self.assertFalse(verdicts[REFRESH]["ADPS16"]["meets_design_target_on_the_attacks_with_a_cost"])
+        # Nothing of this qualifies a profile, and the limits are stated beside the numbers.
+        self.assertIn("No profile is qualified", tracked_summary()["security_estimate"]["status"])
+        limits = " ".join(estimator["not_covered"])
+        for phrase in ("ring structure", "circular-security", "not sampled honestly", "side channels", "maximum shape", "review"):
+            self.assertIn(phrase, limits)
+
+    def test_the_core_svp_sanity_numbers_are_kept_and_compared(self) -> None:
+        summary = tracked_summary()
+        estimator = summary["security_estimate"]["lattice_estimator"]
+        for name, shape in MODEL.CANDIDATES.items():
+            comparison = estimator["profiles"][name]["core_svp_sanity_comparison"]
+            sanity = summary["candidates"][name]["security_sanity"]
+            self.assertEqual(comparison["core_svp_classical"]["sanity_bits"], sanity["core_svp_classical_bits"])
+            self.assertEqual(comparison["bdgl16_style_classical"]["sanity_bits"], sanity["bdgl16_style_classical_bits"])
+            self.assertEqual(comparison["block_size"]["sanity"], sanity["bkz_block_size"])
+            usvp = estimator["profiles"][name]["instances"]["QP:n"]["models"]["ADPS16"]["attacks"]["usvp"]
+            self.assertEqual(comparison["core_svp_classical"]["estimator_bits"], usvp["log2_cost"])
+            self.assertEqual(comparison["block_size"]["estimator"], usvp["block_size"])
+            # ADPS16 is 0.292 * beta: the estimator's cost is its own block size times the exponent.
+            self.assertAlmostEqual(usvp["log2_cost"]["value"], 0.292 * usvp["block_size"]["value"], places=3)
+            # No large discrepancy: the sanity formula and the estimator's primal uSVP agree within a bit.
+            self.assertTrue(comparison["agrees_within_one_bit"], name)
+            self.assertLessEqual(comparison["largest_difference_bits"]["value"], 1.0)
+
+    def test_an_attack_without_a_cost_is_reported_with_its_reason(self) -> None:
+        identity = {"profile": AFFINE, "instance": "QP:n", "model": "BDGL16", "attack": "bdd_hybrid"}
+        timeout = dict(identity, status="timeout", message="stopped at the limit of 3600 seconds", seconds=3600.2)
+        done = dict(identity, status="ok", log2_rop=136.5, seconds=412.0, cost={"beta": 350, "d": 31000, "zeta": 0, "rop": {"log2": 136.5}})
+        self.assertEqual(
+            MODEL._attack_entry(timeout),
+            {
+                "status": "timeout",
+                "reason": "stopped at the limit of 3600 seconds",
+                "seconds": {"value": 3600.2, "unit": "seconds", "class": "estimator"},
+            },
+        )
+        self.assertEqual(MODEL._attack_entry(None)["status"], "not_attempted")
+        entry = MODEL._attack_entry(done)
+        self.assertEqual(entry["log2_cost"]["value"], 136.5)
+        self.assertEqual(entry["block_size"], {"value": 350, "unit": "count", "class": "estimator"})
+        self.assertEqual(entry["guessed_coordinates"]["value"], 0)
+        infinite = MODEL._attack_entry(dict(done, log2_rop="oo", cost={"rop": "oo"}))
+        self.assertEqual(infinite["log2_cost"], "infinite")
+        self.assertEqual(MODEL._cost_cell(infinite), "infinite")
+        self.assertEqual(MODEL._cost_cell(MODEL._attack_entry(timeout)), "timeout")
+        self.assertEqual(MODEL._cost_cell(entry), "136.5")
+        # A finished attempt is reported whether it comes before or after one that was cut off.
+        key = (AFFINE, "QP:n", "BDGL16", "bdd_hybrid")
+        for order in ((timeout, done), (done, timeout)):
+            self.assertEqual(MODEL.estimator_results({"RESULT": list(order)})[key]["status"], "ok")
+        self.assertEqual(MODEL.estimator_results({"RESULT": [timeout, dict(timeout, status="stopped")]})[key]["status"], "stopped")
+        # An invocation that was cut off has no END line, and the check says so.
+        text = 'RUN {"a": 1}\nRESULT ' + json.dumps(done) + '\nRUN {"a": 2}\nEND {"b": 3}\nnoise line\n'
+        record = MODEL.read_estimator_record(text)
+        self.assertEqual(record["invocations"], [[{"a": 1}, None], [{"a": 2}, {"b": 3}]])
+        self.assertEqual(len(record["RESULT"]), 1)
+        with ScratchRoot() as root:
+            path = root / MODEL.ESTIMATOR_OUTPUT
+            lines = path.read_text().splitlines(keepends=True)
+            last_end = max(index for index, line in enumerate(lines) if line.startswith("END "))
+            path.write_text("".join(lines[:last_end] + lines[last_end + 1 :]))
+            problems = MODEL.estimator_record_problems(root)
+        self.assertTrue(any("no END line" in problem for problem in problems), problems)
+
+    def test_a_changed_record_is_detected(self) -> None:
+        summary = tracked_summary()
+        expected = f"security_estimate: differs from its recomputation from {MODEL.ESTIMATOR_OUTPUT}"
+        tracked = (ROOT / MODEL.ESTIMATOR_OUTPUT).read_text().splitlines(keepends=True)
+        index = next(
+            index
+            for index, item in enumerate(tracked)
+            if item.startswith("RESULT ") and '"attack": "usvp"' in item and f'"profile": "{REFRESH}"' in item
+        )
+        result = json.loads(tracked[index][len("RESULT ") :])
+        result["log2_rop"] += 40
+        changed = "RESULT " + json.dumps(result, sort_keys=True) + "\n"
+        for replacement in (changed, ""):
+            with ScratchRoot() as root:
+                (root / MODEL.ESTIMATOR_OUTPUT).write_text("".join(tracked[:index] + [replacement] + tracked[index + 1 :]))
+                self.assertEqual(MODEL.check_summary(summary, root), [expected])
+                # Rebuilding the summary from the changed record gives another block.
+                rebuilt = MODEL.rederive(summary, root)
+                self.assertNotEqual(rebuilt["security_estimate"], summary["security_estimate"])
+                self.assertEqual(rebuilt["candidates"], summary["candidates"])
+        # Without the record the summary would say that nothing was run, and the check fails.
+        with ScratchRoot() as root:
+            (root / MODEL.ESTIMATOR_OUTPUT).unlink()
+            self.assertEqual(MODEL.estimator_block(root)["status"], "not_run")
+            self.assertEqual(MODEL.check_summary(summary, root), [f"{MODEL.ESTIMATOR_OUTPUT} is missing"])
+
+    def test_the_numbers_quoted_in_the_crate_documentation_are_those_of_the_summary(self) -> None:
+        estimator = tracked_summary()["security_estimate"]["lattice_estimator"]
+        source = (ROOT / MODEL.PROFILE_SOURCE).read_text()
+        readme = " ".join((ROOT / "crates" / "iroha_fhe" / "README.md").read_text().split())
+        for name, variant, label in (
+            (AFFINE, "AffineF257", "affine"),
+            (BOUNDED, "BoundedF257", "bounded"),
+            (REFRESH, "RefreshF257", "refresh"),
+        ):
+            verdict = estimator["profiles"][name]["verdict"]
+            cells = [f"{verdict[model]['minimum_log2_cost']['value']:.1f}" for model in MODEL.ESTIMATOR_MODELS]
+            self.assertIn(f"/// | [`Self::{variant}`] | " + " | ".join(cells) + " |", source)
+            self.assertIn(f"{label} " + " / ".join(cells), readme)
+        # The documentation states the limits beside the numbers and qualifies nothing.
+        for text in (source, readme):
+            self.assertIn("ring structure", text)
+            self.assertIn("circular-security", text)
+            self.assertIn("side channels", text)
+        self.assertIn("No candidate is qualified", source)
+        self.assertIn("No candidate is qualified", readme)
+
+    def test_shapes_outside_the_pinned_list_are_proposals(self) -> None:
+        self.assertEqual(MODEL.proposal_shape("bgv.derive.n14.t257.q4x50.p2x60"), (14, 257, (50, 4), (60, 2), 2))
+        self.assertIsNone(MODEL.proposal_shape("bgv.derive.n14.t257.q13x50.p2x60.d2"))
+        self.assertIsNone(MODEL.proposal_shape(AFFINE))
+        self.assertEqual(MODEL._variation_of((14, 257, (50, 4), (60, 2), 2)), (AFFINE, "main_primes"))
+        self.assertEqual(MODEL._variation_of((15, 257, (50, 6), (60, 2), 2)), (AFFINE, "ring_degree"))
+        self.assertEqual(MODEL._variation_of((17, 257, (50, 32), (60, 2), 2)), (REFRESH, "ring_degree"))
+        # Between two candidates of one ring degree a chain is a shorter chain of the longer one.
+        self.assertEqual(MODEL._variation_of((16, 257, (50, 26), (60, 2), 2)), (REFRESH, "main_primes"))
+        self.assertEqual(MODEL._variation_of((16, 257, (50, 20), (60, 2), 2)), (BOUNDED, "main_primes"))
+        self.assertEqual(MODEL._variation_of((16, 257, (50, 40), (60, 2), 2)), (REFRESH, "main_primes"))
+        self.assertIsNone(MODEL._variation_of((14, 257, (50, 4), (60, 3), 2)))
+        proposals = tracked_summary()["security_estimate"]["lattice_estimator"]["proposals"]
+        self.assertIn("not changes", proposals["status"])
+        self.assertEqual(set(proposals["shortfalls_and_smallest_changes"]), set(MODEL.CANDIDATES))
+        # No shape of the proposals is a pinned profile, and each names the candidate it varies.
+        for name, block in proposals["shapes"].items():
+            self.assertNotIn(name, MODEL.estimated_profiles())
+            self.assertIn(block["varies"]["candidate"], MODEL.CANDIDATES)
+        # A shortfall is recorded exactly where a classical verdict fails, with a change that meets it.
+        estimator = tracked_summary()["security_estimate"]["lattice_estimator"]
+        for name in MODEL.CANDIDATES:
+            failing = {
+                model
+                for model in MODEL.ESTIMATOR_CLASSICAL_MODELS
+                if not estimator["profiles"][name]["verdict"][model]["meets_design_target_on_the_attacks_with_a_cost"]
+            }
+            shortfalls = proposals["shortfalls_and_smallest_changes"][name]
+            self.assertEqual(set(shortfalls), failing, name)
+            for model, entry in shortfalls.items():
+                self.assertGreater(entry["shortfall_bits"]["value"], 0)
+                chain = entry["longest_chain_meeting_the_target_at_the_same_ring_degree"]
+                self.assertTrue(chain["the_next_longer_chain_is_recorded_and_fails"], (name, model))
+                shape = proposals["shapes"][chain["shape"]]
+                self.assertTrue(shape["verdict"][model]["meets_design_target_on_the_attacks_with_a_cost"])
+                self.assertLess(chain["main_primes"]["value"], MODEL.CANDIDATES[name][2][1])
 
 
 if __name__ == "__main__":

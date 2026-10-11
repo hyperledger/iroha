@@ -6,12 +6,12 @@
 mod common;
 
 use common::{
-    TWO_LEVEL_BUDGET, TWO_LEVEL_SMALLEST, budget_shape, relation_shapes, smallest_shape,
-    vesta_prover,
+    BUDGET_SHAPE, K11_SHAPE, RELATIONS, SMALLEST_SHAPE, budget_shape, fewest_lanes_at, folded,
+    pinned_shape, relation_shapes, smallest_shape, vesta_prover,
 };
 use iroha_kagemusha_proof::{
-    PROOF_BYTES_GATE, PrefixMode, ProofFormat, RelationShape, SigmaParams, SigmaShape,
-    SigmaVerifier, StateLayout, StepRelation, limb_bits_for,
+    PROOF_BYTES_GATE, ProofFormat, SigmaParams, SigmaRelation, SigmaShape, SigmaVerifier,
+    limb_bits_for,
 };
 use iroha_pasta::{Ep, Eq, Fp};
 use iroha_plonk_gadgets::poseidon::ROWS_PER_PERMUTATION;
@@ -91,32 +91,31 @@ fn selected_shapes_fit_and_meet_the_budget() {
 }
 
 #[test]
-fn two_level_steps_select_their_pinned_shapes() {
-    for step in [StepRelation::Send, StepRelation::Receive] {
-        let relation = RelationShape::new(step, StateLayout::TwoLevel, PrefixMode::Folded);
+fn every_relation_selects_the_pinned_shapes() {
+    for case in RELATIONS {
+        let relation = folded(case);
         let smallest = smallest_shape(relation);
         assert_eq!(
             (smallest.k, smallest.params.lanes()),
-            TWO_LEVEL_SMALLEST,
-            "{step:?}"
+            SMALLEST_SHAPE,
+            "{case:?}"
         );
         let budget = budget_shape(relation);
-        assert_eq!(
-            (budget.k, budget.params.lanes()),
-            TWO_LEVEL_BUDGET,
-            "{step:?}"
-        );
+        assert_eq!((budget.k, budget.params.lanes()), BUDGET_SHAPE, "{case:?}");
         // The proof length does not depend on the curve.
         assert_eq!(
             budget.proof_length::<Eq>(ProofFormat::KAGEMUSHA_STEP),
             budget.proof_length::<Ep>(ProofFormat::KAGEMUSHA_STEP)
         );
-        // At k = 11 the spec core needs two lanes (65 or 64 permutations do
+        // At k = 11 the G1 core needs two lanes (67 or 65 permutations do
         // not fit 2,048 rows), whose proof exceeds the budget.
         let one_lane = SigmaParams::new(relation, 1, limb_bits_for(11)).expect("params");
         assert!(SigmaShape::new(one_lane, 11).inventory::<Fp>().is_err());
-        let two_lanes = SigmaParams::new(relation, 2, limb_bits_for(11)).expect("params");
-        let bytes = SigmaShape::new(two_lanes, 11)
+        let k11 = fewest_lanes_at(relation, 11);
+        assert_eq!(k11, pinned_shape(relation, K11_SHAPE), "{case:?}");
+        assert_eq!(smallest, pinned_shape(relation, SMALLEST_SHAPE), "{case:?}");
+        assert_eq!(budget, pinned_shape(relation, BUDGET_SHAPE), "{case:?}");
+        let bytes = k11
             .proof_length::<Eq>(ProofFormat::KAGEMUSHA_STEP)
             .expect("k = 11 with two lanes fits");
         println!(
@@ -129,12 +128,7 @@ fn two_level_steps_select_their_pinned_shapes() {
 
 #[test]
 fn verifiers_rebuild_from_descriptor_and_key_bytes() {
-    let relation = RelationShape::new(
-        StepRelation::Receive,
-        StateLayout::TwoLevel,
-        PrefixMode::Folded,
-    );
-    let shape = smallest_shape(relation);
+    let shape = smallest_shape(folded(SigmaRelation::RECEIVE));
     let prover = vesta_prover(shape);
     let descriptor = shape
         .descriptor::<Eq>(ProofFormat::KAGEMUSHA_STEP)
@@ -142,7 +136,7 @@ fn verifiers_rebuild_from_descriptor_and_key_bytes() {
     assert_eq!(prover.proving_key().binding().descriptor(), &descriptor);
     let verifier = prover.verifier();
     let rebuilt = SigmaVerifier::<Eq>::from_bytes(
-        StepRelation::Receive,
+        SigmaRelation::RECEIVE,
         prover.params().clone(),
         verifier.descriptor_bytes(),
         verifier.vk_bytes(),
@@ -150,13 +144,15 @@ fn verifiers_rebuild_from_descriptor_and_key_bytes() {
     .expect("verifier from bytes");
     assert_eq!(rebuilt.vk_bytes(), verifier.vk_bytes());
     assert_eq!(rebuilt.binding(), verifier.binding());
+    assert_eq!(rebuilt.relation(), SigmaRelation::RECEIVE);
+    assert_eq!(rebuilt.allowlist_entry(), verifier.allowlist_entry());
     // Keys are deterministic.
     let again = vesta_prover(shape);
     assert_eq!(again.verifier().vk_bytes(), verifier.vk_bytes());
     // Parameters of another k are refused.
     assert!(
         SigmaVerifier::<Eq>::from_bytes(
-            StepRelation::Receive,
+            SigmaRelation::RECEIVE,
             common::vesta_params(shape.k + 1),
             verifier.descriptor_bytes(),
             verifier.vk_bytes(),
@@ -167,7 +163,7 @@ fn verifiers_rebuild_from_descriptor_and_key_bytes() {
     truncated.pop();
     assert!(
         SigmaVerifier::<Eq>::from_bytes(
-            StepRelation::Receive,
+            SigmaRelation::RECEIVE,
             prover.params().clone(),
             verifier.descriptor_bytes(),
             &truncated,
@@ -180,12 +176,7 @@ fn verifiers_rebuild_from_descriptor_and_key_bytes() {
 fn commitment_tables_change_no_key_or_proof_byte() {
     use iroha_kagemusha_proof::{KeyOptions, Mutation, SigmaProver, sample_witness};
 
-    let relation = RelationShape::new(
-        StepRelation::Receive,
-        StateLayout::TwoLevel,
-        PrefixMode::Folded,
-    );
-    let shape = smallest_shape(relation);
+    let shape = smallest_shape(folded(SigmaRelation::RECEIVE));
     let plain = vesta_prover(shape);
     let tabled = SigmaProver::<Eq>::keygen_with_options(
         shape,
@@ -204,7 +195,7 @@ fn commitment_tables_change_no_key_or_proof_byte() {
         (false, false)
     );
     assert_eq!(tabled.verifier().vk_bytes(), plain.verifier().vk_bytes());
-    let witness = sample_witness::<Fp>(3, StepRelation::Receive, Mutation::None);
+    let witness = sample_witness::<Fp>(3, SigmaRelation::RECEIVE, Mutation::None);
     let with_tables = tabled
         .prove(&witness, common::recovery(4))
         .expect("proof with tables");

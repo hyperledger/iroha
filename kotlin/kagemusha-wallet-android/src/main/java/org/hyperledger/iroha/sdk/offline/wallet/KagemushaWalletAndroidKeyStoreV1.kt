@@ -121,8 +121,8 @@ internal interface KagemushaWalletAndroidKeyStoreV1 {
     /** `KeyInfo` readback of a present key. */
     fun facts(key: PrivateKey): KagemushaWalletAndroidKeyFactsV1
 
-    /** `SHA256withECDSA` over [preimage], returned as the platform's DER. */
-    fun sign(key: PrivateKey, preimage: ByteArray): ByteArray
+    /** `SHA256withECDSA` over the exact 32-byte native [message], returned as the platform's DER. */
+    fun sign(key: PrivateKey, message: ByteArray): ByteArray
 
     /** `KeyStore.deleteEntry(alias)`. */
     fun deleteEntry(alias: String)
@@ -161,12 +161,14 @@ internal class KagemushaWalletAndroidSystemKeyStoreV1 : KagemushaWalletAndroidKe
         return KagemushaWalletAndroidKeyInfoApi31V1.facts(info)
     }
 
-    override fun sign(key: PrivateKey, preimage: ByteArray): ByteArray =
-        Signature.getInstance(SIGNATURE_ALGORITHM).run {
+    override fun sign(key: PrivateKey, message: ByteArray): ByteArray {
+        require(message.size == KAGEMUSHA_WALLET_ANDROID_SIGNING_MESSAGE_BYTES_V1) { "signing message must contain exactly 32 bytes" }
+        return Signature.getInstance(SIGNATURE_ALGORITHM).run {
             initSign(key)
-            update(preimage)
+            update(message)
             sign()
         }
+    }
 
     override fun deleteEntry(alias: String) {
         keyStore().deleteEntry(alias)

@@ -216,6 +216,12 @@ impl ManagedContext {
         let (config, _) =
             Config::load_bytes_with_musubi_publication(&self.client_config, &bytes)
                 .map_err(|_| Error::Invalid("managed client configuration is invalid".into()))?;
+        self.validate_client_config(&config)?;
+        Ok(config)
+    }
+
+    /// Apply the original context identity checks to canonically parsed bytes from either owner.
+    pub(crate) fn validate_client_config(&self, config: &Config) -> Result<()> {
         let _profile = ChainDiscriminantGuard::enter(config.account_chain_discriminant);
         if config.chain.to_string() != self.chain_id
             || config.network_id.to_string() != self.network_id
@@ -226,7 +232,7 @@ impl ManagedContext {
                 "managed client identity or endpoint differs from its retained context".into(),
             ));
         }
-        Ok(config)
+        Ok(())
     }
 }
 

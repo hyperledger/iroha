@@ -143,8 +143,7 @@ fn state_with_authority() -> (State, AccountId, KeyPair) {
 }
 #[test]
 fn signed_and_registered_contract_rejects_every_execution_header_mutation() {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let (state, authority, key_pair) = state_with_authority();
     let mut block = state.block(iroha_data_model::block::BlockHeader::new(
         nonzero!(1_u64),
@@ -162,7 +161,14 @@ fn signed_and_registered_contract_rejects_every_execution_header_mutation() {
     let original = contract_artifact();
     let verified = ivm::verify_contract_artifact(&original).expect("verify original artifact");
     let original_hash = verified.code_hash;
-    let signed_manifest = verified.manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &key_pair).expect("sign bounded fixture manifest");
+    let signed_manifest = verified
+        .manifest
+        .try_signed(
+            manifest_signing.context(),
+            manifest_signing.max_frame_bytes(),
+            &key_pair,
+        )
+        .expect("sign bounded fixture manifest");
     RegisterSmartContractBytes {
         artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(
             iroha_model_base::topology::DataSpaceId::UNIVERSAL,

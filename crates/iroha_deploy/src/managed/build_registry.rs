@@ -22,14 +22,17 @@ pub(super) use generated_local::{GeneratedServiceObservation, observe_generated_
 pub(super) const DISCOVERY_FRESHNESS: Duration = Duration::from_secs(30);
 
 impl ManagedStore {
-    /// Prepare the retained registry only when a cold package graph actually needs it.
+    /// Resolve the original registry binding for a package with external dependencies.
     ///
     /// The returned configuration belongs to the registry network. Its prepared transport owns
     /// the exclusive, separately advancing discovery journal through every derived archive client.
     /// Generated local TLS roots and addresses come only from the validated original profile;
     /// fresh native admission, advert and signer custody remain mandatory before provider I/O.
     /// Standard localnets and private environments without a signed parent registry return `None`.
-    /// Each cold build supplies its own bounded deadline; reopening never reissues original keys,
+    /// Complete cache hits still require this binding and retained discovery custody. A private
+    /// parent's retained release is authenticated first; an unavailable retained release may
+    /// require a bounded checkpoint fetch. Provider discovery runs only on archive requests.
+    /// Each build supplies its own bounded deadline; reopening never reissues original keys,
     /// certificates, admission intervals or signed network releases.
     /// # Errors
     /// Invalid retained profile, changed release, unavailable custody, elapsed deadline, or a

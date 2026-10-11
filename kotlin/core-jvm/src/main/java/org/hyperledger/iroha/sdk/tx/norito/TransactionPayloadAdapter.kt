@@ -389,13 +389,20 @@ internal class TransactionPayloadAdapter private constructor(
         }
     }
 
-    private class ProofAttachmentListAdapter : TypeAdapter<List<ProofAttachment>> {
+    /**
+     * The ninth payload field carries `SignedAttachmentsV1`: the ordered intent descriptor and the
+     * signed inline attachment occurrences (`norito.md`, "Signed attachments and ordered intent";
+     * shared vectors in `fixtures/zk/signed_attachments_v1/vectors.json`). This codec does not
+     * implement that schema yet. It encodes and decodes the `None` form only and refuses every
+     * other value, so it can never emit or accept the retired proof-attachment list layout.
+     */
+    private class SignedAttachmentsUnsupportedAdapter : TypeAdapter<List<ProofAttachment>> {
         override fun encode(encoder: NoritoEncoder, value: List<ProofAttachment>) {
-            encodeSizedField(encoder, PROOF_ATTACHMENT_SEQUENCE_ADAPTER, value)
+            throw IllegalArgumentException(SIGNED_ATTACHMENTS_UNSUPPORTED)
         }
 
         override fun decode(decoder: NoritoDecoder): List<ProofAttachment> =
-            decodeSizedField(decoder, PROOF_ATTACHMENT_SEQUENCE_ADAPTER)
+            throw IllegalArgumentException(SIGNED_ATTACHMENTS_UNSUPPORTED)
     }
 
     private object FixedHashArrayAdapter : TypeAdapter<ByteArray> {
@@ -1093,12 +1100,14 @@ internal class TransactionPayloadAdapter private constructor(
             ProofVerifierKeyRefAdapter()
         private val PROOF_ATTACHMENT_ADAPTER: TypeAdapter<ProofAttachment> =
             ProofAttachmentAdapter()
-        private val PROOF_ATTACHMENT_SEQUENCE_ADAPTER: TypeAdapter<List<ProofAttachment>> =
-            NoritoAdapters.sequence(PROOF_ATTACHMENT_ADAPTER)
-        private val PROOF_ATTACHMENT_LIST_ADAPTER: TypeAdapter<List<ProofAttachment>> =
-            ProofAttachmentListAdapter()
+        internal const val SIGNED_ATTACHMENTS_UNSUPPORTED =
+            "TransactionPayload.attachments: SignedAttachmentsV1 (ordered intent descriptor and " +
+                "signed attachment occurrences) is not supported by this SDK codec; only a " +
+                "transaction without attachments can be encoded or decoded"
+        private val SIGNED_ATTACHMENTS_ADAPTER: TypeAdapter<List<ProofAttachment>> =
+            SignedAttachmentsUnsupportedAdapter()
         private val ATTACHMENTS_OPTION_ADAPTER: TypeAdapter<Optional<List<ProofAttachment>>> =
-            NoritoAdapters.option(PROOF_ATTACHMENT_LIST_ADAPTER)
+            NoritoAdapters.option(SIGNED_ATTACHMENTS_ADAPTER)
         private const val INSTRUCTION_BOX_SCHEMA =
             "(alloc::string::String, alloc::vec::Vec<u8>)"
         private const val CUSTOM_INSTRUCTION_SCHEMA =

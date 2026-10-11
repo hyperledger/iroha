@@ -631,34 +631,3 @@ fn initial_executor_denies_deployment_permission_grant_revoke_and_malformed_payl
         .collect();
     assert_eq!(stored, BTreeSet::from([canonical]));
 }
-#[test]
-fn initial_executor_denies_post_genesis_governed_kagemusha_self_grants() {
-    let authority = checked_account_id();
-    let account = Account::new(authority.clone()).build(&authority);
-    let state = State::new_for_testing(
-        component_world_for_testing(World::with([], [account], [])),
-        Kura::blank_kura_for_testing(),
-        query::store::LiveQueryStore::start_test(),
-    );
-    let mut block = state.block(BlockHeader::new(nonzero!(2_u64), None, None, 0, 0));
-    let mut state_transaction = block.transaction();
-    for name in ["CanManageKagemushaReserve"] {
-        let permission = Permission::new(name.to_owned(), Json::new(()));
-        let instruction = Grant::account_permission(permission.clone(), authority.clone()).into();
-        let error = super::Executor::Initial
-            .execute_instruction(&mut state_transaction, &authority, instruction)
-            .expect_err("an unprivileged account must not self-grant governed offline power");
-        assert!(
-            matches!(error, ValidationFail::NotPermitted(_)),
-            "unexpected {name} self-grant rejection: {error:?}",
-        );
-        assert!(
-            !state_transaction
-                .world
-                .account_permissions_iter(&authority)
-                .expect("authority permissions")
-                .any(|stored| stored == &permission),
-            "rejected {name} self-grant must not mutate world state",
-        );
-    }
-}

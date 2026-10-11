@@ -74,14 +74,9 @@ struct RuntimeSelection {
 impl RuntimeSelection {
     fn read(authority: &ServiceAuthority) -> Result<Self> {
         authority.validate_profile()?;
-        let plans = authority
-            .prepared
-            .provider_service_plans()?
-            .ok_or_else(|| invalid("original provider plans absent"))?;
-        let publication = authority
-            .prepared
-            .publication_service_plan()?
-            .ok_or_else(|| invalid("original publication plan absent"))?;
+        // RuntimeSelection owns its original projection; copy only at that ownership boundary.
+        let plans = authority.provider_plans()?.clone();
+        let publication = authority.publication_plan()?;
         if publication.peer_index() != 0
             || publication.network_id() != authority.config.network_id
             || publication.chain_id() != authority.config.chain.as_str()
@@ -120,12 +115,7 @@ impl RuntimeSelection {
                 None => None,
             };
             initial.push(selected);
-            compliance.push(
-                authority
-                    .prepared
-                    .gateway_compliance_plan(plan.provider_id())?
-                    .ok_or_else(|| invalid("original compliance plan absent"))?,
-            );
+            compliance.push(authority.gateway_compliance_plan(plan.provider_id())?);
         }
         policies.validate(authority)?;
         Ok(Self {

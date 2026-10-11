@@ -2517,3 +2517,17 @@ fn storage_request_digest_uses_exact_canonical_authorization_domain() {
     completed_providers[1] = completed_providers[0];
     assert!(duplicates.validate_for(request).is_err());
 }
+
+#[test]
+fn storage_request_digest_charges_one_exact_frame_without_renewal() {
+    let fixture = control_service_fixture(false, false);
+    let request = &fixture.storage_request;
+    let expected = request.canonical_request_digest().unwrap();
+    let length = norito::canonical_frame_len(request).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, length, 128);
+    norito::with_decode_limits_scope(limits, || {
+        assert_eq!(request.canonical_request_digest().unwrap(), expected);
+        assert!(request.canonical_request_digest().is_err(),
+            "a second request frame cannot renew the original allowance");
+    });
+}

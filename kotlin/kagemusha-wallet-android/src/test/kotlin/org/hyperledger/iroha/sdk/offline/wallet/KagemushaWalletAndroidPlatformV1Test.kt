@@ -138,7 +138,7 @@ class KagemushaWalletAndroidPlatformV1Test {
             generated.publicKeySec1().toList(),
             assertIs<KagemushaWalletAndroidKeyProbeV1.Present>(platform.keyProbe(slot)).publicKeySec1().toList(),
         )
-        assertIs<KagemushaWalletAndroidSignatureV1.Der>(platform.keySign(slot, byteArrayOf(1, 2, 3)))
+        assertIs<KagemushaWalletAndroidSignatureV1.Der>(platform.keySign(slot, ByteArray(32) { 7 }))
         assertIs<KagemushaWalletAndroidAttestationChainV1.Present>(platform.attestationChain(slot))
         assertEquals(0, platform.anchorPolicyTag())
         assertNull(platform.storageState())

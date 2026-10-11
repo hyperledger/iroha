@@ -1,0 +1,66 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "preflight_failure_is_reported_by_its_cause",
+  "category": "dispatch_classification",
+  "rules": [
+    "persist_before_effect"
+  ],
+  "description": "A dispatch that fails before any byte leaves the client is reported with its actual cause, here a node that does not support the transaction schema. The identity is not closed.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "preflight-failure-is-reported-by-its-cause",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "not_admitted:UnsupportedOperation"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "UnsupportedOperation",
+          "stage": "submit",
+          "step": 0,
+          "resumable": true
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "signed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

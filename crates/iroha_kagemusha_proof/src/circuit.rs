@@ -1,5 +1,5 @@
-//! **Prototype** step-relation circuit: [`SigmaCircuit`], its configuration
-//! parameters ([`SigmaParams`]) and the lane plan.
+//! The step-relation circuit [`SigmaCircuit`], its configuration parameters
+//! ([`SigmaParams`]) and the lane plan.
 //!
 //! # Columns
 //!
@@ -14,7 +14,7 @@
 //!   other's rows.
 //! - One running-sum column with a `2^b`-row limb table (`b = limb_bits`).
 //! - One fixed constants column and one instance column (the statement
-//!   digest, then the credit identifier for `sigma_send`).
+//!   digest).
 //!
 //! With [`PrefixMode::Folded`] each lane starts its domain-prefixed hashes
 //! from the constant post-prefix state (one permutation fewer per hash);
@@ -36,9 +36,9 @@ use iroha_plonk_gadgets::{
 use crate::{
     relation::{self, Chips},
     witness::{
-        CREDIT_DOMAIN, NativeStep, RECEIVE_CHAIN_DOMAIN, RECEIVE_CHAIN_FIELDS, REQUEST_FIELDS,
-        SEND_CHAIN_DOMAIN, SEND_CHAIN_FIELDS, StateLayout, StepDigests, StepWitness,
-        public_outputs, relation_id,
+        COMMITMENT_ARITY, CORE_DOMAIN, CREDIT_DOMAIN, NativeStep, RECEIVE_CHAIN_DOMAIN,
+        RECEIVE_CHAIN_FIELDS, REQUEST_FIELDS, SEND_CHAIN_DOMAIN, SEND_CHAIN_FIELDS, SigmaRelation,
+        StepDigests, StepWitness,
     },
 };
 
@@ -46,6 +46,8 @@ use crate::{
 pub const MAX_LANES: usize = 4;
 /// The default limb width (`k = 11` with a `2^(k - 1)`-row table).
 pub const DEFAULT_LIMB_BITS: usize = 10;
+/// The public outputs of every step relation: the statement digest.
+pub const PUBLIC_OUTPUTS: usize = 1;
 
 /// How domain-prefixed hashes start.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -69,25 +71,20 @@ impl PrefixMode {
     }
 }
 
-/// The relation a circuit proves: the step, the state layout and the
-/// Poseidon prefix mode.
+/// The relation a circuit proves: the step relation with its
+/// enabled-controls mask (the verifying-key selector) and the Poseidon
+/// prefix mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct RelationShape {
-    /// The step relation.
-    pub step: StepRelation,
-    /// The state commitment layout.
-    pub layout: StateLayout,
+    /// The step relation and the controls it enforces.
+    pub relation: SigmaRelation,
     /// The Poseidon prefix mode.
     pub prefix: PrefixMode,
 }
 
 impl Default for RelationShape {
     fn default() -> Self {
-        Self::new(
-            StepRelation::Send,
-            StateLayout::TwoLevel,
-            PrefixMode::Folded,
-        )
+        Self::new(SigmaRelation::SEND, PrefixMode::Folded)
     }
 }
 
@@ -109,33 +106,20 @@ pub enum HashSite {
 impl RelationShape {
     /// A relation shape.
     #[must_use]
-    pub const fn new(step: StepRelation, layout: StateLayout, prefix: PrefixMode) -> Self {
-        Self {
-            step,
-            layout,
-            prefix,
-        }
+    pub const fn new(relation: SigmaRelation, prefix: PrefixMode) -> Self {
+        Self { relation, prefix }
     }
 
-    /// The case label, `sigma_<step>_<prefix>_<layout>`.
+    /// The step.
+    #[must_use]
+    pub const fn step(self) -> StepRelation {
+        self.relation.step()
+    }
+
+    /// The case label, `sigma_<relation>_<prefix>`.
     #[must_use]
     pub fn label(self) -> String {
-        let step = match self.step {
-            StepRelation::Send => "send",
-            StepRelation::Receive => "recv",
-        };
-        format!(
-            "sigma_{step}_{}_{}",
-            self.prefix.label(),
-            self.layout.label()
-        )
-    }
-
-    /// The relation identifier ([`relation_id`]): one per step and state
-    /// layout; the prefix mode computes the same relation.
-    #[must_use]
-    pub const fn relation_id(self) -> [u8; 32] {
-        relation_id(self.step, self.layout)
+        format!("sigma_{}_{}", self.relation.label(), self.prefix.label())
     }
 
     /// The hashes of every relation, in layout order (the same for both
@@ -151,10 +135,8 @@ impl RelationShape {
     /// The `(domain, arity)` of a hash.
     #[must_use]
     pub const fn site_domain(self, site: HashSite) -> (u64, usize) {
-        match (site, self.step) {
-            (HashSite::Predecessor | HashSite::Successor, _) => {
-                (self.layout.domain(), self.layout.commitment_arity())
-            }
+        match (site, self.relation.step()) {
+            (HashSite::Predecessor | HashSite::Successor, _) => (CORE_DOMAIN, COMMITMENT_ARITY),
             (HashSite::Chain, StepRelation::Send) => (SEND_CHAIN_DOMAIN, SEND_CHAIN_FIELDS),
             (HashSite::Chain, StepRelation::Receive) => {
                 (RECEIVE_CHAIN_DOMAIN, RECEIVE_CHAIN_FIELDS)
@@ -171,21 +153,14 @@ impl RelationShape {
         domain_permutations(arity, matches!(self.prefix, PrefixMode::Folded))
     }
 
-    /// The Pow5 permutations of the relation (`sigma_send` 68 / 78,
-    /// `sigma_recv` 67 / 77 for two-level / flat with absorbed prefixes; one
-    /// fewer per hash with folded prefixes).
+    /// The Pow5 permutations of the relation (`sigma_send` 67 and
+    /// `sigma_recv` 65 with folded prefixes, one more per hash absorbed).
     #[must_use]
     pub fn permutations(self) -> usize {
         Self::HASH_SITES
             .into_iter()
             .map(|site| self.site_permutations(site))
             .sum()
-    }
-
-    /// The public outputs.
-    #[must_use]
-    pub const fn public_outputs(self) -> usize {
-        public_outputs(self.step)
     }
 }
 
@@ -196,6 +171,8 @@ pub enum ParamsError {
     Lanes(usize),
     /// The limb width is outside `1..=24`.
     LimbBits(usize),
+    /// The relation enables a control this crate does not implement.
+    Relation(SigmaRelation),
 }
 
 impl core::fmt::Display for ParamsError {
@@ -203,6 +180,11 @@ impl core::fmt::Display for ParamsError {
         match self {
             Self::Lanes(lanes) => write!(f, "{lanes} Pow5 lanes (1..={MAX_LANES} supported)"),
             Self::LimbBits(bits) => write!(f, "{bits}-bit limbs (1..=24 supported)"),
+            Self::Relation(relation) => write!(
+                f,
+                "relation selector {:?} enables an unsupported control",
+                relation.selector()
+            ),
         }
     }
 }
@@ -234,13 +216,16 @@ impl SigmaParams {
     ///
     /// # Errors
     ///
-    /// [`ParamsError`] for a lane count outside `1..=MAX_LANES` or a limb
-    /// width outside `1..=24`.
+    /// [`ParamsError`] for a relation with an unsupported control, a lane
+    /// count outside `1..=MAX_LANES` or a limb width outside `1..=24`.
     pub fn new(
         relation: RelationShape,
         lanes: usize,
         limb_bits: usize,
     ) -> Result<Self, ParamsError> {
+        if !relation.relation.is_supported() {
+            return Err(ParamsError::Relation(relation.relation));
+        }
         if lanes == 0 || lanes > MAX_LANES {
             return Err(ParamsError::Lanes(lanes));
         }
@@ -452,11 +437,11 @@ pub struct RelationOutput<F: PoseidonField> {
     pub inventory: Inventory,
 }
 
-/// A **prototype** step relation (`sigma_send` or `sigma_recv`) of the
-/// split-lineage design.
+/// A step relation (`sigma_send` or `sigma_recv`) of the split-lineage
+/// design.
 ///
 /// A circuit with a witness carries the witness's native reference
-/// evaluation under its layout ([`StepWitness::evaluate`], computed once):
+/// evaluation under its relation ([`StepWitness::evaluate`], computed once):
 /// synthesis checks every in-circuit digest against it, and the prover reads
 /// the public outputs and violations from it.
 #[derive(Clone, Debug)]
@@ -470,7 +455,7 @@ impl<F: PoseidonField> SigmaCircuit<F> {
     /// The circuit proving `witness` under `params`.
     #[must_use]
     pub fn new(params: SigmaParams, witness: StepWitness<F>) -> Self {
-        let native = witness.evaluate(params.relation.layout);
+        let native = witness.evaluate(params.relation.relation);
         Self {
             params,
             witness: Some(witness),
@@ -593,7 +578,7 @@ impl<F: PoseidonField> Circuit<F> for SigmaCircuit<F> {
                 )
             })
             .collect();
-        let instance = meta.instance_column(params.relation.public_outputs());
+        let instance = meta.instance_column(PUBLIC_OUTPUTS);
         meta.enable_equality(instance);
         SigmaConfig {
             params,
@@ -617,67 +602,55 @@ impl<F: PoseidonField> Circuit<F> for SigmaCircuit<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::witness::CONTROL_BLACKLIST;
 
-    fn shape(step: StepRelation, layout: StateLayout, prefix: PrefixMode) -> RelationShape {
-        RelationShape::new(step, layout, prefix)
+    fn shape(relation: SigmaRelation, prefix: PrefixMode) -> RelationShape {
+        RelationShape::new(relation, prefix)
     }
 
     #[test]
-    fn permutation_counts_of_the_spec_core() {
+    fn permutation_counts_of_the_g1_core() {
         use PrefixMode::{Absorbed, Folded};
-        use StateLayout::{Flat, TwoLevel};
-        use StepRelation::{Receive, Send};
-        // Absorbed prefixes: openings 17 (two-level, 31 inputs) or 22 (flat,
-        // 40), credit 14, send chain 6, receive chain 5, statement 16 (29
-        // inputs).
-        assert_eq!(shape(Send, TwoLevel, Absorbed).permutations(), 70);
-        assert_eq!(shape(Send, Flat, Absorbed).permutations(), 80);
-        assert_eq!(shape(Receive, TwoLevel, Absorbed).permutations(), 69);
-        assert_eq!(shape(Receive, Flat, Absorbed).permutations(), 79);
-        // Folding saves one permutation per hash.
-        assert_eq!(shape(Send, TwoLevel, Folded).permutations(), 65);
-        assert_eq!(shape(Receive, TwoLevel, Folded).permutations(), 64);
-        assert_eq!(shape(Send, Flat, Folded).permutations(), 75);
-        let send = shape(Send, TwoLevel, Folded);
+        let blacklist = SigmaRelation::send(CONTROL_BLACKLIST);
+        // Absorbed prefixes: openings 18 (33 inputs), credit 14, send chain
+        // 6, receive chain 4, statement 16 (28 inputs).
+        assert_eq!(shape(SigmaRelation::SEND, Absorbed).permutations(), 72);
+        assert_eq!(shape(SigmaRelation::RECEIVE, Absorbed).permutations(), 70);
+        // Folding saves one permutation per hash; the controls add none.
+        assert_eq!(shape(SigmaRelation::SEND, Folded).permutations(), 67);
+        assert_eq!(shape(blacklist, Folded).permutations(), 67);
+        assert_eq!(shape(SigmaRelation::RECEIVE, Folded).permutations(), 65);
+        let send = shape(SigmaRelation::SEND, Folded);
         assert_eq!(send.site_permutations(HashSite::Statement), 15);
         assert_eq!(send.site_permutations(HashSite::Credit), 13);
-        assert_eq!(send.site_permutations(HashSite::Predecessor), 16);
+        assert_eq!(send.site_permutations(HashSite::Predecessor), 17);
         assert_eq!(send.site_permutations(HashSite::Chain), 5);
-        assert_eq!(send.site_domain(HashSite::Predecessor).1, 31);
-        assert_eq!(send.public_outputs(), 2);
-        assert_eq!(send.label(), "sigma_send_folded_two_level");
         assert_eq!(
-            shape(Receive, Flat, Absorbed).label(),
-            "sigma_recv_absorbed_flat"
+            shape(SigmaRelation::RECEIVE, Folded).site_permutations(HashSite::Chain),
+            3
+        );
+        assert_eq!(send.site_domain(HashSite::Predecessor), (CORE_DOMAIN, 33));
+        assert_eq!(send.step(), StepRelation::Send);
+        assert_eq!(send.label(), "sigma_send_m0_folded");
+        assert_eq!(shape(blacklist, Folded).label(), "sigma_send_m1_folded");
+        assert_eq!(
+            shape(SigmaRelation::RECEIVE, Absorbed).label(),
+            "sigma_recv_absorbed"
         );
         assert_eq!(RelationShape::HASH_SITES.len(), 5);
-        // The relation identity depends on the step and the layout, not on
-        // the prefix mode.
-        assert_eq!(
-            shape(Send, TwoLevel, Absorbed).relation_id(),
-            send.relation_id()
-        );
-        assert_ne!(shape(Send, Flat, Folded).relation_id(), send.relation_id());
-        assert_ne!(
-            shape(Receive, TwoLevel, Folded).relation_id(),
-            send.relation_id()
-        );
+        assert_eq!(RelationShape::default(), send);
     }
 
     #[test]
     fn lane_plan_balances_longest_first() {
-        let send = shape(
-            StepRelation::Send,
-            StateLayout::TwoLevel,
-            PrefixMode::Folded,
-        );
+        let send = shape(SigmaRelation::SEND, PrefixMode::Folded);
         let one = LanePlan::new(send, 1);
-        assert_eq!(one.lane_permutations(), &[65]);
+        assert_eq!(one.lane_permutations(), &[67]);
         assert_eq!(one.glue_lane(), 0);
-        assert_eq!(one.glue_start(), Ok(65 * 37));
+        assert_eq!(one.glue_start(), Ok(67 * 37));
         let two = LanePlan::new(send, 2);
-        // 16 | 16, then 15 onto 16, 13 onto 16, 5 onto 29.
-        assert_eq!(two.lane_permutations(), &[31, 34]);
+        // 17 | 17, then 15 onto 17, 13 onto 17, 5 onto 30.
+        assert_eq!(two.lane_permutations(), &[32, 35]);
         assert_eq!(two.lane_of(HashSite::Predecessor), 0);
         assert_eq!(two.lane_of(HashSite::Successor), 1);
         assert_eq!(two.lane_of(HashSite::Statement), 0);
@@ -686,23 +659,19 @@ mod tests {
         assert_eq!(two.glue_lane(), 0);
         assert_eq!(
             two.folded(send, 0),
-            vec![(send.layout.domain(), 31), (STATEMENT_DOMAIN, 29)]
+            vec![(CORE_DOMAIN, 33), (STATEMENT_DOMAIN, 28)]
         );
         assert_eq!(
             two.folded(send, 1),
             vec![
-                (send.layout.domain(), 31),
+                (CORE_DOMAIN, 33),
                 (CREDIT_DOMAIN, 24),
-                (SEND_CHAIN_DOMAIN, 8)
+                (SEND_CHAIN_DOMAIN, 9)
             ]
         );
-        let absorbed = shape(
-            StepRelation::Send,
-            StateLayout::TwoLevel,
-            PrefixMode::Absorbed,
-        );
+        let absorbed = shape(SigmaRelation::SEND, PrefixMode::Absorbed);
         assert!(LanePlan::new(absorbed, 2).folded(absorbed, 0).is_empty());
-        assert_eq!(LanePlan::new(send, 0).lane_permutations(), &[65]);
+        assert_eq!(LanePlan::new(send, 0).lane_permutations(), &[67]);
         assert_eq!(least_loaded(&[3, 1, 1]), 1);
         assert_eq!(least_loaded(&[]), 0);
     }
@@ -719,6 +688,19 @@ mod tests {
             SigmaParams::new(relation, 1, 25),
             Err(ParamsError::LimbBits(25))
         );
+        let quota = SigmaRelation::send(crate::witness::CONTROL_QUOTAS);
+        assert_eq!(
+            SigmaParams::new(shape(quota, PrefixMode::Folded), 1, 9),
+            Err(ParamsError::Relation(quota))
+        );
+        assert!(
+            SigmaParams::new(
+                shape(SigmaRelation::send(CONTROL_BLACKLIST), PrefixMode::Folded),
+                1,
+                9
+            )
+            .is_ok()
+        );
         let params = SigmaParams::new(relation, 2, 9).expect("valid");
         assert_eq!(params.lanes(), 2);
         assert_eq!(params.limb_bits(), 9);
@@ -726,6 +708,7 @@ mod tests {
         assert_eq!(SigmaParams::default().limb_bits(), DEFAULT_LIMB_BITS);
         assert!(ParamsError::Lanes(0).to_string().contains("lanes"));
         assert!(ParamsError::LimbBits(30).to_string().contains("limbs"));
+        assert!(ParamsError::Relation(quota).to_string().contains("(3, 2)"));
         assert_eq!(PrefixMode::Absorbed.label(), "absorbed");
     }
 
@@ -735,11 +718,14 @@ mod tests {
 
         use crate::vectors::{Mutation, sample_witness};
 
-        let relation = shape(StepRelation::Receive, StateLayout::Flat, PrefixMode::Folded);
+        let relation = shape(SigmaRelation::RECEIVE, PrefixMode::Folded);
         let params = SigmaParams::new(relation, 1, 10).expect("params");
-        let witness = sample_witness::<Fp>(2, StepRelation::Receive, Mutation::None);
+        let witness = sample_witness::<Fp>(2, SigmaRelation::RECEIVE, Mutation::None);
         let circuit = SigmaCircuit::new(params, witness.clone());
-        assert_eq!(circuit.native(), Some(&witness.evaluate(StateLayout::Flat)));
+        assert_eq!(
+            circuit.native(),
+            Some(&witness.evaluate(SigmaRelation::RECEIVE))
+        );
         assert_eq!(circuit.witness(), Some(&witness));
         assert_eq!(circuit.sigma_params(), &params);
         let keygen = circuit.without_witnesses();
@@ -750,11 +736,7 @@ mod tests {
     fn configuration_exposes_its_plan_and_chips() {
         use iroha_pasta::Fp;
 
-        let relation = shape(
-            StepRelation::Send,
-            StateLayout::TwoLevel,
-            PrefixMode::Folded,
-        );
+        let relation = shape(SigmaRelation::SEND, PrefixMode::Folded);
         let params = SigmaParams::new(relation, 2, 9).expect("params");
         let mut meta = ConstraintSystem::<Fp>::new();
         let config = SigmaCircuit::<Fp>::configure_with_params(&mut meta, params);
@@ -765,7 +747,7 @@ mod tests {
         assert_eq!(config.glue().advice().len(), 4);
         // Two lanes of four columns plus the running-sum column.
         assert_eq!(meta.num_advice_queries().len(), 9);
-        assert_eq!(meta.instance_lengths(), &[2]);
+        assert_eq!(meta.instance_lengths(), &[PUBLIC_OUTPUTS]);
         assert!(meta.check().is_ok());
     }
 

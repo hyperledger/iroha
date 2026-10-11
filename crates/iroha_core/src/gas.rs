@@ -223,28 +223,6 @@ fn gas_for_kaigi_proof_verification(
         .saturating_add(zk_gas.per_nullifier.saturating_mul(nullifiers))
         .saturating_add(zk_gas.per_commitment.saturating_mul(commitments))
 }
-fn gas_for_kagemusha_v1_redemption(
-    redeem: &dm_isi::kagemusha_v1::RedeemKagemushaV1,
-    zk_gas: &ActualConfidentialGas,
-) -> u64 {
-    let proof = &redeem.request.voucher.proof;
-    let proof_bytes = proof
-        .eq_proof
-        .len()
-        .saturating_add(proof.ep_proof.len())
-        .saturating_add(proof.eq_history.len())
-        .saturating_add(proof.ep_history.len());
-    zk_gas
-        .proof_base
-        .saturating_mul(2)
-        .saturating_add(
-            zk_gas
-                .per_proof_byte
-                .saturating_mul(u64::try_from(proof_bytes).unwrap_or(u64::MAX)),
-        )
-        .saturating_add(zk_gas.per_nullifier)
-        .saturating_add(zk_gas.per_commitment)
-}
 fn gas_for_register_pin_manifest(manifest_bytes: usize) -> u64 {
     BASE_REGISTER_PIN_MANIFEST.saturating_add(
         PER_BYTE_PIN_MANIFEST.saturating_mul(u64::try_from(manifest_bytes).unwrap_or(u64::MAX)),
@@ -674,9 +652,6 @@ pub fn meter_instruction(instr: &InstructionBox, zk_gas: &ActualConfidentialGas)
     if let Some(verify) = any.downcast_ref::<dm_isi::zk::VerifyProof>() {
         return gas_for_proof_attachment(&verify.attachment, 0, 0, zk_gas);
     }
-    if let Some(redeem) = any.downcast_ref::<dm_isi::kagemusha_v1::RedeemKagemushaV1>() {
-        return gas_for_kagemusha_v1_redemption(redeem, zk_gas);
-    }
     if let Some(ballot) = any.downcast_ref::<dm_isi::zk::SubmitBallot>() {
         return gas_for_proof_attachment(&ballot.ballot_proof, 1, 0, zk_gas);
     }
@@ -748,9 +723,6 @@ pub fn confidential_gas_cost(instr: &InstructionBox, zk_gas: &ActualConfidential
     }
     if let Some(verify) = any.downcast_ref::<dm_isi::zk::VerifyProof>() {
         return gas_for_proof_attachment(&verify.attachment, 0, 0, zk_gas);
-    }
-    if let Some(redeem) = any.downcast_ref::<dm_isi::kagemusha_v1::RedeemKagemushaV1>() {
-        return gas_for_kagemusha_v1_redemption(redeem, zk_gas);
     }
     if let Some(ballot) = any.downcast_ref::<dm_isi::zk::SubmitBallot>() {
         return gas_for_proof_attachment(&ballot.ballot_proof, 1, 0, zk_gas);

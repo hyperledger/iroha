@@ -126,9 +126,7 @@ classified_owner!(State, check_state_fields, STATE_FIELDS, {
     content: iroha_config::parameters::actual::Content => ("state.content",
         Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:content:v1", encoder: "state::authority_registry::content_policy::ContentAdmissionPolicyV1::from_actual; isi::content::PublishContentBundle", layout: V1_LAYOUT })));
     settlement: iroha_config::parameters::actual::Settlement => ("state.settlement",
-        Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:settlement:v1", encoder: "state::authority_registry::settlement_policy::SettlementPolicyV1::from_actual; exact router inputs and reserve membership, excluding daemon-only proof-release file paths", layout: V1_LAYOUT })));
-    kagemusha_v1_runtime_verifier: PublicationRwLock<Arc<dyn crate::smartcontracts::isi::kagemusha::KagemushaV1RuntimeVerifier>> => ("state.kagemusha_v1_runtime_verifier",
-        Role::Local("Immutable loaded verifier artifacts and availability; world.kagemusha_verifier_registry owns every release identity and eligibility decision. Exact-head reload authenticates the complete governed set; monetary execution checks that set and network before effects and locally defers missing or stale artifacts"));
+        Role::Canonical(Canonical::Cell(Schema::Semantic { identity: "iroha:state:settlement:v1", encoder: "state::authority_registry::settlement_policy::SettlementPolicyV1::from_actual; exact router inputs", layout: V1_LAYOUT })));
     settlement_engine: crate::settlement::SettlementEngine => ("state.settlement_engine",
         Role::Derived { sources: &["state.settlement"], check: DerivationCheck::Rebuild("SettlementEngine::from_router_config(&State::settlement.router); SettlementEngine::matches_router_config before complete State root publication and after recovery") });
     chain_id: iroha_model_base::chain::ChainId => ("state.chain_id",

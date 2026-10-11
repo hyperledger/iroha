@@ -166,3 +166,43 @@ fn anchor_byte_frames_keep_typed_fee_and_committee_bounds_before_http() {
     assert_eq!(transport.dispatch_count.load(Ordering::SeqCst), 0);
     assert_eq!(std::fs::read_dir(temporary.path()).unwrap().count(), 0);
 }
+
+#[test]
+fn bounded_operation_encoder_charges_one_exact_frame_without_renewal() {
+    let value = vec![0x39_u8; 64];
+    let expected = norito::encode_canonical(&value).unwrap();
+    let length = expected.len();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, length, 64);
+    norito::with_decode_limits_scope(limits, || {
+        assert!(bounded::encode_bounded(&value, length - 1).is_err());
+        assert_eq!(bounded::encode_bounded(&value, length).unwrap(), expected);
+        let error = bounded::encode_bounded(&value, length).unwrap_err();
+        assert!(matches!(error.downcast_ref::<norito::Error>(),
+            Some(norito::Error::TotalAllocationExceeded { attempted, limit })
+                if *attempted == (length * 2) as u64 && *limit == length as u64));
+    });
+}
+
+#[test]
+fn concrete_payload_encoder_charges_one_retained_frame_without_renewal() {
+    let (service, _) = service();
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("payload-codec");
+    service
+        .prepare_transfer(&super::super::tests::request(), &path)
+        .unwrap();
+    let journal = Journal::open(&path).unwrap();
+    let record: TransactionJournal = journal.read_operation().unwrap();
+    let signed = record.verify(&service.config).unwrap();
+    let payload = signed.payload();
+    let expected = norito::encode_canonical(payload).unwrap();
+    let length = expected.len();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, length, 64);
+    norito::with_decode_limits_scope(limits, || {
+        assert_eq!(encode_payload(payload).unwrap(), expected);
+        let error = encode_payload(payload).unwrap_err();
+        assert!(matches!(error.downcast_ref::<norito::Error>(),
+            Some(norito::Error::TotalAllocationExceeded { attempted, limit })
+                if *attempted == (length * 2) as u64 && *limit == length as u64));
+    });
+}

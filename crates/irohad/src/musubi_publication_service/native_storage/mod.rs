@@ -438,8 +438,12 @@ fn operation_id(request: &MusubiStorageCoordinationRequestV1) -> Result<[u8; 32]
     hash.update(request.network_id.as_bytes());
     let length = norito::canonical_frame_len(&request.publisher)?;
     ensure!(length <= 8192, "native storage publisher is oversized");
-    norito::core::reserve_decode_allocation(length)?;
-    let account = norito::core::to_bytes_bounded(&request.publisher, length)?;
+    let account = norito::core::to_bytes_bounded(&request.publisher, length)
+        .map_err(|error| match error {
+            norito::core::BoundedEncodeError::Serialization(error)
+                if error.decode_resource_error().is_some() => eyre::Report::from(error),
+            error => eyre::Report::from(error),
+        })?;
     hash.update((account.len() as u64).to_le_bytes());
     hash.update(account);
     hash.update(request.operation_id);
@@ -479,7 +483,11 @@ where
         length <= MAX_ROW_BYTES,
         "native storage row exceeds its bound"
     );
-    norito::core::reserve_decode_allocation(length)?;
-    let bytes = norito::core::to_bytes_bounded(value, length)?;
+    let bytes = norito::core::to_bytes_bounded(value, length)
+        .map_err(|error| match error {
+            norito::core::BoundedEncodeError::Serialization(error)
+                if error.decode_resource_error().is_some() => eyre::Report::from(error),
+            error => eyre::Report::from(error),
+        })?;
     Ok(norito::decode_canonical(&bytes)?)
 }

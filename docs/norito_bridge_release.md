@@ -239,16 +239,15 @@ that workflow for local release verification.
    cryptography and Connect key agreement; the SDK also checks canonical JSON,
    BLAKE3 and AEAD. Either build or runtime failure stops the Apple release gate.
 
-5. **Maintain the source header when exports or enum inventories change.** The build
+5. **Maintain the source header when exports or constants change.** The build
    copies `crates/connect_norito_bridge/include/connect_norito_bridge.h` into each
-   XCFramework slice; it does not generate its enums from Rust. Run
-   `python3 -m unittest scripts.tests.kagemusha_package_surface_test` to check the
-   exact coordinator method inventory across C, Rust, Swift, Kotlin and the shared
-   fixture. The current inventory has 21 methods, ending with
-   `PreparedOrdinaryAppIdentity`; the contract probe returns twelve words.
+   XCFramework slice; it does not generate the header from Rust. Run
+   `bash ci/check_connect_norito_bridge_header.sh` to check the ABI version, the
+   exact C/Rust export inventories, the shared error codes and size bounds, and
+   the rejection of retired namespaces. The bridge exports no KAGEMUSHA symbol.
+   The gate also compiles the header as C11 and C++17.
    Ensure `NoritoBridge.xcframework/**/Headers/connect_norito_bridge.h`
-   matches the source header before zipping. Header hashes and exported-symbol
-   inventories alone do not establish enum parity.
+   matches the source header before zipping.
 
 6. Run the Swift validation suite before tagging:
 
@@ -300,7 +299,8 @@ do not establish physical-device qualification.
 
 ## CI considerations
 
-- The KAGEMUSHA V1 artifact workflow alone may invoke the restricted CI producer modes.
+- The Mobile SDK Artifacts workflow (`.github/workflows/mobile_sdk_artifacts.yml`)
+  alone may invoke the restricted CI producer modes.
   Five isolated `--ci-apple-slice <target>` jobs each perform one fresh,
   offline, single-job Cargo build and emit a digest-bound source/tool
   attestation. The `swift` job supplies all five independent archive digests to

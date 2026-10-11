@@ -113,12 +113,41 @@ pub enum ParameterDefect {
 
 /// A candidate parameter set for one RAM-LFE class shape over the field of 257 elements.
 ///
-/// A candidate is a starting point for measurement. None has a reviewed
-/// security estimate, and membership in this list qualifies nothing.
-// TODO: run the pinned Lattice Estimator invocation
-// (scripts/fhe_bgv_lattice_estimator.sage; SageMath was not available) and have the
-// parameters reviewed before any candidate is selected. The core-SVP sanity numbers in
-// specs/fhe_bgv_cost_summary.json are not a substitute.
+/// A candidate is a starting point for measurement. No candidate is qualified,
+/// none has a reviewed security estimate, and membership in this list
+/// qualifies nothing.
+///
+/// # Security estimate (unreviewed)
+///
+/// The Lattice Estimator was run on every candidate by
+/// `scripts/fhe_bgv_lattice_estimator.sage`, which checks its moduli against
+/// the primes pinned in this file before it estimates. The raw output is
+/// `specs/fhe_bgv_lattice_estimator_output.txt`, and
+/// `specs/fhe_bgv_cost_summary.json` restates it with the attacks that did
+/// not return a cost. The estimate is for plain LWE of dimension `N` with a
+/// uniform ternary secret and the centered binomial error. The cheapest
+/// attack that returned a cost, in bits, on the largest modulus `Q * P`:
+///
+/// | Candidate | BDGL16 classical | ADPS16 classical | ADPS16 quantum |
+/// | --- | ---: | ---: | ---: |
+/// | [`Self::AffineF257`] | 136.9 | 102.5 | 93.0 |
+/// | [`Self::BoundedF257`] | 197.9 | 161.5 | 146.8 |
+/// | [`Self::RefreshF257`] | 135.3 | 99.0 | 89.8 |
+///
+/// The design target is 128 bits classically under BDGL16. Every candidate
+/// meets it under that cost model on the attacks that returned a cost; under
+/// the core-SVP count of ADPS16 only the bounded candidate does. Some attacks
+/// returned none: the summary lists them with their reasons, and an attack
+/// without a cost is not evidence that it is expensive.
+///
+/// The estimate does not cover the ring structure, the circular-security
+/// assumption of the published relinearization and Galois keys, keys that
+/// were not sampled honestly, or side channels. It also does not change that
+/// no candidate holds the maximum shape of its class when a tape is lowered
+/// instruction by instruction.
+// TODO(C.3): have the parameters and the estimator record reviewed before any candidate
+// is selected, and decide the proposals the summary records for the candidates that fall
+// short under ADPS16 (`security_estimate.lattice_estimator.proposals`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BgvCandidate {
     /// `N = 2^14`, `t = 257`, six 50-bit main primes, two 60-bit special primes.

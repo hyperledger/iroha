@@ -2279,6 +2279,95 @@ fn governed_contract_invariant(message: impl Into<String>) -> crate::Error {
         message.into(),
     ))
 }
+/// Verify retained provenance with scratch funded by the original State execution pool.
+fn verify_governed_contract_manifest_signature(
+    manifest: &iroha_data_model::smart_contract::manifest::ContractManifest,
+    budget: &iroha_allocation::AllocationBudget,
+    max_frame_bytes: usize,
+) -> Result<(), iroha_core::execution_attempt::ExecutionAttemptError<String>> {
+    use iroha_core::execution_attempt::ExecutionAttemptError;
+    use ivm::error::ExecutionDeferral;
+    use norito::core::{BoundedEncodeError, DecodeBudgetContext};
+
+    let provenance = manifest.provenance.as_ref().ok_or_else(|| {
+        ExecutionAttemptError::Rejected("active contract manifest has no signed provenance".into())
+    })?;
+    // A current frame ceiling limits this read's scratch without declaring retained content invalid.
+    let max_frame_bytes = max_frame_bytes.min(budget.limit_bytes());
+    let mut counter = budget
+        .try_reserve(DecodeBudgetContext::allocation_layout())
+        .map_err(|original| ExecutionAttemptError::Deferred(original.into()))?;
+    let context = DecodeBudgetContext::from_reservation(
+        norito::DecodeLimits::new(
+            max_frame_bytes,
+            max_frame_bytes,
+            max_frame_bytes,
+            max_frame_bytes,
+            norito::core::MAX_VALUE_NESTING_DEPTH,
+        ),
+        &mut counter,
+    )
+    .map_err(|error| {
+        let reason = match error {
+            iroha_allocation::PrepaidSharedError::Allocator { .. } => {
+                ExecutionDeferral::AllocationUnavailable
+            }
+            iroha_allocation::PrepaidSharedError::Reservation(_) => {
+                ExecutionDeferral::ActiveMemoryCapacity
+            }
+        };
+        ExecutionAttemptError::Deferred(reason.into())
+    })?;
+    // Classify the original codec error before the caller's live scopes retire.
+    let encode_error = |error: BoundedEncodeError| match error {
+        BoundedEncodeError::Serialization(error) => {
+            if matches!(&error, norito::Error::AllocationFailed { .. }) {
+                ExecutionAttemptError::Deferred(ExecutionDeferral::AllocationUnavailable.into())
+            } else if norito::core::decode_error_matches_active_limits(&error) {
+                ExecutionAttemptError::Deferred(ExecutionDeferral::ActiveMemoryCapacity.into())
+            } else {
+                ExecutionAttemptError::Rejected(format!(
+                    "active contract manifest signing payload encoding failed: {error}"
+                ))
+            }
+        }
+        BoundedEncodeError::AllocationFailed { .. } => {
+            ExecutionAttemptError::Deferred(ExecutionDeferral::AllocationUnavailable.into())
+        }
+        BoundedEncodeError::FrameTooLarge { .. } => {
+            ExecutionAttemptError::Deferred(ExecutionDeferral::ActiveMemoryCapacity.into())
+        }
+    };
+    let frame_bytes = context.with(|| {
+        norito::canonical_frame_len(&manifest.signature_payload())
+            .map_err(BoundedEncodeError::from)
+            .map_err(&encode_error)
+    })?;
+    if frame_bytes > max_frame_bytes {
+        return Err(ExecutionAttemptError::Deferred(
+            ExecutionDeferral::ActiveMemoryCapacity.into(),
+        ));
+    }
+    let frame = budget
+        .try_reserve_bytes(frame_bytes)
+        .map_err(|original| ExecutionAttemptError::Deferred(original.into()))?;
+    let payload = context.with(|| {
+        manifest
+            .signature_payload_bytes(&context, max_frame_bytes)
+            .map_err(&encode_error)
+    })?;
+    let result = provenance
+        .signature
+        .verify(&provenance.signer, &payload)
+        .map_err(|_| {
+            ExecutionAttemptError::Rejected("active contract manifest provenance is invalid".into())
+        });
+    // Physical output retires before its grant, on successful and failed verification alike.
+    drop(payload);
+    drop(frame);
+    result
+}
+
 fn is_canonical_public_entrypoint_name(name: &str) -> bool {
     let bytes = name.as_bytes();
     (1..=128).contains(&bytes.len())
@@ -2408,9 +2497,6 @@ pub async fn handle_gov_contract_get(
             "active contract manifest does not match its authenticated artifact metadata",
         ));
     }
-    let provenance = record.manifest.provenance.as_ref().ok_or_else(|| {
-        governed_contract_invariant("active contract manifest has no signed provenance")
-    })?;
     let max_frame_bytes = usize::try_from(
         view.world()
             .parameters()
@@ -2423,26 +2509,23 @@ pub async fn handle_gov_contract_get(
             iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded,
         ))
     })?;
-    let signature_payload = record
-        .manifest
-        .signature_payload_bytes(allocation_context, max_frame_bytes)
+    allocation_context
+        .with(|| {
+            verify_governed_contract_manifest_signature(
+                &record.manifest,
+                &state.ivm_execution_budget(),
+                max_frame_bytes,
+            )
+        })
         .map_err(|error| match error {
-            norito::core::BoundedEncodeError::Serialization(error)
-                if !error.is_decode_resource_limit() =>
-            {
-                governed_contract_invariant(format!(
-                    "active contract manifest canonical serialization failed: {error}"
+            iroha_core::execution_attempt::ExecutionAttemptError::Rejected(message) => {
+                governed_contract_invariant(message)
+            }
+            iroha_core::execution_attempt::ExecutionAttemptError::Deferred(_) => {
+                crate::Error::Query(iroha_data_model::ValidationFail::QueryFailed(
+                    iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded,
                 ))
             }
-            _ => crate::Error::Query(iroha_data_model::ValidationFail::QueryFailed(
-                iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded,
-            )),
-        })?;
-    provenance
-        .signature
-        .verify(&provenance.signer, &signature_payload)
-        .map_err(|_| {
-            governed_contract_invariant("active contract manifest provenance is invalid")
         })?;
     let code_hash_bytes: [u8; 32] = active_code_hash.into();
     let abi_hash_bytes: [u8; 32] = manifest_abi_hash.into();

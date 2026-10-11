@@ -768,7 +768,9 @@ fn restore_adopts_original_startup_pool_before_runtime_configuration() {
         let retained_layout_bytes = mv::cell::CellInitialization::<u64>::allocation_layouts()
             .into_iter()
             .chain(mv::cell::CellInitialization::<Option<NativeExecutionTip>>::allocation_layouts())
-            .chain(mv::cell::CellInitialization::<crate::sumeragi::amx::RetainedNativeAmx>::allocation_layouts())
+            .chain(mv::cell::CellInitialization::<
+                crate::sumeragi::amx::RetainedNativeAmx,
+            >::allocation_layouts())
             .map(|layout| layout.size())
             .sum::<usize>();
         let retired_ebr_bytes =
@@ -794,7 +796,6 @@ fn restore_adopts_original_startup_pool_before_runtime_configuration() {
             probe.pipeline_ivm_prepared_cache.observe_release(),
             probe.nexus.observe_release(),
             probe.crypto.observe_release(),
-            probe.kagemusha_v1_runtime_verifier.observe_release(),
             probe.state_write_lock.observe_release(),
         ];
         let notification_bytes = lock_releases.len()

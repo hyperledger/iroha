@@ -900,6 +900,56 @@ class KagemushaWalletVectorsV1Test {
         assertFalse(KagemushaWalletWireV1.isCanonicalFieldValue(encodings.hex("modulus_le_hex")))
     }
 
+    @Test fun `controlled state binds every core and rest position to its field`() {
+        // Every element of this state is distinct and its fields are named, so the core and rest
+        // layouts (owner answers Q3, Q4 and Q5: one load/redeem root, scheme and asset in the core,
+        // the blacklist issue time and maximum age beside each other) are pinned by position.
+        val controlled = vectors.obj("field_encodings").obj("controlled_state")
+        val core = items(controlled, "core_items")
+        val rest = items(controlled, "rest_items")
+        assertEquals(32, core.size)
+        assertEquals(13, rest.size)
+        assertEquals(core.size, core.map { hexText(it) }.toSet().size, "distinct core elements")
+        assertEquals(rest.size, rest.map { hexText(it) }.toSet().size, "distinct rest elements")
+        for (element in core + rest) assertCanonicalField(element, nonzero = false)
+        val (frameCore, frameRest) = stateElements(controlled.hex("state_hex"))
+        assertElements(core, frameCore, "controlled core")
+        assertElements(rest, frameRest, "controlled rest")
+        assertPoseidonValue(controlled.hex("rest_digest_hex"), "controlled rest digest")
+        assertPoseidonValue(controlled.hex("commitment_hex"), "controlled commitment")
+
+        val coreOrder = listOf(
+            "lifecycle" to 'I', "scheme_id" to 'D', "asset_digest" to 'D', "wallet_id" to 'D',
+            "credential_digest" to 'D', "balance" to 'I', "burned_total" to 'I', "sequence" to 'I',
+            "next_send" to 'I', "next_load" to 'I', "next_redeem" to 'I', "send_chain" to 'F',
+            "recv_chain" to 'F', "consumed_credit_root" to 'F', "pending_outgoing_root" to 'F',
+            "load_redeem_recovery_root" to 'F', "fee_claim_root" to 'F', "quota_usage_root" to 'F',
+            "enabled_controls" to 'I', "quota_windows_root" to 'F', "blacklist_version" to 'I',
+            "blacklist_root" to 'F', "blacklist_issued_at_ms" to 'I', "blacklist_max_age_ms" to 'I',
+            "lease_expires_at_ms" to 'I', "policy_epoch" to 'I', "accepted_time_floor_ms" to 'I',
+            "state_nonce" to 'F',
+        )
+        val restOrder = listOf(
+            "permitted_controls" to 'I', "time_anchor_max_response_ms" to 'I', "scheme_policy" to 'D',
+            "fee_schedule" to 'D', "blacklist" to 'D', "quota_share" to 'D', "quota_share_id" to 'I',
+            "time_anchor" to 'D',
+        )
+        fun named(fields: JsonObject, order: List<Pair<String, Char>>): List<ByteArray> {
+            assertEquals(order.map { it.first }.toSet(), fields.keys, "named fields")
+            return order.flatMap { (name, kind) ->
+                when (kind) {
+                    'I' -> listOf(fieldBytes(BigInteger(fields.text(name))))
+                    'D' -> limbs(fields.hex(name))
+                    else -> listOf(fields.hex(name))
+                }
+            }
+        }
+        assertEquals(CORE_LAYOUT, coreOrder.map { it.second }.joinToString(""))
+        assertEquals(REST_LAYOUT, restOrder.map { it.second }.joinToString(""))
+        assertElements(named(controlled.obj("core_fields"), coreOrder), core, "named core fields")
+        assertElements(named(controlled.obj("rest_fields"), restOrder), rest, "named rest fields")
+    }
+
     @Test fun `canonical field values are 32 little-endian bytes below p`() {
         val modulus = KagemushaWalletWireV1.fieldModulus()
         assertContentEquals(fieldBytes(FIELD_MODULUS), modulus)

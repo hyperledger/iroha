@@ -46,6 +46,10 @@ late views, bounded rebuild after oversized payloads, far-behind joiners and
 poisoned payloads. The application executor separately rejects both empty bytes
 and canonically encoded zero-transaction proposals, and real node tests submit
 work before and after restart.
+Both scopes retain prepared signature custody across allocation refusal,
+validation, publication and replay. Queued successor builds wait for Core's
+exact applied parent, preserve transaction arrivals and permanently cancel
+their original owners when that parent or view is withdrawn.
 
 Both scopes reject pulse-only proposal work, including received and recovered
 bodies. An idle mandatory height defers session activation and signing until

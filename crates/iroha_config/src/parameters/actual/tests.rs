@@ -742,13 +742,6 @@ mod tests {
         );
     }
     #[test]
-    fn kagemusha_defaults_need_no_operator_enablement_or_catalog() {
-        let kagemusha = Kagemusha::default();
-        assert!(kagemusha.reserve_accounts.is_empty());
-        assert!(kagemusha.proof_release.is_none());
-    }
-
-    #[test]
     fn viral_incentives_default_survives_chain_override() {
         let _chain = iroha_data_model::account::address::ChainDiscriminantGuard::enter(777);
         let defaults = ViralIncentives::default();

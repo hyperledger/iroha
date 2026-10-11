@@ -1,9 +1,9 @@
 //! Grouped Iroha Core integration tests.
 #![allow(clippy::all, clippy::pedantic, clippy::nursery, clippy::restriction)]
-#[path = "../../src/manifest_signing_test_support.rs"]
-mod manifest_signing_test_support;
 #[path = "../fx_routing_review.rs"]
 mod fx_routing_review;
+#[path = "../../src/manifest_signing_test_support.rs"]
+mod manifest_signing_test_support;
 #[path = "../pin_registry.rs"]
 mod pin_registry;
 #[path = "../quarantine_lane.rs"]

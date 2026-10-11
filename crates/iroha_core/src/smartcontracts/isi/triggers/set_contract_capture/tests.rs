@@ -292,11 +292,15 @@ fn all_five_independent_capture_literals_admit_exactly_and_refuse_one_below() {
     block.data_triggers.insert(label, action);
     block.contracts.insert(long_key, original);
     block.commit();
+    // Three independent contracts: 24 cursor setups, 31 next calls (including terminals),
+    // and prepare/current/reset/predecessor/encoder controls of 29/2800/5/2822/2.
+    // The 0/119/120-byte contracts cross the actual compact-prefix boundary.
+    assert_eq!(24_u64 * 1900 + 31 * 1114 + 29 + 2800 + 5 + 2822 + 2, 85792);
     for (source, exact, current_rows, undo_rows) in [
         (Set::default(), 63507, 0, 0),
         (singleton, 70000, 1, 0),
         (masked, 77066, 2, 3),
-        (distinct, 85992, 3, 0),
+        (distinct, 85792, 3, 0),
         (long, 72814, 1, 1),
     ] {
         let raw = source
@@ -312,6 +316,7 @@ fn all_five_independent_capture_literals_admit_exactly_and_refuse_one_below() {
             let outcome = checked.encode(limits());
             let current = checked.matches_current();
             assert_eq!(current, Ok(true));
+            let remaining = checked.strategy.as_ref().unwrap().action_remaining();
             drop(checked);
             if amount < exact {
                 assert!(matches!(
@@ -319,6 +324,7 @@ fn all_five_independent_capture_literals_admit_exactly_and_refuse_one_below() {
                     Err(LeafError::TriggerContracts(TriggerContractError::WorkLimit))
                 ));
             } else {
+                assert_eq!(remaining, amount - exact);
                 let snapshot = outcome.unwrap();
                 assert_eq!(snapshot.table_id(), "triggers.contracts");
                 assert_eq!(

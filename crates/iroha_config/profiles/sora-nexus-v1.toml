@@ -260,14 +260,6 @@ pow_adaptive_max_extra_bits = 2
 # Fresh generations have no finalized beacon pulse yet.
 pow_beacon_seed_enabled = false
 
-# KAGEMUSHA V1 commands, as Taira runs them. Applied only when the node file binds
-# `torii.kagemusha_v1_commands.redemption_authority`; the redemption key is then
-# `<data_dir>/secrets/authority/kagemusha_redemption.key`.
-[policy.torii.kagemusha_v1_commands]
-redemption_minimum_xor_balance = "1"
-operation_registry_max_entries = 4096
-operation_registry_max_bytes = 593920
-
 [policy.soracloud_runtime]
 hydration_concurrency = 1
 prepared_runtime_cache_capacity = 1

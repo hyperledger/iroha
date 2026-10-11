@@ -13,10 +13,6 @@ pub(super) struct LaneLifecycleReleases<'state> {
     pub(super) crypto:
         DeferredPublicationRwLock<'state, Arc<iroha_config::parameters::actual::Crypto>>,
     pub(super) nexus: DeferredPublicationRwLock<'state, iroha_config::parameters::actual::Nexus>,
-    pub(super) verifier: DeferredPublicationRwLock<
-        'state,
-        Arc<dyn crate::smartcontracts::isi::kagemusha::KagemushaV1RuntimeVerifier>,
-    >,
     pub(super) header: DeferredPublicationRwLock<'state, Option<BlockHeader>>,
     pub(super) manifests: DeferredPublicationRwLock<'state, LaneManifestRegistryHandle>,
     pub(super) privacy: DeferredPublicationRwLock<'state, LanePrivacyRegistryHandle>,
@@ -38,7 +34,6 @@ impl<'state> LaneLifecycleReleases<'state> {
             prepared_cache: state.pipeline_ivm_prepared_cache.defer_notifications(),
             crypto: state.crypto.defer_notifications(),
             nexus: state.nexus.defer_notifications(),
-            verifier: state.kagemusha_v1_runtime_verifier.defer_notifications(),
             header: state.latest_block_header.defer_notifications(),
             manifests: state.lane_manifests.defer_notifications(),
             privacy: state.lane_privacy_registry.defer_notifications(),

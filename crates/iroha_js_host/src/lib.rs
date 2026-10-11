@@ -77,7 +77,7 @@ use iroha_data_model::{
         PrivacyCompiledProfileCatalogV1, PrivacyExact12CapabilityManifestV1, PrivacyProtocolIdV1,
         validate_privacy_capability_archive_v1,
     },
-    proof::{ProofAttachment, ProofAttachmentList},
+    proof::ProofAttachment,
     smart_contract::ContractAddress,
     sorafs::orderbook_submission::{
         parse_sorafs_orderbook_cancel_reason_v1, parse_sorafs_orderbook_decimal_u64_v1,
@@ -6137,10 +6137,23 @@ fn decode_canonical_signed_transaction_v1(bytes: &[u8]) -> napi::Result<SignedTr
     Ok(transaction)
 }
 #[allow(clippy::too_many_arguments)] // mirrors TransactionBuilder inputs for clarity
+/// Declare one proof attachment as the execution proof carrier of a proved IVM executable.
+fn ivm_proved_execution_plan(
+    attachment: &ProofAttachment,
+) -> napi::Result<iroha_data_model::transaction::SignedAttachmentPlanV1> {
+    let mut plan = iroha_data_model::transaction::SignedAttachmentPlanV1::new();
+    plan.push_action(
+        iroha_data_model::transaction::signed_attachments::PlannedActionV1::ivm_proved_execution(
+            attachment,
+        )
+        .map_err(norito_to_napi)?,
+    );
+    Ok(plan)
+}
 fn configure_transaction_builder(
     mut builder: TransactionBuilder,
     metadata: Metadata,
-    attachments: Option<ProofAttachmentList>,
+    attachments: Option<iroha_data_model::transaction::SignedAttachmentPlanV1>,
     creation_time_ms: Option<i64>,
     ttl_ms: Option<i64>,
     nonce: Option<u32>,
@@ -6170,7 +6183,11 @@ fn configure_transaction_builder(
     }
     builder = builder.with_metadata(metadata);
     if let Some(attachments) = attachments {
-        builder = builder.with_attachments(attachments);
+        // The executable and every other signed field are final here, so the
+        // declared actions are validated against the payload they are bound to.
+        builder = builder
+            .with_attachment_plan(attachments)
+            .map_err(norito_to_napi)?;
     }
     Ok(builder)
 }
@@ -6196,7 +6213,7 @@ fn assemble_executable_transaction(
     executable: Executable,
     fee_payment: FeePaymentIntent,
     metadata: Metadata,
-    attachments: Option<ProofAttachmentList>,
+    attachments: Option<iroha_data_model::transaction::SignedAttachmentPlanV1>,
     creation_time_ms: Option<i64>,
     ttl_ms: Option<i64>,
     nonce: Option<u32>,
@@ -7430,7 +7447,8 @@ pub fn sign_quoted_ivm_proved_transaction_payload(
     payload.fee_payment = quoted_fee_payment;
     let builder = TransactionBuilder::from_payload(payload)
         .map_err(norito_to_napi)?
-        .with_attachments(ProofAttachmentList::try_from(vec![attachment]).map_err(norito_to_napi)?);
+        .with_attachment_plan(ivm_proved_execution_plan(&attachment)?)
+        .map_err(norito_to_napi)?;
     let algorithm = parse_crypto_algorithm(private_key_algorithm.as_deref())?;
     let private_key = PrivateKey::from_bytes(algorithm, secret.as_ref()).map_err(norito_to_napi)?;
     let signed = sign_js_transaction(
@@ -7549,7 +7567,7 @@ pub fn build_ivm_proved_transaction_payload(
         TransactionBuilder::new(network_id, authority, fee_payment)
             .with_executable(Executable::IvmProved(proved)),
         metadata,
-        Some(ProofAttachmentList::try_from(vec![attachment]).map_err(norito_to_napi)?),
+        Some(ivm_proved_execution_plan(&attachment)?),
         creation_time_ms,
         ttl_ms,
         nonce,
@@ -7607,7 +7625,7 @@ pub fn build_ivm_proved_transaction(
         Executable::IvmProved(proved),
         fee_payment,
         metadata,
-        Some(ProofAttachmentList::try_from(vec![attachment]).map_err(norito_to_napi)?),
+        Some(ivm_proved_execution_plan(&attachment)?),
         creation_time_ms,
         ttl_ms,
         nonce,
@@ -12311,21 +12329,39 @@ seiyaku Privacy {
     }
     #[test]
     fn smart_contract_code_instruction_json_roundtrip() {
-        const FRAME_LIMIT: usize = 64 * 1024;
-        const SCRATCH_BYTES: usize = 8 * FRAME_LIMIT;
-        let signing_pool = iroha_allocation::AllocationBudget::new(
-            SCRATCH_BYTES + norito::core::DecodeBudgetContext::allocation_layout().size(),
-        );
-        let _signing_scratch = signing_pool
-            .try_reserve_bytes(SCRATCH_BYTES)
-            .expect("fund fixture manifest signing scratch");
-        let signing_context = norito::core::DecodeBudgetContext::try_new_owned(
-            norito::DecodeLimits::new(FRAME_LIMIT, FRAME_LIMIT, FRAME_LIMIT, SCRATCH_BYTES, 256),
-            &signing_pool,
-        )
-        .expect("fund original fixture signing counter");
         let signing_key = KeyPair::try_from_seed(vec![0x33; 32], Algorithm::Ed25519)
             .expect("fixture seed keypair");
+        let max_frame_bytes = usize::try_from(
+            iroha_data_model::parameter::system::TransactionParameters::default()
+                .max_tx_bytes
+                .get(),
+        )
+        .expect("canonical transaction byte ceiling");
+        let signer_bytes = signing_key.public_key().retained_allocation_layout().size();
+        let cumulative_bytes = max_frame_bytes
+            .checked_add(signer_bytes)
+            .expect("finite manifest allocation allowance");
+        let physical_bytes = cumulative_bytes
+            .checked_add(norito::core::DecodeBudgetContext::allocation_layout().size())
+            .expect("finite manifest physical allowance");
+        let pool = iroha_allocation::AllocationBudget::new(physical_bytes);
+        let mut grant = pool
+            .try_reserve_bytes(physical_bytes)
+            .expect("fund original manifest codec allowance");
+        let context = norito::core::DecodeBudgetContext::from_reservation(
+            norito::DecodeLimits::new(
+                max_frame_bytes,
+                max_frame_bytes,
+                max_frame_bytes,
+                cumulative_bytes,
+                norito::core::MAX_VALUE_NESTING_DEPTH,
+            ),
+            &mut grant,
+        )
+        .expect("retain original manifest accounting");
+        let _signer_backing = grant
+            .try_partition_bytes(signer_bytes)
+            .expect("retain original compact signer backing");
         let manifest = ContractManifest {
             seiyaku_name: None,
             code_hash: Some(Hash::prehashed(sample_hash(0xAA))),
@@ -12383,15 +12419,30 @@ seiyaku Privacy {
             error_messages: None,
             error_types: None,
             provenance: None,
-        }
-        .try_signed(&signing_context, FRAME_LIMIT, &signing_key)
-        .expect("sign bounded fixture manifest");
+        };
+        let frame_bytes = context
+            .with(|| {
+                let _canonical =
+                    norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
+                norito::core::encoded_frame_len_bounded(
+                    &manifest.signature_payload(),
+                    max_frame_bytes,
+                )
+            })
+            .expect("count canonical manifest payload");
+        let frame = grant
+            .try_partition_bytes(frame_bytes)
+            .expect("admit exact canonical manifest payload");
+        let manifest = manifest
+            .try_signed(&context, frame_bytes, &signing_key)
+            .expect("sign fixture manifest");
+        drop(frame);
         let instruction: InstructionBox = Box::new(RegisterSmartContractCode {
             artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(
                 DataSpaceId::new(u64::MAX),
                 manifest.code_hash.expect("fixture manifest hash"),
             ),
-            manifest: manifest.clone(),
+            manifest,
         })
         .into_instruction_box();
         let json_value = instruction_to_json_value(&instruction)
@@ -13537,12 +13588,16 @@ seiyaku Privacy {
                 .expect("decode");
         assert_eq!(quoted_tx.fee_payment_intent(), &quoted);
         assert_eq!(
-            quoted_tx.attachments(),
-            Some(
-                &ProofAttachmentList::try_from(vec![attachment.clone()])
-                    .expect("one attachment is a valid bounded proof list"),
-            )
+            quoted_tx.proof_attachments_v1().expect("execution carrier"),
+            vec![attachment.clone()]
         );
+        assert_eq!(
+            quoted_tx.attachments().expect("attachments").actions()[0].operation,
+            iroha_data_model::transaction::ActionOperationV1::IvmProvedExecution
+        );
+        quoted_tx
+            .validate_signed_attachments_v1()
+            .expect("statements are bound to the quoted payload");
         quoted_tx
             .verify_signature()
             .expect("quoted transaction signature verifies");
@@ -13570,8 +13625,10 @@ seiyaku Privacy {
             }
             other => panic!("expected IvmProved executable, got {other:?}"),
         }
-        let attachments = tx.attachments().expect("proof attachments");
-        assert_eq!(attachments.as_slice(), [attachment]);
+        assert_eq!(
+            tx.proof_attachments_v1().expect("execution carrier"),
+            vec![attachment]
+        );
         assert_eq!(
             result.hash.as_ref(),
             tx.hash().as_ref(),

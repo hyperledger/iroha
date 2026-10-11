@@ -12,7 +12,7 @@ use iroha_data_model::{
         rekey::{AccountAlias, AccountAliasDomain, AccountRekeyRecord},
     },
     alias_setup::AccountAliasName,
-    asset::{AssetBalancePolicy, AssetBalanceScope, AssetId, AssetValue},
+    asset::{AssetBalancePolicy, AssetBalanceScope, AssetDefinition, AssetId, AssetValue},
     nexus::{
         FeeSponsorBudgetCounterKey, FeeSponsorEnrollment, FeeSponsorEnrollmentKey,
         FeeSponsorProgram, FeeSponsorProgramId, FeeSponsorProgramRevision,

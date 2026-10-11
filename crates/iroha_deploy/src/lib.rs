@@ -40,5 +40,9 @@ pub mod secret_toml;
 pub mod shell;
 pub mod verify;
 
+// TODO: Remove the temporary custody timing probe after the native interval cost is localized.
+#[cfg(test)]
+mod custody_timing;
+
 #[cfg(test)]
 mod service_checked_writer_test_support;

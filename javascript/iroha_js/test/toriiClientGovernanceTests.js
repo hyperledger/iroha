@@ -607,40 +607,6 @@ export function registerToriiClientGovernanceTests({
         },
         "global_data_trigger_permission_governance",
       ],
-      [
-        "KagemushaVerifierPolicyInstall",
-        {
-          proposal_operator: FIXTURE_ALICE_ID,
-          network_id: GOVERNANCE_NETWORK_ID.toString(),
-          expected_predecessor: {
-            version: 1,
-            authority_policy: null,
-            active_release_id: null,
-            releases: [],
-          },
-          authority_policy: {
-            version: 1,
-            authority_set_id: Array(32).fill(0x40),
-            threshold: 1,
-            authorized_signers: [`ed0120${SEED_11_ED25519_PUBLIC_KEY_HEX.toUpperCase()}`],
-          },
-        },
-        "kagemusha_verifier_policy_install",
-      ],
-      [
-        "KagemushaVerifierReleaseInstall",
-        JSON.parse(readFileSync(new URL(
-          "../../../fixtures/governance/kagemusha_verifier_release_install_v1.json", import.meta.url,
-        ), "utf8")).payload,
-        "kagemusha_verifier_release_install",
-      ],
-      [
-        "KagemushaVerifierReleaseActivate",
-        JSON.parse(readFileSync(new URL(
-          "../../../fixtures/governance/kagemusha_verifier_release_activate_v1.json", import.meta.url,
-        ), "utf8")).payload,
-        "kagemusha_verifier_release_activate",
-      ],
     ];
     for (const [variant, payload, resultField] of variants) {
       // eslint-disable-next-line no-await-in-loop
@@ -1617,9 +1583,6 @@ wire_id: "iroha.instruction.v1::governance::ProposeDeployContract",
       "ContractLifecycleGovernance",
       "ContractEmergencyHold",
       "GlobalDataTriggerPermissionGovernance",
-      "KagemushaVerifierPolicyInstall",
-      "KagemushaVerifierReleaseInstall",
-      "KagemushaVerifierReleaseActivate",
     ]) {
       assert.match(proposalKind[1], new RegExp(`variant: "${variant}"`, "u"));
     }

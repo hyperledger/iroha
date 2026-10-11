@@ -422,11 +422,10 @@ recorded separately. Exact preceding source and assertion preimages are retained
 in the unit-repair evidence lane after concurrent removal of repository history.
 
 Java attempt-draft requests invoke Kotlin's `ParliamentApiV1` directly with its
-`Proposal`, closed thirteen-kind inventory and recursive proposal validator; the
+`Proposal`, closed ten-kind inventory and recursive proposal validator; the
 Java forwarding request builder and proposal-kind constant are removed. The duplicate Java
 proposal model and validator are removed. Java consumer tests retain the existing
-nested-payload rejection controls and add the current verifier-policy and signed
-verifier-release fixtures. The twentieth Musubi shared instruction fixture uses
+nested-payload rejection controls. The twentieth Musubi shared instruction fixture uses
 the canonical Kotlin `AdvanceMusubiPinOutboxV1` owner in Java-source assertions
 for every concrete and dynamic frame; it introduces no additional Java codec.
 

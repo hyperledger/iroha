@@ -96,7 +96,7 @@ fn effect_verification_requires_original_pool_and_independent_source_before_proo
     let mut reservation = foreign.try_reserve_bytes(64 * 1024 * 1024).unwrap();
     assert!(matches!(
         verify(
-            EffectVerificationInputs {
+            &EffectVerificationInputs {
                 statement: &view,
                 source: &source,
                 expected
@@ -125,14 +125,14 @@ fn effect_verification_requires_original_pool_and_independent_source_before_proo
     altered.slot = altered.slot.checked_add(1).unwrap();
     let mut reservation = budget.try_reserve_bytes(64 * 1024 * 1024).unwrap();
     assert!(
-        matches!(verify(EffectVerificationInputs {statement:&view,source:&altered,expected},&bytes,limit,&budget,&mut reservation),Err(Error::TransferInvariant {details}) if details.contains("source leaf mismatch"))
+        matches!(verify(&EffectVerificationInputs {statement:&view,source:&altered,expected},&bytes,limit,&budget,&mut reservation),Err(Error::TransferInvariant {details}) if details.contains("source leaf mismatch"))
     );
     drop(reservation);
     assert_eq!(budget.reserved_bytes(), 0);
     let mut reservation = budget.try_reserve_bytes(64 * 1024 * 1024).unwrap();
     assert!(
         verify(
-            EffectVerificationInputs {
+            &EffectVerificationInputs {
                 statement: &view,
                 source: &source,
                 expected

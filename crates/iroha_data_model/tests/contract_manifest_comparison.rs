@@ -25,6 +25,9 @@ static ALLOCATOR: ObservedAllocator = ObservedAllocator;
 #[path = "contract_manifest_projection_tests.rs"]
 mod projection_tests;
 
+#[path = "contract_manifest_id_box_projection_tests.rs"]
+mod id_box_projection_tests;
+
 fn owned_context(
     allocated_bytes: usize,
 ) -> (

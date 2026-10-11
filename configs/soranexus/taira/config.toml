@@ -133,18 +133,6 @@ profile = "writer"
 expose_operator_routes = false
 allow_tool_prefixes = ["iroha."]
 
-[torii.kagemusha_v1_commands]
-redemption_private_key_file = "/run/secrets/iroha/taira-kagemusha-v1-redemption-private-key"
-redemption_minimum_xor_balance = "1"
-operation_registry_max_entries = 4096
-operation_registry_max_bytes = 593920
-
-# The base template deliberately has no active `[settlement.kagemusha]` release
-# paths, so ordinary rendering has no dependency on unpublished artifacts.
-# Runtime deployments that enable settlement must provide their reviewed
-# KAGEMUSHA V1 policy, artifact release, qualification seal, and decoded-budget settings
-# through their deployment-specific configuration source.
-
 [torii.account_onboarding]
 authority = "REPLACE_WITH_TAIRA_ONBOARDING_AUTHORITY"
 private_key_file = "REPLACE_WITH_TAIRA_ONBOARDING_PRIVATE_KEY_FILE"

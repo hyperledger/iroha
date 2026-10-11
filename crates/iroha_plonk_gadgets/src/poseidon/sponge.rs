@@ -283,8 +283,9 @@ mod tests {
 
     #[test]
     fn configured_prefixes_are_folded_once() {
-        let statement = u64::from_le_bytes(*b"kgspstm1");
-        let chain = u64::from_le_bytes(*b"kgspsnd1");
+        // Test-only domain words with arbitrary arities (no protocol domain).
+        let statement = u64::from_le_bytes(*b"sptest_1");
+        let chain = u64::from_le_bytes(*b"sptest_2");
         let mut meta = ConstraintSystem::<Fp>::new();
         let lane = Pow5Columns::allocate(&mut meta);
         let round_constants = RoundConstantColumns::allocate(&mut meta);
@@ -299,7 +300,7 @@ mod tests {
         assert!(config.is_folded(chain, 8));
         // Another arity or domain is not.
         assert!(!config.is_folded(statement, 24));
-        assert!(!config.is_folded(u64::from_le_bytes(*b"kgspcrd1"), 24));
+        assert!(!config.is_folded(u64::from_le_bytes(*b"sptest_3"), 24));
         let sponge = SpongeChip::new(config.clone());
         assert_eq!(sponge.permutations(statement, 25), 13);
         assert_eq!(sponge.permutations(statement, 24), 14);

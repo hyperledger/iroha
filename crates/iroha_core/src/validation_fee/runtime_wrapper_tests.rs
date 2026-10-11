@@ -68,8 +68,7 @@ fn install_wrapper_fixture(
     deployer: &AccountId,
     production_pool: bool,
 ) -> WrapperFixture {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let mut setup = block.transaction_for_callback_testing();
     let stx = &mut setup;
     let derive = |nonce| {
@@ -157,7 +156,14 @@ seiyaku FullFillPool {
         crate::smartcontracts::code::register_manifest(
             deployer,
             DataSpaceId::UNIVERSAL,
-            verified.manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &key_pair(55)).expect("sign bounded fixture manifest"),
+            verified
+                .manifest
+                .try_signed(
+                    manifest_signing.context(),
+                    manifest_signing.max_frame_bytes(),
+                    &key_pair(55),
+                )
+                .expect("sign bounded fixture manifest"),
             stx,
         )
         .unwrap();

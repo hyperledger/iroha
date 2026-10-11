@@ -106,14 +106,6 @@ fn assert_preaccepted_foreign_domain_rejected(form: usize) {
         );
         assert!(queue.pending_sccp_exempt.lock().is_empty());
         assert!(!queue.admission_faulted());
-        assert!(queue.pending_kagemusha_operations.lock().by_key.is_empty());
-        assert!(
-            queue
-                .pending_kagemusha_operations
-                .lock()
-                .key_by_entrypoint
-                .is_empty()
-        );
         let local = domain_admission_carriers(*state.network_id_ref(), &time)[form].clone();
         queue
             .push(local.clone(), state.view())

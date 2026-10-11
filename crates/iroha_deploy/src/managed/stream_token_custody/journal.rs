@@ -397,10 +397,7 @@ pub(super) fn explicit(
         None => Terms::new(utc, options)?,
     };
     attempts::initial(
-        directory,
-        purpose,
-        original.digest()?,
-        scope,
+        history,
         terms,
         original.initial_observation(),
         options.deadline,

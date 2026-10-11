@@ -823,7 +823,6 @@ impl MusubiStorageCoordinationRequestV1 {
         if length > MAX_CONTROL_REQUEST_BYTES {
             return Err(invalid());
         }
-        norito::core::reserve_decode_allocation(length).map_err(|_| invalid())?;
         let bytes = norito::core::to_bytes_bounded(self, length).map_err(|_| invalid())?;
         request_digest(
             MusubiPublicationRuntimeOperationV1::StorageCoordination,

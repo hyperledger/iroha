@@ -4,6 +4,14 @@ All notable changes to `IrohaSwift` are documented in this file.
 
 ## [Unreleased]
 
+- `KagemushaWalletDigestRoleV1` follows the 2026-10-05 KAGEMUSHA wallet wire
+  revision: the `credit`, `proof`, `stepProof`, `payment`, `blacklistLeaf`,
+  `blacklistNode`, `quotaWindow` and `quotaNode` roles are removed, because those
+  values are now Poseidon σ-field values that the native Rust core computes, and
+  `verifyingKeySet` is added (55 roles). `KagemushaWalletWireV1` adds
+  `fieldModulus`, `fieldValueBytes` and `isCanonicalFieldValue(_:)`, and the
+  `paymentFixedBytes`, `paymentProofBudgetBytes`, `verifyingKeyEntriesMaximum`,
+  `verifyingKeyAllowlistMaximumBytes` and `creditOpeningSiblingsMaximum` bounds.
 - Added `KagemushaWalletApplePlatformV1`, the iPhone platform adapter behind the
   Rust KAGEMUSHA wallet Advance provider: the Secure Enclave payment key, the
   keychain rollback anchor, the Complete-class protected-data canary, the custody
@@ -29,7 +37,9 @@ All notable changes to `IrohaSwift` are documented in this file.
   `ToriiTopUpOwnershipV1`; `TxBuilder.buildSignedKagemushaTopUp` and
   `KagemushaTopUpTransactionInputError` are gone. `ParticipantEnrollmentHttpCodecV1`,
   `AndroidProvisionedProof` and the `IrohaSwiftTransferUI` KAGEMUSHA flow views
-  (`IrohaKagemushaFlowView` and its widgets) were removed with them.
+  (`IrohaKagemushaFlowView` and its widgets) were removed with them. The native
+  bridge loader no longer requires any `connect_norito_kagemusha_*` export, since
+  the bridge exports none.
 - Removed the signature-only KAGEMUSHA wallet suite (`Sources/IrohaSwift/KagemushaAttested/`):
   `KagemushaAmount`, `KagemushaConfig`, `KagemushaAccountProof`,
   `KagemushaLedgerPort`, `KagemushaPlatform`, `KagemushaStatus`,

@@ -952,15 +952,12 @@ fn classify_local_moderation_queue_rejection(
             Err(ModerationStrictIngressFailureV1::Backpressure)
         }
         iroha_core::queue::Error::AdmissionInvariant { .. }
-        | iroha_core::queue::Error::KagemushaV1OperationIndexInconsistent { .. }
         | iroha_core::queue::Error::UnresolvedRoute { .. } => {
             Err(ModerationStrictIngressFailureV1::Unavailable)
         }
         iroha_core::queue::Error::Expired
         | iroha_core::queue::Error::TransactionDomainMismatch(_)
         | iroha_core::queue::Error::UnsupportedTransactionAdmission { .. }
-        | iroha_core::queue::Error::KagemushaV1OperationCarrierRejected { .. }
-        | iroha_core::queue::Error::KagemushaV1OperationIdConflict { .. }
         | iroha_core::queue::Error::UnregisteredAuthority { .. }
         | iroha_core::queue::Error::Governance(_)
         | iroha_core::queue::Error::GovernanceNotPermitted { .. }

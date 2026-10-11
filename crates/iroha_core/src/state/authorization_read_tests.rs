@@ -56,6 +56,10 @@ fn install_catalog(state: &State, catalog: NexusRuntimeCatalogV1) {
     drop(notice);
 }
 
+// Native runtime additions bind their identity to this exact manifest hash.
+const ADDITIVE_MANIFEST_HASH: [u8; 32] = [9; 32];
+const ADDITIVE_DATASPACE_ID: DataSpaceId = DataSpaceId::from_hash(&ADDITIVE_MANIFEST_HASH);
+
 fn additive_catalog(state: &State) -> NexusRuntimeCatalogV1 {
     NexusRuntimeCatalogV1 {
         version: NexusRuntimeCatalogV1::VERSION,
@@ -70,12 +74,12 @@ fn additive_catalog(state: &State) -> NexusRuntimeCatalogV1 {
         ),
         dataspaces: vec![RuntimeDataSpaceAdditionV1 {
             descriptor: DataSpaceMetadata {
-                id: DataSpaceId::new(9),
+                id: ADDITIVE_DATASPACE_ID,
                 alias: "nine".to_owned(),
                 description: Some("retained committed descriptor".to_owned()),
                 fault_tolerance: 1,
             },
-            manifest_hash: [9; 32],
+            manifest_hash: ADDITIVE_MANIFEST_HASH,
         }],
         manifests: vec![],
     }
@@ -90,7 +94,7 @@ fn install_additive_runtime(state: &State) {
         .owner_policy
         .dataspaces
         .push(SnapshotDataSpaceMetadata {
-            id: DataSpaceId::new(9),
+            id: ADDITIVE_DATASPACE_ID,
             alias: "nine".to_owned(),
             fault_tolerance: 1,
         });
@@ -101,7 +105,7 @@ fn install_additive_runtime(state: &State) {
         .push(iroha_data_model::nexus::LaneConfig {
             id: LaneId::new(1),
             alias: "nine-lane".to_owned(),
-            dataspace_id: DataSpaceId::new(9),
+            dataspace_id: ADDITIVE_DATASPACE_ID,
             ..Default::default()
         });
     runtime.commit();
@@ -213,10 +217,10 @@ fn authorization_reader_uses_committed_additions_and_the_supplied_counter() {
         state
             .try_with_authorization_view(&counter, |view| {
                 let entry = view.catalog().by_alias("nine").unwrap();
-                assert_eq!(entry.id, DataSpaceId::new(9));
+                assert_eq!(entry.id, ADDITIVE_DATASPACE_ID);
                 assert!(std::ptr::eq(
                     entry,
-                    view.catalog().by_id(DataSpaceId::new(9)).unwrap()
+                    view.catalog().by_id(ADDITIVE_DATASPACE_ID).unwrap()
                 ));
                 assert_eq!(view.active_lanes()[1].dataspace_id, entry.id);
             })

@@ -2067,6 +2067,66 @@ fn take_len_prefixed_slice_rejects_fields_beyond_cap() {
     let result = take_len_prefixed_slice(&encoded, &mut offset, MAX_BACKEND_FIELD_BYTES);
     assert!(matches!(result, Err(ncore::Error::LengthMismatch)));
 }
+/// Longest name whose compact length prefix and bytes fill exactly `field_len` bytes.
+fn name_len_filling_field(field_len: usize) -> usize {
+    let mut name_len = field_len;
+    while ncore::varint_len_prefix_len(name_len) + name_len > field_len {
+        name_len -= 1;
+    }
+    assert_eq!(ncore::varint_len_prefix_len(name_len) + name_len, field_len);
+    name_len
+}
+#[test]
+fn verifying_key_reference_fields_accept_the_limit_and_reject_one_over() {
+    let _flags = ncore::DecodeFlagsGuard::enter(ncore::default_encode_flags());
+    // The name of a verifying-key id is one bounded field.
+    let name_at_limit = name_len_filling_field(MAX_REF_FIELD_BYTES);
+    let encode_id = |name_len: usize| {
+        norito::codec::Encode::encode(&VerifyingKeyId::new("halo2/ipa", "n".repeat(name_len)))
+    };
+    let at_limit = encode_id(name_at_limit);
+    let (decoded, used) = <VerifyingKeyId as ncore::DecodeFromSlice>::decode_from_slice(&at_limit)
+        .expect("name field of exactly the limit");
+    assert_eq!((decoded.name.len(), used), (name_at_limit, at_limit.len()));
+    assert!(matches!(
+        <VerifyingKeyId as ncore::DecodeFromSlice>::decode_from_slice(&encode_id(
+            name_at_limit + 1
+        )),
+        Err(ncore::Error::LengthMismatch)
+    ));
+
+    // The whole reference is one bounded field of a proof attachment. A
+    // reference of exactly the limit passes the length gate and is then refused
+    // for its content; one byte over is refused by the gate itself.
+    let encode_attachment = |name_len: usize| {
+        let reference = VerifyingKeyId::new("halo2/ipa", "n".repeat(name_len));
+        let reference_len = norito::codec::Encode::encode(&reference).len();
+        let attachment = ProofAttachment::new_ref(
+            "halo2/ipa".into(),
+            ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
+            reference,
+        );
+        (reference_len, norito::codec::Encode::encode(&attachment))
+    };
+    let mut name_len = MAX_REF_FIELD_BYTES;
+    while encode_attachment(name_len).0 > MAX_REF_FIELD_BYTES {
+        name_len -= 1;
+    }
+    let (reference_len, at_limit) = encode_attachment(name_len);
+    assert_eq!(reference_len, MAX_REF_FIELD_BYTES);
+    match <ProofAttachment as ncore::DecodeFromSlice>::decode_from_slice(&at_limit) {
+        Err(ncore::Error::Message(message)) => {
+            assert!(message.contains("vk_ref"), "{message}");
+        }
+        other => panic!("expected the content refusal behind the length gate, got {other:?}"),
+    }
+    let (reference_len, over) = encode_attachment(name_len + 1);
+    assert_eq!(reference_len, MAX_REF_FIELD_BYTES + 1);
+    assert!(matches!(
+        <ProofAttachment as ncore::DecodeFromSlice>::decode_from_slice(&over),
+        Err(ncore::Error::LengthMismatch)
+    ));
+}
 #[test]
 fn proofbox_decode_rejects_oversized_len_prefixed_payloads() {
     let backend: iroha_schema::Ident = "halo2/ipa".into();

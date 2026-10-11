@@ -8943,16 +8943,13 @@ pub mod isi {
         attempt
             .mark_enacted(governance_attempt_id, current_height)
             .map_err(parliament_reducer_error)?;
-        let effect_result: Result<(), Error> = (|| {
-            // The World write remains isolated until transaction apply.
-            apply_parliament_proposal_effect_v1(
-                proposal_id,
-                &proposal,
-                &certificate,
-                state_transaction,
-            )?;
-            Ok(())
-        })();
+        // The World write remains isolated until transaction apply.
+        let effect_result: Result<(), Error> = apply_parliament_proposal_effect_v1(
+            proposal_id,
+            &proposal,
+            &certificate,
+            state_transaction,
+        );
         if let Some(reason) = state_transaction.execution_deferral() {
             return Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
                 reason,
@@ -17376,73 +17373,6 @@ pub mod isi {
                 )
                 .into());
             }
-            // Domain retirement must apply the same liability boundary as direct
-            // asset-definition retirement before deleting any reserve custody.
-            for (storage_key, pool) in state_transaction.world.kagemusha_reserve_pools.iter() {
-                if !remove_asset_definitions.contains(&pool.key.asset) {
-                    continue;
-                }
-                if storage_key != &pool.key.liability_pool_id {
-                    return Err(InstructionExecutionError::InvariantViolation(
-                        format!(
-                            "cannot unregister domain {domain_id}: asset definition {} has a Kagemusha V1 reserve pool with a non-canonical storage key",
-                            pool.key.asset
-                        )
-                        .into(),
-                    )
-                    .into());
-                }
-                pool.validate().map_err(|error| {
-                    InstructionExecutionError::InvariantViolation(
-                        format!(
-                            "cannot unregister domain {domain_id}: asset definition {} has an invalid Kagemusha V1 reserve pool: {error}",
-                            pool.key.asset
-                        )
-                        .into(),
-                    )
-                })?;
-                let outstanding = pool.available().map_err(|error| {
-                    InstructionExecutionError::InvariantViolation(
-                        format!(
-                            "cannot unregister domain {domain_id}: asset definition {} has an invalid Kagemusha V1 reserve liability: {error}",
-                            pool.key.asset
-                        )
-                        .into(),
-                    )
-                })?;
-                if outstanding != 0 {
-                    return Err(InstructionExecutionError::InvariantViolation(
-                        format!(
-                            "cannot unregister domain {domain_id}: asset definition {} has {outstanding} outstanding Kagemusha V1 reserve atomic units",
-                            pool.key.asset
-                        )
-                        .into(),
-                    )
-                    .into());
-                }
-            }
-            for (_, operation) in state_transaction.world.kagemusha_reserve_operations.iter() {
-                let pool = operation.pool();
-                if remove_asset_definitions.contains(&pool.asset) {
-                    let stored_pool = state_transaction
-                        .world
-                        .kagemusha_reserve_pools
-                        .get(&pool.liability_pool_id);
-                    crate::smartcontracts::isi::kagemusha::kagemusha_v1_reserve::validate_retirement_operation_pool_v1(
-                        pool,
-                        stored_pool,
-                    )
-                    .map_err(|error| {
-                        InstructionExecutionError::InvariantViolation(
-                            format!(
-                                "cannot unregister domain {domain_id}: asset definition {} has a Kagemusha V1 operation with an invalid reserve pool: {error}",
-                                pool.asset
-                            )
-                            .into(),
-                        )
-                    })?;
-                }
-            }
             for account_id in &relabeled_accounts {
                 if account_id == &state_transaction.gov.bond_escrow_account
                     || account_id == &state_transaction.gov.slash_receiver_account
@@ -17800,11 +17730,6 @@ pub mod isi {
             }
             for asset_definition_id in remove_asset_definitions {
                 state_transaction
-                    .settlement
-                    .kagemusha
-                    .reserve_accounts
-                    .remove(&asset_definition_id);
-                state_transaction
                     .world
                     .zk_assets
                     .remove(asset_definition_id.clone());
@@ -18122,14 +18047,6 @@ pub mod isi {
                         .map_err(|error| InstructionExecutionError::InvalidParameter(
                             InvalidParameterError::SmartContract(error.to_string()),
                         ))?;
-                }
-                if crate::state::is_retired_kagemusha_mint_finality_parameter(custom.id()) {
-                    return Err(InstructionExecutionError::InvalidParameter(
-                        InvalidParameterError::SmartContract(
-                            "retired KAGEMUSHA epoch-roster parameters cannot authorize authority transitions"
-                                .to_owned(),
-                        ),
-                    ));
                 }
                 match iroha_data_model::nexus::ValidatorCommitteeOperationV1::from_custom_parameter(
                     custom,
@@ -28600,163 +28517,7 @@ seiyaku GovernanceLifecycle {
                 "asset definition should remain after rejected unregister"
             );
         });
-        world_test!(unregister_domain_rejects_outstanding_kagemusha_reserve_liability {
-            use crate::smartcontracts::isi::kagemusha::kagemusha_v1_reserve::{
-                KAGEMUSHA_RESERVE_VERSION_V1, KagemushaReservePoolKeyV1, KagemushaReservePoolV1,
-            };
-            use iroha_data_model::isi::{KagemushaOperationKindV1, KagemushaReserveReceiptV1};
-
-            let state = blank_state();
-            let domain_id = DomainId::try_new("kagemusharetirement", "universal")
-                .expect("domain id parses");
-            state_transaction!(state, block, state_block, stx);
-            Register::domain(Domain::new(domain_id.clone()))
-                .expect_execute(&ALICE_ID, &mut stx, "register asset domain");
-            let asset_definition_id = AssetDefinitionId::derive_from_components(
-                domain_id.clone(),
-                "backed".parse().expect("asset name"),
-            );
-            Register::asset_definition(AssetDefinition::numeric(
-                asset_definition_id.clone(),
-                "Backed asset",
-                iroha_data_model::asset::AssetBalancePolicy::Global,
-                Some(domain_id.clone()),
-            ))
-            .expect_execute(&ALICE_ID, &mut stx, "register backed asset definition");
-            let asset_definition = stx
-                .world
-                .asset_definition(&asset_definition_id)
-                .expect("registered asset definition");
-            crate::smartcontracts::isi::domain::isi::ensure_kagemusha_reserve_account(
-                &asset_definition,
-                &ALICE_ID,
-                &mut stx,
-            )
-            .expect("materialize deterministic reserve custody");
-            let reserve_account = crate::smartcontracts::isi::domain::isi::kagemusha_reserve_account_id(
-                stx.network_id(),
-                &asset_definition_id,
-            );
-            let reserve_asset_id = AssetId::new(asset_definition_id.clone(), reserve_account);
-            Mint::asset_quantity(1_u32, reserve_asset_id.clone())
-                .expect_execute(&ALICE_ID, &mut stx, "fund reserve custody");
-            let network_id = *stx.network_id();
-            let incarnation = *stx
-                .world
-                .axt_asset_incarnations
-                .get(&asset_definition_id)
-                .expect("registered asset incarnation");
-            let key = KagemushaReservePoolKeyV1::new(
-                network_id,
-                asset_definition_id.clone(),
-                incarnation,
-            )
-            .expect("canonical reserve key");
-            let receipt = KagemushaReserveReceiptV1 {
-                version: KAGEMUSHA_RESERVE_VERSION_V1,
-                operation_id: [0x41; 32],
-                kind: KagemushaOperationKindV1::TopUp,
-                request_digest: [0x42; 32],
-                mint_statement_digest: [0x43; 32],
-                network_id,
-                asset: asset_definition_id.clone(),
-                asset_incarnation: incarnation,
-                scale: 0,
-                liability_pool_id: key.liability_pool_id,
-                amount: 1,
-                previous_pool_receipt_digest: [0; 32],
-                total_topups: 1,
-                total_redemptions: 0,
-                transaction_hash: [0x45; 32],
-                committed_at_ms: 1,
-            };
-            let pool = KagemushaReservePoolV1 {
-                version: KAGEMUSHA_RESERVE_VERSION_V1,
-                key,
-                scale: 0,
-                total_topups: 1,
-                total_redemptions: 0,
-                latest_receipt: Some(receipt),
-            };
-            pool.validate().expect("self-consistent reserve pool");
-            let pool_id = pool.key.liability_pool_id;
-            stx.world.kagemusha_reserve_pools.insert(pool_id, pool);
-
-            let error = Unregister::domain(domain_id.clone())
-                .expect_execute_err(&ALICE_ID, &mut stx, "outstanding reserve must block domain retirement");
-            assert_contains!(
-                format!("{error:?}"),
-                "1 outstanding Kagemusha V1 reserve atomic units",
-                "domain retirement must identify the outstanding liability: {error}"
-            );
-            assert!(stx.world.domains.get(&domain_id).is_some());
-            assert!(stx.world.asset_definitions.get(&asset_definition_id).is_some());
-            assert!(stx.world.assets.get(&reserve_asset_id).is_some());
-            assert!(stx.world.kagemusha_reserve_pools.get(&pool_id).is_some());
-        });
-        world_test!(unregister_domain_removes_kagemusha_reserve_mappings_for_domain_asset_definitions {
-            let state = blank_state();
-            let domain_id: DomainId =
-                DomainId::try_new("cleanup", "universal").expect("domain id parses");
-            state_transaction!(state, block, state_block, stx);
-            Register::domain(Domain::new(domain_id.clone()))
-                .expect_execute(&ALICE_ID, &mut stx, "register cleanup domain");
-            let reward_def = AssetDefinitionId::derive_from_components(
-                domain_id.clone(),
-                "kagemusha".parse().unwrap(),
-            );
-            Register::asset_definition(NewAssetDefinition {
-                id: reward_def.clone(),
-                name: "Kagemusha".to_owned(),
-                description: None,
-                alias: None,
-                spec: NumericSpec::integer(),
-                mintable: Mintable::Infinitely,
-                logo: None,
-                metadata: Metadata::default(),
-                balance_scope_policy: iroha_data_model::asset::AssetBalancePolicy::Global,
-                owning_domain: Some(domain_id.clone()),
-            })
-            .expect_execute(&ALICE_ID, &mut stx, "register cleanup-domain asset definition");
-            assert!(
-                stx.world
-                    .domain_asset_definitions
-                    .get(&domain_id)
-                    .is_some_and(|definitions| definitions.contains(&reward_def)),
-                "fixture must register the asset definition in the cleanup domain"
-            );
-            let escrow = crate::smartcontracts::isi::domain::isi::kagemusha_reserve_account_id(
-                stx.network_id(),
-                &reward_def,
-            );
-            stx.settlement
-                .kagemusha
-                .reserve_accounts
-                .insert(reward_def.clone(), escrow);
-            assert!(
-                stx.settlement
-                    .kagemusha
-                    .reserve_accounts
-                    .get(&reward_def)
-                    .is_some(),
-                "Kagemusha reserve mapping should exist before domain unregister"
-            );
-            Unregister::domain(domain_id.clone())
-                .expect_execute(&ALICE_ID, &mut stx, "domain unregister should remove domain-local Kagemusha reserve mapping");
-            assert!(
-                stx.settlement
-                    .kagemusha
-                    .reserve_accounts
-                    .get(&reward_def)
-                    .is_none(),
-                "Kagemusha reserve mapping should be removed with domain asset definitions"
-            );
-            assert!(
-                stx.world.domains.get(&domain_id).is_none(),
-                "domain should be removed"
-            );
-        });
-        world_test!(unregister_domain_preserves_accounts_with_active_settlement_oracle_and_kagemusha_state {
+        world_test!(unregister_domain_preserves_accounts_with_active_settlement_and_oracle_state {
             let state = blank_state();
             let domain_id: DomainId =
                 DomainId::try_new("cleanup", "universal").expect("domain id parses");
@@ -32606,27 +32367,6 @@ seiyaku GovernanceLifecycle {
             let error = SetParameter::new(Parameter::Custom(rollback.into_custom_parameter()))
                 .expect_execute_err(&ALICE_ID, &mut stx, "retention target rollback must fail");
             assert_contains!(format!("{error:?}"), "target did not advance");
-        });
-        world_test!(set_parameter_rejects_retired_kagemusha_epoch_authority_before_state_changes {
-            blank_state_transaction!(state, block, state_block, stx);
-            let id: iroha_data_model::parameter::CustomParameterId =
-                "kagemusha_mint_finality_next_epoch_v1".parse().expect("retired ID fixture");
-            let before = stx.world.parameters.get().clone();
-            for payload in ["{}", "17", "{\"roster\":null}"] {
-                let payload: iroha_primitives::json::Json = payload.parse().expect("valid JSON fixture");
-                let custom = iroha_data_model::parameter::CustomParameter::new(id.clone(), payload);
-                let error = SetParameter::new(Parameter::Custom(custom)).expect_execute_err(
-                    &ALICE_ID, &mut stx, "retired authority payloads must be rejected before interpretation",
-                );
-                match error {
-                    Error::InvalidParameter(InvalidParameterError::SmartContract(message)) => {
-                        assert_eq!(message, "retired KAGEMUSHA epoch-roster parameters cannot authorize authority transitions");
-                    }
-                    other => panic!("unexpected error: {other:?}"),
-                }
-                assert_eq!(stx.world.parameters.get(), &before);
-                assert!(!stx.world.parameters.get().custom().contains_key(&id));
-            }
         });
         world_test!(set_parameter_rejects_zero_npos_reconfig_fields {
             let state = blank_state();

@@ -3977,8 +3977,6 @@ fn append_localnet_contract_permissions_for_client(
     client_account_id: &AccountId,
 ) -> Result<RawGenesisTransaction> {
     let enact_governance: Permission = CanEnactGovernance.into();
-    let manage_kagemusha_reserve =
-        Permission::new("CanManageKagemushaReserve".into(), Json::new(()));
     let manage_verifying_keys = Permission::new("CanManageVerifyingKeys".into(), Json::new(()));
     let manage_account_alias: Permission = CanManageAccountAlias {
         scope: AccountAliasPermissionScope::Dataspace(DataSpaceId::UNIVERSAL),
@@ -4026,7 +4024,6 @@ fn append_localnet_contract_permissions_for_client(
     push_unique(manage_verifying_keys, client_account_id.clone());
     push_unique(manage_account_alias, client_account_id.clone());
     push_unique(publish_manifest, client_account_id.clone());
-    push_unique(manage_kagemusha_reserve, client_account_id.clone());
     let mut builder = genesis.into_builder();
     for (permission, destination) in grants {
         builder = builder.append_instruction(Grant::account_permission(permission, destination));

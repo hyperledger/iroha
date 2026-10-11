@@ -1131,116 +1131,12 @@ fn refresh_block_count_after_snapshot_load(
     block_count.0 = durable_height;
     Ok(())
 }
-fn require_kagemusha_v1_release_network(
-    release_network: NetworkId,
-    state_network: NetworkId,
-) -> Result<(), String> {
-    if release_network != state_network {
-        return Err(format!(
-            "KAGEMUSHA V1 signed release network {release_network} differs from node network {state_network}"
-        ));
-    }
-    Ok(())
-}
-
-fn select_kagemusha_v1_experimental_release_loader(
-    purpose: iroha_data_model::kagemusha::KagemushaReleasePurposeV1,
-    allow_testnet_experimental_release: bool,
-) -> Result<bool, String> {
-    match purpose {
-        iroha_data_model::kagemusha::KagemushaReleasePurposeV1::Production => Ok(false),
-        iroha_data_model::kagemusha::KagemushaReleasePurposeV1::TestnetExperiment(_) => {
-            if allow_testnet_experimental_release {
-                Ok(true)
-            } else {
-                Err("signed KAGEMUSHA TestnetExperiment release requires settlement.kagemusha.allow_testnet_experimental_release".to_owned())
-            }
-        }
-    }
-}
-
-fn install_kagemusha_v1_runtime_verifier(state: &State, config: &Config) -> Result<(), String> {
-    let Some(files) = config.settlement.kagemusha.proof_release.as_ref() else {
-        return state.validate_kagemusha_v1_runtime_for_startup();
-    };
-    let expected = state.kagemusha_v1_runtime_reload_head();
-    if !expected.has_active_release() {
-        // Kura can certify first activation after an inactive standby snapshot.
-        // Authenticate the configured artifacts against the final replayed head.
-        return state.validate_kagemusha_v1_runtime_for_startup();
-    }
-    let read = |path: &Path, max_bytes, label| {
-        read_bounded_startup_artifact(path, max_bytes, label)
-            .map_err(|error| format!("failed to read {label} at {}: {error}", path.display()))
-    };
-    let manifest = read(
-        &files.manifest,
-        iroha_data_model::kagemusha::KAGEMUSHA_RELEASE_MANIFEST_MAX_BYTES_V1,
-        "KAGEMUSHA V1 release manifest",
-    )?;
-    let release_manifest =
-        iroha_data_model::kagemusha::KagemushaReleaseManifestV1::decode_canonical_exact(&manifest)
-            .map_err(|error| format!("invalid KAGEMUSHA V1 release manifest: {error}"))?;
-    require_kagemusha_v1_release_network(release_manifest.network_id, state.network_id)?;
-    let experimental_release = select_kagemusha_v1_experimental_release_loader(
-        release_manifest.purpose,
-        config
-            .settlement
-            .kagemusha
-            .allow_testnet_experimental_release,
-    )?;
-    let receipt = read(
-        &files.validation_receipt,
-        iroha_data_model::kagemusha::KAGEMUSHA_INTERNAL_VALIDATION_RECEIPT_MAX_BYTES_V1,
-        "KAGEMUSHA V1 validation receipt",
-    )?;
-    let policy = read(
-        &files.authority_policy,
-        iroha_data_model::kagemusha::KAGEMUSHA_RELEASE_AUTHORITY_POLICY_MAX_BYTES_V1,
-        "KAGEMUSHA V1 authority policy",
-    )?;
-    let attestation = read(
-        &files.attestation,
-        iroha_data_model::kagemusha::KAGEMUSHA_RELEASE_ATTESTATION_MAX_BYTES_V1,
-        "KAGEMUSHA V1 release attestation",
-    )?;
-    let profile = read(
-        &files.recursive_profile,
-        iroha_core::smartcontracts::isi::kagemusha::KAGEMUSHA_RECURSIVE_PROFILE_MAX_BYTES_V1,
-        "KAGEMUSHA V1 recursive verifier profile",
-    )?;
-    let verifier = if experimental_release {
-        iroha_core::smartcontracts::isi::kagemusha::load_authenticated_kagemusha_v1_experimental_runtime_verifier(
-            &manifest,
-            &receipt,
-            &policy,
-            &attestation,
-            &profile,
-            &files.artifact_directory,
-            state.network_id,
-        )?
-    } else {
-        iroha_core::smartcontracts::isi::kagemusha::load_authenticated_kagemusha_v1_runtime_verifier(
-            &manifest,
-            &receipt,
-            &policy,
-            &attestation,
-            &profile,
-            &files.artifact_directory,
-        )?
-    };
-    state.install_kagemusha_v1_runtime_verifier(expected, verifier)
-}
-fn apply_state_runtime_config_before_snapshot_auth(
-    state: &mut State,
-    config: &Config,
-) -> Result<(), String> {
+fn apply_state_runtime_config_before_snapshot_auth(state: &mut State, config: &Config) {
     // These fields are process-local execution policy and do not touch Kura-owned geometry.
     // Settlement must be installed before replay because historical
-    // top-up/redemption transitions resolve their deterministic execution
-    // state and any explicitly referenced proof release through
-    // `State::settlement`. This ordering is replay correctness, not an offline
-    // capability or node-readiness gate.
+    // transitions resolve their deterministic execution state through
+    // `State::settlement`. This ordering is replay correctness, not a
+    // node-readiness gate.
     state.set_crypto(config.crypto.clone());
     install_node_pipeline_config(state, config)?;
     state.set_oracle(config.oracle.clone());
@@ -1248,7 +1144,6 @@ fn apply_state_runtime_config_before_snapshot_auth(
     state.set_gov(config.gov.clone());
     state.content = config.content.clone();
     state.set_settlement(config.settlement.clone());
-    install_kagemusha_v1_runtime_verifier(state, config)
 }
 /// Install the node's own pipeline settings: local resources and the fee policy.
 ///
@@ -2905,19 +2800,8 @@ impl Iroha {
                         "emergency Fast restored governance is incompatible with configured governance: {error}"
                     ))
                 })?;
-            install_kagemusha_v1_runtime_verifier(&mut state, &config).map_err(|error| {
-                Report::new(StartError::InitKura).attach(format!(
-                    "failed to install the authenticated KAGEMUSHA V1 runtime: {error}"
-                ))
-            })?;
         } else {
-            apply_state_runtime_config_before_snapshot_auth(&mut state, &config).map_err(
-                |error| {
-                    Report::new(StartError::InitKura).attach(format!(
-                        "failed to install process-local state runtime configuration: {error}"
-                    ))
-                },
-            )?;
+            apply_state_runtime_config_before_snapshot_auth(&mut state, &config);
         }
         let startup_lane_policies = if emergency_fast {
             None
@@ -3040,20 +2924,6 @@ impl Iroha {
             );
             Some(prepared)
         };
-        // Authenticate local artifacts against the final head after Sumeragi replay.
-        install_kagemusha_v1_runtime_verifier(&state, &config).map_err(|error| {
-            Report::new(StartError::InitKura).attach(format!(
-                "KAGEMUSHA V1 runtime could not load finalized authority after Kura replay: {error}"
-            ))
-        })?;
-        // Actual ordinary credit publication begins only after signed replay and independent
-        // runtime installation. Emergency Fast has no monetary sidecar writer or producer.
-        if !emergency_fast {
-            let child = iroha_core::smartcontracts::isi::kagemusha::start_ordinary_mint_credit_publication_v1(
-                Arc::clone(&state), supervisor.shutdown_signal(),
-            ).map_err(|error| Report::new(StartError::InitKura).attach(error))?;
-            supervisor.monitor(child);
-        }
         // Key admission and rotation read canonical WSV parameters. Local configuration must
         // match that authority rather than overwriting it without a block.
         state
@@ -9159,8 +9029,7 @@ fn validate_genesis_execution_offline(
         ))
     })?;
     install_zk_config_before_kura_replay(&mut state, config).change_context(MainError::Config)?;
-    apply_state_runtime_config_before_snapshot_auth(&mut state, config)
-        .map_err(|error| Report::new(MainError::Config).attach(error))?;
+    apply_state_runtime_config_before_snapshot_auth(&mut state, config);
     let baseline = freeze_lane_manifests_for_startup_replay(&config.nexus)
         .map_err(|error| Report::new(error).change_context(MainError::Config))?;
     let startup_policies =
@@ -10547,7 +10416,7 @@ mod tests {
                 .contains("ifemergency_fast{state.validate_restored_governance(&config.gov)")
         );
         assert!(compact_source.contains(
-            "apply_state_runtime_config_before_snapshot_auth(&mutstate,&config).map_err"
+            "}else{apply_state_runtime_config_before_snapshot_auth(&mutstate,&config);}"
         ));
         assert!(compact_source.contains(
             "letevents_buffer_capacity=ifemergency_fast{1}else{config.torii.events_buffer_capacity.get()};"
@@ -11168,82 +11037,6 @@ mod tests {
     mod replay_startup_config {
         use super::*;
         #[test]
-        fn verifier_files_wait_for_first_finalized_activation_after_replay() {
-            use iroha_config::parameters::actual::KagemushaV1ProofReleaseFiles;
-
-            let mut config_table = crate::config_tests::minimal_config_table();
-            iroha_config::base::toml::Writer::new(&mut config_table)
-                .write(
-                    ["genesis", "public_key"],
-                    "ed01204164BF554923ECE1FD412D241036D863A6AE430476C898248B8237D77534CFC4",
-                )
-                .write(["genesis", "file"], "./genesis.signed.nrt");
-            let mut config = ConfigReader::new()
-                .with_toml_source(TomlSource::inline(config_table))
-                .read_and_complete::<UserConfig>()
-                .expect("sample config should be readable")
-                .parse()
-                .expect("sample config should parse");
-            let missing = PathBuf::from("/__iroha_g2_activation_fixture_missing__/manifest.nrt");
-            config.settlement.kagemusha.proof_release = Some(KagemushaV1ProofReleaseFiles {
-                manifest: missing.clone(),
-                validation_receipt: missing.clone(),
-                authority_policy: missing.clone(),
-                attestation: missing.clone(),
-                recursive_profile: missing.clone(),
-                artifact_directory: missing,
-            });
-            let mut inactive = State::new_for_testing(
-                World::new(),
-                Kura::blank_kura_for_testing(),
-                LiveQueryStore::start_test(),
-            );
-            install_kagemusha_v1_runtime_verifier(&mut inactive, &config)
-                .expect("inactive replay head defers local artifact I/O");
-        }
-
-        #[test]
-        fn kagemusha_release_network_must_match_node_before_replay() {
-            let network =
-                NetworkId::from_genesis_hash(iroha_crypto::HashOf::from_untyped_unchecked(
-                    iroha_crypto::Hash::new(b"kagemusha-release-network"),
-                ));
-            let foreign =
-                NetworkId::from_genesis_hash(iroha_crypto::HashOf::from_untyped_unchecked(
-                    iroha_crypto::Hash::new(b"foreign-kagemusha-release-network"),
-                ));
-            assert!(require_kagemusha_v1_release_network(network, network).is_ok());
-            assert!(require_kagemusha_v1_release_network(foreign, network).is_err());
-        }
-
-        #[test]
-        fn experimental_release_requires_explicit_node_permission() {
-            use iroha_data_model::kagemusha::{
-                KagemushaReleasePurposeV1, KagemushaTestnetExperimentScopeV1,
-            };
-
-            let experiment =
-                KagemushaReleasePurposeV1::TestnetExperiment(KagemushaTestnetExperimentScopeV1 {
-                    asset_identity_digest: [1; 32],
-                    asset_incarnation: [2; 32],
-                    asset_scale: 2,
-                    liability_pool_id: [3; 32],
-                });
-            assert_eq!(
-                select_kagemusha_v1_experimental_release_loader(
-                    KagemushaReleasePurposeV1::Production,
-                    false,
-                ),
-                Ok(false)
-            );
-            assert!(select_kagemusha_v1_experimental_release_loader(experiment, false).is_err());
-            assert_eq!(
-                select_kagemusha_v1_experimental_release_loader(experiment, true),
-                Ok(true)
-            );
-        }
-
-        #[test]
         fn installs_actual_zk_and_settlement_config_before_kura_replay() {
             let mut config_table = crate::config_tests::minimal_config_table();
             iroha_config::base::toml::Writer::new(&mut config_table)
@@ -11262,23 +11055,13 @@ mod tests {
                 std::num::NonZeroU32::new(7).expect("nonzero proof cap");
             config.zk.sccp.max_proof_bytes_per_proof =
                 std::num::NonZeroU64::new(11).expect("nonzero byte cap");
-            let kagemusha_asset_definition_id = AssetDefinitionId::derive_from_components(
-                iroha_model_base::domain::DomainId::try_new("boi", "is")
-                    .expect("KAGEMUSHA asset domain"),
-                "ds".parse().expect("KAGEMUSHA asset name"),
-            );
-            let kagemusha_reserve_account_id = iroha_test_samples::ALICE_ID.clone();
-            config.settlement.kagemusha.reserve_accounts.insert(
-                kagemusha_asset_definition_id.clone(),
-                kagemusha_reserve_account_id.clone(),
-            );
+            config.settlement.router.epsilon_bps = 17;
             let kura = Kura::blank_kura_for_testing();
             let query = LiveQueryStore::start_test();
             let mut state = State::new_for_testing(World::new(), kura, query);
             install_zk_config_before_kura_replay(&mut state, &config)
                 .expect("fresh state accepts actual ZK configuration");
-            apply_state_runtime_config_before_snapshot_auth(&mut state, &config)
-                .expect("fresh state accepts actual runtime configuration");
+            apply_state_runtime_config_before_snapshot_auth(&mut state, &config);
             let installed = state.zk_snapshot();
             // The node configuration cannot change a validity value: the protocol
             // default (or the committed `zk_validity_policy_v1`) decides it.
@@ -11301,13 +11084,9 @@ mod tests {
                 "a node-local ZK setting must not move the consensus policy hash"
             );
             assert_eq!(
-                state
-                    .settlement()
-                    .kagemusha
-                    .reserve_accounts
-                    .get(&kagemusha_asset_definition_id),
-                Some(&kagemusha_reserve_account_id),
-                "the exact KAGEMUSHA reserve catalog must be installed before Kura replay",
+                state.settlement().router.epsilon_bps,
+                17,
+                "the exact settlement router policy must be installed before Kura replay",
             );
         }
     }
@@ -11688,8 +11467,7 @@ mod tests {
             )
             .expect("genesis state");
             install_zk_config_before_kura_replay(&mut state, config).expect("genesis ZK policy");
-            apply_state_runtime_config_before_snapshot_auth(&mut state, config)
-                .expect("genesis runtime policy");
+            apply_state_runtime_config_before_snapshot_auth(&mut state, config);
             let baseline = freeze_lane_manifests_for_startup_replay(&config.nexus)
                 .expect("genesis lane manifests");
             let policies = install_lane_policies_for_startup_replay(

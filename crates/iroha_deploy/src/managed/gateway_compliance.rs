@@ -81,9 +81,7 @@ impl ManagedGatewayCompliance {
             provider,
             ProviderPurpose::GatewayCompliance,
         )?;
-        let plan = prepared
-            .gateway_compliance_plan(authority.provider_id()?)?
-            .ok_or_else(|| invalid("generated compliance plan is absent"))?;
+        let plan = authority.gateway_compliance_plan(authority.provider_id()?)?;
         Ok(Self { authority, plan })
     }
 
@@ -325,9 +323,7 @@ impl ManagedGatewayCompliance {
         self.authority.validate_profile()?;
         let current = self
             .authority
-            .prepared
-            .gateway_compliance_plan(self.authority.provider_id()?)?
-            .ok_or_else(|| invalid("original generated compliance plan disappeared"))?;
+            .gateway_compliance_plan(self.authority.provider_id()?)?;
         if current.network_id() != self.plan.network_id()
             || current.original_commitment() != self.plan.original_commitment()
             || current.trust_policy() != self.plan.trust_policy()

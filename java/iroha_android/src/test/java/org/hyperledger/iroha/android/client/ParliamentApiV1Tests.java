@@ -1863,38 +1863,9 @@ public final class ParliamentApiV1Tests {
               map(
                   "authority", account(4),
                   "action", map("action", "grant", "value", null));
-      case "KagemushaVerifierPolicyInstall" ->
-          payload =
-              map(
-                  "proposal_operator", account(1),
-                  "network_id", networkId(),
-                  "expected_predecessor",
-                  map(
-                      "version", 1,
-                      "authority_policy", null,
-                      "active_release_id", null,
-                      "releases", List.of()),
-                  "authority_policy",
-                  map(
-                      "version", 1,
-                      "authority_set_id", repeatedNumbers(32, 0x41),
-                      "threshold", 1,
-                      "authorized_signers", List.of("ed0120" + toHex(TestEd25519Keys.publicKey(8)).toUpperCase(java.util.Locale.ROOT))));
-      case "KagemushaVerifierReleaseInstall" ->
-          payload = releaseProposalPayload("kagemusha_verifier_release_install_v1.json");
-      case "KagemushaVerifierReleaseActivate" ->
-          payload = releaseProposalPayload("kagemusha_verifier_release_activate_v1.json");
       default -> throw new AssertionError("unsupported fixture kind " + kind);
     }
     return map("kind", kind, "payload", payload);
-  }
-
-  private static Map<String, Object> releaseProposalPayload(final String name) {
-    try {
-      return objectValue(objectValue(Files.readAllBytes(fixturePath().resolveSibling(name))).get("payload"));
-    } catch (final java.io.IOException ex) {
-      throw new AssertionError("canonical governance release fixture is unavailable", ex);
-    }
   }
 
   private static Map<String, Object> disabledFeePolicy() {

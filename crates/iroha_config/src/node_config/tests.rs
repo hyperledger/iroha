@@ -201,10 +201,6 @@ fn profile_node_file_layers_the_profile_and_completes_data_dir() {
         assert_eq!(config.soracloud_runtime.inrou.max_cpu_millis.get(), 1_000);
         assert!(!config.soracloud_runtime.inrou.enabled);
         assert!(config.torii.faucet.is_none(), "unbound faucet template");
-        assert!(
-            config.torii.kagemusha_v1_commands.is_none(),
-            "unbound KAGEMUSHA V1 commands template"
-        );
         assert!(!config.lifecycle.exit_on_stdin_close);
         // data_dir layout
         let data_dir = dir.data_dir();
@@ -558,7 +554,6 @@ fn node_bound_sections_merge_with_the_profile_template() {
     let dir = NodeDir::new("merge");
     let (faucet_key, faucet) = authority(b"node-config-faucet");
     let (onboarding_key, onboarding) = authority(b"node-config-onboarding");
-    let (redemption_key, redemption) = authority(b"node-config-kagemusha-redemption");
     dir.secret(
         NodeSecretFile::FaucetAuthority,
         &ExposedPrivateKey(faucet_key.private_key().clone()).to_string(),
@@ -567,13 +562,8 @@ fn node_bound_sections_merge_with_the_profile_template() {
         NodeSecretFile::OnboardingAuthority,
         &ExposedPrivateKey(onboarding_key.private_key().clone()).to_string(),
     );
-    dir.secret(
-        NodeSecretFile::KagemushaRedemptionAuthority,
-        &ExposedPrivateKey(redemption_key.private_key().clone()).to_string(),
-    );
     let extra = format!(
         "[torii.faucet]\nauthority = \"{faucet}\"\n\
-         [torii.kagemusha_v1_commands]\nredemption_authority = \"{redemption}\"\n\
          [torii.account_onboarding]\nauthority = \"{onboarding}\"\n\
          credentials = [{{ id = \"inori-app\", scope = {{ dataspace = \"universal\" }}, token_hash = \"blake3:{}\" }}]\n\
          [soracloud_runtime.inrou]\nenabled = false\n",
@@ -602,55 +592,8 @@ fn node_bound_sections_merge_with_the_profile_template() {
             .unwrap(),
         onboarding
     );
-    let kagemusha = config
-        .torii
-        .kagemusha_v1_commands
-        .as_ref()
-        .expect("bound KAGEMUSHA V1 commands");
-    let issuer = kagemusha
-        .redemption_issuer
-        .as_ref()
-        .expect("redemption issuer from the fixed secret file");
-    assert_eq!(
-        issuer.authority.to_i105_for_discriminant(369).unwrap(),
-        redemption
-    );
-    assert_eq!(issuer.key_pair.public_key(), redemption_key.public_key());
-    assert_eq!(
-        issuer.minimum_xor_balance.to_string(),
-        "1",
-        "template value"
-    );
-    assert_eq!(kagemusha.operation_registry_max_entries.get(), 4_096);
-    assert_eq!(kagemusha.operation_registry_max_bytes.get(), 593_920);
     assert_eq!(config.soracloud_runtime.inrou.max_cpu_millis.get(), 1_000);
     assert!(config.soracloud_runtime.submission.signer.is_some());
-}
-
-/// A redemption authority the fixed key file does not sign for is rejected.
-#[test]
-fn kagemusha_redemption_binding_must_match_the_fixed_key() {
-    let dir = NodeDir::new("kagemusha_mismatch");
-    let (redemption_key, _) = authority(b"node-config-kagemusha-redemption");
-    let (_, foreign) = authority(b"node-config-kagemusha-foreign");
-    dir.secret(
-        NodeSecretFile::KagemushaRedemptionAuthority,
-        &ExposedPrivateKey(redemption_key.private_key().clone()).to_string(),
-    );
-    let extra = format!("[torii.kagemusha_v1_commands]\nredemption_authority = \"{foreign}\"\n");
-    let path = dir.write("config.toml", &profile_node(&dir, "validator", &extra));
-    let (user, _) = open(&path)
-        .unwrap_or_else(|report| panic!("{report:?}"))
-        .read()
-        .unwrap_or_else(|report| panic!("{report:?}"));
-    let report = format!(
-        "{:?}",
-        user.parse().expect_err("foreign redemption authority")
-    );
-    assert!(
-        report.contains("does not sign for torii.kagemusha_v1_commands.redemption_authority"),
-        "{report}"
-    );
 }
 
 #[test]

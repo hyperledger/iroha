@@ -462,4 +462,3 @@ fn infallible_state_block_refuses_original_writer_poison_without_waiting() {
     assert_eq!(state.committed_height(), 0);
     assert!(state.latest_block_hash_fast().is_none());
 }
-

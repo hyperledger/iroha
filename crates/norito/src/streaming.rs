@@ -3345,6 +3345,7 @@ pub mod chunk {
 pub mod codec;
 pub use codec::{
     BundleAnsTables, BundleTableError, default_bundle_tables, load_bundle_tables_from_toml,
+    parse_bundle_tables_from_toml,
 };
 #[cfg(test)]
 mod tests {

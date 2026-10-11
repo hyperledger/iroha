@@ -1,0 +1,412 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "dispatch_bound_is_separate_from_the_identity_bound",
+  "category": "bounds_and_bindings",
+  "rules": [
+    "identical_bytes_only"
+  ],
+  "description": "One signed identity is refused by backpressure eight times. The ninth run does not dispatch: the dispatch bound of an identity is exhausted and reported with actual and maximum. The identity was never admitted, so the workflow can still be cancelled before submission.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "dispatch-bound-is-separate-from-the-identity-bound",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "not_admitted:LocalResourceUnavailable"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "LocalResourceUnavailable",
+          "stage": "submit",
+          "step": 0
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "signed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "dispatches": [
+          "not_admitted:LocalResourceUnavailable"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "LocalResourceUnavailable",
+          "stage": "submit",
+          "step": 0
+        },
+        "effects": [
+          "dispatch:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "signed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 2,
+              "possible_admissions": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "dispatches": [
+          "not_admitted:LocalResourceUnavailable"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "LocalResourceUnavailable",
+          "stage": "submit",
+          "step": 0
+        },
+        "effects": [
+          "dispatch:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "signed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 3,
+              "possible_admissions": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "dispatches": [
+          "not_admitted:LocalResourceUnavailable"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "LocalResourceUnavailable",
+          "stage": "submit",
+          "step": 0
+        },
+        "effects": [
+          "dispatch:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "signed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 4,
+              "possible_admissions": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "dispatches": [
+          "not_admitted:LocalResourceUnavailable"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "LocalResourceUnavailable",
+          "stage": "submit",
+          "step": 0
+        },
+        "effects": [
+          "dispatch:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "signed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 5,
+              "possible_admissions": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "dispatches": [
+          "not_admitted:LocalResourceUnavailable"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "LocalResourceUnavailable",
+          "stage": "submit",
+          "step": 0
+        },
+        "effects": [
+          "dispatch:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "signed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 6,
+              "possible_admissions": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "dispatches": [
+          "not_admitted:LocalResourceUnavailable"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "LocalResourceUnavailable",
+          "stage": "submit",
+          "step": 0
+        },
+        "effects": [
+          "dispatch:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "signed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 7,
+              "possible_admissions": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "dispatches": [
+          "not_admitted:LocalResourceUnavailable"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "LocalResourceUnavailable",
+          "stage": "submit",
+          "step": 0
+        },
+        "effects": [
+          "dispatch:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "signed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 8,
+              "possible_admissions": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "expect": {
+        "result": {
+          "error": "ResourceLimitExceeded",
+          "stage": "submit",
+          "step": 0,
+          "bounds": {
+            "actual": 8,
+            "maximum": 8
+          },
+          "has_transaction_identity": true
+        },
+        "effects": [],
+        "status": "in_progress",
+        "steps": [
+          "signed"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 8,
+              "possible_admissions": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "cancel",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "status": "cancelled",
+        "steps": [
+          "cancelled_before_submission"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            0
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

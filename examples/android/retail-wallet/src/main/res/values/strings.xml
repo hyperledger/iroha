@@ -17,8 +17,8 @@
     <string name="wallet_copy_success">Copied %1$s address</string>
     <string name="wallet_qr_generation_error">Unable to generate QR code for the I105 address.</string>
     <string name="wallet_revocation_title">Revocation deny-list preview</string>
-    <string name="wallet_revocation_body">Sample data served from assets to exercise the KAGEMUSHA Torii client. Replace with live Torii calls once staging endpoints are available.</string>
-    <string name="wallet_revocation_loading">Loading KAGEMUSHA readiness…</string>
+    <string name="wallet_revocation_body">Sample data served from assets to exercise the revocation preview. Replace with live Torii calls once staging endpoints are available.</string>
+    <string name="wallet_revocation_loading">Loading revocation preview…</string>
     <string name="wallet_revocation_status">Latest %1$d revocation entries</string>
     <string name="wallet_revocation_error">Revocation list unavailable: %1$s</string>
     <string name="wallet_revocation_empty">No revocations recorded for this bundle.</string>

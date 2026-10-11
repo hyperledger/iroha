@@ -111,7 +111,7 @@ def inspect(library: Path, inspector: Path) -> dict[str, object]:
         "schema": "iroha.android-armv7-diagnostic.v1",
         "artifact_scope": "android-local-diagnostic",
         "abi": "armeabi-v7a", "target": "armv7-linux-androideabi",
-        "release_admitted": False, "kagemusha_qualified": False,
+        "release_admitted": False,
         "library": {"path": str(library), "sha256": hashlib.sha256(payload).hexdigest(),
                     "sizeBytes": len(payload), "elf": elf},
         "symbolInspector": {"path": str(inspector), "sha256": hashlib.sha256(tool).hexdigest(),

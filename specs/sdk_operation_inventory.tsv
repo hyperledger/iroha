@@ -440,15 +440,6 @@ iso20022.pacs009.submit	POST	/v1/iso20022/pacs009	public	operator_signature	oper
 iso20022.sese023.submit	POST	/v1/iso20022/sese023	public	operator_signature	operator	mutation	http	always	true	true	true	true
 iso20022.sese024.submit	POST	/v1/iso20022/sese024	public	operator_signature	operator	mutation	http	always	true	true	true	true
 iso20022.sese025.submit	POST	/v1/iso20022/sese025	public	operator_signature	operator	mutation	http	always	true	true	true	true
-kagemusha.authority_state	GET	/v1/kagemusha/authority-state/{asset_definition_id}	public	torii_default	public	read	http	always	true	true	true	false
-kagemusha.operation	GET	/v1/kagemusha/operations/{operation_id}	public	torii_default	public	read	http	always	true	true	true	false
-kagemusha.ordinary_mint_credit	POST	/v1/kagemusha/ordinary/top-up/credit	public	canonical_account_signature	authenticated_account	read	http	always	true	true	false	true
-kagemusha.ordinary_mint_finalized	POST	/v1/kagemusha/ordinary/top-up/finality	public	canonical_account_signature	authenticated_account	read	http	always	true	true	false	true
-kagemusha.ordinary_mint_issuer_purpose	POST	/v1/kagemusha/ordinary/mint-issuer-purpose	public	canonical_account_signature	authenticated_account	read	http	always	true	true	false	true
-kagemusha.ordinary_wallet_current	POST	/v1/kagemusha/ordinary/current-wallet	public	canonical_account_signature	authenticated_account	read	http	always	true	true	false	true
-kagemusha.readiness	GET	/v1/kagemusha/readiness	public	torii_default	public	read	http	always	true	true	true	false
-kagemusha.redeem	POST	/v1/kagemusha/redeem	public	canonical_signed_body	authenticated_account	mutation	http	always	true	true	true	false
-kagemusha.top_up	POST	/v1/kagemusha/top-up	public	canonical_signed_body	authenticated_account	mutation	http	always	true	true	true	false
 ledger.authority_originals	POST	/v1/ledger/authority-originals	public	canonical_account_signature	authenticated_account	read	http	always	true	true	false	true
 ledger.block_proof	GET	/v1/ledger/block/{height}/proof/{entry_hash}	public	canonical_account_signature	authenticated_account	read	http	always	true	true	false	true
 ledger.executed_block_wire	GET	/v1/ledger/block/{height}	public	canonical_account_signature	authenticated_account	read	http	always	true	true	false	true

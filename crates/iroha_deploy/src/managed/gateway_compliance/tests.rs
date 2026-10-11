@@ -492,15 +492,31 @@ fn publication_promotes_exact_original_then_reopens_with_one_status_only() {
         .providers
     {
         let provider = original.provider_id;
-        let publisher = ManagedGatewayCompliance::open(&prepared, provider).unwrap();
+        let (publisher, parses) =
+            crate::localnet::service_authorities::count_profile_validations(|| {
+                ManagedGatewayCompliance::open(&prepared, provider).unwrap()
+            });
+        assert_eq!(parses, 1);
         assert!(ManagedGatewayCompliance::open(&prepared, provider).is_err());
+        let (_, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
+            publisher
+                .validate(&mut TestLive::default(), deadline())
+                .unwrap()
+        });
+        assert_eq!(parses, 0);
         let path = operation(&publisher);
         let mut script = complete_script();
         script.push(Step::Status(Observation::Promoted));
         let mut http = RuntimeHttp::start(&prepared, provider, &path, script);
-        let report = publisher
-            .advance(&mut TestLive::default(), deadline())
-            .unwrap();
+        let (report, parses) =
+            crate::localnet::service_authorities::count_profile_validations(|| {
+                publisher
+                    .advance(&mut TestLive::default(), deadline())
+                    .unwrap()
+            });
+        // Catalog and acknowledgement signing keep their independent Prepared source checks
+        // before and after signing. The repeated live-plan validations add no semantic parse.
+        assert_eq!(parses, 4);
         let original = bytes(&path, "original.nrt");
         let acknowledgement = bytes(&path, "acknowledgement.nrt");
         let catalog: GatewayComplianceCatalogV1 = decode(&original).unwrap();
@@ -508,7 +524,11 @@ fn publication_promotes_exact_original_then_reopens_with_one_status_only() {
         assert_eq!(report.sequence, 1);
         assert_eq!(report.valid_until_unix, catalog.payload.valid_until_unix);
         drop(publisher);
-        let reopened = ManagedGatewayCompliance::open(&prepared, provider).unwrap();
+        let (reopened, parses) =
+            crate::localnet::service_authorities::count_profile_validations(|| {
+                ManagedGatewayCompliance::open(&prepared, provider).unwrap()
+            });
+        assert_eq!(parses, 1);
         assert_eq!(
             reopened
                 .advance(&mut TestLive::default(), deadline())

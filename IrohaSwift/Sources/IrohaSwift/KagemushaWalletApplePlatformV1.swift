@@ -540,16 +540,17 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
     }
   }
 
-  /// Sign `preimage` with the slot's payment key (Rust `key_sign`): the Secure Enclave signs
-  /// `SHA-256(preimage)` and returns strict DER. Only the Rust role-checked signers construct
-  /// preimages; this method stays internal for that reason. It is not bracketed, so a locked
-  /// keychain is told apart from one not yet unlocked since boot.
-  func keySign(_ slot: KagemushaWalletAppleSlotV1, preimage: Data)
+  /// Sign the exact 32-byte canonical message with the slot's payment key (Rust `key_sign`).
+  /// The Secure Enclave signs `SHA-256(message)` and returns strict DER. Only the Rust
+  /// role-checked signers construct messages; this method stays internal for that reason. It is
+  /// not bracketed, so a locked keychain is told apart from one not yet unlocked since boot.
+  func keySign(_ slot: KagemushaWalletAppleSlotV1, message: Data)
     -> Result<Data, KagemushaWalletAppleUnavailableV1>
   {
+    guard message.count == 32 else { return .failure(.keyUnusable) }
     let signed: Result<Data, KagemushaWalletAppleUnavailableV1>
     switch lookupPaymentKey(slot) {
-    case .present(let item): signed = sign(item.key, slot: slot, preimage: preimage)
+    case .present(let item): signed = sign(item.key, slot: slot, message: message)
     case .absent: signed = .failure(.platform(errSecItemNotFound))
     case .unavailable(let reason): signed = .failure(reason)
     }
@@ -557,17 +558,18 @@ public final class KagemushaWalletApplePlatformV1: @unchecked Sendable {
     return signed
   }
 
-  /// DER ECDSA P-256 / SHA-256 over `preimage` with `key`.
-  func sign(_ key: SecKey, slot: KagemushaWalletAppleSlotV1, preimage: Data)
+  /// DER ECDSA P-256 / SHA-256 over `message` with `key`.
+  func sign(_ key: SecKey, slot: KagemushaWalletAppleSlotV1, message: Data)
     -> Result<Data, KagemushaWalletAppleUnavailableV1>
   {
+    guard message.count == 32 else { return .failure(.keyUnusable) }
     let algorithm = SecKeyAlgorithm.ecdsaSignatureMessageX962SHA256
     guard SecKeyIsAlgorithmSupported(key, .sign, algorithm) else {
       diagnose("payment key does not support ECDSA P-256 SHA-256 signing", slot: slot)
       return .failure(.keyUnusable)
     }
     var error: Unmanaged<CFError>?
-    guard let signature = SecKeyCreateSignature(key, algorithm, preimage as CFData, &error) as Data?
+    guard let signature = SecKeyCreateSignature(key, algorithm, message as CFData, &error) as Data?
     else {
       return .failure(
         securityFailure(

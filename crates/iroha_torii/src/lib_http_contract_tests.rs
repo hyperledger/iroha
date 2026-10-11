@@ -1620,17 +1620,17 @@ mod typed_error_contract_tests {
                 get(|| async {
                     Error::AppQueryValidation {
                         code: "operation_id_invalid",
-                        message: "KAGEMUSHA operation id must be non-zero.".to_owned(),
+                        message: "Operation id must be non-zero.".to_owned(),
                     }
                     .into_response()
                 }),
             )
             .route(
-                "/forbidden-kagemusha-auth",
+                "/forbidden-auth-header",
                 get(|| async {
                     Error::AppForbidden {
-                        code: "kagemusha_auth_header_unsupported",
-                        message: "KAGEMUSHA commands authenticate through their signed request body; X-Iroha canonical auth headers are not accepted.".to_owned(),
+                        code: "auth_header_unsupported",
+                        message: "This route authenticates through its signed request body; X-Iroha canonical auth headers are not accepted.".to_owned(),
                     }
                     .into_response()
                 }),
@@ -1640,7 +1640,7 @@ mod typed_error_contract_tests {
                 get(|| async {
                     Error::AppConflict {
                         code: "operation_id_conflict",
-                        message: "KAGEMUSHA operation id is already bound to a different request."
+                        message: "Operation id is already bound to a different request."
                             .to_owned(),
                     }
                     .into_response()
@@ -1650,8 +1650,8 @@ mod typed_error_contract_tests {
                 "/missing-operation",
                 get(|| async {
                     Error::AppNotFound {
-                        code: "kagemusha_operation_not_found",
-                        message: "KAGEMUSHA operation is unknown on this Torii node.".to_owned(),
+                        code: "operation_not_found",
+                        message: "Operation is unknown on this Torii node.".to_owned(),
                     }
                     .into_response()
                 }),
@@ -1688,25 +1688,25 @@ mod typed_error_contract_tests {
                     "/invalid-operation",
                     StatusCode::BAD_REQUEST,
                     "operation_id_invalid",
-                    "KAGEMUSHA operation id must be non-zero.",
+                    "Operation id must be non-zero.",
                 ),
                 (
-                    "/forbidden-kagemusha-auth",
+                    "/forbidden-auth-header",
                     StatusCode::FORBIDDEN,
-                    "kagemusha_auth_header_unsupported",
-                    "KAGEMUSHA commands authenticate through their signed request body; X-Iroha canonical auth headers are not accepted.",
+                    "auth_header_unsupported",
+                    "This route authenticates through its signed request body; X-Iroha canonical auth headers are not accepted.",
                 ),
                 (
                     "/conflicting-operation",
                     StatusCode::CONFLICT,
                     "operation_id_conflict",
-                    "KAGEMUSHA operation id is already bound to a different request.",
+                    "Operation id is already bound to a different request.",
                 ),
                 (
                     "/missing-operation",
                     StatusCode::NOT_FOUND,
-                    "kagemusha_operation_not_found",
-                    "KAGEMUSHA operation is unknown on this Torii node.",
+                    "operation_not_found",
+                    "Operation is unknown on this Torii node.",
                 ),
                 (
                     "/missing-asset",
@@ -1774,7 +1774,7 @@ mod typed_error_contract_tests {
             assert_eq!(response.status(), StatusCode::NOT_FOUND);
             assert!(
                 !response.headers().contains_key("x-iroha-reject-code"),
-                "an unmatched route must not claim kagemusha_operation_not_found; accept={accept}"
+                "an unmatched route must not claim operation_not_found; accept={accept}"
             );
             let body = body_bytes(response).await;
             let envelope: ErrorEnvelope = if accept == "application/json" {

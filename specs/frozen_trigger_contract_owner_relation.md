@@ -33,7 +33,7 @@ plus its3 local helper events. No new encoder, header, domain or flag override e
 The scoped scheduling references include the encoder's prepaid original current
 cursor and complete possible native next calls. On64-bit sources, independently
 derived capture controls are empty63507, singleton70000, masked/no-op/absence77066,
-three distinct compact boundaries85992 and full255-byte UTF8 noop72814. These are
+three distinct compact boundaries85792 and full255-byte UTF8 noop72814. These are
 literal controls for declared fixture shapes, not shape restrictions or worst-case
 limits. More work refuses locally without changing State validity, gas or config.
 The original zero-action bad-code prefix is30547 and allocates zero counter backing.

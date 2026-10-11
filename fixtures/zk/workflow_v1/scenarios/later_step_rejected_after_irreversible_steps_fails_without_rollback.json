@@ -1,0 +1,138 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "later_step_rejected_after_irreversible_steps_fails_without_rollback",
+  "category": "interruption_after_irreversible_progress",
+  "rules": [
+    "per_transaction_atomicity_only"
+  ],
+  "description": "The last transaction is rejected by the ledger after two earlier steps took effect. The workflow fails; the earlier steps stay confirmed and irreversible, and nothing claims they were undone.",
+  "plan": {
+    "kind": "dkg",
+    "instance": "later-step-rejected-after-irreversible-steps-fails-without-rollb",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      },
+      {
+        "label": "deal",
+        "kind": "offchain_round",
+        "irreversible": true,
+        "participants_required": 2,
+        "custody_handles_required": 1
+      },
+      {
+        "label": "publish",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok",
+          "ok"
+        ],
+        "signs": [
+          "ok",
+          "ok"
+        ],
+        "dispatches": [
+          "accepted",
+          "accepted"
+        ],
+        "statuses": [
+          "applied",
+          "rejected"
+        ],
+        "round_starts": [
+          "completed:p1,p2"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "Rejected",
+          "stage": "reconcile",
+          "step": 2,
+          "resumable": false
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1",
+          "round_start:1",
+          "build:2#1",
+          "sign:2#1",
+          "dispatch:2#1",
+          "status:2#1"
+        ],
+        "status": "failed",
+        "steps": [
+          "finalized",
+          "round_completed",
+          "rejected"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0,
+            1
+          ],
+          "irreversible_steps": [
+            0,
+            1
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [
+            2
+          ],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "options": {
+        "retry_rejected_step": true
+      },
+      "expect": {
+        "result": {
+          "error": "Rejected",
+          "stage": "reconcile",
+          "step": 2,
+          "resumable": false
+        },
+        "effects": [],
+        "status": "failed",
+        "steps": [
+          "finalized",
+          "round_completed",
+          "rejected"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0,
+            1
+          ],
+          "irreversible_steps": [
+            0,
+            1
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [
+            2
+          ],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

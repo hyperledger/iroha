@@ -750,39 +750,73 @@ fn verified_code_hash_binds_execution_header() {
 }
 #[test]
 fn signed_manifest_rejects_every_execution_header_mutation() {
-    const FRAME_LIMIT: usize = 64 * 1024;
-    const SCRATCH_BYTES: usize = 8 * FRAME_LIMIT;
-    let signing_pool = iroha_allocation::AllocationBudget::new(
-        SCRATCH_BYTES + norito::core::DecodeBudgetContext::allocation_layout().size(),
-    );
-    let _signing_scratch = signing_pool
-        .try_reserve_bytes(SCRATCH_BYTES)
-        .expect("fund manifest signing and verification scratch");
-    let signing_context = norito::core::DecodeBudgetContext::try_new_owned(
-        norito::DecodeLimits::new(FRAME_LIMIT, FRAME_LIMIT, FRAME_LIMIT, SCRATCH_BYTES, 256),
-        &signing_pool,
-    )
-    .expect("fund original manifest signing counter");
     let original = contract_artifact(1, vec![entrypoint("main", EntryPointKind::Kotoage, 0)]);
+    let key = iroha_crypto::KeyPair::try_random().expect("test signing key");
+    let max_frame_bytes = usize::try_from(
+        iroha_data_model::parameter::system::TransactionParameters::default()
+            .max_tx_bytes
+            .get(),
+    )
+    .expect("canonical transaction byte ceiling");
+    // This finite input-derived policy is shared by signing and every admitted
+    // mutation. Rejected headers neither renew counters nor replenish slices.
+    let cumulative_bytes =
+        norito::canonical_decode_limits(original.len()).max_total_allocated_bytes();
+    let physical_bytes = cumulative_bytes
+        .checked_add(norito::core::DecodeBudgetContext::allocation_layout().size())
+        .expect("finite original manifest allowance");
+    let pool = iroha_allocation::AllocationBudget::new(physical_bytes);
+    let mut grant = pool
+        .try_reserve_bytes(physical_bytes)
+        .expect("fund original manifest mutation operation");
+    let context = norito::core::DecodeBudgetContext::from_reservation(
+        norito::DecodeLimits::new(
+            max_frame_bytes,
+            max_frame_bytes,
+            max_frame_bytes,
+            cumulative_bytes,
+            norito::core::MAX_VALUE_NESTING_DEPTH,
+        ),
+        &mut grant,
+    )
+    .expect("retain original mutation accounting");
+    let _signer_backing = grant
+        .try_partition_bytes(key.public_key().retained_allocation_layout().size())
+        .expect("retain original compact signer backing");
     let original_verified =
         ivm::verify_contract_artifact(&original).expect("verify original artifact");
+    let frame_bytes = context
+        .with(|| {
+            let _canonical =
+                norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
+            norito::core::encoded_frame_len_bounded(
+                &original_verified.manifest.signature_payload(),
+                max_frame_bytes,
+            )
+        })
+        .expect("count original manifest payload");
+    let signing_frame = grant
+        .try_partition_bytes(frame_bytes)
+        .expect("admit exact signing frame");
     let signed = original_verified
         .manifest
         .clone()
-        .try_signed(
-            &signing_context,
-            FRAME_LIMIT,
-            &iroha_crypto::KeyPair::try_random().expect("test signing key"),
-        )
-        .expect("sign bounded manifest");
+        .try_signed(&context, frame_bytes, &key)
+        .expect("sign original manifest");
+    drop(signing_frame);
     let provenance = signed.provenance.as_ref().expect("manifest provenance");
-    let signed_payload = signed
-        .signature_payload_bytes(&signing_context, FRAME_LIMIT)
-        .expect("encode original bounded signature payload");
+    let original_frame = grant
+        .try_partition_bytes(frame_bytes)
+        .expect("admit exact original verification frame");
+    let original_payload = signed
+        .signature_payload_bytes(&context, frame_bytes)
+        .expect("encode original signed manifest payload");
     provenance
         .signature
-        .verify(&provenance.signer, &signed_payload)
+        .verify(&provenance.signer, &original_payload)
         .expect("original manifest signature");
+    drop(original_payload);
+    drop(original_frame);
     let mut mutations = Vec::<(&str, Vec<u8>)>::new();
     for index in 0..ivm::METADATA_MAGIC.len() {
         let mut magic = original.clone();
@@ -817,21 +851,36 @@ fn signed_manifest_rejects_every_execution_header_mutation() {
             // Structural rejection is an admission rejection before provenance is checked.
             continue;
         };
-        let mutated_payload = verified
-            .manifest
-            .signature_payload_bytes(&signing_context, FRAME_LIMIT)
-            .expect("encode mutated bounded signature payload");
-        assert_ne!(
-            mutated_payload, signed_payload,
+        assert!(
+            !verified.manifest.same_signed_content(&signed),
             "{field} mutation retained the signed manifest payload"
         );
+        let frame_bytes = context
+            .with(|| {
+                let _canonical =
+                    norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
+                norito::core::encoded_frame_len_bounded(
+                    &verified.manifest.signature_payload(),
+                    max_frame_bytes,
+                )
+            })
+            .expect("count admitted mutated manifest payload");
+        let frame = grant
+            .try_partition_bytes(frame_bytes)
+            .expect("admit exact mutated verification frame");
+        let payload = verified
+            .manifest
+            .signature_payload_bytes(&context, frame_bytes)
+            .expect("encode admitted mutated manifest payload");
         assert!(
             provenance
                 .signature
-                .verify(&provenance.signer, &mutated_payload)
+                .verify(&provenance.signer, &payload)
                 .is_err(),
             "{field} mutation retained a valid signature"
         );
+        drop(payload);
+        drop(frame);
     }
 }
 #[test]

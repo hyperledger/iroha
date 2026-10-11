@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 iroha_derive = { workspace = true }
+zeroize = { workspace = true }
 
 drop_bomb = { workspace = true }
 norito = { workspace = true, default-features = false, features = ["node-codec"] }

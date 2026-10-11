@@ -68,6 +68,8 @@ rustix = { version = "1.1.4", features = ["fs", "process"] }
 # Diagnostics only: the X509 prover observation and its tests record phase
 # trees. Production builds of this crate do not link the recorder.
 iroha_measurement = { workspace = true }
+# Test builds only: structurally valid Exact12 role samples for the dispatch tests.
+iroha_data_model = { workspace = true, default-features = false, features = ["transparent_api", "governance", "privacy-exact12-conformance"] }
 rand_08 = { package = "rand", version = "=0.8.7" }
 tempfile = { workspace = true }
 x509-parser = { version = "0.18.0", default-features = false, features = ["verify"] }

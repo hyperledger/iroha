@@ -246,7 +246,7 @@ def test_closed_environment_binds_actual_apple_tools_without_serialized_or_calle
     assert selected['AR'] == '/stock/apple/bin/ar' and selected['RANLIB'] == '/stock/apple/bin/ranlib'
     assert selected['NODE_OPTIONS'] == ''
     assert not {'CARGO_BUILD_JOBS', 'CARGO_INCREMENTAL', 'RUSTFLAGS', 'RUSTC_WRAPPER',
-                'MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE', 'IROHA_GIT_COMMIT_HASH'} & selected.keys()
+                'IROHA_GIT_COMMIT_HASH'} & selected.keys()
 
 
 def test_tool_alias_is_authenticated_as_exact_resolved_tool_not_rejected_as_source_alias(tmp_path):

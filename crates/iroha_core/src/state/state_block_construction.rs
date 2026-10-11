@@ -30,7 +30,6 @@ impl State {
         let mut gov;
         let mut content;
         let mut settlement;
-        let mut kagemusha_v1_runtime_verifier;
         let mut settlement_engine;
         let mut chain_id;
         let mut fastpq_transcripts;
@@ -101,7 +100,6 @@ impl State {
         gov = Some(self.gov.clone());
         content = Some(self.content.clone());
         settlement = Some(self.settlement.clone());
-        kagemusha_v1_runtime_verifier = Some(self.kagemusha_v1_runtime_verifier());
         settlement_engine = Some(self.settlement_engine.clone());
         chain_id = Some(self.chain_id.clone());
         fastpq_transcripts = Some(BTreeMap::new());
@@ -146,7 +144,6 @@ impl State {
         assert!(gov.is_some());
         assert!(content.is_some());
         assert!(settlement.is_some());
-        assert!(kagemusha_v1_runtime_verifier.is_some());
         assert!(settlement_engine.is_some());
         assert!(chain_id.is_some());
         assert!(fastpq_transcripts.is_some());
@@ -228,9 +225,6 @@ impl State {
                 gov: gov.take().expect("prepared State input"),
                 content: content.take().expect("prepared State input"),
                 settlement: settlement.take().expect("prepared State input"),
-                kagemusha_v1_runtime_verifier: kagemusha_v1_runtime_verifier
-                    .take()
-                    .expect("prepared State input"),
                 settlement_engine: settlement_engine.take().expect("prepared State input"),
                 chain_id: chain_id.take().expect("prepared State input"),
                 network_id: self.network_id,

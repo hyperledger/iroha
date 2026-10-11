@@ -196,8 +196,15 @@ fn deep_quantity_descriptor_binds_actual_protocol_and_preserves_value_relations(
     );
     assert_eq!(descriptor.version, 1);
     assert_eq!(descriptor.catalog, fastpq_isi::FASTPQ_CATALOG_V1);
-    assert_eq!(descriptor.protocol_identity, deep_binding::IDENTITY);
-    assert_ne!(descriptor.protocol_identity, PREDECESSOR_IDENTITY);
+    assert_eq!(
+        descriptor.transcript_profile,
+        crate::backend::transcript_profile::profile().as_bytes()
+    );
+    assert_eq!(
+        descriptor.transcript_profile,
+        crate::air::q77::transcript_profile().as_bytes()
+    );
+    assert_ne!(descriptor.transcript_profile, PREDECESSOR_IDENTITY);
     assert_eq!(descriptor.trace_rows, 65_536);
     assert_eq!(descriptor.trace_root, 0xbe5b_4f4b_47ee_4647);
     assert_eq!(descriptor.lde_rows, 8_388_608);
@@ -287,7 +294,7 @@ fn every_deep_descriptor_field_changes_the_fixed_artifact_profile() {
     }
     change!(version, 2);
     change!(catalog, "different catalog");
-    change!(protocol_identity, PREDECESSOR_IDENTITY.to_vec());
+    change!(transcript_profile, PREDECESSOR_IDENTITY.to_vec());
     change!(trace_rows, 32_768);
     change!(trace_root, fixed.trace_root ^ 1);
     change!(lde_rows, 524_288);
@@ -659,7 +666,8 @@ fn public_quantity_construction_preserves_enclosing_decode_allocation_budget() {
     assert_eq!(materialized.ordering_hash(), restored.ordering_hash());
 }
 
-/// Public canonical descriptor receipt; publication to fixtures is a separate review.
+/// Public canonical descriptor pin: the tracked golden of the frozen artifact
+/// descriptor. It pins bytes of the current source and is no approval of them.
 #[derive(norito::derive::JsonSerialize, norito::derive::JsonDeserialize)]
 struct ReviewedProfilePin {
     descriptor_bytes: usize,
@@ -668,7 +676,7 @@ struct ReviewedProfilePin {
 }
 
 #[test]
-#[ignore = "native canonical q77 descriptor output for review; does not publish or bless fixtures"]
+#[ignore = "prints the native canonical q77 descriptor; the output replaces fixtures/fastpq/q77-quantity-profile.json when the frozen profile changes deliberately"]
 fn emit_canonical_q77_quantity_profile_for_review() {
     let descriptor = DeepQuantityArtifactProfile::fixed();
     let bytes = norito::encode_canonical(&descriptor).unwrap();
@@ -686,12 +694,13 @@ fn emit_canonical_q77_quantity_profile_for_review() {
 }
 
 #[test]
-#[ignore = "requires a separately reviewed authentic native q77 profile fixture"]
 fn reviewed_q77_quantity_profile_matches_exact_canonical_descriptor() {
-    // Published from source/binary-bound native output after independent review.
+    // The tracked pin is the golden of the frozen descriptor. A deliberate
+    // change of the transcript profile or of the artifact descriptor
+    // regenerates it with `emit_canonical_q77_quantity_profile_for_review`.
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../fixtures/fastpq/q77-quantity-profile.json");
-    let bytes = std::fs::read(path).expect("generate and review the native q77 profile first");
+    let bytes = std::fs::read(path).expect("tracked q77 descriptor pin");
     let pin: ReviewedProfilePin = norito::json::from_slice(&bytes).unwrap();
     let descriptor = DeepQuantityArtifactProfile::fixed();
     let canonical = norito::encode_canonical(&descriptor).unwrap();
@@ -699,6 +708,13 @@ fn reviewed_q77_quantity_profile_matches_exact_canonical_descriptor() {
     assert_eq!(pin.canonical_frame_hex, hex::encode(&canonical));
     assert_eq!(pin.profile_sha256, hex::encode(Sha256::digest(&canonical)));
     assert_eq!(pin.profile_sha256, hex::encode(descriptor.profile_id().0));
+    // The descriptor carries the frozen transcript descriptor bytes in full.
+    let transcript = crate::air::q77::transcript_profile().as_bytes();
+    assert!(
+        canonical
+            .windows(transcript.len())
+            .any(|window| window == transcript)
+    );
     for flags in [0, norito::core::header_flags::COMPACT_LEN] {
         let _flags = norito::core::DecodeFlagsGuard::enter(flags);
         assert_eq!(norito::encode_canonical(&descriptor).unwrap(), canonical);

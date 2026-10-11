@@ -237,7 +237,6 @@ mod tests {
             state.pipeline_ivm_prepared_cache.observe_release(),
             state.nexus.observe_release(),
             state.crypto.observe_release(),
-            state.kagemusha_v1_runtime_verifier.observe_release(),
             state.state_write_lock.observe_release(),
         ];
         // Fresh State also admits the empty native AMX participant's exact

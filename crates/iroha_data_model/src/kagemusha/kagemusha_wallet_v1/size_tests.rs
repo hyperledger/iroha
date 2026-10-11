@@ -1,34 +1,37 @@
 //! Envelope sizes of the split-lineage layouts (§8, design §7).
 //!
 //! Every case is built from fully valid objects and asserted against its complete-frame bound.
-//! `σ_send` is measured only for the prototype relation (3,296 bytes); Ω, `σ_recv` and the
-//! compressed credit-digest opening are unmeasured, so this module names explicit placeholders
-//! and reports, for each message, its fixed overhead and the largest proof that still fits.
+//! `σ_send` and `σ_recv` are measured (3,296 bytes each) for the §3 core without the blacklist
+//! non-membership, quota and lease checks; Ω is
+//! unmeasured and the indexed credit opening has exactly 32 siblings, so this module names explicit placeholders and reports, for each message, its
+//! fixed overhead and the largest proof that still fits.
 //! The proof bytes are stand-ins; only their lengths matter here. The signed blacklist is not
 //! a peer message (it is downloaded online from the issuer), so it has no envelope case here.
 
 use super::{
-    messages::messages_tests::{MessageFixture, low_bitmap, stand_in_siblings},
+    messages::messages_tests::{MessageFixture, stand_in_siblings},
     vectors_tests::{vector_control, vector_offer, vector_world},
     *,
 };
 
-/// Measured `σ_send` of the prototype relation, in bytes: the exact PIPA-v1 proof length of the
-/// two-level `sigma_send` of `iroha_kagemusha_proof` at its 3.5 KB budget shape (`k = 12`, one
-/// lane), with the G1 statement encoding. Spec §11: σ is not yet measured for the full §3 core.
+/// Measured `σ_send`, in bytes: the exact PIPA-v1 proof length of `sigma_send` of
+/// `iroha_kagemusha_proof` over the 32-element §3 core and the 28-element statement at its
+/// 3.5 KB budget shape (`k = 12`, one lane), with the empty mask and with the blacklist
+/// list-age control alike.
+// TODO(G3): re-measure once σ_send carries the blacklist non-membership, quota and lease checks
+// (spec §7); the R9 budget then bounds Ω by `8,319 − |σ_send|`.
 const MEASURED_SIGMA_SEND_BYTES: usize = 3_296;
 /// Placeholder Ω transport proof length; Ω is unbuilt and unmeasured (spec §11).
 // TODO(G3): replace with the exact transport length of the frozen verifying-key allowlist
 // (owner answer Q6).
 const PLACEHOLDER_OMEGA_PROOF_BYTES: usize = 4_000;
-/// Placeholder `σ_recv` length; `σ_recv` is unmeasured for the §3 core.
-// TODO(G3): replace with the measured σ_recv length.
-const PLACEHOLDER_SIGMA_RECV_BYTES: usize = MEASURED_SIGMA_SEND_BYTES;
-/// Placeholder count of non-default siblings in a compressed credit-digest opening: the
-/// depth-256 sparse tree of owner answer Q7 carries at most 256, and about `log2` of the number
-/// of recorded credits for random identifiers.
-// TODO(G3): replace with a measured distribution of folded heads' credit counts.
-const PLACEHOLDER_OPENING_SIBLINGS: usize = 32;
+/// Measured `σ_recv`, in bytes: the exact proof length of `sigma_recv` of
+/// `iroha_kagemusha_proof` at the same shape (`k = 12`, one lane).
+const MEASURED_SIGMA_RECV_BYTES: usize = 3_296;
+/// Fixed indexed opening width: exactly 32 siblings, independent of the number of credits.
+const PLACEHOLDER_OPENING_SIBLINGS: usize = KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1;
+/// Neighbouring credits in the malformed-width control's otherwise genuine fixture tree.
+const OPENING_NEIGHBOURS: usize = 3;
 /// Largest proof length searched for.
 const SEARCH_LIMIT: usize = KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1;
 
@@ -73,7 +76,10 @@ fn payment_with(
     KagemushaWalletMessageV1::Payment { payment }
 }
 
-/// `credited` with its `σ_recv` (Receive) or Ω(h) proof and opening (Status) resized.
+/// Size-only stand-in copy with its `σ_recv` (Receive) or Ω(h) proof resized.
+///
+/// An indexed opening keeps its genuine path at the fixed width. Another requested width
+/// deliberately creates malformed shape for refusal and raw encoded-size controls only.
 fn credited_with(
     credited: &KagemushaWalletCreditedV1,
     proof: usize,
@@ -86,8 +92,9 @@ fn credited_with(
         }
         KagemushaWalletCreditedEvidenceV1::Status { status } => {
             status.lineage.proof = bytes_of(proof);
-            status.opening.path_bitmap = low_bitmap(siblings);
-            status.opening.siblings = stand_in_siblings(siblings);
+            if siblings != KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1 {
+                status.opening.siblings = stand_in_siblings(siblings);
+            }
         }
     }
     KagemushaWalletMessageV1::Credited { credited }
@@ -125,13 +132,13 @@ struct Sizes {
     certificates: usize,
 }
 
-/// Validate every case at the placeholder sizes and measure it.
+/// Validate every case at the measured σ and the placeholder Ω and opening sizes and measure it.
 fn measure(f: &MessageFixture) -> Sizes {
     let message_max = KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1;
     let (omega, sigma, sigma_recv, siblings) = (
         PLACEHOLDER_OMEGA_PROOF_BYTES,
         MEASURED_SIGMA_SEND_BYTES,
-        PLACEHOLDER_SIGMA_RECV_BYTES,
+        MEASURED_SIGMA_RECV_BYTES,
         PLACEHOLDER_OPENING_SIBLINGS,
     );
     let request = f.request(true);
@@ -229,7 +236,7 @@ fn measure(f: &MessageFixture) -> Sizes {
         credited_receive: lengths[4],
         credited_receive_overhead: lengths[4] - sigma_recv,
         credited_status: lengths[5],
-        credited_status_overhead: lengths[5] - omega - siblings * per_sibling,
+        credited_status_overhead: lengths[5] - omega,
         credit_status: norito::encode_canonical(&status)
             .expect("credit status frame")
             .len(),
@@ -253,7 +260,7 @@ fn kagemusha_wallet_v1_split_lineage_envelopes_fit_their_bounds() {
          (credential frame {} / {}), SessionControl {} / {session_max}, Request {} / \
          {message_max}, Payment {} / {message_max} with σ_send {MEASURED_SIGMA_SEND_BYTES} and \
          placeholder Ω proof {PLACEHOLDER_OMEGA_PROOF_BYTES}, Credited::Receive {} / \
-         {message_max} with placeholder σ_recv {PLACEHOLDER_SIGMA_RECV_BYTES}, Credited::Status \
+         {message_max} with σ_recv {MEASURED_SIGMA_RECV_BYTES}, Credited::Status \
          {} / {message_max} with placeholder Ω(h) proof {PLACEHOLDER_OMEGA_PROOF_BYTES} and \
          {PLACEHOLDER_OPENING_SIBLINGS} siblings (CreditStatus frame {}), Lineage {} / \
          {message_max}, PolicyData certificates (3) {} / {message_max}",
@@ -271,8 +278,8 @@ fn kagemusha_wallet_v1_split_lineage_envelopes_fit_their_bounds() {
     );
     println!(
         "KAGEMUSHA wallet V1 fixed overheads (bytes): Payment {} + |Ω proof| + |σ_send|, \
-         Credited::Receive {} + |σ_recv|, Credited::Status {} + |Ω(h) proof| + {} per sibling, \
-         Lineage {} + |Ω proof|; largest Ω proof in a Payment with the measured σ_send {}, \
+         Credited::Receive {} + |σ_recv|, Credited::Status {} + |Ω(h) proof| (fixed 32 siblings; \
+         malformed extra sibling adds {} bytes), Lineage {} + |Ω proof|; largest Ω proof in a Payment with the measured σ_send {}, \
          largest |Ω proof| + |σ_send| {}, largest Ω(h) proof in Credited::Status with {} \
          siblings {}",
         sizes.payment_overhead,
@@ -320,6 +327,17 @@ fn kagemusha_wallet_v1_split_lineage_envelopes_fit_their_bounds() {
         KAGEMUSHA_WALLET_PAYMENT_PROOF_BUDGET_V1 - MEASURED_SIGMA_SEND_BYTES
     );
     assert_eq!(sizes.per_sibling, 32);
+    assert_eq!(PLACEHOLDER_OPENING_SIBLINGS, 32);
+    // Extra sibling bytes increase the encoded frame but cannot be admitted as an opening.
+    let f = &vector_world().f;
+    let payment = f.payment(false, 32);
+    let credited = f.credited_status(&payment, PLACEHOLDER_OMEGA_PROOF_BYTES, OPENING_NEIGHBOURS);
+    let bad = credited_with(&credited, PLACEHOLDER_OMEGA_PROOF_BYTES, 33);
+    assert!(
+        KagemushaWalletEnvelopeV1::new(bad)
+            .to_canonical_bytes()
+            .is_err()
+    );
 }
 
 #[test]
@@ -347,7 +365,8 @@ fn kagemusha_wallet_v1_size_search_helpers() {
     assert_eq!(resized.send.lineage.lineage().expect("Ω").proof.len(), 50);
 
     let credited = f.credited_status(&payment, 32, 2);
-    let KagemushaWalletMessageV1::Credited { credited: resized } = credited_with(&credited, 40, 3)
+    let KagemushaWalletMessageV1::Credited { credited: resized } =
+        credited_with(&credited, 40, KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1)
     else {
         panic!("credited");
     };
@@ -359,13 +378,54 @@ fn kagemusha_wallet_v1_size_search_helpers() {
             status.lineage.proof.len(),
             status.opening.sibling_values().count()
         ),
+        (40, KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1)
+    );
+    status.opening.validate().expect("fixed-width opening");
+    let KagemushaWalletMessageV1::Credited {
+        credited: malformed,
+    } = credited_with(&credited, 40, 3)
+    else {
+        panic!("malformed credited");
+    };
+    let KagemushaWalletCreditedEvidenceV1::Status {
+        status: malformed_status,
+    } = &malformed.evidence
+    else {
+        panic!("malformed status");
+    };
+    // Retain the original resized-shape observation, but three siblings cannot be admitted.
+    assert_eq!(
+        (
+            malformed_status.lineage.proof.len(),
+            malformed_status.opening.sibling_values().count()
+        ),
         (40, 3)
     );
-    status.opening.validate().expect("resized opening");
-    let one_byte_more = envelope_len(&credited_with(&credited, 33, 2));
+    assert!(matches!(
+        malformed_status.opening.validate(),
+        Err(KagemushaWalletValidationErrorV1::InvalidField {
+            field: "indexed_opening.siblings"
+        })
+    ));
+    assert!(
+        KagemushaWalletEnvelopeV1::new(KagemushaWalletMessageV1::Credited {
+            credited: malformed
+        })
+        .to_canonical_bytes()
+        .is_err()
+    );
+    let one_byte_more = envelope_len(&credited_with(
+        &credited,
+        33,
+        KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1,
+    ));
     assert_eq!(
         one_byte_more,
-        envelope_len(&credited_with(&credited, 32, 2)) + 1
+        envelope_len(&credited_with(
+            &credited,
+            32,
+            KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1
+        )) + 1
     );
     let lineage = f.lineage_message(&payment);
     assert_eq!(

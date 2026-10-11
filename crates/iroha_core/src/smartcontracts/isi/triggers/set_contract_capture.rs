@@ -2,9 +2,8 @@
 //! Native reader controls and the canonical encoder retain their own funding obligations.
 use super::contract_relation::{CheckedStrategy, NativeSources, TriggerContractError};
 use super::*;
-use crate::state::authority_registry::{
-    leaf::{CanonicalTableLeafSet, CanonicalTablePairedSnapshot, LeafError, LeafLimits},
-    original_images::RawStorageImages,
+use crate::state::authority_registry::leaf::{
+    CanonicalTableLeafSet, CanonicalTablePairedSnapshot, LeafError, LeafLimits,
 };
 use iroha_allocation::AllocationBudget;
 use mv::storage::{CommittedStorageView, FrozenStorageImages};

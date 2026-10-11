@@ -13,7 +13,6 @@ from typing import Any, Optional, Union, cast
 
 from ._account_id import decode_canonical_i105_account_id
 from ._canonical_values import _canonical_quantity, _offline_canonical_asset_definition_id
-from ._public_key_multihash import decode_canonical_public_key_multihash
 
 _U64_MAX = (1 << 64) - 1
 _JSON_SAFE_UINT_MAX = (1 << 53) - 1
@@ -1313,32 +1312,6 @@ class GovernanceProposalGlobalDataTriggerPermissionGovernance:
         except (TypeError, ValueError) as exc:
             raise TypeError(f"{context}.action.action must be grant or revoke") from exc
         return cls(_account_id(record["authority"], f"{context}.authority"), action)
-
-
-@dataclass(frozen=True)
-class GovernanceKagemushaReleaseAuthorityPolicyV1:
-    """Bounded, strictly ordered initial verifier authority policy."""
-
-    version: int
-    authority_set_id: tuple[int, ...]
-    threshold: int
-    authorized_signers: tuple[str, ...]
-
-    @classmethod
-    def from_payload(cls, value: Any, context: str) -> "GovernanceKagemushaReleaseAuthorityPolicyV1":
-        record = _exact(value, frozenset({"version", "authority_set_id", "threshold", "authorized_signers"}), context)
-        _uint(record["version"], f"{context}.version", 1, positive=True)
-        authority_set_id = _bytes32(record["authority_set_id"], f"{context}.authority_set_id", nonzero=True)
-        signers = record["authorized_signers"]
-        if not isinstance(signers, list) or not 1 <= len(signers) <= 32:
-            raise TypeError(f"{context}.authorized_signers must contain 1..32 keys")
-        threshold = _uint(record["threshold"], f"{context}.threshold", 32, positive=True)
-        if threshold > len(signers):
-            raise TypeError(f"{context}.threshold must not exceed signer count")
-        decoded = tuple(decode_canonical_public_key_multihash(signer, f"{context}.authorized_signers[{index}]") for index, signer in enumerate(signers))
-        if any(left[1] >= right[1] for left, right in zip(decoded, decoded[1:])):
-            raise TypeError(f"{context}.authorized_signers must be strictly ordered and unique")
-        return cls(1, authority_set_id, threshold, tuple(literal for literal, _ in decoded))
 
 
 GovernanceProposalPayload = Union[

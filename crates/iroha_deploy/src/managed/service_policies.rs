@@ -118,10 +118,7 @@ impl GeneratedServicePolicies {
     /// Derive only from the authenticated whole original profile, never today's UTC/deadline.
     pub(super) fn select(authority: &ServiceAuthority) -> Result<Self> {
         authority.validate_profile()?;
-        let plans = authority
-            .prepared
-            .provider_service_plans()?
-            .ok_or_else(|| invalid("service policies require original generated provider plans"))?;
+        let plans = authority.provider_plans()?;
         let reserve = ReserveAuthorityPolicyV1 {
             version: RESERVE_AUTHORITY_POLICY_VERSION_V1,
             revision: 1,
@@ -214,10 +211,7 @@ impl GeneratedServicePolicies {
                 max_anchor_age_ms: 300_000,
             };
             // Labels are scoped by the canonical native network identity, never selected by a peer.
-            let compliance = authority
-                .prepared
-                .gateway_compliance_plan(plan.provider_id())?
-                .ok_or_else(|| invalid("service policies require original compliance plan"))?;
+            let compliance = authority.gateway_compliance_plan(plan.provider_id())?;
             let label = compliance.gateway_label();
             let gateway_id = derive_stream_token_gateway_id_v1(&authority.config.network_id, label)
                 .map_err(|_| invalid("invalid generated gateway label"))?;

@@ -82,11 +82,11 @@ class KagemushaWalletAndroidPlatformDeviceV1Test {
                     val chain = adapter.attestationChain(slot) as KagemushaWalletAndroidAttestationChainV1.Present
                     val leaf = CertificateFactory.getInstance("X.509")
                         .generateCertificate(ByteArrayInputStream(chain.certificatesDer().first()))
-                    val preimage = byteArrayOf(1, 2, 3)
-                    val der = (adapter.keySign(slot, preimage) as KagemushaWalletAndroidSignatureV1.Der).der()
+                    val message = ByteArray(32) { 7 }
+                    val der = (adapter.keySign(slot, message) as KagemushaWalletAndroidSignatureV1.Der).der()
                     assertTrue(Signature.getInstance("SHA256withECDSA").run {
                         initVerify(leaf.publicKey)
-                        update(preimage)
+                        update(message)
                         verify(der)
                     })
                     assertSame(

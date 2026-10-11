@@ -197,10 +197,30 @@ fn original_post_merge_validation_refusal_retains_worker_owner_and_exact_availab
         assert_eq!(worker.state.view().height(), height);
         assert_eq!(std::ptr::from_ref(block.source()), original_source);
         assert_eq!(block.payload().as_slice().as_ptr(), original_bytes);
+        let returned = worker
+            .signature_decode
+            .as_ref()
+            .and_then(|attempt| attempt.decoded.as_ref())
+            .expect("actual local validation returns the original decoded graph");
+        let original_entries = returned.external_entrypoints_slice().as_ptr();
+        assert!(returned.signatures_admitted_to(&worker.state.ivm_execution_budget()));
+        assert!(
+            returned
+                .matches_resultless_proposal_wire(block.payload().as_slice())
+                .unwrap()
+        );
         assert!(matches!(
             worker.execute(&block, hash),
             Some(ExecOutcome::Valid(_))
         ));
+        let PublicationPhase::Executed { valid, .. } = &worker.live.as_ref().unwrap().phase else {
+            panic!("same original decoded graph completes production validation");
+        };
+        assert_eq!(
+            valid.as_ref().external_entrypoints_slice().as_ptr(),
+            original_entries
+        );
+        assert!(worker.signature_decode.is_none());
         assert!(worker.routing_refusal.is_none());
         assert_eq!(
             worker.state.view().height(),

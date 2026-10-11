@@ -78,7 +78,7 @@ fn accepted_tx_with_attachments(
     time_source: &TimeSource,
     instructions: Vec<InstructionBox>,
     metadata: Metadata,
-    attachments: Option<ProofAttachmentList>,
+    attachments: Option<Vec<ProofAttachment>>,
 ) -> AcceptedTransaction<'static> {
     let network_id = queue_test_network_id();
     let mut builder = TransactionBuilder::new_with_time_source(
@@ -90,7 +90,9 @@ fn accepted_tx_with_attachments(
     .with_instructions(instructions)
     .with_metadata(metadata);
     if let Some(att) = attachments {
-        builder = builder.with_attachments(att);
+        builder = builder
+            .with_proof_attachments(att)
+            .expect("valid proof carriers");
     }
     let tx = builder.sign(key_pair.private_key());
     let default_limits = TransactionParameters::default();

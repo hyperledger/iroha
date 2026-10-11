@@ -23,51 +23,66 @@ sys.modules[SPEC.name] = seal
 SPEC.loader.exec_module(seal)
 
 
-class NoritoBridgeAndroidFirstDeviceServiceResourceTests(unittest.TestCase):
-    """A maintained public SPI filename never exempts source bytes or custody."""
+class NoritoBridgeAndroidConsumerRuleResourceTests(unittest.TestCase):
+    """A maintained public resource filename never exempts source bytes or custody."""
 
     RESOURCE = (
-        "kotlin/client-android/src/main/resources/META-INF/services/"
-        "org.hyperledger.iroha.sdk.offline.KagemushaFirstDeviceHardwareEvidenceServiceFactoryV1"
+        "kotlin/core-jvm/src/main/resources/META-INF/proguard/"
+        "consumer-proguard-rules.pro"
     )
-    PROVIDER = (
-        b"org.hyperledger.iroha.sdk.offline."
-        b"KagemushaAndroidFirstDeviceHardwareEvidenceServiceFactoryV1\n"
-    )
+    RULES = b"-keep class org.hyperledger.iroha.sdk.PublicSyntheticRuleV1 { *; }\n"
 
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name).resolve()
 
-    def test_first_device_spi_admits_only_the_exact_public_resource(self) -> None:
+    def test_reviewed_resources_are_exactly_the_consumer_rules(self) -> None:
+        self.assertEqual(
+            seal._REVIEWED_PUBLIC_ANDROID_RESOURCE_INPUTS,
+            frozenset({
+                "java/iroha_android/core/src/main/resources/META-INF/proguard/iroha3.pro",
+                self.RESOURCE,
+            }),
+        )
+        for retired in (
+            "kotlin/client-android/src/main/resources/META-INF/services/"
+            "org.hyperledger.iroha.sdk.offline.KagemushaFirstDeviceHardwareEvidenceServiceFactoryV1",
+            "kotlin/kagemusha-wallet-android/src/main/resources/META-INF/services/"
+            "org.hyperledger.iroha.sdk.offline.KagemushaOrdinaryMintFundingNativeOwnerV1",
+        ):
+            with self.subTest(retired=retired):
+                with self.assertRaisesRegex(RuntimeError, "not an admitted public filename"):
+                    seal._public_source_relative(retired)
+
+    def test_consumer_rules_admit_only_the_exact_public_resource(self) -> None:
         self.assertEqual(seal._public_source_relative(self.RESOURCE).as_posix(), self.RESOURCE)
         for relative in (
             self.RESOURCE + ".bak",
             self.RESOURCE + "Unreviewed",
-            self.RESOURCE.replace("FirstDevice", "SecondDevice"),
-            self.RESOURCE.replace("client-android/", "core-jvm/"),
-            self.RESOURCE.replace("META-INF/services/", "META-INF/unreviewed/"),
-            self.RESOURCE.replace("ServiceFactoryV1", "ServiceFactoryV2"),
+            self.RESOURCE.replace("consumer-proguard-rules", "other-proguard-rules"),
+            self.RESOURCE.replace("core-jvm/", "client-android/"),
+            self.RESOURCE.replace("META-INF/proguard/", "META-INF/unreviewed/"),
+            self.RESOURCE.replace("META-INF/proguard/", "META-INF/services/"),
         ):
             with self.subTest(relative=relative):
                 with self.assertRaisesRegex(RuntimeError, "not an admitted public filename"):
                     seal._public_source_relative(relative)
 
-    def test_first_device_spi_fingerprints_every_byte_and_rejects_aliases(self) -> None:
+    def test_consumer_rules_fingerprint_every_byte_and_reject_aliases(self) -> None:
         path = self.root / self.RESOURCE
         path.parent.mkdir(parents=True)
-        path.write_bytes(self.PROVIDER)
+        path.write_bytes(self.RULES)
         lockfile = self.root / "Cargo.lock"
         lockfile.write_bytes(b"public synthetic lock\n")
         with mock.patch.object(seal, "listed_files", return_value=[self.RESOURCE]), \
                 mock.patch.object(seal, "selected_lockfile_path", return_value=lockfile), \
                 mock.patch.object(seal, "lockfile_identity", return_value=("0" * 64,)):
             original = seal.fingerprint(self.root, [self.RESOURCE], lockfile)
-            self.assertEqual(seal._read_public_source_bytes(self.root, self.RESOURCE), self.PROVIDER)
-            path.write_bytes(self.PROVIDER + b"# changed original\n")
+            self.assertEqual(seal._read_public_source_bytes(self.root, self.RESOURCE), self.RULES)
+            path.write_bytes(self.RULES + b"# changed original\n")
             self.assertNotEqual(seal.fingerprint(self.root, [self.RESOURCE], lockfile), original)
-            path.write_bytes(self.PROVIDER)
+            path.write_bytes(self.RULES)
             self.assertEqual(seal.fingerprint(self.root, [self.RESOURCE], lockfile), original)
             actual = path.with_name(path.name + ".txt")
             path.rename(actual)
@@ -75,71 +90,7 @@ class NoritoBridgeAndroidFirstDeviceServiceResourceTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "symlinked"):
                 seal.fingerprint(self.root, [self.RESOURCE], lockfile)
 
-    def test_first_device_spi_cannot_override_material_or_provider_refusal(self) -> None:
-        for relative in (
-            "secrets/" + self.RESOURCE,
-            "vultr/" + self.RESOURCE,
-            self.RESOURCE + ".pem",
-            self.RESOURCE + ".key",
-        ):
-            with self.subTest(relative=relative):
-                with self.assertRaisesRegex(RuntimeError, "prohibited material or operational"):
-                    seal._public_source_relative(relative)
-
-
-class NoritoBridgeAndroidMintFundingServiceResourceTests(unittest.TestCase):
-    """A maintained public SPI filename never exempts source bytes or custody."""
-
-    RESOURCE = (
-        "kotlin/kagemusha-wallet-android/src/main/resources/META-INF/services/"
-        "org.hyperledger.iroha.sdk.offline.KagemushaOrdinaryMintFundingNativeOwnerV1"
-    )
-    PROVIDER = (
-        b"org.hyperledger.iroha.sdk.offline."
-        b"KagemushaOrdinaryMintFundingNativeProviderV1\n"
-    )
-
-    def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name).resolve()
-
-    def test_mint_funding_spi_admits_only_the_exact_public_resource(self) -> None:
-        self.assertEqual(seal._public_source_relative(self.RESOURCE).as_posix(), self.RESOURCE)
-        for relative in (
-            self.RESOURCE + ".bak",
-            self.RESOURCE + "Unreviewed",
-            self.RESOURCE.replace("MintFunding", "OtherFunding"),
-            self.RESOURCE.replace("kagemusha-wallet-android/", "core-jvm/"),
-            self.RESOURCE.replace("META-INF/services/", "META-INF/unreviewed/"),
-            self.RESOURCE.replace("NativeOwnerV1", "NativeOwnerV2"),
-        ):
-            with self.subTest(relative=relative):
-                with self.assertRaisesRegex(RuntimeError, "not an admitted public filename"):
-                    seal._public_source_relative(relative)
-
-    def test_mint_funding_spi_fingerprints_every_byte_and_rejects_aliases(self) -> None:
-        path = self.root / self.RESOURCE
-        path.parent.mkdir(parents=True)
-        path.write_bytes(self.PROVIDER)
-        lockfile = self.root / "Cargo.lock"
-        lockfile.write_bytes(b"public synthetic lock\n")
-        with mock.patch.object(seal, "listed_files", return_value=[self.RESOURCE]), \
-                mock.patch.object(seal, "selected_lockfile_path", return_value=lockfile), \
-                mock.patch.object(seal, "lockfile_identity", return_value=("0" * 64,)):
-            original = seal.fingerprint(self.root, [self.RESOURCE], lockfile)
-            self.assertEqual(seal._read_public_source_bytes(self.root, self.RESOURCE), self.PROVIDER)
-            path.write_bytes(self.PROVIDER + b"# changed original\n")
-            self.assertNotEqual(seal.fingerprint(self.root, [self.RESOURCE], lockfile), original)
-            path.write_bytes(self.PROVIDER)
-            self.assertEqual(seal.fingerprint(self.root, [self.RESOURCE], lockfile), original)
-            actual = path.with_name(path.name + ".txt")
-            path.rename(actual)
-            path.symlink_to(actual)
-            with self.assertRaisesRegex(RuntimeError, "symlinked"):
-                seal.fingerprint(self.root, [self.RESOURCE], lockfile)
-
-    def test_mint_funding_spi_cannot_override_material_or_provider_refusal(self) -> None:
+    def test_consumer_rules_cannot_override_material_or_provider_refusal(self) -> None:
         for relative in (
             "secrets/" + self.RESOURCE,
             "vultr/" + self.RESOURCE,
@@ -1586,14 +1537,6 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
             executable = tools / name
             executable.write_text('#!/bin/sh\nif [ "${RUSTC_BOOTSTRAP+x}" = x ]; then exit 77; fi\nexit 0\n', encoding="utf-8")
             executable.chmod(0o755)
-        public_input_directory = tempfile.TemporaryDirectory()
-        self.addCleanup(public_input_directory.cleanup)
-        binding = Path(public_input_directory.name).resolve() / "hardware-compiled-binding.norito"
-        binding.write_bytes(b"TEST ONLY public compiled binding original; no runtime authority")
-        binding.chmod(0o600)
-        ordinary = Path(public_input_directory.name).resolve() / "common-sdk-compiled-root.bin"
-        ordinary.write_bytes(b"KGMROOT1" + bytes([3]) * 32 + bytes([4]) * 32 + (25).to_bytes(4, "little"))
-        ordinary.chmod(0o600)
         environment = {
             "ANDROID_NDK_HOME": str(ndk),
             "ANDROID_NDK_ROOT": str(ndk),
@@ -1606,8 +1549,6 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
             "HOME": str(self.root),
             "LANG": "C.UTF-8",
             "LC_ALL": "C.UTF-8",
-            "MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE": str(binding),
-            "MOBILE_SDK_ORDINARY_CONTEXT_COMPILED_BINDING_FILE": str(ordinary),
             "NORITO_SKIP_BINDINGS_SYNC": "1",
             "PATH": f"{tools}:/usr/bin:/bin",
             "RUSTC": str(tools / "rustc"),
@@ -1650,93 +1591,34 @@ class NoritoBridgeSourceSealTests(unittest.TestCase):
                 check=False,
             )
 
-        with mock.patch.dict(os.environ, {"RUSTC_BOOTSTRAP": "1"}):
-            (tools / "cargo").write_text(
-            '#!/bin/sh\n/bin/echo "$MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE"\n/bin/echo "$MOBILE_SDK_ORDINARY_CONTEXT_COMPILED_BINDING_FILE"\n'
-            'if [ "${AMBIENT_HARDWARE_POLICY+x}" = x ]; then exit 91; fi\nexit 0\n',
+        (tools / "cargo").write_text(
+            '#!/bin/sh\n/bin/echo "$CARGO_TARGET_DIR"\n'
+            'if [ "${AMBIENT_CHILD_POLICY+x}" = x ]; then exit 91; fi\n'
+            'if [ "${RUSTC_BOOTSTRAP+x}" = x ]; then exit 77; fi\nexit 0\n',
             encoding="utf-8",
         )
-        with mock.patch.dict(os.environ, {"AMBIENT_HARDWARE_POLICY": "TEST ONLY injected"}):
+        with mock.patch.dict(
+            os.environ,
+            {"AMBIENT_CHILD_POLICY": "TEST ONLY injected", "RUSTC_BOOTSTRAP": "1"},
+        ):
             accepted = run(environment, cargo_arguments)
         self.assertEqual(accepted.returncode, 0, accepted.stderr)
-        self.assertEqual(accepted.stdout.strip().splitlines(), [str(binding), str(ordinary)])
+        self.assertEqual(accepted.stdout.strip().splitlines(), [str(target)])
 
-        for offered in ("", "hardware-compiled-binding.norito", str(self.root / "different.norito")):
-            with self.subTest(binding_path=offered):
-                changed = dict(environment)
-                changed["MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE"] = offered
-                refused = run(changed, cargo_arguments)
-                self.assertNotEqual(refused.returncode, 0)
-                self.assertEqual(refused.stdout, "")
-        # The new original is mandatory independently of valid hardware input.
-        absent_ordinary = dict(environment)
-        del absent_ordinary["MOBILE_SDK_ORDINARY_CONTEXT_COMPILED_BINDING_FILE"]
-        self.assertNotEqual(run(absent_ordinary, cargo_arguments).returncode, 0)
-        original_ordinary = ordinary.read_bytes()
-        for contents in (b"", original_ordinary[:75], original_ordinary + b"x",
-                         b"INVALID1" + original_ordinary[8:],
-                         original_ordinary[:8] + bytes(32) + original_ordinary[40:],
-                         original_ordinary[:40] + bytes(32) + original_ordinary[72:],
-                         original_ordinary[:72] + bytes(4)):
-            ordinary.write_bytes(contents)
-            refused = run(environment, cargo_arguments)
-            self.assertNotEqual(refused.returncode, 0)
-            self.assertEqual(refused.stdout, "")
-        ordinary.write_bytes(original_ordinary)
-        ordinary_alias = Path(public_input_directory.name).resolve() / "alias"
-        ordinary_alias.mkdir()
-        (ordinary_alias / ordinary.name).symlink_to(ordinary)
-        changed = dict(environment, MOBILE_SDK_ORDINARY_CONTEXT_COMPILED_BINDING_FILE=str(ordinary_alias / ordinary.name))
-        self.assertNotEqual(run(changed, cargo_arguments).returncode, 0)
-        # Successful child output cannot hide modified bytes or replaced inode.
-        for command in (
-            'printf "different original" > "$MOBILE_SDK_ORDINARY_CONTEXT_COMPILED_BINDING_FILE"',
-            '/bin/cp "$MOBILE_SDK_ORDINARY_CONTEXT_COMPILED_BINDING_FILE" "$MOBILE_SDK_ORDINARY_CONTEXT_COMPILED_BINDING_FILE.next"; /bin/mv "$MOBILE_SDK_ORDINARY_CONTEXT_COMPILED_BINDING_FILE.next" "$MOBILE_SDK_ORDINARY_CONTEXT_COMPILED_BINDING_FILE"',
+        # The retired compiled-binding originals are not part of the Android profile.
+        public_input_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(public_input_directory.cleanup)
+        retired_original = Path(public_input_directory.name).resolve() / "retired-original.bin"
+        retired_original.write_bytes(b"TEST ONLY retired public original; no runtime authority")
+        for retired in (
+            "MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE",
+            "MOBILE_SDK_ORDINARY_CONTEXT_COMPILED_BINDING_FILE",
         ):
-            (tools / "cargo").write_text("#!/bin/sh\n" + command + "\nexit 0\n", encoding="utf-8")
-            refused = run(environment, cargo_arguments)
-            self.assertNotEqual(refused.returncode, 0)
-            self.assertIn("ordinary compiled binding original changed during", refused.stderr)
-            ordinary.write_bytes(original_ordinary)
-        (tools / "cargo").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-
-        absent_binding = dict(environment)
-        del absent_binding["MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE"]
-        self.assertNotEqual(run(absent_binding, cargo_arguments).returncode, 0)
-        linked = self.root / "linked-binding"
-        linked.mkdir()
-        alias = linked / "hardware-compiled-binding.norito"
-        alias.symlink_to(binding)
-        changed = dict(environment)
-        changed["MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE"] = str(alias)
-        self.assertNotEqual(run(changed, cargo_arguments).returncode, 0)
-        binding.chmod(0o666)
-        self.assertNotEqual(run(environment, cargo_arguments).returncode, 0)
-        binding.chmod(0o600)
-        original = binding.read_bytes()
-        for contents in (b"", b"x" * (192 * 1024 + 1)):
-            binding.write_bytes(contents)
-            self.assertNotEqual(run(environment, cargo_arguments).returncode, 0)
-        binding.write_bytes(original)
-
-        # Actual child mutation must fail even after the child reports success.
-        (tools / "cargo").write_text(
-            '#!/bin/sh\nprintf "different public original" > "$MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE"\nexit 0\n',
-            encoding="utf-8",
-        )
-        changed = run(environment, cargo_arguments)
-        self.assertNotEqual(changed.returncode, 0)
-        self.assertIn("hardware compiled binding original changed during", changed.stderr)
-        binding.write_bytes(original)
-        # Same bytes on a replacement inode must also refuse.
-        (tools / "cargo").write_text(
-            '#!/bin/sh\n/bin/cp "$MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE" "$MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE.next"\n/bin/mv "$MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE.next" "$MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE"\nexit 0\n',
-            encoding="utf-8",
-        )
-        replaced = run(environment, cargo_arguments)
-        self.assertNotEqual(replaced.returncode, 0)
-        self.assertIn("hardware compiled binding original changed during", replaced.stderr)
-        binding.chmod(0o600)
+            with self.subTest(retired=retired):
+                rejected = run(dict(environment, **{retired: str(retired_original)}), cargo_arguments)
+                self.assertNotEqual(rejected.returncode, 0)
+                self.assertEqual(rejected.stdout, "")
+                self.assertIn(f"unexpected=['{retired}']", rejected.stderr)
 
         (tools / "cargo").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
 

@@ -25,7 +25,6 @@ use iroha_data_model::{
         RemoveKeyValueBox, RevokeBox, SetKeyValueBox, TransferAssetBatch, TransferBox,
         UnregisterBox,
         contract_alias::SetContractAlias,
-        kagemusha_v1::{RedeemKagemushaV1, TopUpKagemushaV1},
         musubi::{
             AcceptMusubiPackageMaintainerV1, AddMusubiArchiveLocationV1, AdvanceMusubiPinOutboxV1,
             AssertMusubiReleaseDigestV1, CheckMusubiPinOutboxV1, InviteMusubiPackageMaintainerV1,
@@ -4059,15 +4058,6 @@ fn instruction_transaction_dataspace_target(
             &set_alias.contract_address,
         ));
     }
-    if let Some(asset_definition_id) = confidential_asset_definition_target(any) {
-        return asset_definition_dataspace_target(
-            asset_definition_id,
-            None,
-            None,
-            dataspace_catalog,
-            state_view,
-        );
-    }
     Ok(None)
 }
 fn instruction_transaction_dataspace_target_with_world<W: WorldReadOnly>(
@@ -4511,16 +4501,6 @@ fn instruction_transaction_dataspace_target_with_world_and_fx_overlay<W: WorldRe
         return Ok(contract_address_dataspace_target(
             &set_alias.contract_address,
         ));
-    }
-    if let Some(asset_definition_id) = confidential_asset_definition_target(any) {
-        return asset_definition_dataspace_target_with_world(
-            asset_definition_id,
-            None,
-            None,
-            dataspace_catalog,
-            world,
-            ledger_time_ms,
-        );
     }
     Ok(None)
 }
@@ -5802,15 +5782,6 @@ fn multisig_propose_transaction_dataspace_target_with_world_and_fx_overlay<W: Wo
         |target| Ok(Some(target)),
     )?)
 }
-fn confidential_asset_definition_target(any: &dyn std::any::Any) -> Option<&AssetDefinitionId> {
-    if let Some(top_up) = any.downcast_ref::<TopUpKagemushaV1>() {
-        return Some(&top_up.request.asset);
-    }
-    if let Some(redemption) = any.downcast_ref::<RedeemKagemushaV1>() {
-        return Some(&redemption.request.voucher.statement.lifecycle.asset);
-    }
-    None
-}
 fn trigger_executable_requires_universal_coordinator(
     executable: &Executable,
     dataspace_catalog: Option<&DataSpaceCatalog>,
@@ -6990,9 +6961,6 @@ fn instruction_transaction_dataspace_target_needs_state(instruction: &dyn Instru
             .downcast_ref::<CancelConfidentialPolicyTransition>()
             .is_some()
     {
-        return true;
-    }
-    if confidential_asset_definition_target(any).is_some() {
         return true;
     }
     false

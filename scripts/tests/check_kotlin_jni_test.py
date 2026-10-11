@@ -1,4 +1,9 @@
-"""Fail-closed coverage for compiled Kotlin ownership and exact JNI linkage."""
+"""Fail-closed coverage for compiled Kotlin ownership and exact JNI linkage.
+
+The module also pins the first-release KAGEMUSHA SDK package surface from
+repository sources: Kotlin and Swift keep only the wallet V1 files, and
+JavaScript and C# ship no old KAGEMUSHA facade.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import struct
 import subprocess
@@ -681,3 +687,137 @@ def test_compiled_privacy_contract_seals_nonprivacy_main_classes_too(tmp_path):
     link.symlink_to(tmp_path / "absent")
     with pytest.raises(GUARD.AuditError, match="symlink"):
         GUARD.audit_privacy_classfiles(tmp_path)
+
+
+# First-release KAGEMUSHA SDK package surface. The bridge exports no KAGEMUSHA
+# symbol, so check_kotlin_jni.py admits no KAGEMUSHA JNI owner; these source-only
+# guards pin the matching package surface in every SDK. They read repository
+# sources only and need no JDK, native artifact, network or environment variable.
+ROOT = Path(__file__).resolve().parents[2]
+KOTLIN_OFFLINE_PACKAGE = "org/hyperledger/iroha/sdk/offline"
+
+
+def kagemusha_named_files(root, directories):
+    """Return every regular file whose name starts with KAGEMUSHA, relative to ``root``."""
+    return {
+        path.relative_to(root).as_posix()
+        for directory in directories
+        for path in (root / directory).rglob("*")
+        if path.is_file() and path.name.lower().startswith("kagemusha")
+    }
+
+
+def test_kotlin_ships_only_the_kagemusha_wallet_v1_surface():
+    """Only the wallet V1 wire, its P-256 codec and the Android wallet V1 platform remain."""
+    kotlin = ROOT / "kotlin"
+    offline = KOTLIN_OFFLINE_PACKAGE
+    wallet = "kagemusha-wallet-android/src"
+    kept = {
+        f"core-jvm/src/main/java/{offline}/KagemushaP256Codec.kt",
+        f"core-jvm/src/main/java/{offline}/KagemushaWalletWireV1.kt",
+        f"core-jvm/src/test/kotlin/{offline}/KagemushaWalletVectorsV1Test.kt",
+        f"{wallet}/androidTest/java/{offline}/wallet/KagemushaWalletAndroidPlatformDeviceV1Test.kt",
+        f"{wallet}/main/res/xml/kagemusha_wallet_v1_data_extraction_rules.xml",
+        f"{wallet}/main/res/xml/kagemusha_wallet_v1_full_backup_content.xml",
+        *(
+            f"{wallet}/main/java/{offline}/wallet/KagemushaWalletAndroid{name}V1.kt"
+            for name in ("Environment", "KeyStore", "PaymentKey", "Platform", "Results")
+        ),
+        *(
+            f"{wallet}/test/kotlin/{offline}/wallet/KagemushaWalletAndroid{name}.kt"
+            for name in ("BackupRulesV1Test", "PaymentKeyV1Test", "PlatformV1Test", "TestFakesV1")
+        ),
+    }
+    modules = tuple(f"{module}/src" for module in GUARD.MODULES)
+    assert kagemusha_named_files(kotlin, modules) == kept
+
+    # The retired ServiceLoader providers and the probe package must not return.
+    for module in GUARD.MODULES:
+        services = kotlin / module / "src/main/resources/META-INF/services"
+        if services.exists():
+            retired = sorted(
+                path.name for path in services.iterdir()
+                if path.name.startswith("org.hyperledger.iroha.sdk.offline.")
+            )
+            assert retired == [], f"{module} ships retired offline SPI resources"
+        for source_set in ("main/java", "test/kotlin", "test/java", "androidTest/java"):
+            probe = kotlin / module / "src" / source_set / offline / "probe"
+            assert not probe.exists(), f"{probe.relative_to(ROOT)} must stay retired"
+
+    # Consumer rules keep only the wallet V1 platform upcalls and result types.
+    for rules in (
+        "client-android/consumer-rules.pro",
+        "kagemusha-wallet-android/consumer-rules.pro",
+        "core-jvm/src/main/resources/META-INF/proguard/consumer-proguard-rules.pro",
+    ):
+        lines = (kotlin / rules).read_text(encoding="utf-8").splitlines()
+        rule_text = "\n".join(line for line in lines if not line.lstrip().startswith("#"))
+        kept_names = re.findall(r"\bKagemusha\w*", rule_text)
+        assert all(name.startswith("KagemushaWalletAndroid") for name in kept_names), (
+            rules, sorted(set(kept_names)),
+        )
+
+    # The wallet manifest binds the exclude-only backup and device-transfer rules.
+    manifest = (kotlin / wallet / "main/AndroidManifest.xml").read_text(encoding="utf-8")
+    for attribute in (
+        'android:allowBackup="false"',
+        'android:dataExtractionRules="@xml/kagemusha_wallet_v1_data_extraction_rules"',
+        'android:fullBackupContent="@xml/kagemusha_wallet_v1_full_backup_content"',
+    ):
+        assert attribute in manifest
+
+
+def test_swift_ships_no_old_kagemusha_surface():
+    """Only the KAGEMUSHA wallet V1 wire and Apple platform files remain in Swift."""
+    swift = ROOT / "IrohaSwift"
+    kept = {
+        "Sources/IrohaSwift/KagemushaWalletAppleAppAttestV1.swift",
+        "Sources/IrohaSwift/KagemushaWalletApplePlatformV1.swift",
+        "Sources/IrohaSwift/KagemushaWalletAppleSystemV1.swift",
+        "Sources/IrohaSwift/KagemushaWalletWireV1.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletApplePlatformV1Tests.swift",
+        "Tests/IrohaSwiftTests/KagemushaWalletVectorsV1Tests.swift",
+    }
+    assert kagemusha_named_files(swift, ("Sources", "Tests")) == kept
+    for relative in (
+        "Sources/IrohaSwift/ParticipantEnrollmentHttpCodecV1.swift",
+        "Sources/IrohaSwift/AndroidProvisionedProof.swift",
+    ):
+        assert not (swift / relative).exists(), relative
+
+
+def test_javascript_ships_no_old_kagemusha_surface():
+    js_root = ROOT / "javascript/iroha_js"
+    for relative in (
+        "kagemusha.d.ts",
+        "kagemusha-v1.d.ts",
+        "src/kagemusha.js",
+        "src/kagemushaV1.js",
+        "src/kagemushaToriiV1.js",
+        "src/public/kagemusha.js",
+    ):
+        path = js_root / relative
+        assert not (path.exists() or path.is_symlink()), relative
+    package = json.loads((js_root / "package.json").read_text(encoding="utf-8"))
+    assert "./kagemusha" not in package["exports"]
+    assert "kagemusha" not in package["typesVersions"]["*"]
+    assert re.search(r"(?i)kagemusha", json.dumps(package)) is None
+    for relative in ("src/index.js", "src/browser.js", "index.d.ts", "browser.d.ts"):
+        source = (js_root / relative).read_text(encoding="utf-8")
+        assert re.search(r"\bKagemusha(?:V1)?\b|\./kagemusha\.js", source) is None, relative
+
+
+def test_csharp_ships_no_old_kagemusha_surface():
+    sdk_root = ROOT / "csharp/src/Hyperledger.Iroha.Sdk"
+    assert not (sdk_root / "Kagemusha").exists()
+    checked = 0
+    for path in sdk_root.rglob("*.cs"):
+        relative = path.relative_to(sdk_root)
+        if relative.parts[0] in ("bin", "obj"):
+            continue
+        checked += 1
+        source = path.read_text(encoding="utf-8")
+        assert re.search(
+            r"\bnamespace\s+Hyperledger\.Iroha\.Kagemusha\b|\bconnect_norito_kagemusha_", source,
+        ) is None, relative.as_posix()
+    assert checked

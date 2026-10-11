@@ -309,7 +309,7 @@ fn android_renewal(f: &IdentityFixture, challenge: [u8; 32]) -> KagemushaWalletR
         public_key(&new_key),
         raw_output(
             &f.payment,
-            &kagemusha_wallet_preimage_v1(Role::RenewalKeyBinding, &binding),
+            &kagemusha_wallet_signing_message_v1(Domain::RenewalKeyBinding, &binding),
         ),
         android_chain(),
     )
@@ -325,7 +325,7 @@ fn android_renewal(f: &IdentityFixture, challenge: [u8; 32]) -> KagemushaWalletR
         challenge,
         raw_output(
             &f.payment,
-            &kagemusha_wallet_preimage_v1(Role::RenewalChallenge, &possession),
+            &kagemusha_wallet_signing_message_v1(Domain::RenewalChallenge, &possession),
         ),
         evidence,
     )
@@ -345,7 +345,7 @@ fn apple_renewal(f: &IdentityFixture, challenge: [u8; 32]) -> KagemushaWalletRen
         challenge,
         raw_output(
             &f.payment,
-            &kagemusha_wallet_preimage_v1(Role::RenewalChallenge, &possession),
+            &kagemusha_wallet_signing_message_v1(Domain::RenewalChallenge, &possession),
         ),
         KagemushaWalletRenewalEvidenceV1::Apple {
             assertion: b"app-attest-assertion".to_vec(),
@@ -665,19 +665,19 @@ fn kagemusha_wallet_v1_signer_certificate_sign_verify_and_decode() {
     assert_eq!(certificate.body.transcript(), expected);
     assert_eq!(
         certificate.body.signing_message(),
-        kagemusha_wallet_preimage_v1(Role::CertificateBody, &expected)
+        kagemusha_wallet_signing_message_v1(Domain::Certificate, &expected)
     );
     assert_eq!(
         certificate.certificate_digest(),
         kagemusha_wallet_signed_object_digest_v1(
             Role::Certificate,
-            &kagemusha_wallet_digest_v1(Role::CertificateBody, &expected),
+            &kagemusha_wallet_signing_message_v1(Domain::Certificate, &expected),
             &certificate.signature
         )
     );
     assert_eq!(
-        certificate.body.body_digest(),
-        kagemusha_wallet_digest_v1(Role::CertificateBody, &expected)
+        certificate.body.signing_message(),
+        kagemusha_wallet_signing_message_v1(Domain::Certificate, &expected)
     );
 
     let mut other_scheme = f.scheme;
@@ -691,7 +691,7 @@ fn kagemusha_wallet_v1_signer_certificate_sign_verify_and_decode() {
     assert!(matches!(
         tampered.verify(&f.scheme),
         Err(KagemushaWalletValidationErrorV1::InvalidSignature {
-            role: Role::CertificateBody
+            domain: Domain::Certificate
         })
     ));
     let not_root = KagemushaWalletSignerCertificateV1::sign(
@@ -1053,13 +1053,13 @@ fn kagemusha_wallet_v1_credential_sign_verify_decode_for_every_kind() {
         assert_eq!(transcript[2 + 4 * 32 + 65 + 32], kind.tag());
         assert_eq!(
             credential.body.signing_message(),
-            kagemusha_wallet_preimage_v1(Role::CredentialBody, &transcript)
+            kagemusha_wallet_signing_message_v1(Domain::Credential, &transcript)
         );
         assert_eq!(
             credential.credential_digest(),
             kagemusha_wallet_signed_object_digest_v1(
                 Role::Credential,
-                &credential.body.body_digest(),
+                &credential.body.signing_message(),
                 &credential.signature
             )
         );
@@ -1204,8 +1204,8 @@ fn kagemusha_wallet_v1_credential_issuer_verification() {
         body,
         signature: kagemusha_wallet_freeze_signature_v1(
             &regulatory.body.key,
-            Role::CredentialBody,
-            &body.transcript(),
+            Domain::Credential,
+            &body.signing_message(),
             raw_output(&regulatory_signer, &body.signing_message()),
         )
         .expect("regulatory-key signature"),
@@ -1227,7 +1227,7 @@ fn kagemusha_wallet_v1_credential_issuer_verification() {
     assert!(matches!(
         by_root.verify(&f.scheme, &f.enrollment_certificate),
         Err(KagemushaWalletValidationErrorV1::InvalidSignature {
-            role: Role::CredentialBody
+            domain: Domain::Credential
         })
     ));
     let mut mismatched = credential.body;
@@ -1368,7 +1368,7 @@ fn kagemusha_wallet_v1_android_renewal_request() {
     );
     assert_ne!(
         request.assertion_client_data_hash(),
-        kagemusha_wallet_digest_v1(Role::RenewalChallenge, &expected)
+        kagemusha_wallet_signing_message_v1(Domain::RenewalChallenge, &expected)
     );
     let KagemushaWalletRenewalEvidenceV1::Android {
         new_attested_key, ..
@@ -1439,7 +1439,7 @@ fn kagemusha_wallet_v1_android_renewal_request() {
     assert!(matches!(
         tampered.verify(&f.credential),
         Err(KagemushaWalletValidationErrorV1::InvalidSignature {
-            role: Role::RenewalChallenge
+            domain: Domain::RenewalChallenge
         })
     ));
     let mut stale = request.clone();
@@ -1458,7 +1458,7 @@ fn kagemusha_wallet_v1_android_renewal_request() {
     assert!(matches!(
         swapped_key.verify(&f.credential),
         Err(KagemushaWalletValidationErrorV1::InvalidSignature {
-            role: Role::RenewalKeyBinding
+            domain: Domain::RenewalKeyBinding
         })
     ));
     let mut wrong_platform = request.clone();
@@ -1638,13 +1638,13 @@ fn kagemusha_wallet_v1_artifact_manifest_binds_the_scheme() {
     assert_eq!(body.recomputed_relation_id(), f.scheme.relation_id);
     assert_eq!(
         body.signing_message(),
-        kagemusha_wallet_preimage_v1(Role::ArtifactManifestBody, &transcript)
+        kagemusha_wallet_signing_message_v1(Domain::ArtifactManifest, &transcript)
     );
     assert_eq!(
         manifest.manifest_digest(),
         kagemusha_wallet_signed_object_digest_v1(
             Role::ArtifactManifest,
-            &body.body_digest(),
+            &body.signing_message(),
             &manifest.signature
         )
     );

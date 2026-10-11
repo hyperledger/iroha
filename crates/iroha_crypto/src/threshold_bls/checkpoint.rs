@@ -620,13 +620,12 @@ impl<P: ThresholdBlsPurpose> PreparedDkgSecretsCheckpointV1<P> {
         {
             return Err(DkgCheckpointErrorV1::Binding);
         }
-        if let Some(dealer) = dealer {
-            if dealer.parameters_digest != self.parameters.digest()
+        if let Some(dealer) = dealer
+            && (dealer.parameters_digest != self.parameters.digest()
                 || dealer.session_id != *self.parameters.session().session_id()
-                || dealer.dealer_index != self.seat_index
-            {
-                return Err(DkgCheckpointErrorV1::Binding);
-            }
+                || dealer.dealer_index != self.seat_index)
+        {
+            return Err(DkgCheckpointErrorV1::Binding);
         }
         for (index, share) in contributions.iter().enumerate() {
             if share.parameters_digest != self.parameters.digest()
@@ -636,6 +635,11 @@ impl<P: ThresholdBlsPurpose> PreparedDkgSecretsCheckpointV1<P> {
                 return Err(DkgCheckpointErrorV1::Binding);
             }
         }
+        let coefficient_count = dealer
+            .map_or(Ok(0), |dealer| u16::try_from(dealer.coefficients.len()))
+            .map_err(|_| DkgCheckpointErrorV1::Binding)?;
+        let contribution_count =
+            u16::try_from(contributions.len()).map_err(|_| DkgCheckpointErrorV1::Binding)?;
         self.destination.reset();
         let record = &mut self.destination.record.as_mut_slice()[0];
         record.version = 1;
@@ -647,7 +651,7 @@ impl<P: ThresholdBlsPurpose> PreparedDkgSecretsCheckpointV1<P> {
         record.x25519_secret.copy_from_slice(&x[..]);
         record.mlkem768_secret.copy_from_slice(&kem[..]);
         if let Some(dealer) = dealer {
-            record.coefficient_count = dealer.coefficients.len() as u16;
+            record.coefficient_count = coefficient_count;
             for (index, coefficient) in dealer.coefficients.iter().enumerate() {
                 for (component, bytes) in coefficient.iter().enumerate() {
                     let start = index * 96 + component * 32;
@@ -655,7 +659,7 @@ impl<P: ThresholdBlsPurpose> PreparedDkgSecretsCheckpointV1<P> {
                 }
             }
         }
-        record.contribution_count = contributions.len() as u16;
+        record.contribution_count = contribution_count;
         for (index, share) in contributions.iter().enumerate() {
             for (component, bytes) in share.scalar_bytes.iter().enumerate() {
                 let start = index * 96 + component * 32;
@@ -687,7 +691,7 @@ impl<P: ThresholdBlsPurpose> PreparedDkgSecretsCheckpointV1<P> {
         });
         if let Err(error) = result {
             self.work.0.as_mut_slice().zeroize();
-            return Err(error.into());
+            return Err(error);
         }
         self.source
             .0
@@ -798,8 +802,10 @@ impl<P: ThresholdBlsPurpose> PreparedDkgSecretsCheckpointV1<P> {
             {
                 return Err(DkgCheckpointErrorV1::Binding);
             }
-            let recipient =
-                HybridSecretKey::from_bytes(&record.x25519_secret, &record.mlkem768_secret)?;
+            let recipient = HybridSecretKey::from_bytes(
+                record.x25519_secret.as_slice(),
+                record.mlkem768_secret.as_slice(),
+            )?;
             let restored_public = recipient.public();
             if restored_public.x25519_bytes() != original_recipient.x25519_bytes()
                 || restored_public.kyber_bytes() != original_recipient.kyber_bytes()
@@ -1031,6 +1037,10 @@ impl<P: ThresholdBlsPurpose> PreparedDkgSecretsCheckpointV1<P> {
     ///
     /// # Errors
     /// An unfinished owner is returned unchanged; no charge is replaced or refunded.
+    #[allow(
+        clippy::result_large_err,
+        reason = "an unfinished extraction returns the original prepaid secret owner without allocating or refunding its backings"
+    )]
     pub fn finish(mut self) -> Result<RestoredDkgSecretsV1<P>, Self> {
         let Some(recipient) = self.restored_recipient.take() else {
             return Err(self);

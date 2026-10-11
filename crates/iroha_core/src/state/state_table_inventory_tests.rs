@@ -1617,7 +1617,7 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
     },
     ConstructionUse {
         path: "crates/iroha_core/src/receiver_snapshot.rs",
-        uses: &[("MerkleTree", 2), ("smt::", 6)],
+        uses: &[("MerkleTree", 2), ("smt::", 5)],
         owner: UseOwner::Roots(&["execution_witness_roots"]),
     },
     ConstructionUse {
@@ -2954,9 +2954,9 @@ const WITNESS_FAMILIES: &[WitnessFamily] = &[
         tags: &["KagemushaReserveReceipt"],
         key: "tag byte and the 32-byte operation identifier",
         value: "canonical KagemushaReserveReceiptV1 of the operation",
-        reads: true,
-        fields: &["world.kagemusha_reserve_operations"],
-        source: "",
+        reads: false,
+        fields: &[],
+        source: "canonical receipt writes in the supplied execution witness, consumed by the Sumeragi top-up commitment; no State table or production receipt recorder currently produces this family",
         derivation: &[],
         accessors: &[],
         digests: &[],
@@ -2965,16 +2965,16 @@ const WITNESS_FAMILIES: &[WitnessFamily] = &[
         opaque: &[],
         evidence: &[
             (
-                "crates/iroha_core/src/exec_witness.rs",
-                "pub(crate) fn record_write_kagemusha_reserve_receipt_v1(",
+                "crates/iroha_data_model/src/execution_witness.rs",
+                "pub const fn kagemusha_reserve_receipt_witness_key_v1(",
             ),
             (
-                "crates/iroha_core/src/exec_witness.rs",
-                "pub(crate) fn record_read_kagemusha_reserve_receipt_v1(",
+                "crates/iroha_data_model/src/isi/kagemusha_v1.rs",
+                "pub struct KagemushaReserveReceiptV1 {",
             ),
             (
-                "crates/iroha_core/src/smartcontracts/isi/kagemusha.rs",
-                "crate::exec_witness::record_write_kagemusha_reserve_receipt_v1(&record.reserve_receipt)",
+                "crates/iroha_core/src/sumeragi/commitment.rs",
+                "fn kagemusha_top_ups(witness: &ExecWitness) -> Result<Option<(Hash, u32)>, CommitmentError> {",
             ),
         ],
     },
@@ -5566,15 +5566,15 @@ const DEFECTS: &[Defect] = &[
         title: "Root-valued canonical World cells have no writer",
         assigned: "G.3",
         related: &[],
-        required: "Either give world.merge_hint_roots and world.merge_global_state_root a committed writer and a defined relation to the keyed State root, or remove the cells. Their only writer has no caller, so they would enter the keyed schema as a permanently default root-named value.",
+        required: "Either give world.merge_hint_roots and world.merge_global_state_root a committed writer and a defined relation to the keyed State root, or remove the cells. They have no production writer, so they would enter the keyed schema as permanently default root-named values.",
         evidence: &[
             (
                 "crates/iroha_core/src/state/authority_registry/world.rs",
                 "merge_global_state_root: Cell<Option<Hash>> => (\"world.merge_global_state_root\",",
             ),
             (
-                "crates/iroha_core/src/state.rs",
-                "stage_merge_metadata_values(",
+                "crates/iroha_core/src/state/authority_registry/world.rs",
+                "merge_hint_roots: Cell<Vec<Hash>> => (\"world.merge_hint_roots\",",
             ),
         ],
     },

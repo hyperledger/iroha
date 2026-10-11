@@ -36,6 +36,8 @@ drift guard for that file. It fails when:
   of a scanned limit names (a term of that limit), or a limit-named function
   without parameters that returns an integer (also inside `Option` or as the
   value of a `Result`), is neither listed nor excluded;
+  the same for an integer constant of another source of the workspace that
+  the code of these scopes names (an import, below);
   an excluded term does not record under `term_of` exactly the limits whose
   expressions name it, or an exclusion that is no term records one;
   or a literal comparison is neither inside an enforcement site of a listed
@@ -121,14 +123,37 @@ chain in front of a blank outside brackets (the first arguments of a
 turbofish, as in `rows::<A, B>().min(cap)`); a cap or comparison function
 called under another name (an alias of `use`); and a constant or literal
 further than 600 characters from the operator of its relational comparison.
-Outside the `comparisons` scopes every limit that its name does not mark is
-unseen. An exclusion pins the text
-of its limit's defining expression. In a `comparisons` scope an integer
-constant that such an expression names is scanned as a term of the limit; an
-associated constant of a type (`Header::SIZE`), a constant of a crate that is
-not compared and a value a function computes are not followed. A listed
-bound resolves every constant its expression names through another verified
-bound (`refs`).
+Outside the `comparisons` scopes a limit that its name does not mark is seen
+only when the code of these scopes names it (an import, below). An exclusion
+pins the text of its limit's defining expression. In a `comparisons` scope an
+integer constant that such an expression names is scanned as a term of the
+limit; an associated constant of a type (`Header::SIZE`), a constant of a
+crate outside the workspace and a value a function computes are not followed.
+A listed bound resolves every constant its expression names through another
+verified bound (`refs`).
+
+Imports. The code of a `comparisons` scope also names constants that another
+source defines: a source of its own crate outside these scopes (a skipped
+directory) or a source of another crate. A name counts when it stands in a
+compared position, bare or behind a module path (`ROWS`, `wire::ROWS`; also
+under the name a `use` of the file gives it, `use wire::ROWS as WIRE_ROWS;`),
+or in the defining expression of a scanned limit, and the file defines no
+item of that name. It then stands for every integer constant of that name in
+a production source its crate can reach: any item of its own crate, and a
+`pub` item (not `pub(crate)`) of a workspace crate it depends on, directly or
+through other workspace crates (`[dependencies]` and
+`[target.<cfg>.dependencies]` of the manifests; development and build
+dependencies are not read). Such a constant is a listed bound or is excluded
+with a pinned expression like a constant of the four crates, its terms are
+followed from its own source (the same file, else the same crate, else the
+crates that crate depends on), and `--mutate` changes it. The resolution is
+by name: which of several crates a `use` picks is not read, so each crate
+that defines the name is scanned, which can only add constants. Not seen: an
+associated constant of a type of another crate (`Shape::SIZE`); a constant of
+a crate outside the workspace; a constant another crate re-exports under a
+new name (`pub use a::ROWS as B_ROWS;`); the root of a binary target
+(`src/main.rs`, `src/bin/`), whose items no other crate can name; and a
+source only test builds compile.
 
 Maintenance. The contract is edited by hand; two modes do the mechanical part:
 
@@ -263,6 +288,7 @@ FRAMED_BOUNDS = (
     "x509.max_proof_bytes",
     "queued_effects.max_output_bytes",
     "attachment.list_max_canonical_frame_bytes",
+    "attachment.signed_frame_max_bytes",
 )
 # Fixed bounds every validator decides on: they are consensus validity, with sites and tests.
 FIXED_VALIDITY = (
@@ -2289,6 +2315,15 @@ _CLAUSE_HEAD = re.compile(r"(?:(?:else\s+)?if|while|return|match|move)\b\s*|\|[^
 # A name written in upper case: a constant (also one of a single letter; a generic
 # parameter of that form names no integer item and is dropped when names are attributed).
 _CONSTANT_NAME = re.compile(r"(?<![A-Za-z0-9_])([A-Z][A-Z0-9_]*)\b(?![ \t]*(?:::|\(|!|\{))")
+# A constant imported under another name: `use wire::ROWS as WIRE_ROWS;`.
+_USE_STATEMENT = re.compile(r"\buse\s[^;]*;")
+_USE_ALIAS = re.compile(r"\b([A-Z][A-Z0-9_]*)\s+as\s+([A-Z][A-Z0-9_]*)\b")
+# The same name with the path in front of it: `ROWS`, `wire::ROWS`, `Header::SIZE`,
+# `<T as Shape>::ROWS`.
+_QUALIFIED_NAME = re.compile(
+    r"((?:(?:(?<![A-Za-z0-9_])[A-Za-z_][A-Za-z_0-9]*|>)\s*::\s*)*)"
+    r"(?<![A-Za-z0-9_])([A-Z][A-Z0-9_]*)\b(?![ \t]*(?:::|\(|!|\{))"
+)
 _CLAUSE_WINDOW = 600
 # How many constants deep a chain of terms is followed (`_compared`); a longer one fails.
 _TERM_ROUNDS = 16
@@ -2616,8 +2651,14 @@ def comparison_scan(source: str) -> dict:
 
     * `uses`: names of constants that take part in a relational comparison, in the
       arguments or the compared receiver of a capping or comparison call, or in a
-      tested range and the value it tests;
+      tested range and the value it tests. A name that a `use` of the file gives to
+      another constant (`use wire::ROWS as WIRE_ROWS;`) counts as that constant too;
+    * `plain`: those of them that are written at least once bare or behind a module
+      path (`ROWS`, `wire::ROWS`), not only as an associated constant of a type
+      (`Header::SIZE`, `u64::MAX`): the names an import of another crate can stand for;
     * `integers`: the integer constants and immutable integer statics the text defines;
+    * `public`: those of them that at least one definition declares `pub` without a
+      restriction (`pub const`, not `pub(crate) const`): what another crate can name;
     * `items`: every constant and static the text defines, of any type;
     * `functions`: limit-named functions without parameters that return an integer, with
       the span of each body;
@@ -2636,11 +2677,13 @@ def _comparison_scan(source: str) -> dict:
     """`comparison_scan` of one text, read from its production mask."""
     mask = production_mask(source)
     uses: set = set()
+    plain: set = set()
     sites: list = []
     for match in RELATIONAL.finditer(mask):
         left = _clause_start(mask, match.start())
         right = _clause_end(mask, match.end())
         uses.update(_CONSTANT_NAME.findall(mask[left:right]))
+        plain.update(plain_names(mask[left:right]))
         after = _literal_after(mask, match.end())
         before = _literal_before(mask, match.start())
         if (after is None) == (before is None):
@@ -2668,6 +2711,7 @@ def _comparison_scan(source: str) -> dict:
                 continue
             arguments = mask[match.end() : close - 1]
             uses.update(_CONSTANT_NAME.findall(arguments))
+            plain.update(plain_names(arguments))
             receiver = search = wide = match.start()
             if pattern is CAP_CALL:
                 whole = _run_start(mask, match.start())[0]
@@ -2682,6 +2726,7 @@ def _comparison_scan(source: str) -> dict:
                     # call, on one line or on several.
                     search, wide = receiver, _receiver_start(mask, match.start())
                     uses.update(_CONSTANT_NAME.findall(mask[wide : match.start()]))
+                    plain.update(plain_names(mask[wide : match.start()]))
                 else:
                     search = match.end()
             regions.append((receiver, close, search, wide))
@@ -2713,6 +2758,7 @@ def _comparison_scan(source: str) -> dict:
             continue
         # The range and the value it tests: `(MIN..=MAX).contains(&WIDTH)`.
         uses.update(_CONSTANT_NAME.findall(mask[opening:close]))
+        plain.update(plain_names(mask[opening:close]))
         regions.append((opening, close, opening, opening))
         upper = inside[dots + 2 :].lstrip("=")
         value = literal_value(upper)
@@ -2742,6 +2788,14 @@ def _comparison_scan(source: str) -> dict:
         )
         if literals:
             compared.append((start, end, wide, literals))
+    # A constant compared under the name a `use` gives it is compared itself.
+    aliases: dict = {}
+    for statement in _USE_STATEMENT.finditer(mask):
+        for original, alias in _USE_ALIAS.findall(statement.group(0)):
+            aliases.setdefault(alias, set()).add(original)
+    for alias in sorted(aliases.keys() & uses):
+        uses.update(aliases[alias])
+        plain.update(aliases[alias])
     functions: dict = {}
     for match in LIMIT_FN_DEFINITION.finditer(mask):
         if LIMIT_FN_NAME.search(match.group(1)):
@@ -2751,7 +2805,13 @@ def _comparison_scan(source: str) -> dict:
             )
     return {
         "uses": frozenset(uses),
+        "plain": frozenset(plain),
         "integers": tuple(dict.fromkeys(match.group(1) for match in INTEGER_ITEM.finditer(mask))),
+        "public": frozenset(
+            match.group(1)
+            for match in INTEGER_ITEM.finditer(mask)
+            if _PUBLIC_ITEM.search(match.group(0))
+        ),
         "items": frozenset(match.group(1) for match in _ITEM_DEFINITION.finditer(mask)),
         "functions": functions,
         "sites": tuple(sorted(set(sites))),
@@ -2868,6 +2928,217 @@ def referenced_constants(expression: str) -> set:
     return names
 
 
+def plain_names(text: str) -> set:
+    """Names of the constants a text writes bare or behind a module path.
+
+    `ROWS`, `wire::ROWS` and `crate::wire::ROWS` count. A name behind a type
+    (`Header::SIZE`, `u64::MAX`, `Self::ROWS`, `<T as Shape>::ROWS`) is an associated
+    constant, which no `use` of another crate's constant can stand for, and is left out.
+    """
+    names = set()
+    for match in _QUALIFIED_NAME.finditer(text):
+        qualifier = "".join(match.group(1).split())
+        last = qualifier[:-2].rsplit("::", 1)[-1] if qualifier else ""
+        if last and (last == ">" or last[:1].isupper() or _PRIMITIVE_TYPE.fullmatch(last)):
+            continue
+        names.add(match.group(2))
+    return names
+
+
+_DEPENDENCY_TABLE = re.compile(
+    r"\[(?:target\.[^\n]+\.)?dependencies(?:\.([A-Za-z0-9_-]+))?\]\s*(?:#.*)?"
+)
+_DEPENDENCY_KEY = re.compile(r"([A-Za-z0-9_-]+)\s*(?:=|\.)")
+_PACKAGE_RENAME = re.compile(r"\bpackage\s*=\s*\"([^\"]+)\"")
+
+
+def manifest_dependencies(manifest: str, table: str = "dependencies") -> dict:
+    """Key -> package name of every entry of the `[dependencies]` tables of a manifest.
+
+    Reads `[dependencies]`, `[target.<cfg>.dependencies]` and `[dependencies.<name>]`,
+    an entry written on one line or as an inline table broken across several, and
+    `package = ".."` of a renamed entry. Development and build dependencies are not
+    read: no production source can name them. `table` selects another table of the
+    same shape (`workspace.dependencies`).
+    """
+    pattern = _DEPENDENCY_TABLE
+    if table != "dependencies":
+        pattern = re.compile(rf"\[{re.escape(table)}(?:\.([A-Za-z0-9_-]+))?\]\s*(?:#.*)?")
+    found: dict = {}
+    inside = False
+    single = None
+    entry = ""
+    for line in manifest.splitlines():
+        stripped = line.strip()
+        if not entry and stripped.startswith("["):
+            header = pattern.fullmatch(stripped)
+            inside = header is not None
+            single = header.group(1) if header else None
+            if single:
+                found[single] = single
+            continue
+        if not inside or not stripped or stripped.startswith("#"):
+            continue
+        if single:
+            renamed = _PACKAGE_RENAME.match(stripped)
+            if renamed:
+                found[single] = renamed.group(1)
+            continue
+        entry += " " + stripped
+        if entry.count("{") > entry.count("}") or entry.count("[") > entry.count("]"):
+            continue
+        key = _DEPENDENCY_KEY.match(entry.strip())
+        if key:
+            renamed = _PACKAGE_RENAME.search(entry)
+            found[key.group(1)] = renamed.group(1) if renamed else key.group(1)
+        entry = ""
+    return found
+
+
+_PUBLIC_ITEM = re.compile(r"\bpub[ \t]+(?:const|static)\b")
+_FILE_INTEGERS: dict = {}
+_WORKSPACES: dict = {}
+
+
+def _raw_integer_names(text: str) -> frozenset:
+    """Names of the integer items a text may define, read without masking: a superset."""
+    return frozenset(match.group(1) for match in INTEGER_ITEM.finditer(text))
+
+
+class _Workspace:
+    """The crates of the workspace: where each lies, what it depends on and what it defines.
+
+    Read once per scan (`_SCAN_EPOCH`). A text that stands in for a file
+    (`_OVERRIDES`) is read in its place each time a name is looked up.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self.root = root
+        self.aliases: dict = {}
+        patterns: list = []
+        manifest = root / "Cargo.toml"
+        if manifest.is_file():
+            text = manifest.read_text(encoding="utf-8")
+            workspace = re.search(
+                r"^\[workspace\]\s*$(.*?)(?=^\[)", text + "\n[", re.MULTILINE | re.DOTALL
+            )
+            listed = workspace and re.search(
+                r"^members\s*=\s*\[(.*?)\]", workspace.group(1), re.MULTILINE | re.DOTALL
+            )
+            if listed:
+                patterns = re.findall(r"\"([^\"]+)\"", listed.group(1))
+            self.aliases = manifest_dependencies(text, "workspace.dependencies")
+        # Without a workspace manifest every crate below `crates/` is a member.
+        self.members: dict = {}
+        for pattern in patterns or ["crates/*"]:
+            for directory in sorted(root.glob(pattern)):
+                if (directory / "Cargo.toml").is_file():
+                    self.members[directory.relative_to(root).as_posix()] = _package_name(directory)
+        self.by_package = {package: crate for crate, package in self.members.items()}
+        self._direct: dict = {}
+        self._closures: dict = {}
+        self._defined: dict = {}
+
+    def crate_of(self, relative: str) -> str | None:
+        """The member that holds a source: the longest member directory above it."""
+        best = None
+        for crate in self.members:
+            if relative.startswith(crate + "/") and (best is None or len(crate) > len(best)):
+                best = crate
+        return best
+
+    def _dependencies(self, crate: str) -> set:
+        if crate not in self._direct:
+            manifest = (self.root / crate / "Cargo.toml").read_text(encoding="utf-8")
+            direct = set()
+            for key, package in manifest_dependencies(manifest).items():
+                # `key = { workspace = true }` takes the package of the workspace entry.
+                package = self.aliases.get(key, package) if package == key else package
+                member = self.by_package.get(package)
+                if member is not None and member != crate:
+                    direct.add(member)
+            self._direct[crate] = direct
+        return self._direct[crate]
+
+    def closure(self, crate: str) -> tuple:
+        """Every member `crate` depends on, directly or through other members, sorted."""
+        if crate not in self._closures:
+            seen: set = set()
+            pending = [crate]
+            while pending:
+                for member in self._dependencies(pending.pop()):
+                    if member not in seen and member != crate:
+                        seen.add(member)
+                        pending.append(member)
+            self._closures[crate] = tuple(sorted(seen))
+        return self._closures[crate]
+
+    def _sources(self, crate: str) -> dict:
+        """Name -> the sources below `crate/src` whose text may define an integer item of it."""
+        if crate not in self._defined:
+            by_name: dict = {}
+            directory = self.root / crate / "src"
+            nested = [other + "/" for other in self.members if other.startswith(crate + "/")]
+            for file in sorted(directory.rglob("*.rs")) if directory.is_dir() else ():
+                relative = file.relative_to(self.root).as_posix()
+                if any(relative.startswith(other) for other in nested):
+                    continue
+                inner = relative[len(crate) + len("/src/") :]
+                if inner == "main.rs" or inner.startswith("bin/"):
+                    # The root of a binary target: no other crate can name its items.
+                    continue
+                stat = file.stat()
+                key = (str(file), stat.st_mtime_ns, stat.st_size)
+                if key not in _FILE_INTEGERS:
+                    try:
+                        _FILE_INTEGERS[key] = _raw_integer_names(file.read_text(encoding="utf-8"))
+                    except UnicodeDecodeError:
+                        _FILE_INTEGERS[key] = frozenset()
+                for name in _FILE_INTEGERS[key]:
+                    by_name.setdefault(name, []).append(relative)
+            self._defined[crate] = by_name
+        return self._defined[crate]
+
+    def definitions(self, crate: str, name: str, public: bool = False) -> list:
+        """The production sources of `crate` that define the integer constant `name`.
+
+        A source that only test builds compile (by its name or by every declaration
+        that reaches it) defines no production constant, and an item inside an inline
+        test module is none. With `public`, only a definition another crate can name
+        counts: one declared `pub` without a restriction.
+        """
+        candidates = set(self._sources(crate).get(name, ()))
+        for relative, text in _OVERRIDES.items():
+            if relative.startswith(crate + "/src/") and self.crate_of(relative) == crate:
+                if name in _raw_integer_names(text):
+                    candidates.add(relative)
+                else:
+                    candidates.discard(relative)
+        found = []
+        for relative in sorted(candidates):
+            inner = relative[len(crate) + len("/src/") :]
+            if TEST_FILE.search(inner) and not compiled_outside_tests(self.root, relative):
+                continue
+            if compiled_only_in_tests(self.root, relative):
+                continue
+            try:
+                text = _read(self.root, relative, f"completeness {relative}")
+            except ContractError:
+                continue
+            if name in comparison_scan(text)["public" if public else "integers"]:
+                found.append(relative)
+        return found
+
+
+def _workspace(root: Path) -> _Workspace:
+    """The workspace below `root`, read once per scan."""
+    key = str(root)
+    known = _WORKSPACES.get(key)
+    if known is None or known[0] != _SCAN_EPOCH[0]:
+        known = _WORKSPACES[key] = (_SCAN_EPOCH[0], _Workspace(root))
+    return known[1]
+
+
 def _attributed(scans: dict, mentions: dict) -> dict:
     """Path -> the integer constants of that file that `mentions` (path -> names) refer to.
 
@@ -2919,6 +3190,9 @@ def compared_symbols(root: Path, scopes: list) -> dict:
     integer constants that the defining expression of a scanned limit of these scopes
     names (`referenced_constants`), followed until no new one appears. A term is part of
     the value of the limit that names it.
+
+    A source outside these scopes has an entry when the compared code imports a
+    constant of it (`imported_constants`): those constants and their terms.
     """
     return _compared(root, scopes)[0]
 
@@ -2934,13 +3208,49 @@ def limit_terms(root: Path, scopes: list) -> dict:
     return _compared(root, scopes)[1]
 
 
+def imported_constants(root: Path, scopes: list) -> dict:
+    """Path -> the integer constants of a source outside the `comparisons` scopes that
+    the compared code names, in source order, with the terms of each.
+
+    The compared code names such a constant when one of its sources writes the name in
+    a compared position, bare or behind a module path (`plain_names`), or in the
+    defining expression of a scanned limit (`referenced_constants`), and defines no
+    item of that name itself. The name then stands for every integer constant of that
+    name in a production source that the crate of that source can reach: a source of
+    its own crate outside the compared scopes (a skipped directory), or a `pub` item
+    of a workspace crate it depends on, directly or through other workspace crates
+    (`[dependencies]` of the manifests; a re-export passes through its crate). Which
+    of several crates a `use` picks is not read: each of them is scanned, which can
+    only add constants. A term of such a constant is resolved from its own source:
+    the constant of that name in the same file, else in the same crate, else a `pub`
+    one in the crates that crate depends on.
+    """
+    compared = set(literal_scopes(scopes))
+    return {
+        path: names for path, names in _compared(root, scopes)[0].items() if path not in compared
+    }
+
+
+def import_scopes(root: Path, scopes: list) -> list:
+    """`scopes` and one scope more for every source that only an import brings in.
+
+    Such a scope (`imported`) scans the constants of `imported_constants` and nothing
+    by name. A source that already has a scope of its whole file keeps that scope and
+    is scanned there for the imported constants as well.
+    """
+    return list(scopes) + _compared(root, scopes)[2]
+
+
 def _compared(root: Path, scopes: list) -> tuple:
-    """`(compared_symbols, limit_terms)` of the `comparisons` scopes, read in one pass."""
+    """`(compared_symbols, limit_terms, scopes of imported sources)`, read in one pass."""
     scans: dict = {}
     whole: dict = {}
     # Each source is read once for the whole pass.
     sources: dict = {}
+    by_path: dict = {}
     for scope in scopes:
+        if scope.get("kind") == "const" and not scope.get("module") and "path" in scope:
+            by_path.setdefault(scope["path"], scope)
         if scope.get("comparisons") and scope.get("kind") == "const" and not scope.get("module"):
             path = scope["path"]
             if path not in scans:
@@ -2956,8 +3266,78 @@ def _compared(root: Path, scopes: list) -> tuple:
         names = [name for name in used[path] if not LIMIT_NAME.search(name)]
         names.extend(scan["functions"])
         found[path] = names
+    # Imports: constants of the other sources of the workspace that the compared code names.
+    workspace = _workspace(root)
+    foreign: dict = {}
+    imported: dict = {}
+    definitions: dict = {}
+    resolved: dict = {}
+
+    def defined_in(crate: str, name: str, public: bool) -> tuple:
+        key = (crate, name, public)
+        if key not in definitions:
+            definitions[key] = tuple(workspace.definitions(crate, name, public))
+        return definitions[key]
+
+    def admit(path: str, name: str) -> bool:
+        """Scan `name` of the source `path`; False when the source cannot be read."""
+        if path not in foreign:
+            try:
+                sources[path] = _read(root, path, f"completeness {path}")
+            except ContractError:
+                return False
+            foreign[path] = comparison_scan(sources[path])
+            whole[path] = by_path.get(path) or {"path": path, "kind": "const", "imported": True}
+            imported[path] = []
+        if name in imported[path]:
+            return False
+        imported[path].append(name)
+        return True
+
+    def resolve(user: str, name: str) -> tuple:
+        """The sources whose integer constant `name` the imported source `user` names."""
+        key = (user, name)
+        if key not in resolved:
+            crate = workspace.crate_of(user)
+            if name in foreign[user]["items"]:
+                targets = (user,) if name in foreign[user]["integers"] else ()
+            elif crate is None:
+                targets = ()
+            else:
+                targets = defined_in(crate, name, False) or tuple(
+                    path
+                    for member in workspace.closure(crate)
+                    for path in defined_in(member, name, True)
+                )
+            resolved[key] = targets
+        return resolved[key]
+
+    reached: dict = {}
+
+    def reach(user: str, name: str) -> tuple:
+        """The sources outside the compared ones whose constant `name` the compared
+        source `user` can name: its own crate names every item, another crate the
+        public ones."""
+        crate = workspace.crate_of(user)
+        if crate is None or name in scans[user]["items"]:
+            return ()
+        key = (crate, name)
+        if key not in reached:
+            reached[key] = tuple(
+                path
+                for member in (crate, *workspace.closure(crate))
+                for path in defined_in(member, name, member != crate)
+                if path not in scans
+            )
+        return reached[key]
+
+    pending: dict = {}
+    for user, scan in sorted(scans.items()):
+        for name in sorted(scan["plain"]):
+            for path in reach(user, name):
+                if admit(path, name):
+                    pending.setdefault(path, []).append(name)
     # Terms: read the expression of every scanned limit once, and of every term it adds.
-    pending = {}
     for path in scans:
         pending[path] = (
             scope_symbols(sources[path], whole[path], f"completeness {path}") + found[path]
@@ -2966,6 +3346,7 @@ def _compared(root: Path, scopes: list) -> tuple:
     named_by: dict = {}
     terms_of: dict = {}
     for _ in range(_TERM_ROUNDS):
+        outside: list = []
         for path, symbols in pending.items():
             where = f"completeness {path}"
             source = sources[path]
@@ -2973,8 +3354,14 @@ def _compared(root: Path, scopes: list) -> tuple:
                 for name in referenced_constants(
                     scope_expression(source, whole[path], symbol, where)
                 ):
-                    mentions[path].add(name)
                     named_by.setdefault(name, set()).add((path, symbol))
+                    if path in scans:
+                        mentions[path].add(name)
+                        # A limit of the compared sources may be built from a constant
+                        # of another source of the workspace.
+                        outside.extend((target, name) for target in reach(path, name))
+                    else:
+                        outside.extend((target, name) for target in resolve(path, name))
         pending = {}
         for path, names in _attributed(scans, mentions).items():
             known = set(found[path])
@@ -2985,6 +3372,18 @@ def _compared(root: Path, scopes: list) -> tuple:
                 found[path].extend(terms)
                 terms_of.setdefault(path, {}).update(dict.fromkeys(terms))
                 pending[path] = terms
+        # A term in another source: of a limit of the compared sources, or of an
+        # imported constant (a constant of its own source, of its crate or of a crate
+        # that crate depends on).
+        for path, name in outside:
+            if path in scans:
+                if name in found[path] or LIMIT_NAME.search(name):
+                    continue
+                found[path].append(name)
+            elif not admit(path, name):
+                continue
+            terms_of.setdefault(path, {})[name] = None
+            pending.setdefault(path, []).append(name)
         if not pending:
             break
     else:
@@ -2995,22 +3394,45 @@ def _compared(root: Path, scopes: list) -> tuple:
     defined: dict = {}
     for path, scan in scans.items():
         defined.setdefault(_crate_prefix(path), set()).update(scan["integers"])
+
+    def refers(user: str, name: str, target: str) -> bool:
+        if user in scans:
+            if target in scans:
+                return _refers_to(scans, defined, user, name, target)
+            return target in reach(user, name)
+        return target in resolve(user, name)
+
     for path, terms in terms_of.items():
         for term in terms:
             terms[term] = sorted(
                 f"{user}: {symbol}"
                 for user, symbol in named_by.get(term, ())
-                if (user, symbol) != (path, term) and _refers_to(scans, defined, user, term, path)
+                if (user, symbol) != (path, term) and refers(user, term, path)
             )
-    return found, terms_of
+    for path, names in imported.items():
+        order = {name: index for index, name in enumerate(foreign[path]["integers"])}
+        found[path] = sorted(names, key=lambda name: order.get(name, len(order)))
+    added = [
+        whole[path]
+        for path in sorted(imported)
+        if whole[path].get("imported") and path not in by_path
+    ]
+    return found, terms_of, added
 
 
 def scanned_symbols(source: str, scope: dict, where: str, compared: dict | None = None) -> list:
-    """Every limit of one scope: those its name marks, then those the code compares."""
+    """Every limit of one scope: those its name marks, then those the code compares.
+
+    A scope of a whole file outside the `comparisons` scopes also scans the constants
+    the compared code imports from it; an `imported` scope scans nothing else.
+    """
+    if scope.get("imported"):
+        return list((compared or {}).get(scope.get("path"), ()))
     symbols = scope_symbols(source, scope, where)
-    for name in (compared or {}).get(scope.get("path"), ()) if scope.get("comparisons") else ():
-        if name not in symbols:
-            symbols.append(name)
+    if scope.get("comparisons") or (scope.get("kind") == "const" and not scope.get("module")):
+        for name in (compared or {}).get(scope.get("path"), ()):
+            if name not in symbols:
+                symbols.append(name)
     return symbols
 
 
@@ -3390,10 +3812,13 @@ def check_completeness(
     if scopes is None:
         scopes = expand_scopes(root, section, problems)
     try:
-        compared, terms = _compared(root, scopes)
+        compared, terms, imports = _compared(root, scopes)
     except ContractError as error:
         problems.append(str(error))
         return
+    # A source that only an import of the compared code brings in is scanned for the
+    # imported constants (`import_scopes`).
+    scopes = list(scopes) + imports
     excluded_in_modules = {(path, symbol) for (path, module), symbol in excluded if module}
     seen = set()
     for scope in scopes:
@@ -3406,7 +3831,7 @@ def check_completeness(
                 raise ContractError(f"{where}: the scope is listed twice")
             seen.add((_scope_key(scope), scope["kind"]))
             source = _read(root, scope["path"], where)
-            named = scope_symbols(source, scope, where)
+            named = [] if scope.get("imported") else scope_symbols(source, scope, where)
             symbols = scanned_symbols(source, scope, where, compared)
             for symbol in symbols:
                 key = (_scope_key(scope), symbol)
@@ -3544,7 +3969,16 @@ def check_completeness(
         owner = bound.get("owner", {})
         if owner.get("kind") != "const":
             continue
-        if not any(scope.get("kind") == "const" and inside(scope, owner) for scope in scopes):
+        if not any(
+            scope.get("kind") == "const"
+            and inside(scope, owner)
+            # An imported scope scans the imported constants only.
+            and (
+                not scope.get("imported")
+                or owner.get("symbol") in compared.get(scope["path"], ())
+            )
+            for scope in scopes
+        ):
             problems.append(
                 f"{bound.get('id')}: its owner in {owner.get('path')} is outside every "
                 "completeness scope"
@@ -4182,8 +4616,37 @@ def check_declared(contract: dict, tasks: dict, problems: list) -> None:
             problems.append(str(error))
 
 
+def candidate_values(root: Path, source: str, identifier: str, where: str) -> dict:
+    """Profile -> what each candidate of a summary file projects for one input.
+
+    The file is the summary of the task that owns the input: a JSON object whose
+    `resource_contract_inputs` maps a candidate profile to its inputs, each with a
+    `value`.
+    """
+    try:
+        summary = json.loads(_read(root, source, where))
+    except json.JSONDecodeError as error:
+        raise ContractError(f"{where}: {source} is not JSON ({error})") from error
+    inputs = summary.get("resource_contract_inputs") if isinstance(summary, dict) else None
+    if not isinstance(inputs, dict) or not inputs:
+        raise ContractError(f"{where}: {source} records no `resource_contract_inputs`")
+    found = {}
+    for profile, entries in sorted(inputs.items()):
+        entry = entries.get(identifier) if isinstance(entries, dict) else None
+        if isinstance(entry, dict) and type(entry.get("value")) is int:
+            found[profile] = entry["value"]
+    if not found:
+        raise ContractError(f"{where}: no candidate of {source} projects this input")
+    return found
+
+
 def check_budgets(
-    contract: dict, values: dict, tasks: dict, problems: list, refresh: bool = False
+    contract: dict,
+    values: dict,
+    tasks: dict,
+    problems: list,
+    refresh: bool = False,
+    root: Path = ROOT,
 ) -> None:
     section = contract.get("ram_lfe")
     if not isinstance(section, dict) or not section.get("budgets"):
@@ -4198,6 +4661,22 @@ def check_budgets(
             problems.append(f"{where}: a known input is a bound, not an open input")
         _check_open_owner(item, tasks, where, problems)
         open_inputs[item.get("id")] = item
+        # What the unselected candidates of the owning task project. It is recorded
+        # beside the open input and is not its value: no number is invented.
+        candidates = item.get("candidates")
+        if candidates is not None:
+            try:
+                _require(candidates, ("source", "values"), f"{where}: candidates")
+                projected = candidate_values(root, candidates["source"], item.get("id"), where)
+                if refresh:
+                    candidates["values"] = projected
+                if candidates["values"] != projected:
+                    raise ContractError(
+                        f"{where}: the candidate values differ from `resource_contract_inputs` "
+                        f"of {candidates['source']}; run --refresh"
+                    )
+            except ContractError as error:
+                problems.append(str(error))
     for budget in section["budgets"]:
         where = f"ram_lfe budget {budget.get('id', '<without id>')}"
         try:
@@ -4482,7 +4961,7 @@ def check(
     check_zk_policy_committed_as(root, contract, problems)
     check_pipeline_policy_committed_as(root, contract, problems)
     check_derived(root, contract, values, problems, refresh, notes)
-    check_budgets(contract, values, tasks, problems, refresh)
+    check_budgets(contract, values, tasks, problems, refresh, root)
     check_relations(contract, values, tasks, problems)
     check_declared(contract, tasks, problems)
     check_stage_tests(root, contract, tasks, problems, refresh, notes)
@@ -4524,7 +5003,7 @@ def mutation_sweep(root: Path, contract: dict, prefixes: tuple = ()) -> tuple:
     changed = 0
     survivors: list = []
     constant_only: list = []
-    scopes = expand_scopes(root, section, [])
+    scopes = import_scopes(root, expand_scopes(root, section, []))
     compared = compared_symbols(root, scopes)
     minimum = (section.get("literals") or {}).get("minimum")
     for path in literal_scopes(scopes) if type(minimum) is int else ():
@@ -4815,9 +5294,13 @@ def propose(
         scope, symbol = entry
         lines.append(f"# unlisted limit `{symbol}` in {scope['path']}: list it or exclude it")
         part_of = None if scope.get("module") else terms.get(scope["path"], {}).get(symbol)
-        if part_of is not None and symbol not in scope_symbols(
-            _read(root, scope["path"], "propose"), scope, "propose"
-        ):
+        # An imported scope scans nothing by name: a term of it is always only a term.
+        named = (
+            []
+            if scope.get("imported")
+            else scope_symbols(_read(root, scope["path"], "propose"), scope, "propose")
+        )
+        if part_of is not None and symbol not in named:
             lines.append(
                 f"#   it is a term of {', '.join(part_of)}: an exclusion records that list as "
                 "`term_of` (--refresh writes it)"
@@ -4971,6 +5454,7 @@ def main(argv: list | None = None) -> int:
         print(f"{len(problems)} problem(s) in {CONTRACT.relative_to(ROOT)}", file=sys.stderr)
         return 1
     scopes = expand_scopes(ROOT, contract["completeness"], [])
+    imported = imported_constants(ROOT, scopes)
     print(
         f"{CONTRACT.relative_to(ROOT)}: {len(contract['bounds'])} bounds, "
         f"{len(contract.get('derived', []))} derived, "
@@ -4982,6 +5466,12 @@ def main(argv: list | None = None) -> int:
             f"; {recorded} recorded literal comparisons in {len(literal_scopes(scopes))} "
             "compared sources"
             if (recorded := _recorded_literals(contract))
+            else ""
+        )
+        + (
+            f"; {sum(len(names) for names in imported.values())} constants of "
+            f"{len(imported)} other sources that the compared code imports"
+            if imported
             else ""
         )
     )

@@ -42,8 +42,8 @@ selected through platform discovery or a process-global client:
 - **`sdk.address`** — account/asset address encoding (IH58, Bech32M)
 - **`sdk.tx`** — transaction building, signing, offline envelopes, norito adapters
 - **`sdk.client`** — Torii HTTP/WS/SSE client, JSON, transport, queue
-- **`sdk.offline`** — aggregate-balance KAGEMUSHA V1 models, canonical
-  `kgm1:` peer transports, and hardware lifecycle binding contracts
+- **`sdk.offline`** — KAGEMUSHA wallet V1 wire (`KagemushaWalletWireV1`,
+  `KagemushaP256Codec`) and the `IrohaPeer` QR/NFC/Nearby carriers
 - **`sdk.connect`** — connect protocol (BouncyCastle)
 - **`sdk.telemetry`** — telemetry sink, options, providers
 - **`sdk.multisig`**, **`sdk.subscriptions`**, **`sdk.sorafs`**, **`sdk.nexus`** — feature packages
@@ -55,9 +55,11 @@ Android-specific additions:
 - **`sdk.IrohaKeyManager`** — key provider orchestrator
 
 ### Module: `kagemusha-wallet-android` (AAR)
-KAGEMUSHA wallet orchestration and Android/JNI device lifecycle integration live here.
-Keep pure wire and cryptographic contracts in `core-jvm` and general Android client integration
-in `client-android`. Device qualification remains separate from JVM/native unit tests.
+The KAGEMUSHA wallet Android platform handle (`KagemushaWalletAndroid*V1`): the payment-key
+AndroidKeyStore adapter, the opaque platform handle whose private upcalls the Rust wallet adapter
+binds, and the custody backup/data-extraction rules. It has no JNI library or device lifecycle of
+its own. Keep pure wire and cryptographic contracts in `core-jvm` and general Android client
+integration in `client-android`.
 
 ### Module: `tools` (JVM application)
 
@@ -123,9 +125,9 @@ All mutable collections and byte arrays are copied on construction and access. U
   `native/cargo-target/armv7-diagnostic/` lane and writes raw ELF32 bytes plus
   `native/armv7-diagnostic/diagnostic-manifest.json` under that root's SDK module
   build directory. The report records ARM machine 40, actual native exports and
-  LOAD alignment; it grants neither release admission nor KAGEMUSHA device
-  qualification. The task supplies no generated JNI or AAR outputs and leaves
-  the admitted `arm64-v8a`/`x86_64` inventory unchanged. Configure the pinned
+  LOAD alignment; it grants no release admission. The task supplies no
+  generated JNI or AAR outputs and leaves the admitted `arm64-v8a`/`x86_64`
+  inventory unchanged. Configure the pinned
   toolchain and install its ARMv7 standard library before compiling. Run
   `:client-android:verifyArmv7DiagnosticContract` to check routing without a
   native build.
@@ -134,14 +136,15 @@ All mutable collections and byte arrays are copied on construction and access. U
 
 JUnit 5 with `@ParameterizedTest` / `@MethodSource` for data-driven tests. Test companion objects provide argument lists via `@JvmStatic` methods.
 
-The wallet's separate `:kagemusha-wallet-android:testDebugHostNative` task requires
-an explicitly rebuilt host bridge in one canonical `IROHA_NATIVE_LIBRARY_PATH`
-directory. Its sole ordered `host-native` case uses the main wallet JNI owner,
-checks ABI 25/signer contract 7 and actual startup phase 1/selection revocation
-phase 5 refusal when no genuine Native root is registered, then verifies the
-managed Core-open fence. Phase 6 does not execute after phase 1 refuses. Keep
-client test JNI doubles out of this classpath, retain missing-symbol failures,
-and never treat this host test as root/account, release or physical-device admission.
+The separate `:client-android:testDebugHostNative` task requires an explicitly
+rebuilt host bridge in one absolute `IROHA_NATIVE_LIBRARY_PATH` directory.
+It runs the tagged Java software-key-manager and explicit-chain-context cases,
+plus the shared SoraFS reference-validator cases. Missing native artifacts or
+capabilities fail; host JNI execution is separate from Android/device qualification.
+
+The current wallet module declares managed platform, payment-key and backup-rule
+unit tests. Its Rust `KagemushaWalletPlatformV1` JNI adapter and provider-open call
+remain TODO; there is no wallet host-JNI test task or native execution claim.
 
 ## Version Catalog
 

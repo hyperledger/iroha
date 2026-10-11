@@ -289,7 +289,6 @@ impl<'state> StateBlock<'state> {
             commit_topology: committed_topology,
             prev_commit_topology: prev_committed_topology,
             lane_incarnation_activation_heights,
-            kagemusha_v1_runtime_verifier,
             zk: _,
             nexus,
             pending_da_commitments,
@@ -478,35 +477,6 @@ impl<'state> StateBlock<'state> {
                 TransactionsBlockError::ExecutionDeferred(reason)
             }
         })?;
-        // Retained canonical registries and local artifact caches are checked independently.
-        // The retired proposal surface provides no consensus registry write authority;
-        // publication therefore requires the exact original registry to remain unchanged.
-        let verifier: &dyn std::any::Any = kagemusha_v1_runtime_verifier.as_ref();
-        let runtime_check = world
-            .kagemusha_verifier_registry
-            .get()
-            .validate()
-            .map_err(str::to_owned)
-            .and_then(|()| {
-                crate::smartcontracts::isi::kagemusha::validate_runtime_cache_for_publication(
-                    verifier,
-                    state_ref.network_id,
-                )
-            });
-        if let Err(error) = runtime_check {
-            error!(block_height, %error, "KAGEMUSHA governed registry or local artifact cache is invalid");
-            return Err(TransactionsBlockError::KagemushaVerifierAuthority);
-        }
-        let predecessor = state_ref.world.kagemusha_verifier_registry.view();
-        let successor = world.kagemusha_verifier_registry.get();
-        if successor != predecessor.get() {
-            error!(
-                block_height,
-                "KAGEMUSHA registry mutation has no current governance instruction owner"
-            );
-            return Err(TransactionsBlockError::KagemushaGovernanceUnavailable);
-        }
-        drop(predecessor);
         if tiered_snapshot.is_none() {
             *tiered_snapshot = Some(tiered_publication::PreparedTieredSnapshot::prepare(
                 world,

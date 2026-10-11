@@ -717,6 +717,10 @@
         {
           "path": "crates/iroha_data_model/src/query/mod.rs",
           "contains": "impl iroha_version::Version for SignedQuery"
+        },
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed.rs",
+          "contains": "The payload has one decoder."
         }
       ],
       "regenerate": [
@@ -744,6 +748,13 @@
           "artifact": "fixtures/prepared_transactions/prepared_transaction_signature_v1.json",
           "generator": "crates/iroha_torii/src/routing.rs",
           "mention": "print_prepared_transaction_signature_fixture"
+        },
+        {
+          "artifact": "fixtures/zk/signed_attachments_v1/vectors.json",
+          "generator": "crates/iroha_data_model/src/transaction/signed/ordered_intent_tests.rs",
+          "mention": "capture_signed_attachment_vectors",
+          "checked_by": "crates/iroha_data_model/src/transaction/signed/ordered_intent_tests.rs",
+          "check_mention": "tracked_signed_attachment_vectors_are_the_current_generator_output"
         },
         {
           "artifact": "norito.md",
@@ -1028,9 +1039,53 @@
         {
           "path": "crates/iroha_data_model/src/fastpq/public_artifact.rs",
           "contains": "pub enum FastpqProofKindV1"
+        },
+        {
+          "path": "crates/fastpq_prover/src/backend/transcript_profile.rs",
+          "contains": "pub(super) fn profile() -> &'static SemanticProfileV1 {"
+        },
+        {
+          "path": "crates/fastpq_prover/src/backend/compact_sha3.rs",
+          "contains": "profile: super::transcript_profile::profile().as_bytes().to_vec(),"
         }
       ],
       "regenerate": [
+        {
+          "artifact": "fixtures/fastpq/q77-transcript-profile.json",
+          "generator": "scripts/zk_semantic_profile_reference.py",
+          "mention": "--write-fixture",
+          "checked_by": "crates/fastpq_prover/src/backend/deep_binding/frozen_tests.rs",
+          "check_mention": "frozen_transcript_matches_the_independent_known_answers"
+        },
+        {
+          "artifact": "fixtures/fastpq/q77-frozen-transcript-proof.json",
+          "generator": "crates/fastpq_prover/src/backend/deep_fixture/frozen_tests.rs",
+          "mention": "q77-frozen-transcript-proof.json"
+        },
+        {
+          "artifact": "fixtures/fastpq/q77-quantity-profile.json",
+          "generator": "crates/fastpq_prover/src/backend/compact_quantity_artifact_tests.rs",
+          "mention": "q77-quantity-profile.json"
+        },
+        {
+          "artifact": "fixtures/fastpq/q77-quantity-ordinary-single.json",
+          "generator": "crates/fastpq_prover/src/backend/compact_quantity_diagnostic.rs",
+          "mention": "fixtures/fastpq/q77-quantity-"
+        },
+        {
+          "artifact": "fixtures/fastpq/q77-quantity-axt-single.json",
+          "generator": "crates/fastpq_prover/src/backend/compact_quantity_diagnostic.rs",
+          "mention": "fixtures/fastpq/q77-quantity-"
+        },
+        {
+          "artifact": "specs/zk_primitive_workloads.json",
+          "checked_by": "scripts/check_zk_primitive_workloads.py",
+          "mention": "semantic_profiles"
+        },
+        {
+          "artifact": "specs/fastpq_deep_protocol_contract.md",
+          "document": true
+        },
         {
           "artifact": "fixtures/privacy/exact12_typed_fixture_bundle_v1.norito.b64",
           "generator": "crates/iroha_data_model/src/bin/privacy_exact12_fixtures.rs",
@@ -1047,6 +1102,26 @@
           "mention": "stark_frame_identity_observations.v1.json"
         }
       ]
+    }
+  ],
+  "declared_proof_cutovers": [
+    {
+      "surface": "proof",
+      "cutover": "fresh_genesis_when_stored",
+      "task": "H.2",
+      "change": "The FASTPQ q77 transcript now absorbs the name of the frozen construction (`fips202-atomic-whole-tape-transcript-v1`) and the complete typed profile descriptor (`fastpq.transcript.q77.v1`) in place of the legacy parameter-set name and a hand-written identity string, and the artifact descriptor embeds the same descriptor bytes. Every commitment, challenge and proof byte of the engine changed, and so did both `FastpqCompactProfileIdV1` values.",
+      "semantic_profile_identity": "b1b3be0bc1b548e32fa6f949500c0de43c8f7412a5586623c4d3f1ca705f945b",
+      "artifact_profile_ids": {
+        "quantity_axt": "4f0ece59b3f42d1c318f597b0df2f5af8b8db41bc95dfbb11974ddb285f20b0b",
+        "execution_effect": "e4b83c36dca6915f908d6509ef43511ae6da1b8254cb2724b2b6fe00918779b8"
+      },
+      "replacement": "Direct: no verifier branch, alias or decoder for the previous transcript or profile ids exists. A proof or artifact built before the change is refused: the artifact profile id differs before the child is decoded, and a child proof fails its first challenge.",
+      "fresh_genesis": false,
+      "fresh_genesis_reason": "The pinned history holds no FASTPQ proof and no State derived from one. A history that stored an ordinary-transfer or AXT artifact under the previous profile needs a fresh genesis with this cutover; no claim is made that such a history replays.",
+      "golden": {
+        "path": "crates/fastpq_prover/src/backend/transcript_profile/tests.rs",
+        "test": "frozen_identity_frame_and_artifact_profile_ids_are_pinned"
+      }
     }
   ],
   "declared_abi_cutover": {

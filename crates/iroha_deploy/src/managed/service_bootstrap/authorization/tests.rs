@@ -262,3 +262,80 @@ fn actual_epoch_history_has_a_finite_limit_and_never_rewrites_older_epochs() {
         first_bytes
     );
 }
+
+#[test]
+fn bootstrap_original_policy_and_expiry_do_not_reparse_the_live_authority() {
+    let _resources = crate::managed::native_test_guard();
+    let (_temporary, prepared) = fixture();
+    let deadline = Instant::now() + Duration::from_secs(300);
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let (mut owner, parses) =
+        crate::localnet::service_authorities::count_profile_validations(|| {
+            ManagedServiceBootstrap::open(&prepared).unwrap()
+        });
+    assert_eq!(parses, 1);
+    let mut peers = UnavailablePeers::start(&prepared);
+    // The distinct child open-existing owner still performs its own canonical capture.
+    // Only repeated reads through this live parent reuse its original parsed profile.
+    let (first, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
+        owner
+            .authorize_generated_startup(deadline, Arc::clone(&cancelled))
+            .unwrap()
+            .unwrap()
+    });
+    assert_eq!(parses, 1);
+    let (second, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
+        owner
+            .authorize_generated_startup(deadline, Arc::clone(&cancelled))
+            .unwrap()
+            .unwrap()
+    });
+    assert_eq!(parses, 1);
+    let (_, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
+        first.original.validate(&owner.authority).unwrap();
+        first.original.policies.validate(&owner.authority).unwrap();
+        assert!(profile_expiry(&owner.authority, &first.original).unwrap() > now_ms().unwrap());
+        let exact = encode(&first.original, super::super::MAX_ORIGINAL_BYTES).unwrap();
+        assert_eq!(second.lease.epoch.ordinal, first.lease.epoch.ordinal + 1);
+        assert_eq!(
+            encode(&second.original, super::super::MAX_ORIGINAL_BYTES).unwrap(),
+            exact
+        );
+        assert!(first.check(deadline).is_err());
+        second.check(deadline).unwrap();
+
+        // All three consumers reject byte drift and cannot mint another epoch from retained plans.
+        let generation =
+            PrivateDirectory::open_exact(prepared.context.client_config.parent().unwrap()).unwrap();
+        let original = generation.read("peer3.toml", 1024 * 1024).unwrap();
+        let mut changed = original.clone();
+        changed.extend_from_slice(b"\n# same parsed policy, different original image\n");
+        let epochs = second.lease.directory.open_child("epochs").unwrap();
+        let inventory = epochs.entries(128).unwrap();
+        generation
+            .write_atomic("peer3.toml", &changed, iroha_fs::PublishMode::Replace)
+            .unwrap();
+        assert!(second.original.validate(&owner.authority).is_err());
+        assert!(second.original.policies.validate(&owner.authority).is_err());
+        assert!(profile_expiry(&owner.authority, &second.original).is_err());
+        assert!(
+            owner
+                .authorize_generated_startup(deadline, Arc::clone(&cancelled))
+                .is_err()
+        );
+        assert_eq!(epochs.entries(128).unwrap(), inventory);
+        generation
+            .write_atomic("peer3.toml", &original, iroha_fs::PublishMode::Replace)
+            .unwrap();
+        second.original.validate(&owner.authority).unwrap();
+        second.original.policies.validate(&owner.authority).unwrap();
+        assert!(profile_expiry(&owner.authority, &second.original).unwrap() > now_ms().unwrap());
+        assert_eq!(
+            encode(&second.original, super::super::MAX_ORIGINAL_BYTES).unwrap(),
+            exact
+        );
+    });
+    assert_eq!(parses, 0);
+    assert!(peers.requests.lock().unwrap().is_empty());
+    peers.finish();
+}

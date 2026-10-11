@@ -50,7 +50,6 @@ const MERGED_VALUE_TABLES: &[(&[&str], bool)] = &[
     (&["soracloud_runtime", "egress"], false),
     (&["torii", "faucet"], true),
     (&["torii", "account_onboarding"], true),
-    (&["torii", "kagemusha_v1_commands"], true),
 ];
 
 /// One secret file completed from `data_dir`.
@@ -95,16 +94,6 @@ const SECRET_FILES: &[SecretFile] = &[
         key: &["torii", "account_onboarding", "private_key_file"],
         name: layout::ONBOARDING_AUTHORITY_KEY,
         alternatives: &[],
-        needs_parent: true,
-    },
-    SecretFile {
-        key: &[
-            "torii",
-            "kagemusha_v1_commands",
-            "redemption_private_key_file",
-        ],
-        name: layout::KAGEMUSHA_REDEMPTION_AUTHORITY_KEY,
-        alternatives: &[&["torii", "kagemusha_v1_commands", "redemption_private_key"]],
         needs_parent: true,
     },
 ];

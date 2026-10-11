@@ -218,16 +218,11 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
         checker = (ROOT / "scripts/check_mobile_sdk_artifacts.sh").read_text(
             encoding="utf-8"
         )
-        checker_inventory = checker.split("RETIRED_KAGEMUSHA_C_SYMBOLS=(\n", 1)[1].split(
-            "\n)", 1
-        )[0]
-        self.assertEqual(
-            checker_inventory.split(),
-            [
-                symbol for symbol in validator.EXPECTED_FORBIDDEN_SYMBOLS
-                if symbol.startswith("connect_norito_kagemusha_")
-            ],
-        )
+        # The packaging checker refuses retired KAGEMUSHA exports by namespace; the
+        # exact forbidden inventory is owned by the validator and the builder above.
+        self.assertNotIn("RETIRED_KAGEMUSHA_C_SYMBOLS", checker)
+        self.assertEqual(re.findall(r"connect_norito_kagemusha_[A-Za-z0-9_]+", checker), [])
+        self.assertEqual(checker.count("grep -Eq '^_?connect_norito_kagemusha_'"), 1)
 
     def test_current_mobile_protocol_inventory_matches_required_bridge_exports(self) -> None:
         checker = (ROOT / "scripts/check_mobile_sdk_artifacts.sh").read_text(
@@ -267,8 +262,8 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
         checker = (ROOT / "scripts/check_mobile_sdk_artifacts.sh").read_text(
             encoding="utf-8"
         )
-        inventories = "RETIRED_KAGEMUSHA_C_SYMBOLS=(\n" + checker.split(
-            "RETIRED_KAGEMUSHA_C_SYMBOLS=(\n", 1
+        inventories = "REQUIRED_PROTOCOL_C_SYMBOLS=(\n" + checker.split(
+            "REQUIRED_PROTOCOL_C_SYMBOLS=(\n", 1
         )[1].split("check_source_contract() {", 1)[0]
         guard = "check_binary_symbols() {" + checker.split(
             "check_binary_symbols() {", 1
@@ -334,14 +329,19 @@ class StrictNoritoBridgeValidatorTests(unittest.TestCase):
                     result = self.check_mobile_binary_symbols([*current, exported], mode)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn("retired KAGEMUSHA", result.stderr)
-        retired_jni = []
-        for inventory in (
-            "RETIRED_RESERVE_FINALITY_JNI_SYMBOLS",
-            "RETIRED_ANDROID_COORDINATOR_AND_DIAGNOSTIC_JNI_SYMBOLS",
-        ):
-            entries = checker.split(inventory + "=(\n", 1)[1].split("\n)", 1)[0]
-            retired_jni.extend(entries.split())
-        self.assertTrue(retired_jni)
+        # Former exports of each retired class family; the checker matches namespaces.
+        retired_jni = [
+            "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaReserveFinalityJniV1_nativeVerify",
+            "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaTopUpSubmissionJniV1_nativeValidate",
+            "Java_org_hyperledger_iroha_sdk_offline_KagemushaDeviceLifecycleBridgeV1_00024NativeEndpoint_nativeExecuteV1",
+            "Java_org_hyperledger_iroha_sdk_offline_KagemushaCoreCoordinatorJniV1_nativeInvokeV1",
+            "Java_org_hyperledger_iroha_sdk_offline_KagemushaOrdinaryRuntimeJniV1_nativeStartupV1",
+            "Java_org_hyperledger_iroha_sdk_offline_probe_KagemushaTestnetValueCreditJniV1_nativeCreditV1",
+            "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaTestnetNativeStartupJniV1_nativeActivateV1",
+            "Java_org_hyperledger_iroha_sdk_offline_probe_Pixel6TestnetDiagnosticSelectionJniV1_nativeCreateV1",
+        ]
+        for symbol in retired_jni:
+            self.assertNotIn(symbol, checker)
         unlisted = retired_jni[0].rsplit("_native", 1)[0] + "_nativeUnlistedV1"
         for symbol in (
             *retired_jni,

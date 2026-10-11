@@ -440,9 +440,10 @@ impl PrivacyProtocolIdV1 {
 }
 #[cfg(any(test, feature = "privacy-exact12-conformance"))]
 pub use exact12_fixture::{
-    PRIVACY_EXACT12_FIXTURE_BUNDLE_MAX_BYTES_V1, PrivacyExact12FixtureBundleV1,
-    PrivacyExact12FixtureBundleValidationStatusV1, PrivacyExact12FixtureErrorV1,
-    PrivacyExact12TypedEnvelopeRowV1, PrivacyExact12TypedFixtureRowV1,
+    PRIVACY_EXACT12_FIXTURE_BUNDLE_MAX_BYTES_V1, PrivacyActionRoleSampleV1,
+    PrivacyExact12FixtureBundleV1, PrivacyExact12FixtureBundleValidationStatusV1,
+    PrivacyExact12FixtureErrorV1, PrivacyExact12TypedEnvelopeRowV1,
+    PrivacyExact12TypedFixtureRowV1, privacy_action_role_samples_v1,
     privacy_exact12_fixture_bundle_bytes_v1, privacy_exact12_fixture_bundle_v1,
     privacy_exact12_matrix_bytes_v1, privacy_exact12_typed_envelope_rows_v1,
     validate_privacy_exact12_fixture_bundle_v1,
@@ -1516,8 +1517,10 @@ define_ristretto255_encoding!(
 // Keep wire declarations in this public module so their Norito identities
 // remain stable; validation implementations have focused private owners.
 include!("privacy/protocol.rs");
+mod action_role;
 mod capability_manifest;
 mod policy;
+pub use action_role::PrivacyActionRoleV1;
 pub use capability_manifest::*;
 mod release_manifest;
 pub use release_manifest::*;

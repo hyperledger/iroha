@@ -68,6 +68,15 @@ def test_checked_in_inventory_seals_current_consumers() -> None:
     assert stats.tests == 616
 
 
+def test_corrupt_fixture_inventory_digest_fails_closed(tmp_path: Path) -> None:
+    copied_manifest = _copy_fixture_tree(tmp_path)
+    payload = json.loads(copied_manifest.read_text(encoding="utf-8"))
+    payload["fixtures_sha256"] = "0" * 64
+    copied_manifest.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(checker.ValidationError, match="fixtures_sha256 does not authenticate"):
+        checker.validate_manifest(tmp_path, copied_manifest)
+
+
 def test_child_modules_seal_literal_and_canonical_pool_consumers() -> None:
     payload = json.loads(MANIFEST.read_text(encoding="utf-8"))
     compiler = payload["source_files"][0]

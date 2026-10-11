@@ -33,6 +33,8 @@ mod initial_publication_admission {
         },
     };
     use iroha_model_base::domain::DomainId;
+    use iroha_data_model::nexus::{DataSpaceCatalog, DataSpaceMetadata, LaneCatalog, LaneConfig};
+    use iroha_model_base::topology::LaneId;
     use iroha_primitives::{numeric::Quantity, time::TimeSource};
     use sorafs_manifest::{
         ProviderAdmissionEnvelopeV1, provider_admission::ProviderAdmissionGenesisMaterialV1,
@@ -107,6 +109,35 @@ mod initial_publication_admission {
             nexus.fees.per_gas_unit_fee = Quantity::zero();
             nexus.fees.fee_asset_id = asset.to_string();
             nexus.fees.fee_sink_account_id = account(SINK).to_string();
+            // Declare both routing targets so the wrong-home binding reaches the native
+            // namespace check instead of failing because its dataspace is unknown.
+            nexus.dataspace_catalog = DataSpaceCatalog::new(vec![
+                DataSpaceMetadata::default(),
+                DataSpaceMetadata {
+                    id: DataSpaceId::new(7),
+                    alias: "fixture-other".to_owned(),
+                    description: None,
+                    fault_tolerance: 1,
+                },
+            ])
+            .unwrap();
+            nexus.lane_catalog = LaneCatalog::new(
+                std::num::NonZeroU32::new(2).unwrap(),
+                vec![
+                    LaneConfig::default(),
+                    LaneConfig {
+                        id: LaneId::new(1),
+                        dataspace_id: DataSpaceId::new(7),
+                        alias: "fixture-other".to_owned(),
+                        ..Default::default()
+                    },
+                ],
+            )
+            .unwrap();
+            nexus.configured_lane_catalog = nexus.lane_catalog.clone();
+            nexus.lane_config = iroha_config::parameters::actual::LaneConfig::from_catalog(
+                &nexus.lane_catalog,
+            );
             config.nexus = Some(nexus);
             config.genesis_instructions = vec![
                 initialize.into(),
@@ -131,8 +162,12 @@ mod initial_publication_admission {
             ];
             let chain = CertifiedTestChain::start(config).unwrap();
             let mut archive = retention_archive(PUBLISHER);
-            let release =
-                MusubiReleaseIdV1::new(package("native-initial"), "1.0.0".parse().unwrap());
+            let package = MusubiPackageIdV1::new(
+                DataSpaceId::UNIVERSAL,
+                MusubiPackageScopeV1::Domain("native".parse().unwrap()),
+                "native-initial".parse().unwrap(),
+            );
+            let release = MusubiReleaseIdV1::new(package, "1.0.0".parse().unwrap());
             let lock = MusubiVerificationLockV1 {
                 schema: MusubiVerificationLockV1::SCHEMA.to_owned(),
                 version: MUSUBI_REGISTRY_VERSION_V1,
@@ -308,7 +343,14 @@ mod initial_publication_admission {
                 else {
                     panic!("must reach the unchanged native handler: {result:?}");
                 };
-                Some(error.to_string())
+                let mut reason = error.to_string();
+                let mut source = std::error::Error::source(error);
+                while let Some(cause) = source {
+                    reason.push_str(": ");
+                    reason.push_str(&cause.to_string());
+                    source = cause.source();
+                }
+                Some(reason)
             }
         }
         fn applied(&mut self, seed: u8, instruction: InstructionBox) {
@@ -399,7 +441,7 @@ mod initial_publication_admission {
             let view = self.chain.state().view();
             let tip = self.chain.committed(self.chain.height());
             PublishMusubiReleaseV1::new(
-                "sora".parse().unwrap(),
+                "native.universal".parse().unwrap(),
                 MusubiPublicationV1 {
                     manifest: self.manifest.clone(),
                     resolution: MusubiResolutionProofV1 {

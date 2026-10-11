@@ -136,14 +136,14 @@ fn kagemusha_wallet_v1_errors_display_and_convert() {
         KagemushaWalletValidationErrorV1::SchemeMismatch { field: "scheme" },
         KagemushaWalletValidationErrorV1::InvalidField { field: "field" },
         KagemushaWalletValidationErrorV1::InvalidSignature {
-            role: KagemushaWalletDigestRoleV1::CredentialBody,
+            domain: KagemushaWalletSigningDomainV1::Credential,
         },
         KagemushaWalletValidationErrorV1::ArithmeticOverflow { field: "count" },
     ];
     let rendered: Vec<String> = errors.iter().map(ToString::to_string).collect();
     assert!(rendered[1].contains("11") && rendered[1].contains("10"));
     assert!(rendered[2].contains("scheme.version") && rendered[2].contains('2'));
-    assert!(rendered[5].contains("credential-body"));
+    assert!(rendered[5].contains("kgwcred1"));
     for (index, text) in rendered.iter().enumerate() {
         assert!(text.contains("KAGEMUSHA wallet V1"), "{index}: {text}");
     }

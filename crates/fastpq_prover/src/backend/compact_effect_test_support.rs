@@ -42,14 +42,14 @@ pub(in crate::backend) fn verify_expected(
     let generous = fixture::limits(VerificationLimits::default());
     let demand = crate::offline_compact::quantity_ordinary_verification_allocation_bytes(
         &funding_fixture.statement.effects,
-        generous,
+        &generous,
     )?;
     let budget = AllocationBudget::new(demand);
     let mut reservation = budget.try_reserve_bytes(demand).map_err(Error::from)?;
     let result = execution_effect::verify(
         bytes,
         expected,
-        fixture::limits(policy(limits)),
+        &fixture::limits(policy(limits)),
         &budget,
         &mut reservation,
     );

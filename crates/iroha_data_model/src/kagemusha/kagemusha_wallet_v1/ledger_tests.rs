@@ -4,6 +4,7 @@
 use p256::ecdsa::SigningKey;
 
 use super::*;
+use crate::kagemusha::kagemusha_wallet_v1::digest::kagemusha_wallet_digest_v1;
 use crate::kagemusha::kagemusha_wallet_v1::{
     KagemushaWalletChargeQuoteBodyV1, KagemushaWalletEvidenceKindV1, KagemushaWalletStatementV1,
     KagemushaWalletValidationErrorV1,
@@ -320,9 +321,10 @@ fn assert_invalid<T: core::fmt::Debug>(result: WalletResult<T>, expected: &str) 
 }
 
 #[track_caller]
-fn assert_signature<T: core::fmt::Debug>(result: WalletResult<T>, expected: Role) {
+fn assert_signature<T: core::fmt::Debug>(result: WalletResult<T>, expected: Domain) {
     match result {
-        Err(KagemushaWalletValidationErrorV1::InvalidSignature { role }) if role == expected => {}
+        Err(KagemushaWalletValidationErrorV1::InvalidSignature { domain })
+            if domain == expected => {}
         other => panic!(
             "expected invalid `{}` signature, got {other:?}",
             expected.as_str()
@@ -354,12 +356,12 @@ fn kagemusha_wallet_v1_ledger_layouts_and_tags() {
     assert_eq!(&transcript[178..210], &[0x7a; 32]);
     assert_eq!(&transcript[210..218], &42_u64.to_le_bytes());
     assert_eq!(
-        body.body_digest(),
-        kagemusha_wallet_digest_v1(Role::VoucherBody, &transcript)
+        body.signing_message(),
+        kagemusha_wallet_signing_message_v1(Domain::Voucher, &transcript)
     );
     assert_eq!(
         body.signing_message(),
-        kagemusha_wallet_preimage_v1(Role::VoucherBody, &transcript)
+        kagemusha_wallet_signing_message_v1(Domain::Voucher, &transcript)
     );
 
     let actions = [
@@ -401,7 +403,7 @@ fn kagemusha_wallet_v1_load_voucher_sign_verify_and_effect() {
     voucher
         .verify(&f.identity.scheme, &f.authorizer_certificate)
         .expect("verify");
-    let mut signed = voucher.body.body_digest().to_vec();
+    let mut signed = voucher.body.signing_message().to_vec();
     signed.extend_from_slice(voucher.signature.as_raw_bytes());
     assert_eq!(
         voucher.voucher_digest(),
@@ -551,13 +553,13 @@ fn kagemusha_wallet_v1_ledger_control_sign_verify_and_flips() {
     );
     control.verify(&key).expect("verify");
     assert_eq!(
-        control.body.body_digest(),
-        kagemusha_wallet_digest_v1(Role::LedgerControlBody, &control.body.transcript())
+        control.body.signing_message(),
+        kagemusha_wallet_signing_message_v1(Domain::LedgerControl, &control.body.transcript())
     );
     let other = identity_fixture(KagemushaWalletEvidenceKindV1::AppleAppAttest, 0x68);
     assert_signature(
         control.verify(&other.credential.body.payment_key),
-        Role::LedgerControlBody,
+        Domain::LedgerControl,
     );
     assert_signature(
         KagemushaWalletLedgerControlV1::sign(
@@ -565,7 +567,7 @@ fn kagemusha_wallet_v1_ledger_control_sign_verify_and_flips() {
             &key,
             raw_output(&other.payment, &control.body.signing_message()),
         ),
-        Role::LedgerControlBody,
+        Domain::LedgerControl,
     );
 
     let mutations: [(ControlBodyMutation, &str); 6] = [
@@ -632,11 +634,11 @@ fn kagemusha_wallet_v1_ledger_control_sign_verify_and_flips() {
         KagemushaWalletLedgerControlV1::decode_canonical(&frame, &[0x42; 32]),
         Err(KagemushaWalletValidationErrorV1::SchemeMismatch { .. })
     ));
-    assert_every_flip_rejected_or_rebound(&frame, control.body.body_digest(), |bytes| {
+    assert_every_flip_rejected_or_rebound(&frame, control.body.signing_message(), |bytes| {
         let control =
             KagemushaWalletLedgerControlV1::decode_canonical(bytes, &f.scheme_id()).ok()?;
         control.verify(&key).ok()?;
-        Some(control.body.body_digest())
+        Some(control.body.signing_message())
     });
 }
 
@@ -697,7 +699,7 @@ fn kagemusha_wallet_v1_activation_records_the_bootstrap_package() {
         .expect("other control")
         .signature,
     };
-    assert_signature(forged.validate(), Role::LedgerControlBody);
+    assert_signature(forged.validate(), Domain::LedgerControl);
     let mut certificates = activation.clone();
     certificates.certificates =
         KagemushaWalletCertificateSetV1::new(vec![f.regulator_certificate]).expect("set");
@@ -843,7 +845,7 @@ fn kagemusha_wallet_v1_abandonment_recomputes_the_incarnation() {
         },
         ..abandonment
     };
-    assert_signature(forged.validate(), Role::LedgerControlBody);
+    assert_signature(forged.validate(), Domain::LedgerControl);
 
     // The control names exactly the durable abandonment terminal marker.
     let enrollment =
@@ -1111,7 +1113,7 @@ fn kagemusha_wallet_v1_fee_claim_pays_the_schedule_beneficiary() {
     );
     let mut tampered = claim.clone();
     tampered.payment.send.step_proof = stand_in_proof(65);
-    assert_signature(tampered.validate(), Role::ReceiptBody);
+    assert_signature(tampered.validate(), Domain::Receipt);
     let mut version = claim;
     version.version = 2;
     assert!(matches!(

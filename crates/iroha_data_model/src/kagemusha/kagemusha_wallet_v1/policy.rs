@@ -16,10 +16,10 @@ use super::{
     WalletResult, WalletVersionsV1, decode_frame_v1,
     digest::WalletFieldItemsV1,
     digest::{
-        KagemushaWalletDigestRoleV1 as Role, KagemushaWalletSignerOutputV1, WalletTranscriptV1,
-        kagemusha_wallet_digest_v1, kagemusha_wallet_freeze_signature_v1,
-        kagemusha_wallet_preimage_v1, kagemusha_wallet_signed_object_digest_v1,
-        kagemusha_wallet_verify_signature_v1,
+        KagemushaWalletDigestRoleV1 as Role, KagemushaWalletSignerOutputV1,
+        KagemushaWalletSigningDomainV1 as Domain, WalletTranscriptV1,
+        kagemusha_wallet_freeze_signature_v1, kagemusha_wallet_signed_object_digest_v1,
+        kagemusha_wallet_signing_message_v1, kagemusha_wallet_verify_signature_v1,
     },
     encode_frame_v1,
     identity::{
@@ -94,8 +94,8 @@ pub(super) struct SignerBindingV1<'a> {
     pub(super) certificate: &'a [u8; 32],
     /// Required signer role.
     pub(super) role: KagemushaWalletSignerRoleV1,
-    /// Signed body role.
-    pub(super) body_role: Role,
+    /// Poseidon domain of the signed body message.
+    pub(super) signing_domain: Domain,
 }
 
 impl SignerBindingV1<'_> {
@@ -120,8 +120,8 @@ impl SignerBindingV1<'_> {
         )?;
         kagemusha_wallet_freeze_signature_v1(
             &certificate.body.key,
-            self.body_role,
-            transcript,
+            self.signing_domain,
+            &kagemusha_wallet_signing_message_v1(self.signing_domain, transcript),
             signer_output,
         )
     }
@@ -141,8 +141,8 @@ impl SignerBindingV1<'_> {
         certificate.verify_role(scheme, self.role)?;
         kagemusha_wallet_verify_signature_v1(
             &certificate.body.key,
-            self.body_role,
-            transcript,
+            self.signing_domain,
+            &kagemusha_wallet_signing_message_v1(self.signing_domain, transcript),
             signature,
         )
     }
@@ -152,7 +152,7 @@ impl SignerBindingV1<'_> {
 // Scheme policy (§7, design §6.1)
 // ---------------------------------------------------------------------------------------
 
-/// Body of a scheme policy, signed by a RegulatoryPolicy-role key under `scheme-policy-body`.
+/// Body of a scheme policy, signed by a RegulatoryPolicy-role key under `kgwspol1`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletSchemePolicyBodyV1"
@@ -189,16 +189,10 @@ impl KagemushaWalletSchemePolicyBodyV1 {
             .finish()
     }
 
-    /// Signed body digest `e = H("scheme-policy-body", transcript)`.
+    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
     #[must_use]
-    pub fn body_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_digest_v1(Role::SchemePolicyBody, &self.transcript())
-    }
-
-    /// Exact ECDSA message the RegulatoryPolicy-role signer signs.
-    #[must_use]
-    pub fn signing_message(&self) -> Vec<u8> {
-        kagemusha_wallet_preimage_v1(Role::SchemePolicyBody, &self.transcript())
+    pub fn signing_message(&self) -> [u8; 32] {
+        kagemusha_wallet_signing_message_v1(Domain::SchemePolicy, &self.transcript())
     }
 
     /// Validate the body's fields.
@@ -228,7 +222,7 @@ impl KagemushaWalletSchemePolicyBodyV1 {
             scheme_id: &self.scheme_id,
             certificate: &self.signer_certificate,
             role: KagemushaWalletSignerRoleV1::RegulatoryPolicy,
-            body_role: Role::SchemePolicyBody,
+            signing_domain: Domain::SchemePolicy,
         }
     }
 }
@@ -241,7 +235,7 @@ impl KagemushaWalletSchemePolicyBodyV1 {
 pub struct KagemushaWalletSchemePolicyV1 {
     /// Signed body.
     pub body: KagemushaWalletSchemePolicyBodyV1,
-    /// RegulatoryPolicy-role signature over `scheme-policy-body`.
+    /// RegulatoryPolicy-role signature over the `kgwspol1` signing message.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -264,12 +258,12 @@ impl KagemushaWalletSchemePolicyV1 {
         Ok(Self { body, signature })
     }
 
-    /// Scheme policy digest `H("scheme-policy", e || signature)`.
+    /// Scheme policy digest `H("scheme-policy", m || signature)`.
     #[must_use]
     pub fn scheme_policy_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
             Role::SchemePolicy,
-            &self.body.body_digest(),
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -430,16 +424,10 @@ impl KagemushaWalletFeeScheduleBodyV1 {
             .finish()
     }
 
-    /// Signed body digest `e = H("fee-schedule-body", transcript)`.
+    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
     #[must_use]
-    pub fn body_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_digest_v1(Role::FeeScheduleBody, &self.transcript())
-    }
-
-    /// Exact ECDSA message the RegulatoryPolicy-role signer signs.
-    #[must_use]
-    pub fn signing_message(&self) -> Vec<u8> {
-        kagemusha_wallet_preimage_v1(Role::FeeScheduleBody, &self.transcript())
+    pub fn signing_message(&self) -> [u8; 32] {
+        kagemusha_wallet_signing_message_v1(Domain::FeeSchedule, &self.transcript())
     }
 
     fn validate_terms(&self) -> WalletResult<()> {
@@ -505,7 +493,7 @@ impl KagemushaWalletFeeScheduleBodyV1 {
             scheme_id: &self.scheme_id,
             certificate: &self.signer_certificate,
             role: KagemushaWalletSignerRoleV1::RegulatoryPolicy,
-            body_role: Role::FeeScheduleBody,
+            signing_domain: Domain::FeeSchedule,
         }
     }
 }
@@ -518,7 +506,7 @@ impl KagemushaWalletFeeScheduleBodyV1 {
 pub struct KagemushaWalletFeeScheduleV1 {
     /// Signed body.
     pub body: KagemushaWalletFeeScheduleBodyV1,
-    /// RegulatoryPolicy-role signature over `fee-schedule-body`.
+    /// RegulatoryPolicy-role signature over the `kgwfsch1` signing message.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -541,12 +529,12 @@ impl KagemushaWalletFeeScheduleV1 {
         Ok(Self { body, signature })
     }
 
-    /// Fee schedule digest `H("fee-schedule", e || signature)`.
+    /// Fee schedule digest `H("fee-schedule", m || signature)`.
     #[must_use]
     pub fn fee_schedule_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
             Role::FeeSchedule,
-            &self.body.body_digest(),
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -830,7 +818,7 @@ impl KagemushaWalletBlacklistGapOpeningV1 {
     }
 }
 
-/// Body of a blacklist, signed by a RegulatoryPolicy-role key under `blacklist-body`.
+/// Body of a blacklist, signed by a RegulatoryPolicy-role key under `kgwblst1`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletBlacklistBodyV1"
@@ -867,16 +855,10 @@ impl KagemushaWalletBlacklistBodyV1 {
             .finish()
     }
 
-    /// Signed body digest `e = H("blacklist-body", transcript)`.
+    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
     #[must_use]
-    pub fn body_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_digest_v1(Role::BlacklistBody, &self.transcript())
-    }
-
-    /// Exact ECDSA message the RegulatoryPolicy-role signer signs.
-    #[must_use]
-    pub fn signing_message(&self) -> Vec<u8> {
-        kagemusha_wallet_preimage_v1(Role::BlacklistBody, &self.transcript())
+    pub fn signing_message(&self) -> [u8; 32] {
+        kagemusha_wallet_signing_message_v1(Domain::Blacklist, &self.transcript())
     }
 
     /// Validate the body's fields.
@@ -925,7 +907,7 @@ impl KagemushaWalletBlacklistBodyV1 {
             scheme_id: &self.scheme_id,
             certificate: &self.signer_certificate,
             role: KagemushaWalletSignerRoleV1::RegulatoryPolicy,
-            body_role: Role::BlacklistBody,
+            signing_domain: Domain::Blacklist,
         }
     }
 }
@@ -945,7 +927,7 @@ impl KagemushaWalletBlacklistBodyV1 {
 pub struct KagemushaWalletBlacklistV1 {
     /// Signed body.
     pub body: KagemushaWalletBlacklistBodyV1,
-    /// RegulatoryPolicy-role signature over `blacklist-body`.
+    /// RegulatoryPolicy-role signature over the `kgwblst1` signing message.
     pub signature: KagemushaDeviceSignatureV1,
     /// Entries in strictly ascending account-digest order.
     pub entries: Vec<KagemushaWalletBlacklistEntryV1>,
@@ -976,12 +958,12 @@ impl KagemushaWalletBlacklistV1 {
         })
     }
 
-    /// Blacklist digest `H("blacklist", e || signature)`.
+    /// Blacklist digest `H("blacklist", m || signature)`.
     #[must_use]
     pub fn blacklist_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
             Role::Blacklist,
-            &self.body.body_digest(),
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -1153,7 +1135,7 @@ pub struct KagemushaWalletMonotonicReadingV1 {
     pub monotonic_ms: u64,
 }
 
-/// Body of a time anchor, signed by a TimeAnchor-role key under `time-anchor-body`.
+/// Body of a time anchor, signed by a TimeAnchor-role key under `kgwtanc1`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletTimeAnchorBodyV1"
@@ -1187,16 +1169,10 @@ impl KagemushaWalletTimeAnchorBodyV1 {
             .finish()
     }
 
-    /// Signed body digest `e = H("time-anchor-body", transcript)`.
+    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
     #[must_use]
-    pub fn body_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_digest_v1(Role::TimeAnchorBody, &self.transcript())
-    }
-
-    /// Exact ECDSA message the TimeAnchor-role signer signs.
-    #[must_use]
-    pub fn signing_message(&self) -> Vec<u8> {
-        kagemusha_wallet_preimage_v1(Role::TimeAnchorBody, &self.transcript())
+    pub fn signing_message(&self) -> [u8; 32] {
+        kagemusha_wallet_signing_message_v1(Domain::TimeAnchor, &self.transcript())
     }
 
     /// Validate the body's fields.
@@ -1219,7 +1195,7 @@ impl KagemushaWalletTimeAnchorBodyV1 {
             scheme_id: &self.scheme_id,
             certificate: &self.signer_certificate,
             role: KagemushaWalletSignerRoleV1::TimeAnchor,
-            body_role: Role::TimeAnchorBody,
+            signing_domain: Domain::TimeAnchor,
         }
     }
 }
@@ -1232,7 +1208,7 @@ impl KagemushaWalletTimeAnchorBodyV1 {
 pub struct KagemushaWalletTimeAnchorV1 {
     /// Signed body.
     pub body: KagemushaWalletTimeAnchorBodyV1,
-    /// TimeAnchor-role signature over `time-anchor-body`.
+    /// TimeAnchor-role signature over the `kgwtanc1` signing message.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -1255,12 +1231,12 @@ impl KagemushaWalletTimeAnchorV1 {
         Ok(Self { body, signature })
     }
 
-    /// Time anchor digest `H("time-anchor", e || signature)`.
+    /// Time anchor digest `H("time-anchor", m || signature)`.
     #[must_use]
     pub fn time_anchor_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
             Role::TimeAnchor,
-            &self.body.body_digest(),
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -1655,16 +1631,10 @@ impl KagemushaWalletQuotaShareBodyV1 {
             .finish()
     }
 
-    /// Signed body digest `e = H("quota-share-body", transcript)`.
+    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
     #[must_use]
-    pub fn body_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_digest_v1(Role::QuotaShareBody, &self.transcript())
-    }
-
-    /// Exact ECDSA message the RegulatoryPolicy-role signer signs.
-    #[must_use]
-    pub fn signing_message(&self) -> Vec<u8> {
-        kagemusha_wallet_preimage_v1(Role::QuotaShareBody, &self.transcript())
+    pub fn signing_message(&self) -> [u8; 32] {
+        kagemusha_wallet_signing_message_v1(Domain::QuotaShare, &self.transcript())
     }
 
     /// Validate the body's fields.
@@ -1736,7 +1706,7 @@ impl KagemushaWalletQuotaShareBodyV1 {
             scheme_id: &self.scheme_id,
             certificate: &self.signer_certificate,
             role: KagemushaWalletSignerRoleV1::RegulatoryPolicy,
-            body_role: Role::QuotaShareBody,
+            signing_domain: Domain::QuotaShare,
         }
     }
 }
@@ -1770,7 +1740,7 @@ pub struct KagemushaWalletQuotaShareV1 {
     pub body: KagemushaWalletQuotaShareBodyV1,
     /// Windows sorted by `(kind, start)`, non-overlapping per kind.
     pub windows: Vec<KagemushaWalletQuotaWindowV1>,
-    /// RegulatoryPolicy-role signature over `quota-share-body`.
+    /// RegulatoryPolicy-role signature over the `kgwqshr1` signing message.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -1799,12 +1769,12 @@ impl KagemushaWalletQuotaShareV1 {
         })
     }
 
-    /// Quota share digest `H("quota-share", e || signature)`.
+    /// Quota share digest `H("quota-share", m || signature)`.
     #[must_use]
     pub fn quota_share_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
             Role::QuotaShare,
-            &self.body.body_digest(),
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -2054,7 +2024,7 @@ pub fn kagemusha_wallet_unload_account_payout_v1(
 }
 
 /// Body of a displayed load or unload charge quote, signed by a RegulatoryPolicy-role key
-/// under `charge-quote-body`.
+/// under `kgwchgq1`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletChargeQuoteBodyV1"
@@ -2103,16 +2073,10 @@ impl KagemushaWalletChargeQuoteBodyV1 {
             .finish()
     }
 
-    /// Signed body digest `e = H("charge-quote-body", transcript)`.
+    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
     #[must_use]
-    pub fn body_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_digest_v1(Role::ChargeQuoteBody, &self.transcript())
-    }
-
-    /// Exact ECDSA message the RegulatoryPolicy-role signer signs.
-    #[must_use]
-    pub fn signing_message(&self) -> Vec<u8> {
-        kagemusha_wallet_preimage_v1(Role::ChargeQuoteBody, &self.transcript())
+    pub fn signing_message(&self) -> [u8; 32] {
+        kagemusha_wallet_signing_message_v1(Domain::ChargeQuote, &self.transcript())
     }
 
     /// Validate the body's fields.
@@ -2155,7 +2119,7 @@ impl KagemushaWalletChargeQuoteBodyV1 {
             scheme_id: &self.scheme_id,
             certificate: &self.signer_certificate,
             role: KagemushaWalletSignerRoleV1::RegulatoryPolicy,
-            body_role: Role::ChargeQuoteBody,
+            signing_domain: Domain::ChargeQuote,
         }
     }
 }
@@ -2172,7 +2136,7 @@ impl KagemushaWalletChargeQuoteBodyV1 {
 pub struct KagemushaWalletChargeQuoteV1 {
     /// Signed body.
     pub body: KagemushaWalletChargeQuoteBodyV1,
-    /// RegulatoryPolicy-role signature over `charge-quote-body`.
+    /// RegulatoryPolicy-role signature over the `kgwchgq1` signing message.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -2195,12 +2159,12 @@ impl KagemushaWalletChargeQuoteV1 {
         Ok(Self { body, signature })
     }
 
-    /// Charge quote digest `H("charge-quote", e || signature)`.
+    /// Charge quote digest `H("charge-quote", m || signature)`.
     #[must_use]
     pub fn charge_quote_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
             Role::ChargeQuote,
-            &self.body.body_digest(),
+            &self.body.signing_message(),
             &self.signature,
         )
     }

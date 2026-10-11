@@ -1078,11 +1078,29 @@ A task leaves `planned` only with recorded `evidence`, which has four fields:
 A clause is exactly one whole sentence of the task's Deliverable or Acceptance text,
 recorded once. A proof cites at least one recorded path or command verbatim.
 `in_progress` records any nonempty subset of sentences and admits partial, failed and
-unexecuted items. `implemented` requires one `met` entry for every sentence, every
-command `passed`, every recorded path and command cited by a proof and every
-prerequisite implemented. Return a task to `in_progress` when a later change
-invalidates its evidence. Graph status stays `ready_for_development`; a recorded
-status is traceability and grants no runtime permission.
+unexecuted items. A command entry may additionally contain `platform_todo` with
+`platform` (`windows`, `linux`, `physical_x86_64` or `cuda`), `reason` explaining
+required execution unavailable on the development Mac, `todo_site` containing `path`
+and `marker`, and `owner` (`H.3` or `V.4`). The containing `command` is the exact runnable
+command, including required working directory and configuration. The TODO path must
+appear in evidence.paths; its marker must uniquely identify literal `TODO:` text in
+that file. Only unavailable platform execution qualifies; implementation and runnable
+checks must already exist. Outcomes remain `passed`, `failed` or `not_run`; acceptance
+states remain `met`, `partial` or `unmet`. An unexecuted deferred check stays `not_run`.
+`implemented` requires every sentence recorded, all implementation complete, every
+required check recorded, every prerequisite implemented, and every recorded path and
+command cited by a proof. Each sentence must be `met`, or `partial` solely because
+its proof identifies valid platform TODO commands covering its entire remaining gap;
+every other check must have passed. Failed checks prohibit `implemented`. A TODO
+remains open until actual execution of its exact check on the required platform passes
+with valid current-candidate evidence; retain failures and closure evidence. Neither
+H.3 nor V.4 may be `implemented` while any TODO remains open anywhere in the graph.
+Both checker formats validate these rules and print `open_platform_todos` counts for
+every task, including zero, and a global total, counting each originating command once
+without owner/dependent duplication; also list each open item's metadata and outcome.
+TODOs never count as passed checks or platform qualification. Return a task to
+`in_progress` when later changes invalidate its qualifying evidence. Graph status stays
+`ready_for_development`; a recorded status is traceability and grants no runtime permission.
 
 Both formats use one validator and exit status. Checks cover graph integrity,
 true roots, reachability, required/forbidden ancestry, per-delivery SDK/ISI contracts,
@@ -1135,4 +1153,18 @@ the crate `crates/iroha_fhe/`. For E.1: the crate `crates/iroha_measurement/`,
 `scripts/zk_resource_harness.py` and
 `crates/iroha_core_privacy/tests/fastpq_phase_tree_measurement.rs`. For F.2:
 `specs/zk_resource_contract.json`, `scripts/check_zk_resource_contract.py` and
-`crates/iroha_data_model/tests/resource_contract_v1.rs`.
+`crates/iroha_data_model/tests/resource_contract_v1.rs`. For C.3: the module
+`crates/iroha_fhe/src/bgv/`, `specs/fhe_bgv_cost_summary.json`,
+`scripts/fhe_bgv_cost_model.py` and the known-answer reference
+`crates/iroha_fhe/tests/vectors/bgv_reference.py`. For G.2:
+`specs/state_commitment_candidates.json`,
+`scripts/check_state_commitment_candidates.py` and the development-only
+prototypes in `crates/fastpq_prover/src/state_commitment_prototypes/`. For F.4:
+`crates/iroha_data_model/src/zk_validity_policy.rs`,
+`crates/iroha_data_model/src/pipeline_validity_policy.rs`,
+`specs/zk_runtime_validity_census.json`, `scripts/check_zk_runtime_validity.py`
+and `scripts/check_zk_feature_parity.py`. For F.1:
+`specs/zk_operation_inventory.json` and
+`scripts/check_zk_operation_inventory.py`. For H.1:
+`specs/zk_primitive_workloads.json` and
+`scripts/check_zk_primitive_workloads.py`.

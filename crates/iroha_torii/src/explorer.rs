@@ -8,7 +8,6 @@
 //! committed chain snapshot and the caller's visible dataspace set; transaction and instruction
 //! continuations use authorized entrypoint hashes rather than physical block offsets.
 use crate::{
-    account_literal,
     json_macros::{JsonDeserialize, JsonSerialize},
     routing::DataspaceReadVisibility,
 };
@@ -16,37 +15,28 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use iroha_core::state::WorldReadOnly;
 use iroha_crypto::HashOf;
 use iroha_data_model::{
-    HasMetadata, Identifiable, ValidationFail,
+    HasMetadata, Identifiable,
     account::{AccountEntry, AccountId},
     asset::{AssetDefinition, AssetDefinitionId, AssetEntry, AssetId, Mintable},
-    block::{BlockHeader, SignedBlock},
     domain::Domain,
     isi::{
-        self, CustomInstruction, ExecuteTrigger, GrantBox, InstructionBox, Log, MintBox,
-        RegisterBox, RemoveAssetKeyValue, RemoveKeyValueBox, RevokeBox, SetAssetKeyValue,
-        SetKeyValueBox, SetParameter, TransferAssetBatch, TransferBox, UnregisterBox, Upgrade,
-        kagemusha_v1::{RedeemKagemushaV1, TopUpKagemushaV1},
+        CustomInstruction, ExecuteTrigger, GrantBox, InstructionBox, Log, MintBox, RegisterBox,
+        RemoveAssetKeyValue, RemoveKeyValueBox, RevokeBox, SetAssetKeyValue, SetKeyValueBox,
+        SetParameter, TransferAssetBatch, TransferBox, UnregisterBox, Upgrade,
         mint_burn::BurnBox,
         runtime_upgrade::{ActivateRuntimeUpgrade, CancelRuntimeUpgrade, ProposeRuntimeUpgrade},
     },
     nft::{NftEntry, NftId},
     rwa::{RwaEntry, RwaId, RwaParentRef},
     sorafs_uri::SorafsUri,
-    transaction::{
-        error::TransactionRejectionReason,
-        executable::Executable,
-        signed::{SignedTransaction, TransactionEntrypoint, TransactionResult},
-    },
+    transaction::signed::TransactionEntrypoint,
 };
 use iroha_model_base::domain::DomainId;
 use iroha_model_base::{metadata::Metadata, name::Name};
 use iroha_primitives::numeric::{Numeric, Quantity};
 use iroha_torii_shared::qr::{EcLevel, QrCode, QrError};
 use mv::storage::StorageReadOnly;
-use norito::{
-    codec::Encode,
-    json::{self, Map, Value},
-};
+use norito::json::{self, Map, Value};
 use sha2::{Digest as _, Sha256};
 use std::{
     fmt,
@@ -859,8 +849,6 @@ pub(crate) enum ExplorerInstructionKind {
     SetParameter,
     Upgrade,
     Log,
-    KagemushaTopUp,
-    KagemushaRedemption,
     Custom,
 }
 impl ExplorerInstructionKind {
@@ -879,8 +867,6 @@ impl ExplorerInstructionKind {
             Self::SetParameter => "SetParameter",
             Self::Upgrade => "Upgrade",
             Self::Log => "Log",
-            Self::KagemushaTopUp => "KagemushaTopUp",
-            Self::KagemushaRedemption => "KagemushaRedemption",
             Self::Custom => "Custom",
         }
     }
@@ -902,8 +888,6 @@ impl std::str::FromStr for ExplorerInstructionKind {
             "setparameter" | "set_parameter" => Ok(Self::SetParameter),
             "upgrade" => Ok(Self::Upgrade),
             "log" => Ok(Self::Log),
-            "kagemushatopup" | "kagemusha_top_up" => Ok(Self::KagemushaTopUp),
-            "kagemusharedemption" | "kagemusha_redemption" => Ok(Self::KagemushaRedemption),
             "custom" => Ok(Self::Custom),
             _ => Err(()),
         }
@@ -978,10 +962,6 @@ pub(crate) fn instruction_kind(instruction: &InstructionBox) -> ExplorerInstruct
                 ExplorerInstructionKind::Upgrade
             } else if any.downcast_ref::<Log>().is_some() {
                 ExplorerInstructionKind::Log
-            } else if any.downcast_ref::<TopUpKagemushaV1>().is_some() {
-                ExplorerInstructionKind::KagemushaTopUp
-            } else if any.downcast_ref::<RedeemKagemushaV1>().is_some() {
-                ExplorerInstructionKind::KagemushaRedemption
             } else {
                 ExplorerInstructionKind::Custom
             }
@@ -2119,6 +2099,7 @@ pub(crate) fn register_rwa_lots_for_tests(
 ) {
     use iroha_core::smartcontracts::Execute as _;
     use iroha_data_model::{
+        block::BlockHeader,
         isi::rwa::RegisterRwa,
         rwa::{NewRwa, RwaControlPolicy},
     };
@@ -2166,7 +2147,7 @@ mod tests {
         transaction::{
             error::TransactionRejectionReason,
             executable::{ContractInvocation, Executable},
-            signed::TransactionBuilder,
+            signed::{SignedTransaction, TransactionBuilder, TransactionResult},
         },
         trigger::DataTriggerSequence,
     };
@@ -2283,31 +2264,32 @@ mod tests {
     use super::*;
     use nonzero_ext::nonzero;
     #[test]
-    fn instruction_kind_filter_accepts_kagemusha_v1_camelcase_and_snake_case() {
-        assert_eq!(
-            "KagemushaTopUp"
-                .parse::<ExplorerInstructionKind>()
-                .expect("KAGEMUSHA V1 top-up kind"),
-            ExplorerInstructionKind::KagemushaTopUp
-        );
-        assert_eq!(
-            "kagemusha_top_up"
-                .parse::<ExplorerInstructionKind>()
-                .expect("KAGEMUSHA V1 top-up kind"),
-            ExplorerInstructionKind::KagemushaTopUp
-        );
-        assert_eq!(
-            "KagemushaRedemption"
-                .parse::<ExplorerInstructionKind>()
-                .expect("KAGEMUSHA V1 redemption kind"),
-            ExplorerInstructionKind::KagemushaRedemption
-        );
-        assert_eq!(
-            "kagemusha_redemption"
-                .parse::<ExplorerInstructionKind>()
-                .expect("KAGEMUSHA V1 redemption kind"),
-            ExplorerInstructionKind::KagemushaRedemption
-        );
+    fn instruction_kind_filter_accepts_camelcase_and_snake_case() {
+        for raw in ["SetKeyValue", "set_key_value"] {
+            assert_eq!(
+                raw.parse::<ExplorerInstructionKind>()
+                    .expect("set-key-value kind"),
+                ExplorerInstructionKind::SetKeyValue
+            );
+        }
+        for raw in ["ExecuteTrigger", "execute_trigger"] {
+            assert_eq!(
+                raw.parse::<ExplorerInstructionKind>()
+                    .expect("execute-trigger kind"),
+                ExplorerInstructionKind::ExecuteTrigger
+            );
+        }
+        for retired in [
+            "KagemushaTopUp",
+            "kagemusha_top_up",
+            "KagemushaRedemption",
+            "kagemusha_redemption",
+        ] {
+            assert!(
+                retired.parse::<ExplorerInstructionKind>().is_err(),
+                "{retired} is not an explorer instruction kind"
+            );
+        }
     }
     #[test]
     fn history_cursor_is_snapshot_filter_visibility_and_route_bound() {

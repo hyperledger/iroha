@@ -7,6 +7,7 @@ real native ABI behavior remains covered by the full Swift/native consumer suite
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import shutil
@@ -52,6 +53,21 @@ class SwiftNativeExportRetentionTests(unittest.TestCase):
         required = loader.split("static let parliamentTimedOvnWalletRequiredSymbols", 1)[1]
         required = required.split("private typealias BridgeAbiVersionFn", 1)[0]
         self.assertTrue(set(re.findall(rf'"({EXPORT_PATTERN})"', required)) <= set(exports))
+
+    def test_retention_and_admission_omit_retired_native_exports(self) -> None:
+        policy_path = ROOT / "scripts/check_native_sdk_artifact.py"
+        spec = importlib.util.spec_from_file_location("swift_retention_native_policy", policy_path)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        policy = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(policy)
+        loader = (ROOT / "IrohaSwift/Sources/IrohaSwift/NativeBridge.swift").read_text()
+        inventory = set(retained_exports()) | set(re.findall(rf'"({EXPORT_PATTERN})"', loader))
+        self.assertFalse(inventory & set(policy.RETIRED_PROTOCOL_SYMBOLS["c-jni"]))
+        self.assertFalse({
+            symbol for symbol in inventory
+            if symbol.startswith(policy.RETIRED_KAGEMUSHA_EXPORT_PREFIXES)
+        })
 
     def test_mldsa_declarations_match_the_canonical_owner(self) -> None:
         owner = (ROOT / "crates/soranet_pq/include/soranet_pq.h").read_text()

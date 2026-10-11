@@ -211,6 +211,8 @@ def test_tracked_verification_never_rewrites_output(
     destination = tmp_path / "nested" / "destination.to"
     destination.parent.mkdir()
     destination.write_bytes(b"canonical")
+    # The declared artifact mode is explicit even under an owner-private umask.
+    destination.chmod(0o644)
     rendered = (
         goldens.RenderedFile(Path("nested/destination.to"), 0o644, b"canonical"),
     )

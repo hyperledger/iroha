@@ -126,14 +126,14 @@ internal class KagemushaWalletAndroidPaymentKeyV1(
         return readBack(alias, challenge, level)
     }
 
-    /** Sign the exact [preimage] with `SHA256withECDSA`; the platform's DER is returned unmodified. */
-    fun sign(slot: ByteArray, preimage: ByteArray): KagemushaWalletAndroidSignatureV1 =
-        synchronized(lock) { signLocked(slot, preimage) }
+    /** Sign the exact 32-byte native [message] with `SHA256withECDSA`; the platform's DER is returned unmodified. */
+    fun sign(slot: ByteArray, message: ByteArray): KagemushaWalletAndroidSignatureV1 =
+        synchronized(lock) { signLocked(slot, message) }
 
-    private fun signLocked(slot: ByteArray, preimage: ByteArray): KagemushaWalletAndroidSignatureV1 {
+    private fun signLocked(slot: ByteArray, input: ByteArray): KagemushaWalletAndroidSignatureV1 {
+        require(input.size == KAGEMUSHA_WALLET_ANDROID_SIGNING_MESSAGE_BYTES_V1) { "signing message must contain exactly 32 bytes" }
         val alias = kagemushaWalletAndroidAliasV1(slot)
-        val message = preimage.copyOf()
-        require(message.size in 1..KAGEMUSHA_WALLET_ANDROID_PREIMAGE_MAX_BYTES_V1) { "signing preimage is empty or oversized" }
+        val message = input.copyOf()
         val key = when (val loaded = loadKey(alias)) {
             is Loaded.Key -> loaded.key
             Loaded.Absent -> return KagemushaWalletAndroidSignatureV1.Unavailable(
@@ -356,8 +356,8 @@ internal const val KAGEMUSHA_WALLET_ANDROID_MIN_API_V1: Int = 31
 
 private fun KagemushaWalletAndroidEnvironmentV1.keystore2(): Boolean = apiLevel >= KAGEMUSHA_WALLET_ANDROID_MIN_API_V1
 
-/** Largest preimage the payment key signs; provider preimages are role-tagged bodies of a few KiB. */
-internal const val KAGEMUSHA_WALLET_ANDROID_PREIMAGE_MAX_BYTES_V1: Int = 1 shl 20
+/** Exact canonical `P_bytes(domain, transcript)` message length handed off by Rust. */
+internal const val KAGEMUSHA_WALLET_ANDROID_SIGNING_MESSAGE_BYTES_V1: Int = 32
 
 /** Attestation chain bounds, as in `AndroidKeyAttestationOriginalV1`. */
 internal const val KAGEMUSHA_WALLET_ANDROID_CHAIN_MAX_CERTIFICATES_V1: Int = 8

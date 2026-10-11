@@ -20,13 +20,6 @@ mod tests_queue_metadata {
                 "transaction expired before admission",
             ),
             (
-                queue::Error::KagemushaV1OperationCarrierRejected {
-                    reason: "non-canonical carrier".to_owned(),
-                },
-                "PRTRY:KAGEMUSHA_V1_OPERATION_CARRIER_REJECTED",
-                "KAGEMUSHA V1 operation carrier failed canonical admission: non-canonical carrier",
-            ),
-            (
                 queue::Error::UnresolvedRoute {
                     reason: "lane 9 is unknown".to_owned(),
                 },
@@ -42,13 +35,6 @@ mod tests_queue_metadata {
                 queue::Error::IsInQueue,
                 "PRTRY:ALREADY_ENQUEUED",
                 "transaction already present in the queue",
-            ),
-            (
-                queue::Error::KagemushaV1OperationIndexInconsistent {
-                    reason: "reverse owner missing".to_owned(),
-                },
-                "PRTRY:KAGEMUSHA_V1_OPERATION_INDEX_INCONSISTENT",
-                "KAGEMUSHA V1 pending-operation index requires recovery: reverse owner missing",
             ),
         ];
         for (error, expected_code, expected_detail) in cases {
@@ -164,39 +150,5 @@ mod tests_queue_metadata {
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
             assert!(!response.headers().contains_key("retry-after"));
         }
-    }
-    #[test]
-    fn kagemusha_v1_queue_conflict_has_stable_code_and_status() {
-        let existing_entrypoint_hash = HashOf::<TransactionEntrypoint>::from_untyped_unchecked(
-            Hash::new(b"existing-kagemusha-v1-entrypoint"),
-        );
-        let operation_id = [0xA5; 32];
-        let error = queue::Error::KagemushaV1OperationIdConflict {
-            operation_id,
-            existing_entrypoint_hash,
-        };
-        let (code, detail) = queue_rejection_metadata(&error);
-        assert_eq!(code, "PRTRY:KAGEMUSHA_V1_OPERATION_ID_CONFLICT");
-        assert!(detail.contains(&hex::encode(operation_id)));
-        assert!(detail.contains(&existing_entrypoint_hash.to_string()));
-        assert_eq!(
-            super::Error::queue_error_summary(&error),
-            (
-                "kagemusha_v1_operation_id_conflict",
-                "KAGEMUSHA V1 operation identifier is already pending",
-            )
-        );
-        assert_eq!(
-            super::Error::status_code_for_queue_error(&error),
-            StatusCode::CONFLICT
-        );
-
-        let inconsistent = queue::Error::KagemushaV1OperationIndexInconsistent {
-            reason: "reverse owner missing".to_owned(),
-        };
-        assert_eq!(
-            super::Error::status_code_for_queue_error(&inconsistent),
-            StatusCode::SERVICE_UNAVAILABLE
-        );
     }
 }

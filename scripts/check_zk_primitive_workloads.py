@@ -47,7 +47,21 @@ The check fails when
   or records a measurement that is not labelled exploratory;
 * a shared transcript requirement loses its order, its binding list or a
   current implementation site, or the listed engines differ from those of
-  specs/fastpq/shared_backend_inventory.json.
+  specs/fastpq/shared_backend_inventory.json;
+* a frozen or retained semantic profile (task H.2) records an identity other
+  than the SHA3-256 of its canonical frame, recomputed here by
+  scripts/zk_semantic_profile_reference.py; a retained profile differs from its
+  role record; a digest role has no disposition, or the unqualified six-lane
+  digest is retained or frozen; an H.1 defect has no disposition; a corrected
+  BN254 table, the native commitment frame or a post-quantum parameter set
+  differs from what its profile froze; the frozen transcript loses a binding
+  entry, a named test, a golden pin, an engine or its known answers, or its
+  security statement stops recording the classical claim as conditional and
+  the quantum claim as open;
+* a workload does not name the profiles of its roles, or a recorded
+  measurement names a profile identity other than the current one: such a
+  measurement is inapplicable and the check fails until it is re-measured or
+  moved to the inapplicable list. No approval or runtime switch is involved.
 
 Limits of the check
 * Primitives are found by name and by the wrapper symbols the specification
@@ -67,9 +81,13 @@ Maintainer modes (the default run changes nothing)
 * `--print-scan` prints the fresh scan as JSON.
 * `--refresh` prints the specification with every derived table recomputed
   from the tree: scan tables, pinned-value carriers, type files, producer
-  facts, BN254 helper consumers, post-quantum call sites and legacy labels.
-  Classifications, roles and role assignments are never changed, so a new use
-  still fails until a maintainer classifies it.
+  facts, BN254 helper consumers, post-quantum call sites and legacy labels,
+  and the derived tables of the semantic profiles: the retained profile and
+  identity of each retained role and each workload's profile lists.
+  Classifications, roles, role assignments, frozen profiles and the identities
+  that measurements name are never changed, so a new use still fails until a
+  maintainer classifies it and a changed identity leaves its measurements
+  inapplicable.
 * `--refresh --write` writes that result over the specification file.
 * `--write-candidate-vectors` rewrites the candidate frame fixture from the
   specification, with all three digest columns recomputed here.
@@ -94,6 +112,7 @@ import zk_blake3_reference as blake3_reference  # noqa: E402
 import zk_bn254_poseidon_reference as poseidon_reference  # noqa: E402
 import zk_pq_kat_reference as pq_reference  # noqa: E402
 import zk_rust_lexical_index as rust_index  # noqa: E402
+import zk_semantic_profile_reference as profile_reference  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SPEC = "specs/zk_primitive_workloads.json"
@@ -863,7 +882,72 @@ def refreshed(spec: dict[str, Any], derived: dict[str, Any]) -> dict[str, Any]:
     result["post_quantum"]["call_sites"] = derived["pq_call_sites"]
     result["post_quantum"]["legacy_labels"]["files"] = derived["pq_legacy_label_files"]
     result["post_quantum"]["lock_packages"] = derived["pq_lock_packages"]
+    refresh_semantic_profiles(result)
     return result
+
+
+RETAINED_DECISIONS = ("retained-family", "standard-internal", "not-a-commitment")
+
+
+def refresh_semantic_profiles(spec: dict[str, Any]) -> None:
+    """Recompute the derived tables of the H.2 section in place.
+
+    A retained profile is rebuilt from its role record, and its identity with
+    it. A role without a disposition gets the retained disposition only when
+    its own record already says it is a retained family, a standard-internal
+    hash or not a commitment, and it does not use the unqualified six-lane
+    digest; any other new role still fails until a maintainer decides it. A
+    role that left the file loses its disposition and its retained profile.
+    Each workload's profile lists are recomputed. Frozen profiles, dispositions
+    that were decided and the identities measurements name are never changed,
+    so a changed identity leaves its measurements inapplicable.
+    """
+    section = spec.get("semantic_profiles")
+    if not isinstance(section, dict):
+        return
+    primitives = {primitive["id"]: primitive for primitive in spec["digest_primitives"]}
+    roles = {role["key"]: role for role in spec["digest_roles"]}
+    dispositions = section.setdefault("role_dispositions", {})
+    for key in [key for key in dispositions if key not in roles]:
+        del dispositions[key]
+    for key, role in roles.items():
+        if (
+            key not in dispositions
+            and role.get("canonical_native", {}).get("decision") in RETAINED_DECISIONS
+            and role["primitive"] != "digest384"
+            and role["family"] in PROFILE_KIND_OF_FAMILY
+        ):
+            dispositions[key] = {"disposition": "retained", "profiles": ["retained." + key]}
+    retained = []
+    for key, role in roles.items():
+        if dispositions.get(key, {}).get("disposition") != "retained":
+            continue
+        profile = {
+            "name": "retained." + key,
+            "kind": PROFILE_KIND_OF_FAMILY.get(role["family"], ""),
+            "status": "retained",
+            "identity": None,
+            "role": key,
+            "parameters": retained_parameters(role, primitives),
+        }
+        try:
+            profile["identity"] = profile_reference.identity_of(profile)
+        except profile_reference.ProfileError:
+            pass
+        retained.append(profile)
+    section["retained_profiles"] = retained
+    for workload in spec["workloads"].get("definitions", []):
+        names, pending = workload_profiles(spec, workload)
+        workload["profiles"] = names
+        if pending:
+            workload["profiles_not_frozen"] = pending
+        else:
+            workload.pop("profiles_not_frozen", None)
+        identity = workload_profile_set(spec, names)
+        if identity is None:
+            workload.pop("profile_set_identity", None)
+        else:
+            workload["profile_set_identity"] = identity
 
 
 # ---------------------------------------------------------------------------
@@ -1561,6 +1645,510 @@ def check_transcript(root: Path, spec: dict[str, Any], report: Report) -> None:
             )
 
 
+PROFILE_STATUSES = ("frozen", "retained")
+ROLE_DISPOSITIONS = ("frozen-profile", "retained", "blocked", "deferred", "retired-at-migration")
+NOT_FROZEN_STATUSES = ("blocked", "deferred", "retired-at-migration")
+DEFECT_DISPOSITIONS = (
+    "corrected",
+    "evidence-pending",
+    "frozen-as-implemented-and-relabelled",
+    "replaced-or-deferred",
+)
+REQUIRED_DEFECT_DISPOSITIONS = (
+    "BN254-POSEIDON-D1", "BN254-POSEIDON-D2", "BN254-POSEIDON-D3",
+    "PQ-D1", "PQ-D2", "PQ-D3", "SIX-LANE-NATIVE-ROLES",
+)  # fmt: skip
+PROFILE_KIND_OF_FAMILY = {
+    "native": "native-commitment",
+    "in-circuit": "in-circuit-digest",
+    "proof-internal": "transcript",
+    "kdf": "key-derivation",
+    "standard-internal": "standard-primitive",
+}
+# A profile is semantic data: none of these words is a parameter key token.
+EVIDENCE_METADATA_TOKENS = frozenset(
+    ("source", "build", "binary", "toolchain", "commit", "revision", "git", "measurement", "measured", "review", "qualification")
+)
+UNQUALIFIED_DIGEST = re.compile(r"digest384|six-lane", re.I)
+TEST_PATH = re.compile(r"backend::(?P<module>[a-z0-9_]+(?:::[a-z0-9_]+)*)::(?P<test>[a-z0-9_]+)\Z")
+TRANSCRIPT_ENGINE_DISPOSITIONS = ("frozen", "adopts-at-migration", "retired-at-migration", "conditional")
+
+
+def retained_parameters(role: dict[str, Any], primitives: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """The parameters of the identity derived from one retained role record."""
+
+    def parameter(key: str, kind: str, value: Any) -> dict[str, Any]:
+        return {"key": key, "type": kind, "value": value}
+
+    return [
+        parameter("profile_version", "u64", 1),
+        parameter("role", "text", role["key"]),
+        parameter("primitive", "text", role["primitive"]),
+        parameter("algorithm", "text", primitives[role["primitive"]]["algorithm"]),
+        parameter("output_bytes", "u64", role["output_bytes"]),
+        parameter("domain_separation", "text", role["domain_separation"]),
+    ]
+
+
+def workload_profiles(spec: dict[str, Any], workload: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """The frozen profiles and the pending selections one workload depends on."""
+    section = spec["semantic_profiles"]
+    dispositions = section["role_dispositions"]
+    names: list[str] = []
+    pending: list[str] = []
+    for role in workload.get("roles", []):
+        entry = dispositions.get(role, {})
+        for name in entry.get("profiles", []):
+            if name not in names:
+                names.append(name)
+        if "not_frozen" in entry and entry["not_frozen"] not in pending:
+            pending.append(entry["not_frozen"])
+    transcript = section["shared_transcript"]["profile"]
+    if workload.get("kind") == "shared-backend" and transcript not in names:
+        names.insert(0, transcript)
+    return names, pending
+
+
+def workload_profile_set(spec: dict[str, Any], names: Sequence[str]) -> Optional[str]:
+    """The one identity of a workload's ordered profiles, or `None` when it names none or an unknown one."""
+    section = spec["semantic_profiles"]
+    identities = {profile.get("name"): profile.get("identity") for profile in section.get("profiles", []) + section.get("retained_profiles", [])}
+    try:
+        return profile_reference.profile_set_identity([identities[name] for name in names]) if names else None
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def recorded_measurements(spec: dict[str, Any]) -> Iterator[tuple[str, list[str] | None, dict[str, Any]]]:
+    """Every recorded measurement with its owner and the profiles its workload names."""
+    workloads = {workload.get("id"): workload for workload in spec["workloads"].get("definitions", [])}
+    for measurement in spec["canonical_native_commitment"].get("exploratory_measurements", []):
+        workload = workloads.get(measurement.get("workload"))
+        yield f"measurement {measurement.get('id')}", None if workload is None else workload.get("profiles", []), measurement
+    for workload in workloads.values():
+        for measurement in workload.get("exploratory_measurements", []):
+            yield f"measurement {measurement.get('id')}", workload.get("profiles", []), measurement
+
+
+def check_semantic_profiles(root: Path, spec: dict[str, Any], report: Report) -> None:
+    """The H.2 selections: identities, dispositions, the frozen transcript and measurement binding."""
+    section = spec["semantic_profiles"]
+    report.require(section.get("task") == "H.2", "semantic profiles: the section belongs to H.2")
+    identity = section.get("identity", {})
+    frame = identity.get("frame", {})
+    report.require(
+        (frame.get("magic_ascii", "") + "\0").encode() == profile_reference.MAGIC,
+        "semantic profiles: the recorded frame magic differs from the reference",
+    )
+    report.require(frame.get("kinds") == list(profile_reference.KINDS), "semantic profiles: the kinds differ from the reference")
+    report.require(
+        frame.get("bounds")
+        == {
+            "parameters": profile_reference.MAX_PARAMETERS,
+            "label_bytes": profile_reference.MAX_LABEL_BYTES,
+            "value_bytes": profile_reference.MAX_VALUE_BYTES,
+        },
+        "semantic profiles: the frame bounds differ from the reference",
+    )
+    owner_text = ""
+    try:
+        owner_text = read_text(root, identity.get("rust_owner", {}).get("path", ""))
+    except OSError as error:
+        report.error(f"semantic profiles: Rust identity owner: {error}")
+    for name, value in (
+        ("SEMANTIC_PROFILE_MAX_PARAMETERS_V1", profile_reference.MAX_PARAMETERS),
+        ("SEMANTIC_PROFILE_MAX_LABEL_BYTES_V1", profile_reference.MAX_LABEL_BYTES),
+    ):
+        report.require(rust_usize_constant(owner_text, name) == value, f"semantic profiles: Rust constant {name} differs from the reference")
+    report.require(
+        'b"' + profile_reference.MAGIC[:-1].decode() + '\\0"' in owner_text,
+        "semantic profiles: the Rust owner does not carry the frame magic",
+    )
+    for kind in profile_reference.KINDS:
+        report.require(f'"{kind}"' in owner_text, f"semantic profiles: the Rust owner has no kind {kind!r}")
+    for site in (identity.get("rust_owner", {}),):
+        check_site(root, report, "semantic profile identity owner", site)
+    excluded = " ".join(identity.get("excluded_inputs", []))
+    for word in ("source", "build", "measurement", "caller"):
+        report.require(word in excluded, f"semantic profiles: excluded inputs do not name {word!r}")
+
+    primitives = {primitive["id"]: primitive for primitive in spec["digest_primitives"]}
+    roles = {role["key"]: role for role in spec["digest_roles"]}
+    profiles: dict[str, dict[str, Any]] = {}
+    for group, status in (("profiles", "frozen"), ("retained_profiles", "retained")):
+        for profile in section.get(group, []):
+            name = profile.get("name", "")
+            owner = f"profile {name}"
+            report.require(name not in profiles, f"{owner}: listed twice")
+            profiles[name] = profile
+            report.require(profile.get("status") == status, f"{owner}: status is not {status!r}")
+            try:
+                computed = profile_reference.identity_of(profile)
+            except (profile_reference.ProfileError, KeyError, TypeError) as error:
+                report.error(f"{owner}: not a canonical profile: {error}")
+                continue
+            report.require(
+                profile.get("identity") == computed,
+                f"{owner}: recorded identity {profile.get('identity')} differs from the identity {computed} of its parameters",
+            )
+            for parameter in profile.get("parameters", []):
+                tokens = set(re.split(r"[._-]", parameter.get("key", "")))
+                report.require(
+                    not tokens & EVIDENCE_METADATA_TOKENS,
+                    f"{owner}: parameter {parameter.get('key')!r} names evidence metadata; an identity holds semantic data only",
+                )
+            if status == "frozen":
+                text = json.dumps(profile.get("parameters", []))
+                report.require(
+                    not UNQUALIFIED_DIGEST.search(text) and not UNQUALIFIED_DIGEST.search(name),
+                    f"{owner}: a frozen profile names the unqualified six-lane digest",
+                )
+                report.require(
+                    "state" not in re.split(r"[._-]", name),
+                    f"{owner}: the State tree and hash are selected by G.3, not frozen here",
+                )
+                report.require(bool(profile.get("summary")) and bool(profile.get("implemented_by")), f"{owner}: summary or implementing task is missing")
+                site = profile.get("typed_owner")
+                if site is not None:
+                    check_site(root, report, owner, site)
+                else:
+                    report.require(bool(profile.get("typed_owner_pending")), f"{owner}: neither a typed owner nor its pending statement")
+                for anchor in profile.get("evidence_metadata", {}).get("anchors", []):
+                    try:
+                        report.require(anchor["contains"] in read_text(root, anchor["path"]), f"{owner}: anchor {anchor['contains']!r} is missing from {anchor['path']}")
+                    except OSError as error:
+                        report.error(f"{owner}: {error}")
+            else:
+                role = roles.get(profile.get("role"))
+                if role is None:
+                    report.error(f"{owner}: retained profile of an unknown role")
+                    continue
+                report.require(name == "retained." + role["key"], f"{owner}: name does not derive from its role")
+                report.require(profile.get("kind") == PROFILE_KIND_OF_FAMILY.get(role["family"]), f"{owner}: kind does not follow the role family")
+                report.require(
+                    profile.get("parameters") == retained_parameters(role, primitives),
+                    f"{owner}: parameters differ from the role record; a changed role is a new identity",
+                )
+
+    not_frozen = {entry.get("id"): entry for entry in section.get("not_frozen", [])}
+    for identifier, entry in not_frozen.items():
+        owner = f"not frozen {identifier}"
+        report.require(entry.get("status") in NOT_FROZEN_STATUSES, f"{owner}: unknown status")
+        for field in ("reason", "missing", "decided_by", "roles"):
+            report.require(bool(entry.get(field)), f"{owner}: `{field}` is missing")
+        report.require(identifier not in profiles, f"{owner}: also listed as a profile")
+
+    dispositions = section.get("role_dispositions", {})
+    report.require(set(dispositions) == set(roles), f"semantic profiles: role dispositions differ from the digest roles: {sorted(set(dispositions) ^ set(roles))}")
+    for key, entry in dispositions.items():
+        role = roles.get(key)
+        if role is None:
+            continue
+        owner = f"role disposition {key}"
+        disposition = entry.get("disposition")
+        report.require(disposition in ROLE_DISPOSITIONS, f"{owner}: unknown disposition {disposition!r}")
+        if disposition in ("frozen-profile", "retained"):
+            names = entry.get("profiles", [])
+            report.require(bool(names), f"{owner}: names no profile")
+            for name in names:
+                profile = profiles.get(name)
+                report.require(profile is not None, f"{owner}: unknown profile {name!r}")
+                if profile is not None:
+                    expected = "frozen" if disposition == "frozen-profile" else "retained"
+                    report.require(profile.get("status") == expected, f"{owner}: profile {name} is not {expected}")
+        else:
+            target = not_frozen.get(entry.get("not_frozen"))
+            report.require(target is not None and key in target.get("roles", []), f"{owner}: its not-frozen entry does not list it")
+            if target is not None:
+                report.require(target.get("status") == disposition, f"{owner}: disposition differs from its not-frozen entry")
+        if role["primitive"] == "digest384":
+            report.require(
+                disposition != "retained" and (disposition != "frozen-profile" or bool(entry.get("replaces"))),
+                f"{owner}: the unqualified six-lane digest is retained or frozen instead of replaced, deferred or blocked",
+            )
+        decision = role.get("canonical_native", {}).get("decision")
+        if decision == "changes-with-profile":
+            report.require(disposition == "frozen-profile", f"{owner}: a changing role has no frozen profile")
+            for field in ("required_property", "accepted_level"):
+                report.require(bool(entry.get(field)), f"{owner}: `{field}` of the selected native commitment is missing")
+        if decision == "provisional":
+            report.require(disposition == "deferred", f"{owner}: a provisional role must stay deferred")
+        if role["family"] == "native" and disposition == "frozen-profile" and role["primitive"] != "poseidon":
+            for field in ("required_property", "accepted_level"):
+                report.require(bool(entry.get(field)), f"{owner}: `{field}` is missing")
+
+    recorded = {entry.get("defect"): entry for entry in section.get("defect_dispositions", [])}
+    known_defects = {defect["id"] for defect in spec["bn254_poseidon"]["defects"]} | {finding["id"] for finding in spec["post_quantum"]["findings"]}
+    for identifier in REQUIRED_DEFECT_DISPOSITIONS:
+        report.require(identifier in recorded, f"semantic profiles: no disposition for defect {identifier}")
+    for identifier in known_defects:
+        report.require(identifier in recorded, f"semantic profiles: defect {identifier} of this file has no disposition")
+    for identifier, entry in recorded.items():
+        owner = f"defect disposition {identifier}"
+        report.require(entry.get("disposition") in DEFECT_DISPOSITIONS, f"{owner}: unknown disposition {entry.get('disposition')!r}")
+        for field in ("correction", "implemented_by", "vectors_required"):
+            report.require(bool(entry.get(field)), f"{owner}: `{field}` is missing")
+        named = list(entry.get("profiles", [])) + ([entry["profile"]] if entry.get("profile") else [])
+        for name in named:
+            report.require(profiles.get(name, {}).get("status") == "frozen", f"{owner}: {name!r} is not a frozen profile")
+        for role in entry.get("roles", {}):
+            report.require(role in roles, f"{owner}: unknown role {role!r}")
+
+    check_frozen_parameters(root, spec, profiles, report)
+    check_frozen_transcript(root, spec, profiles, report)
+    check_measurement_binding(spec, profiles, report)
+
+
+_GENERATED_TABLES: dict[tuple[int, int], tuple[list[list[int]], list[list[int]]]] = {}
+
+
+def generated_tables(width: int, partial: int) -> tuple[list[list[int]], list[list[int]]]:
+    """Regenerated BN254 Poseidon tables for one width and partial-round count, computed once."""
+    key = (width, partial)
+    if key not in _GENERATED_TABLES:
+        _GENERATED_TABLES[key] = poseidon_reference.generate_parameters(width, poseidon_reference.FULL_ROUNDS, partial)
+    return _GENERATED_TABLES[key]
+
+
+def check_frozen_parameters(root: Path, spec: dict[str, Any], profiles: dict[str, dict[str, Any]], report: Report) -> None:
+    """Frozen parameters agree with the records and generators they are taken from."""
+    del root
+    frame = spec["canonical_native_commitment"]["frame"]
+    native = profiles.get("native.commitment.blake3-256.frame-v1")
+    if native is None:
+        report.error("semantic profiles: the canonical native commitment profile is missing")
+    else:
+        values = profile_reference.parameter_map(native)
+        report.require(values.get("frame_version") == frame["version"], "native commitment profile: frame version differs from the frame")
+        report.require(values.get("frame_magic") == (frame["magic_ascii"].encode() + b"\0").hex(), "native commitment profile: frame magic differs from the frame")
+        layout = ";".join(
+            f"{entry['order']}:{entry['field']}:{entry['kind']}" + (f":tag={entry['tag']}" if "tag" in entry else "")
+            for entry in frame["layout"]
+        )
+        report.require(values.get("frame_layout") == layout, "native commitment profile: frame layout differs from the frame")
+        for key, value in frame["bounds"].items():
+            report.require(values.get(key) == value, f"native commitment profile: bound {key} differs from the frame")
+        report.require(values.get("output_bytes") == 32 and "BLAKE3" in values.get("algorithm", ""), "native commitment profile: not raw BLAKE3-256")
+    for name, width, partial in (("bn254.poseidon.x5-t3.v1", 3, 57), ("bn254.poseidon.x5-t6.v1", 6, 60)):
+        profile = profiles.get(name)
+        if profile is None:
+            report.error(f"semantic profiles: the corrected BN254 profile {name} is missing")
+            continue
+        values = profile_reference.parameter_map(profile)
+        owner = f"profile {name}"
+        report.require(
+            (values.get("width"), values.get("full_rounds"), values.get("partial_rounds")) == (width, poseidon_reference.FULL_ROUNDS, partial),
+            f"{owner}: width or round numbers differ from the frozen correction",
+        )
+        report.require(
+            values.get("partial_rounds") != poseidon_reference.REPOSITORY_PARTIAL_ROUNDS,
+            f"{owner}: the defective repository round count is frozen",
+        )
+        report.require(values.get("capacity") == 1 and values.get("rate") == width - 1, f"{owner}: the mode has no single capacity coordinate")
+        constants, mds = generated_tables(width, partial)
+        digest = hashlib.sha3_256()
+        for row in list(constants) + list(mds):
+            for value in row:
+                digest.update(value.to_bytes(32, "big"))
+        report.require(values.get("tables_sha3_256") == digest.hexdigest(), f"{owner}: table digest differs from the regenerated tables")
+        report.require(values.get("first_round_constant_be") == constants[0][0].to_bytes(32, "big").hex(), f"{owner}: first round constant differs")
+        report.require(values.get("round_constants") == len(constants) * width, f"{owner}: constant count differs")
+        report.require(values.get("field_modulus_be") == poseidon_reference.BN254_FR.to_bytes(32, "big").hex(), f"{owner}: modulus differs")
+        first = poseidon_reference.permute(list(range(width)), constants, mds)[0].to_bytes(32, "big").hex()
+        vector = values.get("vector_permutation_0_1_2_be" if width == 3 else "vector_permutation_0_to_5_be")
+        report.require(vector == first, f"{owner}: permutation vector differs from the regenerated permutation")
+        tag = (2 if width == 3 else 6) << 64  # the fixed-arity domain tag: arity * 2^64
+        modulus = poseidon_reference.BN254_FR
+        if width == 3:
+            report.require(
+                profile.get("checks", {}).get("permutation_0_1_2_coordinate_0_be") == first,
+                f"{owner}: the published width-3 reference vector is not reproduced",
+            )
+            hashed = poseidon_reference.permute([tag, 1, 2], constants, mds)[1]
+            report.require(values.get("vector_hash2_1_2_be") == hashed.to_bytes(32, "big").hex(), f"{owner}: corrected hash2 vector differs")
+            five = generated_tables(5, 60)
+            report.require(
+                profile.get("checks", {}).get("width_5_permutation_0_to_4_coordinate_0_be")
+                == poseidon_reference.permute(list(range(5)), *five)[0].to_bytes(32, "big").hex(),
+                f"{owner}: the published width-5 reference vector is not reproduced",
+            )
+        else:
+            state = poseidon_reference.permute([tag, 1, 2, 3, 4, 5], constants, mds)
+            state[1] = (state[1] + 6) % modulus
+            hashed = poseidon_reference.permute(state, constants, mds)[1]
+            report.require(values.get("vector_hash6_1_to_6_be") == hashed.to_bytes(32, "big").hex(), f"{owner}: corrected hash6 vector differs")
+    sets = {entry["id"]: entry for entry in spec["post_quantum"]["parameter_sets"]}
+    for name, prefix in (("pq.ml-kem.fips203.v1", "ml-kem"), ("pq.ml-dsa.fips204.v1", "ml-dsa")):
+        profile = profiles.get(name)
+        if profile is None:
+            report.error(f"semantic profiles: the post-quantum profile {name} is missing")
+            continue
+        values = profile_reference.parameter_map(profile)
+        for identifier, entry in sets.items():
+            if identifier.startswith(prefix):
+                report.require(
+                    values.get(identifier.replace("-", "_") + "_bytes") == list(entry["encoded_bytes"].values()),
+                    f"profile {name}: encoded sizes of {identifier} differ from the parameter set",
+                )
+        report.require("FIPS 20" in values.get("standard", ""), f"profile {name}: the standard is not named")
+    trapdoor = profiles.get("lantern.trapdoor.falcon512-derived.v1")
+    if trapdoor is None:
+        report.error("semantic profiles: the Lantern trapdoor profile is missing")
+    else:
+        labels = profile_reference.parameter_map(trapdoor).get("labels", "")
+        report.require("never-fn-dsa" in labels, "Lantern trapdoor profile: it may be labelled FN-DSA")
+
+
+def check_frozen_transcript(root: Path, spec: dict[str, Any], profiles: dict[str, dict[str, Any]], report: Report) -> None:
+    """The frozen shared backend transcript: profile, binding order, tests, goldens and engines."""
+    section = spec["semantic_profiles"]
+    shared = section.get("shared_transcript", {})
+    profile = profiles.get(shared.get("profile"))
+    if profile is None or profile.get("kind") != "transcript" or profile.get("status") != "frozen":
+        report.error("frozen transcript: the shared transcript names no frozen transcript profile")
+        return
+    values = profile_reference.parameter_map(profile)
+    report.require(values.get("construction") == shared.get("construction"), "frozen transcript: construction name differs from the profile")
+    grinding = shared.get("grinding", {})
+    report.require(grinding.get("bits") == values.get("grinding_bits"), "frozen transcript: grinding bits differ from the profile")
+    report.require(
+        (grinding.get("bits") == 0) == (grinding.get("nonce") == "none" and values.get("grinding_nonce") == "none"),
+        "frozen transcript: a zero-grinding profile has no nonce and a grinding profile binds one",
+    )
+    requirements = spec["shared_transcript_requirements"]["binding_order"]
+    order = shared.get("binding_order", [])
+    report.require([entry.get("order") for entry in order] == [entry["order"] for entry in requirements], "frozen transcript: binding order does not answer every requirement")
+    for entry in order:
+        owner = f"frozen transcript binding {entry.get('order')}"
+        report.require(bool(entry.get("bound")) and bool(entry.get("how")) and bool(entry.get("tests")), f"{owner}: `bound`, `how` or `tests` is missing")
+        for test in entry.get("tests", []):
+            match = TEST_PATH.match(test)
+            if match is None:
+                report.error(f"{owner}: test {test!r} is not a backend test path")
+                continue
+            path = "crates/fastpq_prover/src/backend/" + match["module"].replace("::", "/") + ".rs"
+            try:
+                report.require(f"fn {match['test']}(" in read_text(root, path), f"{owner}: test {match['test']} is missing from {path}")
+            except OSError as error:
+                report.error(f"{owner}: {error}")
+    statement = shared.get("security_statement", {})
+    for field in ("status", "claim_form", "commitments", "classical_rom", "qrom", "hiding", "algebraic_error", "invalidation"):
+        report.require(bool(statement.get(field)), f"frozen transcript: security statement `{field}` is missing")
+    report.require(statement.get("classical_rom", "").startswith("Conditional"), "frozen transcript: the classical random-oracle claim must stay conditional")
+    report.require(statement.get("qrom", "").startswith("Open"), "frozen transcript: the quantum random-oracle claim must stay open")
+    report.require("pending" in statement.get("status", ""), "frozen transcript: qualification must stay recorded as pending")
+    limits = shared.get("work_limits", {})
+    report.require(bool(limits.get("bound")) and bool(limits.get("not_bound")), "frozen transcript: the work-limit binding statement is missing")
+    answers = shared.get("known_answers", {})
+    try:
+        tracked = read_text(root, answers.get("fixture", ""))
+        report.require(
+            tracked == profile_reference.fixture_text(spec),
+            f"frozen transcript: {answers.get('fixture')} differs from the known answers the reference computes",
+        )
+    except (OSError, KeyError, profile_reference.Abort, profile_reference.ProfileError) as error:
+        report.error(f"frozen transcript: known answers: {error}")
+    goldens = shared.get("goldens", {})
+    for field in ("rust_test",):
+        site = answers.get(field, {})
+        try:
+            report.require(f"fn {site.get('test')}(" in read_text(root, site.get("path", "")), f"frozen transcript: test {site.get('test')} is missing")
+        except OSError as error:
+            report.error(f"frozen transcript: {error}")
+    pin = goldens.get("semantic_identity", {})
+    try:
+        text = read_text(root, pin.get("path", ""))
+        report.require(f"fn {pin.get('test')}(" in text, f"frozen transcript: golden test {pin.get('test')} is missing")
+        report.require(f'"{profile["identity"]}"' in text, "frozen transcript: the Rust golden does not pin the recorded identity")
+        for key in ("quantity_axt", "execution_effect"):
+            value = goldens.get("artifact_profile_ids", {}).get(key)
+            report.require(
+                isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None and f'"{value}"' in text,
+                f"frozen transcript: artifact profile id {key} is not pinned by the Rust golden",
+            )
+    except OSError as error:
+        report.error(f"frozen transcript: {error}")
+    for path in [goldens.get("descriptor_pin", "")] + list(goldens.get("proof_pins", [])):
+        report.require((root / path).is_file(), f"frozen transcript: golden {path!r} is missing")
+    try:
+        engines = {entry["id"] for entry in json.loads(read_text(root, spec["shared_transcript_requirements"]["engine_inventory"]))["engines"]}
+    except (OSError, ValueError, KeyError) as error:
+        report.error(f"frozen transcript: engine inventory: {error}")
+        engines = set()
+    listed = [entry.get("engine") for entry in shared.get("engines", [])]
+    report.require(set(listed) == engines and len(listed) == len(set(listed)), f"frozen transcript: engines {sorted(map(str, listed))} differ from the inventory {sorted(engines)}")
+    for entry in shared.get("engines", []):
+        owner = f"frozen transcript engine {entry.get('engine')}"
+        report.require(entry.get("disposition") in TRANSCRIPT_ENGINE_DISPOSITIONS, f"{owner}: unknown disposition")
+        report.require(bool(entry.get("owner_tasks")) and bool(entry.get("note")), f"{owner}: owner tasks or note is missing")
+    for site in (profile.get("typed_owner", {}), profile.get("public_accessor", {})):
+        check_site(root, report, "frozen transcript owner", site)
+    try:
+        owner_text = read_text(root, profile["typed_owner"]["path"])
+        report.require(f'"{values["construction"]}"' in owner_text and f'"{profile["name"]}"' in owner_text, "frozen transcript: the typed owner does not carry the construction and profile names")
+    except (OSError, KeyError) as error:
+        report.error(f"frozen transcript: typed owner: {error}")
+
+
+def check_measurement_binding(spec: dict[str, Any], profiles: dict[str, dict[str, Any]], report: Report) -> None:
+    """Workloads name their profiles; a measurement under another identity is inapplicable."""
+    section = spec["semantic_profiles"]
+    binding = section.get("measurement_binding", {})
+    for field in ("rule", "final_measurements", "harness_field", "no_reviewer_token"):
+        report.require(bool(binding.get(field)), f"measurement binding: `{field}` is missing")
+    for workload in spec["workloads"].get("definitions", []):
+        owner = f"workload {workload.get('id')}"
+        names, pending = workload_profiles(spec, workload)
+        report.require(workload.get("profiles") == names, f"{owner}: `profiles` differs from the profiles of its roles: {names}")
+        report.require(workload.get("profiles_not_frozen", []) == pending, f"{owner}: `profiles_not_frozen` differs from the pending selections of its roles: {pending}")
+        report.require(
+            workload.get("profile_set_identity") == workload_profile_set(spec, names),
+            f"{owner}: `profile_set_identity` differs from the identity of its ordered profiles",
+        )
+    for owner, allowed, measurement in recorded_measurements(spec):
+        identities = measurement.get("profile_identities")
+        if not isinstance(identities, dict):
+            report.error(f"{owner}: `profile_identities` is missing; a measurement names the identity of every profile it measured")
+            continue
+        if not identities:
+            report.require(
+                str(measurement.get("profile_binding", "")).startswith("none:"),
+                f"{owner}: names no profile identity and does not say why in `profile_binding`",
+            )
+            continue
+        for name, recorded in identities.items():
+            profile = profiles.get(name)
+            if profile is None:
+                report.error(f"{owner}: names the unknown profile {name!r}")
+                continue
+            report.require(allowed is None or name in allowed, f"{owner}: names profile {name} that its workload does not depend on")
+            report.require(
+                recorded == profile.get("identity"),
+                f"{owner}: inapplicable: it names identity {recorded} of profile {name}, whose identity is now {profile.get('identity')}; "
+                "re-measure it or move it to measurement_binding.inapplicable_measurements",
+            )
+    recorded_ids = {measurement.get("id") for _, _, measurement in recorded_measurements(spec)}
+    basis = section.get("exploratory_basis", [])
+    report.require(bool(basis), "semantic profiles: the exploratory basis of the selections is missing")
+    for entry in basis:
+        owner = f"exploratory basis of {entry.get('selection')}"
+        report.require(bool(entry.get("selection")) and bool(entry.get("use")), f"{owner}: `selection` or `use` is missing")
+        source = entry.get("measurement")
+        if source is not None:
+            report.require(
+                source in recorded_ids or source.startswith("specs/"),
+                f"{owner}: {source!r} is neither a recorded measurement nor a tracked record",
+            )
+    for measurement in binding.get("inapplicable_measurements", []):
+        owner = f"inapplicable measurement {measurement.get('id')}"
+        identities = measurement.get("profile_identities", {})
+        report.require(bool(identities), f"{owner}: names no profile identity")
+        report.require(
+            any(profiles.get(name, {}).get("identity") != recorded for name, recorded in identities.items()),
+            f"{owner}: every identity it names is current, so it is applicable and belongs with its workload",
+        )
+
+
 def check(
     root: Path,
     spec: dict[str, Any],
@@ -1579,7 +2167,7 @@ def check(
     for section in (
         "digest_primitives", "digest_roles", "consumers", "scan", "producer_ledger",
         "canonical_native_commitment", "bn254_poseidon", "post_quantum", "workloads",
-        "shared_transcript_requirements",
+        "shared_transcript_requirements", "semantic_profiles",
     ):  # fmt: skip
         if section not in spec:
             report.error(f"section `{section}` is missing")
@@ -1599,6 +2187,7 @@ def check(
     check_post_quantum(root, spec, derived, files, report)
     check_workloads(root, spec, report)
     check_transcript(root, spec, report)
+    check_semantic_profiles(root, spec, report)
     return report.errors
 
 

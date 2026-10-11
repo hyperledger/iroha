@@ -242,6 +242,10 @@ impl<'a> ManifestStateTypeNameV1<'a> {
         Self { source }
     }
     /// Count exact UTF-8 bytes without allocating a name or schema vector.
+    ///
+    /// # Errors
+    /// Returns length overflow, excessive depth, missing children or field names,
+    /// or a non-canonical state cursor key from the original native tree.
     pub fn byte_len(&self) -> Result<usize, Error> {
         let mut size = 0usize;
         self.visit(|text| {
@@ -251,6 +255,10 @@ impl<'a> ManifestStateTypeNameV1<'a> {
         Ok(size)
     }
     /// Stream the canonical spelling without constructing owned text.
+    ///
+    /// # Errors
+    /// Returns the original destination error or refuses an excessive, incomplete
+    /// or non-canonical native type tree. The destination may contain a prefix.
     pub fn write_raw(&self, writer: &mut dyn Write) -> Result<(), Error> {
         self.visit(|text| {
             writer.write_all(text.as_bytes())?;
@@ -258,6 +266,10 @@ impl<'a> ManifestStateTypeNameV1<'a> {
         })
     }
     /// Compare canonical spelling with an original manifest string without allocating.
+    ///
+    /// # Errors
+    /// Rejects an excessive, incomplete or non-canonical native type tree.
+    /// A different valid spelling is `Ok(false)`.
     pub fn same_text(&self, text: &str) -> Result<bool, Error> {
         let mut remaining = text.as_bytes();
         let mut same = true;
@@ -275,6 +287,10 @@ impl<'a> ManifestStateTypeNameV1<'a> {
     ///
     /// The context does not own the returned physical graph. The caller retains its original
     /// allocation owner through consumption or transfers that custody with the result.
+    ///
+    /// # Errors
+    /// Returns the original decode-budget or physical-allocation refusal, length
+    /// overflow, or an excessive, incomplete or non-canonical native type tree.
     pub fn materialize(&self, context: &DecodeBudgetContext) -> Result<String, Error> {
         context.with(|| {
             let len = self.byte_len()?;
@@ -470,6 +486,10 @@ pub enum ManifestTypeNameView<'a> {
 }
 impl ManifestTypeNameView<'_> {
     /// Compare this original spelling without constructing text.
+    ///
+    /// # Errors
+    /// Rejects an excessive, incomplete or non-canonical projected state tree.
+    /// A different valid spelling is `Ok(false)`.
     pub fn same_text(&self, text: &str) -> Result<bool, Error> {
         match self {
             Self::Text(original) => Ok(*original == text),
@@ -504,6 +524,10 @@ impl<'a> From<&'a StateDescriptor> for StateDescriptorView<'a> {
 }
 impl StateDescriptorView<'_> {
     /// Compare both signed fields without allocating a type name.
+    ///
+    /// # Errors
+    /// Rejects an excessive, incomplete or non-canonical projected state tree
+    /// when the source symbols match. Differing signed fields are `Ok(false)`.
     pub fn same_content(&self, state: &StateDescriptor) -> Result<bool, Error> {
         Ok(self.name == state.name && self.type_name.same_text(&state.type_name)?)
     }
@@ -671,6 +695,10 @@ impl ContractManifestSignaturePayloadView<'_> {
     ///
     /// Both passes borrow the same graph. The caller retains physical source/output custody;
     /// cumulative counters alone do not provide a release owner or capacity grant.
+    ///
+    /// # Errors
+    /// Returns the original native budget, allocation or serialization refusal,
+    /// rejects non-canonical alignment, or refuses a complete frame over the bound.
     pub fn to_bytes(
         &self,
         context: &DecodeBudgetContext,

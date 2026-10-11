@@ -5764,11 +5764,14 @@ mod tests {
             .expect("builder remains signable after rejected append");
         assert_eq!(
             signed
-                .attachments()
-                .expect("signed transaction retains attachments")
+                .proof_attachments_v1()
+                .expect("signed transaction retains its proof carriers")
                 .len(),
             iroha_data_model::proof::PROOF_ATTACHMENT_LIST_MAX_ATTACHMENTS_V1
         );
+        signed
+            .validate_signed_attachments_v1()
+            .expect("carriers are bound to the signed payload");
         signed.verify_signature().expect("signature remains valid");
         builder.clear_attachments();
         assert!(builder.attachments.is_none());
@@ -10621,6 +10624,12 @@ struct TransactionBuilder {
 }
 impl TransactionBuilder {
     fn try_add_proof_attachment(&mut self, attachment: ProofAttachment) -> PyResult<()> {
+        // Each staged attachment travels as one transaction-level proof
+        // carrier; refuse here what the signed attachment schema refuses.
+        iroha_data_model::transaction::signed_attachments::PlannedActionV1::transaction_proof(
+            &attachment,
+        )
+        .map_err(|error| PyValueError::new_err(format!("invalid proof attachment: {error}")))?;
         match &mut self.attachments {
             Some(attachments) => attachments.try_push(attachment),
             None => ProofAttachmentList::try_from(vec![attachment]).map(|attachments| {
@@ -10776,8 +10785,16 @@ impl TransactionBuilder {
             }));
         }
         builder = builder.with_metadata(self.metadata.clone());
-        if let Some(attachments) = self.attachments.clone() {
-            builder = builder.with_attachments(attachments);
+        if let Some(attachments) = &self.attachments {
+            // Staging validated every attachment and the list bounds are below
+            // the signed attachment bounds, so the plan is complete. The
+            // statement digests are bound to the payload here and admission
+            // validates the result again.
+            let plan = iroha_data_model::transaction::SignedAttachmentPlanV1::transaction_proofs(
+                attachments.as_slice(),
+            )
+            .expect("staged proof attachments were validated when they were added");
+            builder = builder.with_signed_attachments(plan.declare());
         }
         builder
     }
@@ -11633,17 +11650,23 @@ impl SignedTransactionEnvelope {
             .map_err(|err| {
                 PyValueError::new_err(format!("failed to decode signed transaction: {err}"))
             })?;
-        match signed.attachments() {
-            Some(list) => {
-                let value = norito::json::to_value(list).map_err(|err| {
-                    PyValueError::new_err(format!("failed to serialize attachments: {err}"))
-                })?;
-                norito::json::to_string(&value).map(Some).map_err(|err| {
-                    PyValueError::new_err(format!("failed to serialize attachments: {err}"))
-                })
-            }
-            None => Ok(None),
+        if signed.attachments().is_none() {
+            return Ok(None);
         }
+        // The wrapped proof attachments of the transaction-level carriers, as
+        // the bounded proof attachment list this boundary has always returned.
+        let carriers = signed.proof_attachments_v1().map_err(|err| {
+            PyValueError::new_err(format!("failed to decode proof attachments: {err}"))
+        })?;
+        let list = ProofAttachmentList::try_from(carriers).map_err(|err| {
+            PyValueError::new_err(format!("failed to serialize attachments: {err}"))
+        })?;
+        let value = norito::json::to_value(&list).map_err(|err| {
+            PyValueError::new_err(format!("failed to serialize attachments: {err}"))
+        })?;
+        norito::json::to_string(&value)
+            .map(Some)
+            .map_err(|err| PyValueError::new_err(format!("failed to serialize attachments: {err}")))
     }
     /// Return a JSON string representation with base64-encoded binary fields.
     fn to_json(&self) -> PyResult<String> {

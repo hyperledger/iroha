@@ -520,7 +520,8 @@ def test_ram_lfe_budgets_are_derived_and_open_ones_carry_no_number() -> None:
 def test_open_items_are_reconciled_when_their_task_is_implemented() -> None:
     assert_fails(CONTRACT, "task X.2 is recorded implemented", {**TASKS, "X.2": "implemented"})
     assert_fails(CONTRACT, "task F.4 is recorded implemented", {**TASKS, "F.4": "implemented"})
-    assert_fails(CONTRACT, "task I.1 is recorded implemented", {**TASKS, "I.1": "implemented"})
+    # I.1 implemented its declared design: nothing of it is open any more.
+    assert problems(CONTRACT, {**TASKS, "I.1": "implemented"}) == []
     assert_fails(CONTRACT, "task C.3 is recorded implemented", {**TASKS, "C.3": "implemented"})
     # A status that is not `implemented` keeps the open items valid.
     assert problems(CONTRACT, {**TASKS, "X.2": "in_progress"}) == []
@@ -529,7 +530,6 @@ def test_open_items_are_reconciled_when_their_task_is_implemented() -> None:
 def test_declared_items_are_not_yet_implemented_and_state_their_requirements() -> None:
     owners = {item["id"]: item["open"]["owner"] for item in CONTRACT["declared"]}
     assert owners == {
-        "attachment.signed_inline_occurrences": "I.1",
         "transaction.structured_size_refusal": "S.1",
         "vm_handles.invocation_scoped_attachment_handles": "I.2",
         "work_budget.unified_deterministic_charge": "I.4",
@@ -979,8 +979,9 @@ def test_a_site_that_only_repeats_the_definition_is_rejected() -> None:
     def signature(contract: dict) -> None:
         # The rule covers every record with sites, not only bounds.
         declared = next(
-            item for item in contract["declared"] if item["id"] == "attachment.signed_inline_occurrences"
+            item for item in contract["declared"] if item["id"] == "transaction.structured_size_refusal"
         )
+        declared["enforcement"][0]["path"] = "crates/iroha_data_model/src/proof.rs"
         declared["enforcement"][0]["contains"] = (
             "pub fn structural_error(&self) -> Option<(&'static str, &'static str)> {"
         )
@@ -1289,7 +1290,8 @@ def test_every_limit_in_an_owner_file_is_listed_or_excluded() -> None:
     """The inventory cannot silently omit a limit an owner file or directory defines."""
     section = CONTRACT["completeness"]
     scopes = CHECKER["expand_scopes"](ROOT, section, [])
-    scanned = {scope["path"] for scope in scopes}
+    # A bound of another crate is scanned in the source the compared code imports it from.
+    scanned = {scope["path"] for scope in CHECKER["import_scopes"](ROOT, scopes)}
     for item in CONTRACT["bounds"]:
         if item["owner"]["kind"] == "const":
             assert item["owner"]["path"] in scanned, item["id"]
@@ -2294,24 +2296,66 @@ def test_derived_bounds_are_recomputed_and_join_the_relations() -> None:
     assert_fails(edited(clash), "the id is already a bound")
 
 
-def test_attachment_list_bounds_and_their_open_relation() -> None:
-    frame = bound(CONTRACT, "attachment.list_max_canonical_frame_bytes")
-    assert (frame["value"], frame["class"]) == (8 * MIB, "consensus")
-    assert bound(CONTRACT, "attachment.list_max_attachments")["value"] == 16
-    assert frame["value"] < bound(CONTRACT, "x509.max_proof_bytes")["value"]
+def test_signed_attachment_bounds_hold_a_ceiling_proof() -> None:
+    """I.1: a ceiling-sized proof is one signed attachment occurrence within the transaction cap."""
+    ceiling = bound(CONTRACT, "x509.max_proof_bytes")["value"]
+    occurrence = bound(CONTRACT, "attachment.occurrence_max_bytes")
+    frame = bound(CONTRACT, "attachment.signed_frame_max_bytes")
+    assert (occurrence["value"], occurrence["class"]) == (ceiling, "consensus")
+    assert (frame["value"], frame["class"]) == (ceiling + 64 * 1024, "consensus")
+    assert frame["value"] <= bound(CONTRACT, "transaction.max_tx_bytes")["value"]
+    assert bound(CONTRACT, "attachment.max_occurrences")["value"] == 16
+    assert bound(CONTRACT, "attachment.max_actions")["value"] == 16
     carried = relation(CONTRACT, "attachment_list_frame_holds_a_ceiling_proof")
-    assert carried["expect"] == {"today": "violated", "x2_target": "violated"}
-    assert carried["open"]["owner"] == "I.1"
-    declared = next(
-        item for item in CONTRACT["declared"] if item["id"] == "attachment.signed_inline_occurrences"
-    )
-    assert "8 MiB" in declared["today"] and "attachment.list_max_attachments" in declared["today"]
-    assert "attachment_list_frame_holds_a_ceiling_proof" in declared["relations"]
+    assert carried["expect"] == {"today": "holds", "x2_target": "holds"}
+    assert "open" not in carried and carried["tests"]
+    # The design is implemented: bounds with owners, no declared item.
+    assert all(item["id"] != "attachment.signed_inline_occurrences" for item in CONTRACT["declared"])
+    for identifier in (
+        "attachment.occurrence_max_bytes",
+        "attachment.max_occurrences",
+        "attachment.max_actions",
+        "attachment.signed_frame_max_bytes",
+        "attachment.invocation_max_call_path_depth",
+        "attachment.operation_max_wire_id_bytes",
+    ):
+        item = bound(CONTRACT, identifier)
+        assert item["owner"]["path"].endswith("transaction/signed_attachments.rs"), identifier
+        assert item["tests"] and "test_gap" not in item, identifier
+        assert {site["stage"] for site in item["enforcement"]} >= {"sdk", "queue"}, identifier
 
-    def claimed(contract: dict) -> None:
-        relation(contract, "attachment_list_frame_holds_a_ceiling_proof")["expect"]["today"] = "holds"
+    def shrunk(contract: dict) -> None:
+        relation(contract, "attachment_list_frame_holds_a_ceiling_proof")["expect"]["today"] = "violated"
 
-    assert_fails(edited(claimed), "violated under `today`; the contract records holds")
+    assert_fails(edited(shrunk), "holds under `today`; the contract records violated")
+
+    def two_ceilings(contract: dict) -> None:
+        relation(contract, "attachment_frame_is_one_ceiling_occurrence_plus_allowance")["expr"] = (
+            "attachment.signed_frame_max_bytes - attachment.occurrence_max_bytes == 9437184"
+        )
+
+    assert_fails(edited(two_ceilings), "violated under `today`; the contract records holds")
+
+
+def test_proof_attachment_list_is_a_local_bound_outside_the_signed_transaction() -> None:
+    """The former transaction field remains the prover API body and SDK staging list."""
+    frame = bound(CONTRACT, "attachment.list_max_canonical_frame_bytes")
+    count = bound(CONTRACT, "attachment.list_max_attachments")
+    assert (frame["value"], count["value"]) == (8 * MIB, 16)
+    for item in (frame, count):
+        assert (item["class"], item["validity"], item["on_exhaustion"]) == (
+            "local_defer",
+            False,
+            "local_refusal",
+        )
+        assert relation(CONTRACT, item["guarded_by"])["expect"]["today"] == "holds"
+        assert all(site["path"] != "crates/iroha_core/src/tx.rs" for site in item["enforcement"])
+    assert frame["value"] < bound(CONTRACT, "attachment.signed_frame_max_bytes")["value"]
+
+    def unguarded(contract: dict) -> None:
+        del bound(contract, "attachment.list_max_canonical_frame_bytes")["guarded_by"]
+
+    assert_fails(edited(unguarded), "a locally refusing bound names its relation in `guarded_by`")
 
 
 def test_ram_lfe_budgets_cover_the_full_workload() -> None:
@@ -3977,7 +4021,8 @@ def test_changing_a_compared_limit_or_a_literal_in_memory_fails_the_checker() ->
 def test_every_compared_limit_and_literal_of_the_path_crates_is_classified() -> None:
     """The enumeration by use is whole, like the one by name: nothing is left unrecorded."""
     section = CONTRACT["completeness"]
-    scopes = CHECKER["expand_scopes"](ROOT, section, [])
+    # With the sources that only an import of the compared code brings in.
+    scopes = CHECKER["import_scopes"](ROOT, CHECKER["expand_scopes"](ROOT, section, []))
     compared = CHECKER["compared_symbols"](ROOT, scopes)
     listed = {
         (item["owner"]["path"], item["owner"]["symbol"])
@@ -4341,20 +4386,34 @@ def test_every_term_of_the_path_crates_is_pinned_with_the_limits_it_is_part_of()
         for symbol, part_of in holder.get("term_of", {}).items()
     }
     named: dict = {}
-    for scope in scopes:
+    # A term may lie in a source of another crate: one the compared code imports from.
+    imported = CHECKER["imported_constants"](ROOT, scopes)
+    for scope in CHECKER["import_scopes"](ROOT, scopes):
         if not scope.get("module"):
-            named[scope["path"]] = set(
-                CHECKER["scope_symbols"](CHECKER["_read"](ROOT, scope["path"], "test"), scope, "test")
+            named[scope["path"]] = (
+                set()
+                if scope.get("imported")
+                else set(
+                    CHECKER["scope_symbols"](
+                        CHECKER["_read"](ROOT, scope["path"], "test"), scope, "test"
+                    )
+                )
             )
     excluded_terms = {}
+    outside = 0
     for path, by_term in terms.items():
-        assert any(path.startswith(crate + "/") for crate in PATH_CRATES), path
+        if not any(path.startswith(crate + "/") for crate in PATH_CRATES):
+            assert set(by_term) <= set(imported[path]), path
+            outside += len(by_term)
         for term, part_of in by_term.items():
             assert part_of, (path, term)
             if term in named[path]:
                 # A scope with its own `matching` pattern already scans it by name.
                 continue
             key = (path, term)
+            if key in in_modules and key not in holders:
+                # A scope of a module of the file classifies it and pins its expression.
+                continue
             assert key in listed or key in holders, key
             if key in holders:
                 excluded_terms[key] = part_of
@@ -4365,6 +4424,13 @@ def test_every_term_of_the_path_crates_is_pinned_with_the_limits_it_is_part_of()
     # The contract records exactly these lists, and only for terms.
     assert recorded == excluded_terms
     assert len(excluded_terms) >= 40, len(excluded_terms)
+    # Terms are followed into the other crates of the workspace.
+    assert outside >= 30, outside
+    assert terms["crates/iroha_primitives/src/json.rs"]["MAX_JSON_BYTES"] == [
+        "crates/iroha_core/src/compliance/mod.rs: LANE_COMPLIANCE_POLICY_MAX_FIELD_BYTES",
+        "crates/iroha_data_model/src/nexus/runtime_catalog.rs: MAX_NEXUS_RUNTIME_CATALOG_BYTES",
+    ]
+    assert bound(CONTRACT, "transaction.json_document_max_bytes")["owner"]["symbol"] == "MAX_JSON_BYTES"
     # The reason of a term's group says what a term is; no other group holds one.
     for key in excluded_terms:
         assert holders[key][1].startswith("Terms of excluded limits"), key
@@ -5712,3 +5778,401 @@ def test_every_receiver_of_a_cap_in_the_path_crates_is_read() -> None:
     by_use = CHECKER["compared_symbols"](ROOT, scopes)
     for path, symbol in _RECEIVER_CONSTANTS:
         assert symbol in by_use[path] and (path, symbol) in excluded | listed, (path, symbol)
+
+
+def _imports_demo(tmp_path: Path) -> dict:
+    """A scratch workspace: one compared crate and the crates around it.
+
+    `user` is compared. It depends on `shape` (which depends on `deep`) and, under
+    another key, on the package `renamed`; `stranger` is a member nobody depends on.
+    """
+    (tmp_path / "Cargo.toml").write_text('[workspace]\nmembers = [\n    "crates/*",\n]\n', encoding="utf-8")
+    crates = {
+        "user": (
+            '[package]\nname = "user"\nversion = "0.0.0"\n\n[dependencies]\n'
+            'shape = { path = "../shape" }\n'
+            'other = { package = "renamed",\n    path = "../renamed_dir" }\n\n'
+            '[dev-dependencies]\nstranger = { path = "../stranger" }\n',
+            {
+                "lib.rs": (
+                    "use shape::{FRAME_ROWS, Shape, wire::MAX_WIRE_BYTES as WIRE_CAP};\n"
+                    "pub const MAX_USER_ROWS: usize = shape::BASE_ROWS * 2;\n"
+                    "pub fn fits(n: usize) -> bool {\n"
+                    "    n <= FRAME_ROWS\n"
+                    "        && n < WIRE_CAP\n"
+                    "        && n > Shape::SIZE\n"
+                    "        && n < other::RENAMED_ROWS\n"
+                    "        && n < DEEP_ROWS\n"
+                    "        && n < HIDDEN_ROWS\n"
+                    "        && n < UNRELATED_ROWS\n"
+                    "        && n < TEST_ONLY_ROWS\n"
+                    "        && n < u64::MAX as usize\n"
+                    "}\n"
+                ),
+            },
+        ),
+        "shape": (
+            '[package]\nname = "shape"\nversion = "0.0.0"\n\n[dependencies.deep]\npath = "../deep"\n',
+            {
+                "lib.rs": (
+                    "pub mod wire;\n#[cfg(test)]\nmod checks;\n"
+                    "pub const FRAME_ROWS: usize = PART * 4;\n"
+                    "const PART: usize = 8;\n"
+                    "pub const BASE_ROWS: usize = 10;\n"
+                    "pub(crate) const HIDDEN_ROWS: usize = 3;\n"
+                    "pub struct Shape;\nimpl Shape {\n    pub const SIZE: usize = 2;\n}\n"
+                    "#[cfg(test)]\nmod tests {\n    pub const UNRELATED_ROWS: usize = 1;\n}\n"
+                ),
+                "wire.rs": "pub const MAX_WIRE_BYTES: usize = deep::DEPTH_BOUND + 1;\n",
+                # Compiled only in test builds: no production constant.
+                "checks.rs": "pub const TEST_ONLY_ROWS: usize = 9;\n",
+                # The root of a binary target: no other crate names its items.
+                "main.rs": "pub const TEST_ONLY_ROWS: usize = 9;\nfn main() {}\n",
+            },
+        ),
+        "deep": (
+            '[package]\nname = "deep"\nversion = "0.0.0"\n',
+            {"lib.rs": "pub const DEPTH_BOUND: usize = 5;\npub const DEEP_ROWS: usize = 11;\n"},
+        ),
+        "renamed_dir": (
+            '[package]\nname = "renamed"\nversion = "0.0.0"\n',
+            {"lib.rs": "pub const RENAMED_ROWS: usize = 6;\n"},
+        ),
+        "stranger": (
+            '[package]\nname = "stranger"\nversion = "0.0.0"\n',
+            {"lib.rs": "pub const UNRELATED_ROWS: usize = 7;\npub const FRAME_ROWS: usize = 99;\n"},
+        ),
+    }
+    for name, (manifest, files) in crates.items():
+        crate = tmp_path / "crates" / name
+        (crate / "src").mkdir(parents=True, exist_ok=True)
+        (crate / "Cargo.toml").write_text(manifest, encoding="utf-8")
+        for file, text in files.items():
+            (crate / "src" / file).write_text(text, encoding="utf-8")
+    return {
+        "bounds": [],
+        "completeness": {
+            "scopes": [{"tree": "crates/user/src", "kind": "const", "comparisons": True}],
+            "excluded": [],
+            "literals": {"why": "0 and 1 test presence", "minimum": 2, "groups": []},
+        },
+    }
+
+
+def test_a_compared_constant_of_another_crate_is_classified(tmp_path: Path) -> None:
+    """A constant the compared code imports is scanned where another crate defines it."""
+    assert CHECKER["plain_names"](
+        "n <= FRAME_ROWS && n < shape::wire::MAX_WIRE_BYTES && n > Header::SIZE "
+        "&& n < u64::MAX && n < Self::ROWS && n < <T as Shape>::LIMIT && n < crate::a::B_C"
+    ) == {"FRAME_ROWS", "MAX_WIRE_BYTES", "B_C", "T"}
+    assert CHECKER["manifest_dependencies"](
+        '[package]\nname = "x"\n[dependencies]\na = "1"\nb = { workspace = true }\n'
+        'c-d = { package = "real_c", path = "../c" }\ne = { version = "1",\n  features = ["x",\n   "y"] }\n'
+        "f.workspace = true\n[target.'cfg(unix)'.dependencies]\ng = { path = \"../g\" }\n"
+        '[dev-dependencies]\nh = "1"\n[dependencies.i]\npackage = "real_i"\n[build-dependencies]\nj = "1"\n'
+    ) == {"a": "a", "b": "b", "c-d": "real_c", "e": "e", "f": "f", "g": "g", "i": "real_i"}
+    contract = _imports_demo(tmp_path)
+    section = contract["completeness"]
+    shape, wire, deep, renamed = (
+        f"crates/{name}/src/{file}.rs"
+        for name, file in (("shape", "lib"), ("shape", "wire"), ("deep", "lib"), ("renamed_dir", "lib"))
+    )
+    scopes = CHECKER["expand_scopes"](tmp_path, section, [])
+    assert [scope["path"] for scope in scopes] == ["crates/user/src/lib.rs"]
+    # By dependency, directly or through another crate, under the package a key renames,
+    # and under the name a `use` of the comparing file gives the constant (`WIRE_CAP`).
+    # `BASE_ROWS` is compared nowhere: the expression of a limit of the compared crate
+    # names it.
+    # Not: an associated constant (`Shape::SIZE`, `u64::MAX`), a restricted item
+    # (`pub(crate)`), an item of a test module or of a test-only file, the root of a
+    # binary, and a member the crate does not depend on outside its tests.
+    user = "crates/user/src/lib.rs"
+    imported = {
+        shape: ["FRAME_ROWS", "PART", "BASE_ROWS"],
+        wire: ["MAX_WIRE_BYTES"],
+        deep: ["DEPTH_BOUND", "DEEP_ROWS"],
+        renamed: ["RENAMED_ROWS"],
+    }
+    assert CHECKER["imported_constants"](tmp_path, scopes) == imported
+    assert CHECKER["compared_symbols"](tmp_path, scopes) == {user: [], **imported}
+    # A term of an imported constant is resolved from its own source: in its file, else
+    # in its crate, else in the crates that crate depends on.
+    assert CHECKER["limit_terms"](tmp_path, scopes) == {
+        shape: {"PART": [f"{shape}: FRAME_ROWS"], "BASE_ROWS": [f"{user}: MAX_USER_ROWS"]},
+        deep: {"DEPTH_BOUND": [f"{wire}: MAX_WIRE_BYTES"]},
+    }
+    extended = CHECKER["import_scopes"](tmp_path, scopes)
+    assert [(scope["path"], scope.get("imported")) for scope in extended[1:]] == [
+        (path, True) for path in sorted(imported)
+    ]
+    assert CHECKER["import_scopes"](tmp_path, extended) == extended
+    found: list = []
+    unlisted: list = []
+    CHECKER["check_completeness"](tmp_path, contract, found, False, None, unlisted)
+    unclassified = [(user, "MAX_USER_ROWS")] + [
+        (path, symbol) for path, symbols in imported.items() for symbol in symbols
+    ]
+    assert sorted(found) == sorted(
+        f"completeness {path}: `{symbol}` is neither a listed bound nor excluded with a reason"
+        for path, symbol in unclassified
+    )
+    assert sorted((scope["path"], symbol) for scope, symbol in unlisted) == sorted(unclassified)
+    # Classified: one as a bound, the others excluded; --refresh pins the expressions.
+    contract["bounds"] = [
+        {
+            "id": "queue.renamed_rows",
+            "group": "queue",
+            "what": "x",
+            "unit": "count",
+            "value": 6,
+            "source": "constant",
+            "class": "consensus",
+            "owner": {"path": renamed, "symbol": "RENAMED_ROWS", "kind": "const", "expr": "6"},
+            "enforcement": [],
+        }
+    ]
+    section["excluded"] = [
+        {
+            "reason": "demo imports",
+            "files": [
+                {"path": user, "symbols": ["MAX_USER_ROWS"]},
+                {"path": shape, "symbols": ["FRAME_ROWS", "PART", "BASE_ROWS"]},
+                {"path": wire, "symbols": ["MAX_WIRE_BYTES"]},
+                {"path": deep, "symbols": ["DEPTH_BOUND", "DEEP_ROWS"]},
+            ],
+        }
+    ]
+    found = []
+    CHECKER["check_completeness"](tmp_path, contract, found, True, [])
+    assert found == []
+    holders = {holder["path"]: holder for holder in section["excluded"][0]["files"]}
+    assert holders[shape]["exprs"] == {"FRAME_ROWS": "PART * 4", "PART": "8", "BASE_ROWS": "10"}
+    assert holders[shape]["term_of"] == {
+        "PART": [f"{shape}: FRAME_ROWS"],
+        "BASE_ROWS": [f"{user}: MAX_USER_ROWS"],
+    }
+    assert holders[user]["exprs"] == {"MAX_USER_ROWS": "shape::BASE_ROWS * 2"}
+    assert holders[wire]["exprs"] == {"MAX_WIRE_BYTES": "deep::DEPTH_BOUND + 1"}
+    assert holders[deep]["term_of"] == {"DEPTH_BOUND": [f"{wire}: MAX_WIRE_BYTES"]}
+    assert "term_of" not in holders[wire]
+    found = []
+    CHECKER["check_completeness"](tmp_path, contract, found)
+    assert found == []
+    # A changed value of an imported constant is a changed pinned expression.
+    for path, symbol, text, changed in (
+        (deep, "DEPTH_BOUND", "usize = 5;", "usize = 6;"),
+        (deep, "DEEP_ROWS", "usize = 11;", "usize = 12;"),
+        (shape, "PART", "usize = 8;", "usize = 9;"),
+        (shape, "BASE_ROWS", "usize = 10;", "usize = 11;"),
+        (wire, "MAX_WIRE_BYTES", "+ 1;", "+ 2;"),
+    ):
+        source = (tmp_path / path).read_text(encoding="utf-8")
+        CHECKER["_OVERRIDES"][path] = source.replace(text, changed)
+        try:
+            found = []
+            CHECKER["check_completeness"](tmp_path, contract, found)
+        finally:
+            del CHECKER["_OVERRIDES"][path]
+        assert len(found) == 1 and f"the excluded limit `{symbol}` is now" in found[0], found
+    # A listed bound of another crate reports its changed value.
+    CHECKER["_OVERRIDES"][renamed] = "pub const RENAMED_ROWS: usize = 60;\n"
+    try:
+        found = []
+        CHECKER["verify_bounds"](tmp_path, contract, found)
+    finally:
+        del CHECKER["_OVERRIDES"][renamed]
+    assert len(found) == 1 and "queue.renamed_rows" in found[0] and "`RENAMED_ROWS`" in found[0], found
+    # The sweep changes every imported constant and each change is reported.
+    changed, survivors, constant_only = CHECKER["mutation_sweep"](
+        tmp_path, contract, ("crates/shape/", "crates/deep/", "crates/renamed_dir/")
+    )
+    assert (changed, survivors, constant_only) == (7, [], []), (changed, survivors, constant_only)
+    # An imported scope scans the imported constants only: a bound on another constant
+    # of the file still needs a scope of its own.
+    stray = copy.deepcopy(contract)
+    stray["bounds"].append(
+        {"id": "queue.hidden", "owner": {"path": shape, "symbol": "HIDDEN_ROWS", "kind": "const"}, "enforcement": []}
+    )
+    found = []
+    CHECKER["check_completeness"](tmp_path, stray, found)
+    assert found == [f"queue.hidden: its owner in {shape} is outside every completeness scope"]
+    # A new definition in a crate the compared crate depends on is found in memory too.
+    CHECKER["_OVERRIDES"][deep] = (
+        "pub const DEPTH_BOUND: usize = 5;\npub const DEEP_ROWS: usize = 11;\n"
+        "pub const UNRELATED_ROWS: usize = 4;\n"
+    )
+    try:
+        found = []
+        CHECKER["check_completeness"](tmp_path, contract, found)
+    finally:
+        del CHECKER["_OVERRIDES"][deep]
+    assert found == [
+        f"completeness {deep}: `UNRELATED_ROWS` is neither a listed bound nor excluded with a reason"
+    ]
+    # Without the dependency nothing of that crate is read.
+    manifest = tmp_path / "crates" / "user" / "Cargo.toml"
+    manifest.write_text('[package]\nname = "user"\nversion = "0.0.0"\n', encoding="utf-8")
+    assert CHECKER["imported_constants"](tmp_path, CHECKER["expand_scopes"](tmp_path, section, [])) == {}
+    assert CHECKER["_OVERRIDES"] == {}
+
+
+def test_every_constant_the_path_crates_import_is_classified() -> None:
+    """The enumeration starts from the names the scan reads, wherever they are defined."""
+    section = CONTRACT["completeness"]
+    scopes = CHECKER["expand_scopes"](ROOT, section, [])
+    imported = CHECKER["imported_constants"](ROOT, scopes)
+    compared = set(CHECKER["literal_scopes"](scopes))
+    assert imported and not set(imported) & compared
+    listed = {
+        (item["owner"]["path"], item["owner"]["symbol"])
+        for item in CONTRACT["bounds"]
+        if item["owner"]["kind"] == "const"
+    }
+    excluded = {
+        (holder["path"], symbol)
+        for group in section["excluded"]
+        for holder in (group["files"] if "files" in group else [group])
+        for symbol in holder["symbols"]
+    }
+    count = 0
+    for path, symbols in imported.items():
+        for symbol in symbols:
+            count += 1
+            assert (path, symbol) in listed or (path, symbol) in excluded, (path, symbol)
+    crates = {"/".join(path.split("/")[:2]) for path in imported}
+    assert count >= 100 and len(crates) >= 15, (count, sorted(crates))
+    # An independent reading: every `pub` integer constant of another crate whose name a
+    # compared source writes plainly, taken from the scan's own `plain` names and found by
+    # a walk of the dependency crates that uses no code of the resolver.
+    workspace = CHECKER["_workspace"](ROOT)
+    plain: dict = {}
+    for path in compared:
+        scan = CHECKER["comparison_scan"](CHECKER["_read"](ROOT, path, "test"))
+        plain.setdefault("/".join(path.split("/")[:2]), set()).update(scan["plain"] - scan["items"])
+    definition = re.compile(
+        r"^[ \t]*pub[ \t]+(?:const|static)[ \t]+([A-Z][A-Z0-9_]*)[ \t]*:[ \t]*(?:[ui](?:8|16|32|64|128|size))\b",
+        re.MULTILINE,
+    )
+    expected = set()
+    for crate, names in plain.items():
+        for member in workspace.closure(crate):
+            for file in sorted((ROOT / member / "src").rglob("*.rs")):
+                relative = file.relative_to(ROOT).as_posix()
+                inner = relative[len(member) + len("/src/") :]
+                if relative in compared or inner == "main.rs" or inner.startswith("bin/"):
+                    continue
+                text = file.read_text(encoding="utf-8")
+                for name in set(definition.findall(text)) & names:
+                    expected.add((relative, name))
+    found = {(path, symbol) for path, symbols in imported.items() for symbol in symbols}
+    # The walk reads raw text: a definition inside a test module or a test-only file is
+    # no production constant and is the only thing it may see beyond the resolver.
+    for path, symbol in expected - found:
+        source = CHECKER["_read"](ROOT, path, "test")
+        assert (
+            symbol not in CHECKER["comparison_scan"](source)["public"]
+            or CHECKER["compiled_only_in_tests"](ROOT, path)
+            or (CHECKER["TEST_FILE"].search(path.split("/src/", 1)[1]) and not CHECKER["compiled_outside_tests"](ROOT, path))
+        ), (path, symbol)
+    assert len(expected & found) >= 90, len(expected & found)
+    # The model crate's name ceiling is a listed bound; a product ceiling is an exclusion.
+    assert bound(CONTRACT, "transaction.name_max_bytes")["owner"]["path"] == "crates/iroha_model_base/src/name.rs"
+    assert ("crates/sorafs_manifest/src/token.rs", "STREAM_TOKEN_MAX_STREAMS_V1") in excluded
+
+
+def test_changing_an_imported_constant_in_memory_fails_the_checker() -> None:
+    """A constant another crate defines is pinned: its change is reported by name."""
+    cases = (
+        ("crates/iroha_model_base/src/name.rs", "MAX_NAME_BYTES: usize = 255;", "MAX_NAME_BYTES: usize = 256;", "transaction.name_max_bytes"),
+        ("crates/sorafs_manifest/src/token.rs", "STREAM_TOKEN_MAX_STREAMS_V1: u16 = 1_024;", "STREAM_TOKEN_MAX_STREAMS_V1: u16 = 1_025;", "`STREAM_TOKEN_MAX_STREAMS_V1`"),
+        ("crates/iroha_crypto/src/merkle_map/ordered_range.rs", "MAX_NORITO_TREE_ENTRIES: usize = 65_536;", "MAX_NORITO_TREE_ENTRIES: usize = 1;", "`MAX_NORITO_TREE_ENTRIES`"),
+        ("crates/iroha_sccp/src/v1/constants.rs", "MAX_ROSTER_MEMBERS: usize = 31;", "MAX_ROSTER_MEMBERS: usize = 32;", "`MAX_ROSTER_MEMBERS`"),
+        ("crates/iroha_torii_shared/src/da/queries.rs", "DA_QUERY_REQUEST_MAX_BYTES: usize = 64 * 1024;", "DA_QUERY_REQUEST_MAX_BYTES: usize = 65 * 1024;", "`DA_QUERY_REQUEST_MAX_BYTES`"),
+        # A term of an imported constant moves its value.
+        ("crates/iroha_primitives/src/numeric.rs", "MAX_MANTISSA_BITS: usize = 512;", "MAX_MANTISSA_BITS: usize = 1024;", "`MAX_MANTISSA_BITS`"),
+    )
+    for path, text, changed, fragment in cases:
+        source = CHECKER["_read"](ROOT, path, "test")
+        assert source.count(text) == 1, (path, text)
+        found = _with_override(path, source.replace(text, changed))
+        assert found and all(fragment in problem for problem in found), (path, found)
+    # A new public constant of a dependency that the compared code already names.
+    path = "crates/iroha_sccp/src/v1/constants.rs"
+    source = CHECKER["_read"](ROOT, path, "test")
+    found = _with_override(path, source.replace("MAX_ROSTER_MEMBERS", "MAX_ROSTER_SEATS"))
+    assert any("`MAX_ROSTER_MEMBERS` in crates/iroha_sccp/src/v1/constants.rs matches no scanned limit" in problem for problem in found), found
+    changed, survivors, constant_only = CHECKER["mutation_sweep"](
+        ROOT,
+        CONTRACT,
+        ("crates/iroha_sccp/", "crates/iroha_model_base/", "crates/iroha_primitives/", "crates/sorafs_manifest/src/signer/"),
+    )
+    assert changed >= 18 and survivors == [] and constant_only == [], (changed, survivors, constant_only)
+    assert CHECKER["_OVERRIDES"] == {}
+
+
+def test_open_ram_lfe_inputs_record_what_the_candidates_project() -> None:
+    """C.3's projections stand beside its open inputs; none of them is the input's value."""
+    source = "specs/fhe_bgv_cost_summary.json"
+    summary = json.loads((ROOT / source).read_text(encoding="utf-8"))["resource_contract_inputs"]
+    assert len(summary) == 3
+    owned = [item for item in CONTRACT["ram_lfe"]["open_inputs"] if item["owner"] == "C.3"]
+    assert sorted(item["id"] for item in owned) == [
+        "ram_lfe.ciphertext_bytes",
+        "ram_lfe.evaluation_key_bytes",
+        "ram_lfe.input_ciphertexts",
+        "ram_lfe.multiplication_work_units",
+        "ram_lfe.output_ciphertexts",
+        "ram_lfe.plain_operation_work_units",
+    ]
+    for item in owned:
+        # No profile is selected: the input stays open and its budgets carry no number.
+        assert item["value"] is None
+        assert item["candidates"] == {
+            "source": source,
+            "values": {profile: entries[item["id"]]["value"] for profile, entries in sorted(summary.items())},
+        }
+    plain = next(item for item in owned if item["id"] == "ram_lfe.plain_operation_work_units")
+    assert "(an input load)" in plain["summary"] and "plaintext multiplication" not in plain["summary"]
+    assert plain["candidates"]["values"]["bgv.f257.n16.q22x50.p2x60"] == 1_795_227_648
+    for budget in CONTRACT["ram_lfe"]["budgets"]:
+        if any(name in budget["inputs"] for name in (item["id"] for item in owned)):
+            assert budget["value"] is None, budget["id"]
+
+    def drifted(contract: dict) -> None:
+        item = next(i for i in contract["ram_lfe"]["open_inputs"] if i["id"] == "ram_lfe.ciphertext_bytes")
+        item["candidates"]["values"]["bgv.f257.n16.q22x50.p2x60"] += 1
+
+    assert_fails(
+        edited(drifted),
+        "ram_lfe input ram_lfe.ciphertext_bytes: the candidate values differ from "
+        "`resource_contract_inputs` of specs/fhe_bgv_cost_summary.json",
+    )
+
+    def dropped(contract: dict) -> None:
+        item = next(i for i in contract["ram_lfe"]["open_inputs"] if i["id"] == "ram_lfe.ciphertext_bytes")
+        del item["candidates"]["values"]["bgv.f257.n14.q6x50.p2x60"]
+
+    assert_fails(edited(dropped), "ram_lfe input ram_lfe.ciphertext_bytes: the candidate values differ")
+
+    def selected(contract: dict) -> None:
+        item = next(i for i in contract["ram_lfe"]["open_inputs"] if i["id"] == "ram_lfe.ciphertext_bytes")
+        item["value"] = item["candidates"]["values"]["bgv.f257.n16.q22x50.p2x60"]
+
+    assert_fails(edited(selected), "ram_lfe input ram_lfe.ciphertext_bytes: a known input is a bound, not an open input")
+
+    def elsewhere(contract: dict) -> None:
+        item = next(i for i in contract["ram_lfe"]["open_inputs"] if i["id"] == "ram_lfe.ciphertext_bytes")
+        item["candidates"]["source"] = "specs/zk_delivery_graph.json"
+
+    assert_fails(edited(elsewhere), "specs/zk_delivery_graph.json records no `resource_contract_inputs`")
+
+    def unprojected(contract: dict) -> None:
+        item = next(i for i in contract["ram_lfe"]["open_inputs"] if i["id"] == "ram_lfe.refresh_work_units")
+        item["candidates"] = {"source": source, "values": {}}
+
+    assert_fails(edited(unprojected), "ram_lfe input ram_lfe.refresh_work_units: no candidate of")
+    # --refresh rewrites the record from the summary and adds no value.
+    stale = edited(drifted)
+    notes: list = []
+    assert CHECKER["check"](ROOT, stale, TASKS, True, notes) == []
+    assert stale["ram_lfe"] == CONTRACT["ram_lfe"]

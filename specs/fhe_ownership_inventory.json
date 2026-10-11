@@ -3223,6 +3223,26 @@
    "symbols": [{"symbol": "ram_lfe_reference_execute_v1"}, {"symbol": "ram_lfe_reference_evaluate_v1"}]
   },
   {
+   "id": "ram_lfe.cleartext_normal_form",
+   "scheme": "ram_lfe",
+   "component": "Cleartext normal form of a V1 tape: the specification oracle of the normalizing lowering",
+   "tasks": ["R.0"],
+   "executes": [],
+   "note": "Folds the plaintext runs of a hidden tape into affine forms over F257 and keeps each multiplication, selection and scheduled refresh as one gate, on plaintext scalars; it encrypts nothing. The encrypted normalizer, its fixed public schedule and its proof belong to tasks R.3, R.7 and R.9.",
+   "path": "crates/iroha_crypto/src/ram_lfe/normal_form.rs",
+   "symbols": [{"symbol": "ram_lfe_reference_normalize_v1"}, {"symbol": "RamLfeNormalFormV1::evaluate"}]
+  },
+  {
+   "id": "ram_lfe.phone_control",
+   "scheme": "ram_lfe",
+   "component": "Provider-backed phone-control number commitment, provider key identity and provider signature rule",
+   "tasks": ["R.1", "R.2", "R.4"],
+   "executes": [],
+   "note": "Task R.1 owns this file. It commits a canonical E.164 number with the six-lane Goldilocks digest and checks provider signatures; it encrypts and evaluates nothing. The private relation over the commitment is task R.2 and State enforcement is task R.4.",
+   "path": "crates/iroha_crypto/src/ram_lfe/phone_control.rs",
+   "symbols": [{"symbol": "PhoneNumberCommitmentV1::commit"}, {"symbol": "phone_control_provider_verify"}]
+  },
+  {
    "id": "mkhe.bgv_profile",
    "scheme": "bgv_mkhe",
    "component": "Multi-key RNS-BGV profile validation and digests",
@@ -3806,7 +3826,7 @@
    "id": "ram_lfe.clearing_observers",
    "scheme": "ram_lfe",
    "kind": "protocol_reference",
-   "note": "Test instrumentation that observes secret clearing and builds programs from public test parts.",
+   "note": "Test instrumentation that observes secret clearing, refuses one reservation of a clearing buffer, and builds programs and reference inputs from public test parts.",
    "symbols": []
   },
   {
@@ -5529,6 +5549,105 @@
    "test_gated": {}
   },
   {
+   "path": "crates/iroha_crypto/src/ram_lfe/normal_form.rs",
+   "production": {
+    "ram_lfe.cleartext_normal_form": [
+     "Folding::drop",
+     "Folding::finish",
+     "Folding::fold",
+     "Folding::form_depth",
+     "Folding::gate",
+     "Folding::lane",
+     "Folding::new",
+     "Folding::refresh",
+     "Folding::register",
+     "Folding::set_column",
+     "Folding::step",
+     "RamLfeNormalFormV1::ciphertext_multiplications",
+     "RamLfeNormalFormV1::class",
+     "RamLfeNormalFormV1::column_values",
+     "RamLfeNormalFormV1::columns",
+     "RamLfeNormalFormV1::depth",
+     "RamLfeNormalFormV1::drop",
+     "RamLfeNormalFormV1::evaluate",
+     "RamLfeNormalFormV1::evaluate_final_state",
+     "RamLfeNormalFormV1::fmt",
+     "RamLfeNormalFormV1::gate_count",
+     "RamLfeNormalFormV1::gate_kind",
+     "RamLfeNormalFormV1::gate_operand",
+     "RamLfeNormalFormV1::lane_form",
+     "RamLfeNormalFormV1::output_count",
+     "RamLfeNormalFormV1::output_form",
+     "RamLfeNormalFormV1::register_form",
+     "RamLfeNormalFormV1::report",
+     "RamLfeNormalGateKindV1::added_depth",
+     "RamLfeNormalGateKindV1::as_str",
+     "RamLfeNormalGateKindV1::ciphertext_multiplications",
+     "RamLfeNormalGateKindV1::code",
+     "RamLfeNormalGateKindV1::fmt",
+     "RamLfeNormalGateKindV1::from_code",
+     "RamLfeNormalGateKindV1::operand_count",
+     "RamLfeNormalRoleV1::as_str",
+     "RamLfeNormalRoleV1::fmt",
+     "RamLfeNormalRoleV1::of",
+     "RamLfeNormalShapeV1::gates",
+     "RamLfeNormalShapeV1::of",
+     "Scalars::drop",
+     "Scalars::extend",
+     "Scalars::push",
+     "Scalars::with_capacity",
+     "Scalars::zeroed",
+     "allocation_error",
+     "dot",
+     "ram_lfe_reference_normalize_v1",
+     "ram_lfe_v1_centered_scalar",
+     "reserve"
+    ]
+   },
+   "test_gated": {"ram_lfe.clearing_observers": ["allocation_refused", "cleared_scalars", "observe_clear", "refuse_allocation_after"]}
+  },
+  {
+   "path": "crates/iroha_crypto/src/ram_lfe/phone_control.rs",
+   "production": {
+    "ram_lfe.phone_control": [
+     "PhoneControlProviderKeyIdV1::as_hash",
+     "PhoneControlProviderKeyIdV1::commit",
+     "PhoneNumberBlindingV1::checked",
+     "PhoneNumberBlindingV1::expose",
+     "PhoneNumberBlindingV1::fmt",
+     "PhoneNumberBlindingV1::from_bytes",
+     "PhoneNumberBlindingV1::generate",
+     "PhoneNumberCommitmentDigestV1::domain",
+     "PhoneNumberCommitmentDigestV1::label",
+     "PhoneNumberCommitmentV1::commit",
+     "PhoneNumberCommitmentV1::digest",
+     "PhoneNumberCommitmentV1::from_le_bytes",
+     "PhoneNumberCommitmentV1::lane_words",
+     "PhoneNumberCommitmentV1::to_le_bytes",
+     "PhoneNumberCommitmentV1::verify_opening",
+     "PhoneNumberCommitmentValueV1::decode_error",
+     "PhoneNumberCommitmentValueV1::decode_from_slice",
+     "PhoneNumberCommitmentValueV1::deserialize",
+     "PhoneNumberCommitmentValueV1::encoded_len_exact",
+     "PhoneNumberCommitmentValueV1::encoded_len_hint",
+     "PhoneNumberCommitmentValueV1::from_le_bytes",
+     "PhoneNumberCommitmentValueV1::serialize",
+     "PhoneNumberCommitmentValueV1::to_le_bytes",
+     "PhoneNumberCommitmentValueV1::try_deserialize",
+     "PhoneNumberCommitmentValueV1::words",
+     "PhoneNumberV1::expose_canonical",
+     "PhoneNumberV1::expose_padded",
+     "PhoneNumberV1::fmt",
+     "PhoneNumberV1::from_canonical",
+     "is_canonical_e164",
+     "phone_control_provider_sign",
+     "phone_control_provider_verify",
+     "provider_key_algorithm"
+    ]
+   },
+   "test_gated": {}
+  },
+  {
    "path": "crates/iroha_crypto/src/ram_lfe/policy_secret.rs",
    "production": {"ram_lfe.secret_owners": ["commit", "commit_canonical", "commit_canonical_into"]},
    "test_gated": {"ram_lfe.inline_unit_tests": ["mod tests"]}
@@ -5583,6 +5702,7 @@
      "RamLfeInitialMemoryV1::lanes",
      "RamLfeOrderedOutputV1::fmt",
      "RamLfeOrderedOutputV1::from_scalars",
+     "RamLfeOrderedOutputV1::padded_for_opening",
      "RamLfeOrderedOutputV1::scalars",
      "RamLfeReferenceExecutionV1::initial_memory",
      "RamLfeReferenceExecutionV1::output",
@@ -5609,7 +5729,7 @@
      "subtract"
     ]
    },
-   "test_gated": {}
+   "test_gated": {"ram_lfe.clearing_observers": ["RamLfeReferenceInputV1::from_field_slots"]}
   },
   {
    "path": "crates/iroha_crypto/src/ram_lfe/trace.rs",
@@ -11151,9 +11271,26 @@
    "evidence": {"path": "scripts/check_zk_operation_inventory.py", "literal": "zk_operation_inventory.json"}
   },
   {
+   "path": "specs/zk_economic_invariants.json",
+   "kind": "source_checked_inventory",
+   "evidence": {"path": "scripts/check_zk_economic_invariants.py", "literal": "zk_economic_invariants.json"}
+  },
+  {
    "path": "specs/fhe_bgv_cost_summary.json",
    "kind": "source_checked_inventory",
    "evidence": {"path": "scripts/fhe_bgv_cost_model.py", "literal": "fhe_bgv_cost_summary.json"}
+  },
+  {
+   "path": "crates/iroha_fhe/tests/vectors/bgv_kat_v1.txt",
+   "kind": "fixture",
+   "registered": true,
+   "evidence": {"path": "generated-files.toml", "literal": "crates/iroha_fhe/tests/vectors/bgv_kat_v1.txt"}
+  },
+  {
+   "path": "crates/iroha_fhe/tests/vectors/bgv_cost_model_v1.txt",
+   "kind": "fixture",
+   "registered": true,
+   "evidence": {"path": "generated-files.toml", "literal": "crates/iroha_fhe/tests/vectors/bgv_cost_model_v1.txt"}
   },
   {
    "path": "crates/iroha_measurement/fixtures/consumers.json",
@@ -11495,6 +11632,10 @@
     {"path": "crates/iroha_crypto/src/ram_lfe/clearing.rs", "patterns": ["ram_lfe"]},
     {"path": "crates/iroha_crypto/src/ram_lfe/initialization.rs", "patterns": ["bfv", "fhe", "ram_lfe"]},
     {"path": "crates/iroha_crypto/src/ram_lfe/initialization_tests.rs", "patterns": ["bfv", "ram_lfe"], "cfg": ["test"], "test_only": true},
+    {"path": "crates/iroha_crypto/src/ram_lfe/normal_form.rs", "patterns": ["fhe", "ram_lfe"]},
+    {"path": "crates/iroha_crypto/src/ram_lfe/normal_form_tests.rs", "patterns": ["bfv", "bgv", "fhe", "ram_lfe", "rns"], "cfg": ["test"], "test_only": true},
+    {"path": "crates/iroha_crypto/src/ram_lfe/phone_control.rs", "patterns": ["ram_lfe"]},
+    {"path": "crates/iroha_crypto/src/ram_lfe/phone_control_tests.rs", "patterns": ["ram_lfe"], "cfg": ["test"], "test_only": true},
     {
      "path": "crates/iroha_crypto/src/ram_lfe/planning_candidate.rs",
      "patterns": ["bfv", "fhe", "ram_lfe", "rns"],
@@ -11508,7 +11649,7 @@
     {"path": "crates/iroha_crypto/src/ram_lfe/reference_tests.rs", "patterns": ["bfv", "fhe", "ram_lfe", "rns"], "cfg": ["test"], "test_only": true},
     {
      "path": "crates/iroha_crypto/src/ram_lfe/specification_tests.rs",
-     "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe"],
+     "patterns": ["bfv", "bgv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe", "rns"],
      "cfg": ["test"],
      "test_only": true
     },
@@ -13243,8 +13384,10 @@
     {"path": "crates/iroha_data_model/src/isi/shared_test_helpers.rs", "patterns": ["ram_lfe"], "cfg": ["test"], "test_only": true},
     {"path": "crates/iroha_data_model/src/json_key_codec.rs", "patterns": ["ram_lfe"]},
     {"path": "crates/iroha_data_model/src/lib.rs", "patterns": ["ram_lfe"]},
+    {"path": "crates/iroha_data_model/src/phone_control.rs", "patterns": ["ram_lfe"]},
     {"path": "crates/iroha_data_model/src/ram_lfe.rs", "patterns": ["bfv", "ram_lfe"]},
     {"path": "crates/iroha_data_model/src/ram_lfe/captured_ram_lfe_schema_tests.rs", "patterns": ["ram_lfe"], "cfg": ["test"], "test_only": true},
+    {"path": "crates/iroha_data_model/tests/phone_control_v1.rs", "patterns": ["fhe", "ram_lfe"], "test_only": true},
     {"path": "crates/iroha_data_model/tests/ram_lfe_canonical_v1.rs", "patterns": ["fhe", "ram_lfe"], "test_only": true}
    ]
   },
@@ -13820,10 +13963,11 @@
    "component": "scripts",
    "role": "tooling",
    "tasks": ["V.1"],
-   "summary": "Source guards, estimators and feature-hygiene checks that name BFV, FHE, RAM-LFE or MKHE identifiers, and the workflow and Makefile entries that run this inventory's checker.",
+   "summary": "Source guards, estimators and feature-hygiene checks that name BFV, FHE, RAM-LFE or MKHE identifiers, the workflow and Makefile entries that run this inventory's checker, and the registry of generated files, which names the two generated RNS-BGV vector files.",
    "files": [
     {"path": ".github/workflows/pr.yml", "patterns": ["bgv", "fhe"]},
     {"path": "Makefile", "patterns": ["bgv", "fhe", "rns"]},
+    {"path": "generated-files.toml", "patterns": ["bgv", "fhe"]},
     {"path": "pytests/scripts/qmask_s_stream_lifetime_test.py", "patterns": ["mkhe"], "test_only": true},
     {"path": "scripts/check_cargo_feature_hygiene.py", "patterns": ["bfv", "fhe", "ntt"]},
     {"path": "scripts/check_release_feature_graph.py", "patterns": ["bfv"]},
@@ -13837,7 +13981,7 @@
      "test_only": true
     },
     {"path": "scripts/tests/check_zk_primitive_workloads_test.py", "patterns": ["mkhe", "ram_lfe", "rns"], "test_only": true},
-    {"path": "scripts/tests/check_zk_resource_contract_test.py", "patterns": ["ram_lfe"], "test_only": true},
+    {"path": "scripts/tests/check_zk_resource_contract_test.py", "patterns": ["bgv", "fhe", "ram_lfe"], "test_only": true},
     {"path": "scripts/tests/check_zk_runtime_validity_test.py", "patterns": ["fhe"], "test_only": true},
     {"path": "scripts/tests/large_static_contract_asset_compaction_test.py", "patterns": ["fhe"], "test_only": true},
     {"path": "scripts/tests/openapi_contract_call_test.py", "patterns": ["bfv", "ram_lfe"], "test_only": true},
@@ -13908,6 +14052,7 @@
     {"path": "specs/fhe_bgv_cost_summary.json", "patterns": ["bgv", "fhe", "ram_lfe", "rns"]},
     {"path": "specs/first_release_history_cutover.json", "patterns": ["bfv", "hkdf", "hkdf_ram_lfe", "mkhe", "ram_lfe", "rns"]},
     {"path": "specs/state_table_inventory.json", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "ram_lfe", "rns"]},
+    {"path": "specs/zk_economic_invariants.json", "patterns": ["fhe", "ram_lfe"]},
     {"path": "specs/zk_operation_inventory.json", "patterns": ["bfv", "fhe", "hkdf", "hkdf_ram_lfe", "mkhe", "ram_lfe", "rns"]},
     {
      "path": "specs/zk_primitive_workloads.json",
@@ -13980,12 +14125,13 @@
    "component": "iroha_fhe",
    "role": "tooling",
    "tasks": ["C.3"],
-   "summary": "Cost model, tape planner, summary builder and checker of the RNS-BGV candidates with its tests, the view of the summary that a Rust test recomputes, and the pinned Lattice Estimator invocation, which has not been run.",
+   "summary": "Cost model, tape planner, summary builder and checker of the RNS-BGV candidates with its tests, the view of the summary that a Rust test recomputes, the pinned Lattice Estimator invocation and the raw output record of its run, which the summary restates and which qualifies no candidate.",
    "files": [
     {"path": "crates/iroha_fhe/tests/vectors/bgv_cost_model_v1.txt", "patterns": ["bgv", "fhe", "ram_lfe"], "test_only": true},
     {"path": "scripts/fhe_bgv_cost_model.py", "patterns": ["bgv", "fhe", "ram_lfe", "rns"]},
     {"path": "scripts/fhe_bgv_lattice_estimator.sage", "patterns": ["bgv", "fhe", "ram_lfe", "rns"]},
-    {"path": "scripts/tests/fhe_bgv_cost_model_test.py", "patterns": ["bgv", "fhe", "ram_lfe", "rns"], "test_only": true}
+    {"path": "scripts/tests/fhe_bgv_cost_model_test.py", "patterns": ["bgv", "fhe", "ram_lfe", "rns"], "test_only": true},
+    {"path": "specs/fhe_bgv_lattice_estimator_output.txt", "patterns": ["bgv", "fhe", "rns"]}
    ]
   }
  ]

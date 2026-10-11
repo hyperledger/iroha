@@ -10,10 +10,7 @@ use std::time::Instant;
 /// The ordinary public one-intent API can retain exactly one explicit authorization. It cannot
 /// replace an expired request or select a successor without the generated worker capability.
 pub(in crate::managed) fn initial(
-    operation: &PrivateDirectory,
-    purpose: Purpose,
-    semantic: [u8; 32],
-    scope: &HistoryScope,
+    mut history: History,
     terms: Terms,
     observation: Observation,
     deadline: Instant,
@@ -21,8 +18,9 @@ pub(in crate::managed) fn initial(
     mut retain_request: impl FnMut(&Attempt, Observation, Instant) -> Result<VerifiedNativePreparation>,
 ) -> Result<()> {
     require_deadline(deadline)?;
-    scope.require_active()?;
-    let history = History::read(operation, purpose, semantic, scope)?;
+    history.scope.require_active()?;
+    // The concrete owner selected these terms from this exact canonical History. Its original
+    // native handles stay live; wallet inspection revalidates all custody before and after.
     history.verify_wallets(&mut inspect)?;
     if history.reservation_pending() {
         let reserved = &history
@@ -34,9 +32,11 @@ pub(in crate::managed) fn initial(
             return Err(invalid("explicit reserved dispatch changed original terms"));
         }
         require_deadline(deadline)?;
-        history.finish_reserved(operation, false)?;
+        history.finish_reserved(&history.operation, false)?;
+        // Only finishing a retained reservation changed dispatch metadata. The unchanged path
+        // already passed the complete current-custody checks around wallet inspection.
+        history = history.reread()?;
     }
-    let history = history.reread()?;
     if let Some(last) = history.last() {
         last.terms()
             .matches(terms.requested_deadline_unix_ms, &terms.options(deadline))?;
@@ -49,13 +49,13 @@ pub(in crate::managed) fn initial(
         if history.attempts.len() != 1 || last.origin() != &Origin::Explicit {
             return Err(ManagedBootstrapFailure::TransitionPending.into());
         }
-        history.retain_root(operation)?;
+        history.retain_root(&history.operation)?;
         let observed = last.observation.unwrap_or(observation);
         last.retain_observation(observed)?;
         let preparation = retain_request(last, observed, terms.signing_deadline(deadline)?)?;
         return commit(last, None, observed, &preparation);
     }
-    let attempt = history.reserve(operation, Origin::Explicit, terms)?;
+    let attempt = history.reserve(&history.operation, Origin::Explicit, terms)?;
     attempt.retain_observation(observation)?;
     let preparation = retain_request(
         &attempt,

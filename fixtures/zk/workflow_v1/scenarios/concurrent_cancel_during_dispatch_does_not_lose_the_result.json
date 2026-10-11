@@ -1,0 +1,95 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "concurrent_cancel_during_dispatch_does_not_lose_the_result",
+  "category": "cancellation",
+  "rules": [
+    "persist_before_effect",
+    "cancellation_is_sticky_and_never_rolls_back",
+    "reconcile_before_decide"
+  ],
+  "description": "Another actor cancels after the dispatch ordinal is durable and while the bytes are in flight. The workflow is cancelling; the runner still records the acknowledgement, reconciles read-only, finds the transaction applied and ends cancelled with that step confirmed. The next step is never built.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "concurrent-cancel-during-dispatch-does-not-lose-the-result",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      },
+      {
+        "label": "activate",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "applied"
+        ]
+      },
+      "concurrent": {
+        "when": "submitting",
+        "action": "cancel"
+      },
+      "expect": {
+        "result": {
+          "error": "CancelledBeforeSubmission",
+          "stage": "cancel",
+          "step": 1,
+          "resumable": false
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "concurrent:cancel:cancelling",
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "cancelled",
+        "steps": [
+          "finalized",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 1,
+              "evidence": "applied"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

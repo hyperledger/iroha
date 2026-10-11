@@ -218,16 +218,6 @@ final class ToriiParliamentAPIV1Tests: XCTestCase {
                 XCTAssertEqual(message, "proposal.kind is unknown or retired")
             }
         }
-        var root = URL(fileURLWithPath: #filePath)
-        for _ in 0..<4 { root.deleteLastPathComponent() }
-        for name in ["install", "activate", "retire"] {
-            let fixture = root.appendingPathComponent(
-                "fixtures/governance/kagemusha_verifier_release_\(name)_v1.json"
-            )
-            XCTAssertThrowsError(try ToriiParliamentProposalV1(
-                validating: Data(contentsOf: fixture)
-            ))
-        }
     }
 
     func testInitialSortitionDraftUsesOnlyTheEnclosingAttempt() throws {

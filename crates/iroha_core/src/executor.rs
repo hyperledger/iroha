@@ -6747,6 +6747,14 @@ impl Executor {
             execution_dataspace,
         )
         .map_err(|error| state_transaction.attempt_error_to_validation_fail(error))?;
+        // Admission refuses a declared attachment-backed action that no route
+        // consumes; a transaction that reaches the executor another way is
+        // refused here as well, in every build.
+        if let Some(error) = crate::tx::first_unsupported_attachment_operation(&transaction) {
+            return Err(ValidationFail::NotPermitted(format!(
+                "malformed signed attachments: {error}"
+            )));
+        }
         #[cfg(feature = "zk-preverify")]
         {
             use iroha_data_model::proof::ProofAttachment;
@@ -6776,10 +6784,12 @@ impl Executor {
                                 .map(|entry| entry.alias.clone())
                         })
                 });
-            // Process ZK attachments embedded in V2 transactions.
-            if let Some(attachments) = transaction.attachments() {
+            // Preverify the wrapped proof carriers of the signed attachments.
+            if transaction.attachments().is_some() {
                 // Canonicalize verification order for determinism
-                let mut list_sorted = attachments.as_slice().to_vec();
+                let mut list_sorted = transaction.proof_attachments_v1().map_err(|error| {
+                    ValidationFail::NotPermitted(format!("malformed signed attachments: {error}"))
+                })?;
                 list_sorted.sort_by(|a, b| {
                     let ah = crate::zk::hash_proof(&a.proof);
                     let bh = crate::zk::hash_proof(&b.proof);
@@ -8974,7 +8984,6 @@ const INITIAL_GENESIS_ONLY_PERMISSION_NAMES: &[&str] = &[
     "CanReadAllLedgerData",
     "CanReadRestrictedDataspace",
     "CanManageFxCorridors",
-    "CanManageKagemushaReserve",
     "CanProposeSccpRouteGovernance",
 ];
 include!("executor_initial_permission_authority.rs");
@@ -9825,8 +9834,6 @@ mod tests {
         );
         assert!(view.world().account(&address.subject_id()).is_ok());
     }
-
-    include!("executor_ordinary_mint_permission_tests.rs");
 
     fn state_after_genesis(world: World) -> State {
         state_after_genesis_with_instructions(world, |_| Vec::new())
@@ -13453,12 +13460,12 @@ mod tests {
         let administrator_account = Account::new(administrator.clone()).build(&administrator);
         let ordinary_permission: Permission =
             executor_permission::parameter::CanSetParameters.into();
-        let kagemusha_permission: Permission =
-            executor_permission::kagemusha::CanManageKagemushaReserve.into();
+        let genesis_only_permission: Permission =
+            executor_permission::sccp::CanProposeSccpRouteGovernance.into();
         let mut world = World::with([], [attacker_account, administrator_account], []);
         world.account_permissions.insert(
             administrator.clone(),
-            BTreeSet::from([ordinary_permission.clone(), kagemusha_permission.clone()]),
+            BTreeSet::from([ordinary_permission.clone(), genesis_only_permission.clone()]),
         );
         let state = state_after_genesis(world);
         let mut block = state.block(BlockHeader::new(
@@ -13481,10 +13488,12 @@ mod tests {
         )
         .execute(&administrator, &mut state_transaction)
         .expect("seed ordinary role fixture");
-        let kagemusha_role: RoleId = "initial_executor_kagemusha_role".parse().expect("role id");
+        let genesis_only_role: RoleId = "initial_executor_genesis_only_role"
+            .parse()
+            .expect("role id");
         Register::role(
-            Role::new(kagemusha_role.clone(), administrator.clone())
-                .add_permission(kagemusha_permission.clone()),
+            Role::new(genesis_only_role.clone(), administrator.clone())
+                .add_permission(genesis_only_permission.clone()),
         )
         .execute(&administrator, &mut state_transaction)
         .expect("seed governed role fixture");
@@ -13529,8 +13538,8 @@ mod tests {
                 .any(|permission| permission == &ordinary_permission)
         );
         for instruction in [
-            Grant::account_permission(kagemusha_permission.clone(), attacker.clone()).into(),
-            Grant::account_role(kagemusha_role.clone(), attacker.clone()).into(),
+            Grant::account_permission(genesis_only_permission.clone(), attacker.clone()).into(),
+            Grant::account_role(genesis_only_role.clone(), attacker.clone()).into(),
         ] {
             super::Executor::Initial
                 .execute_instruction(&mut state_transaction, &administrator, instruction)
@@ -13543,12 +13552,12 @@ mod tests {
                 .world
                 .account_permissions_iter(&attacker)
                 .expect("attacker permissions")
-                .any(|permission| permission == &kagemusha_permission)
+                .any(|permission| permission == &genesis_only_permission)
         );
         assert!(!authority_has_role(
             &state_transaction.world,
             &attacker,
-            &kagemusha_role
+            &genesis_only_role
         ));
     }
     #[test]
@@ -17160,7 +17169,7 @@ mod tests {
     fn preverify_and_dedup_across_transactions_in_block() {
         use iroha_data_model::{
             isi::verifying_keys::RegisterVerifyingKey,
-            proof::{ProofAttachment, ProofAttachmentList, VerifyingKeyId, VerifyingKeyRecord},
+            proof::{ProofAttachment, VerifyingKeyId, VerifyingKeyRecord},
             transaction::{Executable, TransactionBuilder},
             zk::BackendTag,
         };
@@ -17219,17 +17228,16 @@ mod tests {
         let mut block = state.block(block_header);
         let mut attachment = ProofAttachment::new_ref(backend, proof, vk_id);
         attachment.vk_commitment = Some(vk_commitment);
-        let attachments = ProofAttachmentList::try_from(vec![attachment.clone()])
-            .expect("one attachment is a valid bounded proof list");
-        let attachments_dup = ProofAttachmentList::try_from(vec![attachment])
-            .expect("one attachment is a valid bounded proof list");
+        let attachments = vec![attachment.clone()];
+        let attachments_dup = vec![attachment];
         let tx1 = TransactionBuilder::new(
             state.network_id,
             ALICE_ID.clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
         .with_executable(Executable::Instructions(Vec::new().into()))
-        .with_attachments(attachments)
+        .with_proof_attachments(attachments)
+        .expect("valid proof carriers")
         .sign(ALICE_KEYPAIR.private_key());
         let tx2 = TransactionBuilder::new(
             state.network_id,
@@ -17237,7 +17245,8 @@ mod tests {
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
         .with_executable(Executable::Instructions(Vec::new().into()))
-        .with_attachments(attachments_dup)
+        .with_proof_attachments(attachments_dup)
+        .expect("valid proof carriers")
         .sign(ALICE_KEYPAIR.private_key());
         let executor = super::Executor::Initial;
         let mut ivm_cache = crate::smartcontracts::ivm::cache::IvmCache::new();
@@ -17269,7 +17278,7 @@ mod tests {
     fn preverify_attachments_enforce_verifying_key_height_window() {
         use iroha_data_model::{
             isi::verifying_keys::RegisterVerifyingKey,
-            proof::{ProofAttachment, ProofAttachmentList, VerifyingKeyId, VerifyingKeyRecord},
+            proof::{ProofAttachment, VerifyingKeyId, VerifyingKeyRecord},
             transaction::{Executable, TransactionBuilder},
             zk::BackendTag,
         };
@@ -17329,10 +17338,8 @@ mod tests {
                 iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
             )
             .with_executable(Executable::Instructions(Vec::new().into()))
-            .with_attachments(
-                ProofAttachmentList::try_from(vec![attachment])
-                    .expect("one attachment is a valid bounded proof list"),
-            )
+            .with_proof_attachments(vec![attachment])
+            .expect("valid proof carriers")
             .sign(ALICE_KEYPAIR.private_key());
             let block_header = BlockHeader::new(
                 std::num::NonZeroU64::new(block_height).expect("nonzero block height"),
@@ -17379,7 +17386,7 @@ mod tests {
     #[test]
     fn preverify_attachments_reject_non_production_backend_labels_before_vk_lookup() {
         use iroha_data_model::{
-            proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+            proof::{ProofAttachment, ProofBox, VerifyingKeyId},
             transaction::{Executable, TransactionBuilder},
         };
         use iroha_schema::Ident;
@@ -17432,10 +17439,8 @@ mod tests {
                 iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
             )
             .with_executable(Executable::Instructions(Vec::new().into()))
-            .with_attachments(
-                ProofAttachmentList::try_from(vec![attachment])
-                    .expect("one attachment is a valid bounded proof list"),
-            )
+            .with_proof_attachments(vec![attachment])
+            .expect("valid proof carriers")
             .sign(ALICE_KEYPAIR.private_key());
             let mut state_tx =
                 block.transaction_for_fastpq_testing(Hash::from(tx.hash_as_entrypoint()));
@@ -17464,7 +17469,7 @@ mod tests {
     #[test]
     fn preverify_attachments_reject_malformed_attachment_shapes_before_vk_lookup() {
         use iroha_data_model::{
-            proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+            proof::{ProofAttachment, ProofBox, VerifyingKeyId},
             transaction::{Executable, TransactionBuilder},
         };
         use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR};
@@ -17509,57 +17514,60 @@ mod tests {
             iroha_crypto::Hash::new(&forged_envelope_hash.proof.bytes).into();
         forged_hash[0] ^= 0x80;
         forged_envelope_hash.envelope_hash = Some(forged_hash);
-        assert!(matches!(
-            ProofAttachmentList::try_from(Vec::new()),
-            Err(iroha_data_model::proof::ProofAttachmentListError::Empty)
-        ));
+        let unvalidated_proof_carriers = |attachments: &[ProofAttachment]| {
+            use iroha_data_model::transaction::signed_attachments::{
+                PlannedActionV1, SignedAttachmentPlanV1,
+            };
+            let mut plan = SignedAttachmentPlanV1::new();
+            for attachment in attachments {
+                plan.push_action(
+                    PlannedActionV1::transaction_proof_unvalidated(attachment)
+                        .expect("canonical wrapper"),
+                );
+            }
+            plan.declare()
+        };
         let cases = [
             (
                 "proof-backend-mismatch",
-                ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+                vec![ProofAttachment::new_ref(
                     "halo2/ipa".into(),
                     ProofBox::new("stark/fri".into(), vec![1, 2, 3]),
                     VerifyingKeyId::new("halo2/ipa", "vk_preverify"),
-                )])
-                .expect("one attachment is a valid bounded proof list"),
+                )],
                 "proof.backend",
             ),
             (
                 "nonportable-vk-ref-name",
-                ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+                vec![ProofAttachment::new_ref(
                     "halo2/ipa".into(),
                     ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
                     VerifyingKeyId::new("halo2/ipa", "VkPreverify"),
-                )])
-                .expect("one attachment is a valid bounded proof list"),
+                )],
                 "vk_ref",
             ),
             (
                 "empty-proof-bytes",
-                ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+                vec![ProofAttachment::new_ref(
                     "halo2/ipa".into(),
                     ProofBox::new("halo2/ipa".into(), Vec::new()),
                     VerifyingKeyId::new("halo2/ipa", "vk_preverify"),
-                )])
-                .expect("one attachment is a valid bounded proof list"),
+                )],
                 "proof.bytes",
             ),
             (
                 "zero-vk-commitment",
-                ProofAttachmentList::try_from(vec![zero_vk_commitment])
-                    .expect("one attachment is a valid bounded proof list"),
+                vec![zero_vk_commitment],
                 "vk_commitment",
             ),
             (
                 "zero-envelope-hash",
-                ProofAttachmentList::try_from(vec![zero_envelope_hash])
-                    .expect("one attachment is a valid bounded proof list"),
+                vec![zero_envelope_hash],
                 "envelope_hash",
             ),
             (
                 "forged-envelope-hash",
-                ProofAttachmentList::try_from(vec![forged_envelope_hash])
-                    .expect("one attachment is a valid bounded proof list"),
+                vec![forged_envelope_hash],
                 "envelope_hash",
             ),
         ];
@@ -17570,7 +17578,7 @@ mod tests {
                 iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
             )
             .with_executable(Executable::Instructions(Vec::new().into()))
-            .with_attachments(attachments)
+            .with_signed_attachments(unvalidated_proof_carriers(&attachments))
             .sign(ALICE_KEYPAIR.private_key());
             let mut state_tx =
                 block.transaction_for_fastpq_testing(Hash::from(tx.hash_as_entrypoint()));

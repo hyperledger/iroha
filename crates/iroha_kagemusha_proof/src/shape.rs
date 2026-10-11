@@ -273,10 +273,9 @@ where
 #[cfg(test)]
 mod tests {
     use iroha_pasta::{Eq, Fp};
-    use iroha_plonk_gadgets::statement::StepRelation;
 
     use super::*;
-    use crate::{circuit::PrefixMode, witness::StateLayout};
+    use crate::{circuit::PrefixMode, witness::SigmaRelation};
 
     #[test]
     fn limb_widths_follow_k() {
@@ -312,13 +311,9 @@ mod tests {
 
     #[test]
     fn a_receive_needs_four_lanes_at_k10() {
-        // The 29-field G1 statement encoding takes 15 folded permutations, so
-        // three lanes no longer fit `k = 10`.
-        let relation = RelationShape::new(
-            StepRelation::Receive,
-            StateLayout::TwoLevel,
-            PrefixMode::Folded,
-        );
+        // 65 folded permutations (2,405 lane rows) and the glue rows do not
+        // fit three lanes of 1,024 rows.
+        let relation = RelationShape::new(SigmaRelation::RECEIVE, PrefixMode::Folded);
         for lanes in [1, 2, 3] {
             let params = SigmaParams::new(relation, lanes, 9).expect("params");
             assert_eq!(

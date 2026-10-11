@@ -113,19 +113,13 @@ def test_invalid_catalog_cannot_produce_an_inventory(tmp_path: Path) -> None:
     assert b"invalid canonical route catalog" in failure.value.stderr
 
 
-def test_mandatory_kagemusha_catalog_preserves_authentication_and_private_reads(generated: bytes) -> None:
-    """Keep the universal protocol routes and exact signed private-read policy."""
+def test_ledger_original_carriers_preserve_authentication_and_private_reads(generated: bytes) -> None:
+    """Keep the exact signed private-read policy of the generic ledger carriers."""
     operations = {row["route_id"]: row for row in csv.DictReader(
         generated.decode().splitlines()[1:], delimiter="\t")}
     expected = {
-        "kagemusha.readiness": ("GET", "torii_default", "public", "read", "true", "false"),
-        "kagemusha.top_up": ("POST", "canonical_signed_body", "authenticated_account", "mutation", "true", "false"),
-        "kagemusha.redeem": ("POST", "canonical_signed_body", "authenticated_account", "mutation", "true", "false"),
-        "kagemusha.operation": ("GET", "torii_default", "public", "read", "true", "false"),
-        "kagemusha.authority_state": ("GET", "torii_default", "public", "read", "true", "false"),
         "ledger.resource_names_state": ("GET", "canonical_account_signature", "authenticated_account", "read", "false", "true"),
         "ledger.authority_originals": ("POST", "canonical_account_signature", "authenticated_account", "read", "false", "true"),
-        "kagemusha.ordinary_wallet_current": ("POST", "canonical_account_signature", "authenticated_account", "read", "false", "true"),
     }
     for route_id, policy in expected.items():
         row = operations[route_id]
@@ -134,15 +128,13 @@ def test_mandatory_kagemusha_catalog_preserves_authentication_and_private_reads(
         assert row["surface"] == "public" and row["transport"] == "http"
         assert tuple(row[field] for field in (
             "method", "authentication", "admission", "effect", "mcp", "private_no_store")) == policy
-    assert operations["kagemusha.ordinary_wallet_current"]["path"] == "/v1/kagemusha/ordinary/current-wallet"
+    assert not any(route_id.startswith("kagemusha.") for route_id in operations)
+    assert not any(row["path"].startswith("/v1/kagemusha/") for row in operations.values())
 
 
 @pytest.mark.parametrize(
     "route_id,method,path,feature_gate,authentication,admission,mcp,private_no_store",
     [
-        ('kagemusha.ordinary_mint_issuer_purpose', 'POST', '/v1/kagemusha/ordinary/mint-issuer-purpose', 'always', 'canonical_account_signature', 'authenticated_account', 'false', 'true'),
-        ('kagemusha.ordinary_mint_finalized', 'POST', '/v1/kagemusha/ordinary/top-up/finality', 'always', 'canonical_account_signature', 'authenticated_account', 'false', 'true'),
-        ('kagemusha.ordinary_mint_credit', 'POST', '/v1/kagemusha/ordinary/top-up/credit', 'always', 'canonical_account_signature', 'authenticated_account', 'false', 'true'),
         ('validation_fee.retail.quote', 'POST', '/v1/validation-fee/quote', 'feature(app_api)', 'canonical_account_signature', 'authenticated_account', 'false', 'true'),
         ('validation_fee.retail.status', 'GET', '/v1/validation-fee/accounts/{account_id}/status', 'feature(app_api)', 'canonical_account_signature', 'authenticated_account', 'false', 'true'),
         ('validation_fee.retail.receipts', 'GET', '/v1/validation-fee/accounts/{account_id}/receipts', 'feature(app_api)', 'canonical_account_signature', 'authenticated_account', 'false', 'true'),

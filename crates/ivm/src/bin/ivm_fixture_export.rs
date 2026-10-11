@@ -26,37 +26,6 @@ use std::{
 };
 // Public deterministic fixture material; this key must never authorize a real account.
 const CONTRACT_MANIFEST_FIXTURE_SIGNER_SEED: [u8; 32] = [0x33; 32];
-// Largest canonical signing frame the fixed contract-manifest fixture may encode.
-const CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT: usize = 64 * 1024;
-// Physical scratch funded for signing and verifying the fixed contract-manifest fixture.
-const CONTRACT_MANIFEST_FIXTURE_SCRATCH_BYTES: usize = 8 * CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT;
-/// Run `body` with the funded, bounded codec context the fixture manifest is signed under.
-///
-/// The pool owns the cumulative counter and the signing scratch for exactly this call; the
-/// signed bytes do not depend on the context.
-fn with_contract_manifest_fixture_signing_context<R>(
-    body: impl FnOnce(&norito::core::DecodeBudgetContext) -> R,
-) -> Result<R, String> {
-    let pool = iroha_allocation::AllocationBudget::new(
-        CONTRACT_MANIFEST_FIXTURE_SCRATCH_BYTES
-            + norito::core::DecodeBudgetContext::allocation_layout().size(),
-    );
-    let _scratch = pool
-        .try_reserve_bytes(CONTRACT_MANIFEST_FIXTURE_SCRATCH_BYTES)
-        .map_err(|error| format!("fund contract-manifest fixture signing scratch: {error:?}"))?;
-    let context = norito::core::DecodeBudgetContext::try_new_owned(
-        norito::DecodeLimits::new(
-            CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT,
-            CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT,
-            CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT,
-            CONTRACT_MANIFEST_FIXTURE_SCRATCH_BYTES,
-            256,
-        ),
-        &pool,
-    )
-    .map_err(|error| format!("fund contract-manifest fixture signing counter: {error}"))?;
-    Ok(body(&context))
-}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Mode {
     Check,
@@ -180,8 +149,73 @@ impl FastJsonWrite for ContractManifestFixtureDocument<'_> {
         out.push('}');
     }
 }
-fn contract_manifest_fixture_types()
--> Result<(EventFilterBox, ContractManifest, ContractManifest), String> {
+/// Keep the returned fixture graph ahead of its original allocation owners.
+/// Rust destroys fields in declaration order, so manifests are freed first.
+struct ContractManifestFixtureTypes {
+    event_filter: EventFilterBox,
+    manifest: ContractManifest,
+    signed_manifest: ContractManifest,
+    _context: norito::core::DecodeBudgetContext,
+    _signer_backing: iroha_allocation::AllocationReservation,
+    _grant: iroha_allocation::AllocationReservation,
+    #[cfg(test)]
+    max_frame_bytes: usize,
+}
+
+#[cfg(test)]
+impl ContractManifestFixtureTypes {
+    /// Partition exact verification output from the same signing operation.
+    fn reserve_verification_frame(
+        &mut self,
+    ) -> Result<iroha_allocation::AllocationReservation, String> {
+        let bytes = self
+            ._context
+            .with(|| {
+                let _canonical =
+                    norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
+                norito::core::encoded_frame_len_bounded(
+                    &self.signed_manifest.signature_payload(),
+                    self.max_frame_bytes,
+                )
+            })
+            .map_err(|error| format!("count contract-manifest verification frame: {error}"))?;
+        self._grant
+            .try_partition_bytes(bytes)
+            .map_err(|error| format!("admit contract-manifest verification frame: {error}"))
+    }
+}
+
+fn contract_manifest_fixture_types() -> Result<ContractManifestFixtureTypes, String> {
+    let max_frame_bytes = usize::try_from(
+        iroha_data_model::parameter::system::TransactionParameters::default()
+            .max_tx_bytes
+            .get(),
+    )
+    .map_err(|error| format!("contract-manifest fixture transaction limit: {error}"))?;
+    // One sign and one optional test verification payload share one finite
+    // allowance. Existing borrowed descriptors/metadata stream their graph.
+    let cumulative_bytes = max_frame_bytes
+        .checked_mul(2)
+        .and_then(|bytes| bytes.checked_add(iroha_crypto::MAX_PUBLIC_KEY_PAYLOAD_BYTES + 1))
+        .ok_or_else(|| "contract-manifest fixture allocation allowance overflow".to_owned())?;
+    let physical_bytes = cumulative_bytes
+        .checked_add(norito::core::DecodeBudgetContext::allocation_layout().size())
+        .ok_or_else(|| "contract-manifest fixture physical allowance overflow".to_owned())?;
+    let pool = iroha_allocation::AllocationBudget::new(physical_bytes);
+    let mut grant = pool
+        .try_reserve_bytes(physical_bytes)
+        .map_err(|error| format!("fund contract-manifest fixture codec allowance: {error}"))?;
+    let context = norito::core::DecodeBudgetContext::from_reservation(
+        norito::DecodeLimits::new(
+            max_frame_bytes,
+            max_frame_bytes,
+            max_frame_bytes,
+            cumulative_bytes,
+            norito::core::MAX_VALUE_NESTING_DEPTH,
+        ),
+        &mut grant,
+    )
+    .map_err(|error| format!("retain contract-manifest fixture accounting: {error}"))?;
     let event_filter = EventFilterBox::Time(TimeEventFilter(ExecutionTime::PreCommit));
     let trigger = TriggerDescriptor {
         id: "wake"
@@ -238,32 +272,56 @@ fn contract_manifest_fixture_types()
         Algorithm::Ed25519,
     )
     .map_err(|error| format!("derive contract-manifest fixture signer: {error}"))?;
-    let signed_manifest = with_contract_manifest_fixture_signing_context(|context| {
-        manifest
-            .clone()
-            .try_signed(context, CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT, &key_pair)
-            .map_err(|error| format!("sign contract-manifest fixture: {error}"))
-    })??;
-    Ok((event_filter, manifest, signed_manifest))
+    let signer_backing = grant
+        .try_partition_bytes(key_pair.public_key().retained_allocation_layout().size())
+        .map_err(|error| format!("retain contract-manifest fixture signer backing: {error}"))?;
+    let frame_bytes = context
+        .with(|| {
+            let _canonical =
+                norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
+            norito::core::encoded_frame_len_bounded(&manifest.signature_payload(), max_frame_bytes)
+        })
+        .map_err(|error| format!("count contract-manifest fixture payload: {error}"))?;
+    let frame = grant
+        .try_partition_bytes(frame_bytes)
+        .map_err(|error| format!("admit contract-manifest fixture payload: {error}"))?;
+    let signed_manifest = manifest
+        .clone()
+        .try_signed(&context, frame_bytes, &key_pair)
+        .map_err(|error| format!("sign contract-manifest fixture: {error}"))?;
+    drop(frame);
+    Ok(ContractManifestFixtureTypes {
+        event_filter,
+        manifest,
+        signed_manifest,
+        _context: context,
+        _signer_backing: signer_backing,
+        _grant: grant,
+        #[cfg(test)]
+        max_frame_bytes,
+    })
 }
 fn render_contract_manifest_v1_fixture() -> Result<String, String> {
-    let (event_filter, manifest, signed_manifest) = contract_manifest_fixture_types()?;
+    let fixture = contract_manifest_fixture_types()?;
+    let event_filter = &fixture.event_filter;
+    let manifest = &fixture.manifest;
+    let signed_manifest = &fixture.signed_manifest;
     // Keep the schema-only null-hash fixture, and independently encode the complete
     // hash-bound manifest accepted by public artifact-registration builders.
     let mut registration_manifest = manifest.clone();
     registration_manifest.code_hash = Some(iroha_crypto::Hash::prehashed([0x11; 32]));
-    let event_filter_frame = norito::encode_canonical(&event_filter)
+    let event_filter_frame = norito::encode_canonical(event_filter)
         .map_err(|error| format!("encode canonical event-filter fixture frame: {error}"))?;
     let document = ContractManifestFixtureDocument {
         event_filter_frame_hex: hex::encode(event_filter_frame),
-        manifest: &manifest,
-        manifest_compact_hex: hex::encode(norito::codec::Encode::encode(&manifest)),
+        manifest,
+        manifest_compact_hex: hex::encode(norito::codec::Encode::encode(manifest)),
         registration_manifest: &registration_manifest,
         registration_manifest_compact_hex: hex::encode(norito::codec::Encode::encode(
             &registration_manifest,
         )),
-        signed_manifest: &signed_manifest,
-        signed_manifest_compact_hex: hex::encode(norito::codec::Encode::encode(&signed_manifest)),
+        signed_manifest,
+        signed_manifest_compact_hex: hex::encode(norito::codec::Encode::encode(signed_manifest)),
     };
     let mut rendered = norito::json::to_json_pretty(&document)
         .map_err(|error| format!("render contract-manifest fixture JSON: {error}"))?;
@@ -476,19 +534,31 @@ mod tests {
     }
     #[test]
     fn contract_manifest_fixture_is_type_derived_signed_and_deterministic() {
-        let (_, manifest, signed_manifest) =
+        let mut fixture =
             contract_manifest_fixture_types().expect("build typed contract-manifest fixture");
-        let payload_of = |manifest: &ContractManifest| {
-            with_contract_manifest_fixture_signing_context(|context| {
-                manifest.signature_payload_bytes(context, CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT)
-            })
-            .expect("fund fixture signing context")
-            .expect("encode bounded fixture signature payload")
-        };
-        let signed_payload = payload_of(&signed_manifest);
+        let before = fixture._context.consumed_allocated_bytes();
+        let frame = fixture
+            .reserve_verification_frame()
+            .expect("admit exact fixture verification frame");
+        let frame_bytes = frame.remaining_bytes();
         assert_eq!(
-            payload_of(&manifest),
-            signed_payload,
+            before,
+            u64::try_from(frame_bytes + fixture._signer_backing.remaining_bytes())
+                .expect("finite original signing debit")
+        );
+        assert_eq!(fixture._context.consumed_allocated_bytes(), before);
+        let payload = fixture
+            .manifest
+            .signature_payload_bytes(&fixture._context, frame.remaining_bytes())
+            .expect("encode original fixture verification payload");
+        assert_eq!(
+            fixture._context.consumed_allocated_bytes(),
+            before + u64::try_from(frame_bytes).expect("finite verification debit")
+        );
+        let manifest = &fixture.manifest;
+        let signed_manifest = &fixture.signed_manifest;
+        assert!(
+            manifest.same_signed_content(signed_manifest),
             "provenance must not change the signed payload"
         );
         let provenance = signed_manifest
@@ -497,19 +567,22 @@ mod tests {
             .expect("fixture manifest provenance");
         provenance
             .signature
-            .verify(&provenance.signer, &signed_payload)
+            .verify(&provenance.signer, &payload)
             .expect("fixture manifest signature");
-        // The context only accounts for the frame: a frame limit below the payload refuses,
-        // and no other limit changes the signed bytes.
-        assert!(signed_payload.len() <= CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT);
-        assert!(
-            with_contract_manifest_fixture_signing_context(|context| {
-                signed_manifest.signature_payload_bytes(context, signed_payload.len() - 1)
-            })
-            .expect("fund fixture signing context")
-            .is_err(),
-            "a frame limit below the canonical payload must refuse"
-        );
+        // An undersized frame refuses before consuming the original operation's
+        // cumulative allowance or allocating another output buffer.
+        let consumed = fixture._context.consumed_allocated_bytes();
+        assert_eq!(payload.len(), frame_bytes);
+        assert!(matches!(
+            signed_manifest.signature_payload_bytes(&fixture._context, frame_bytes - 1),
+            Err(norito::core::BoundedEncodeError::FrameTooLarge {
+                encoded_bytes,
+                max_bytes,
+            }) if encoded_bytes == frame_bytes && max_bytes == frame_bytes - 1
+        ));
+        assert_eq!(fixture._context.consumed_allocated_bytes(), consumed);
+        drop(payload);
+        drop(frame);
         let rendered =
             render_contract_manifest_v1_fixture().expect("render contract-manifest fixture");
         assert_eq!(
@@ -527,7 +600,7 @@ mod tests {
             );
         }
         assert!(rendered.ends_with('\n'));
-        assert!(rendered.contains(&hex::encode(norito::codec::Encode::encode(&manifest))));
+        assert!(rendered.contains(&hex::encode(norito::codec::Encode::encode(manifest))));
         assert!(manifest.code_hash.is_none());
         let mut registration_manifest = manifest.clone();
         registration_manifest.code_hash = Some(iroha_crypto::Hash::prehashed([0x11; 32]));
@@ -543,11 +616,7 @@ mod tests {
             parsed.get("registration_manifest"),
             Some(&norito::json::to_value(&registration_manifest).expect("registration manifest")),
         );
-        assert!(
-            rendered.contains(&hex::encode(norito::codec::Encode::encode(
-                &signed_manifest
-            )))
-        );
+        assert!(rendered.contains(&hex::encode(norito::codec::Encode::encode(signed_manifest))));
     }
     #[test]
     fn smart_contract_code_hash_fixture_is_metadata_validated_and_deterministic() {

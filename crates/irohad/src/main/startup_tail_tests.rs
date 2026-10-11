@@ -146,15 +146,3 @@ fn startup_beep_respects_config_flag() {
         "beep enabled by config flag should play once"
     );
 }
-
-#[test]
-fn retired_kagemusha_seal_publication_flags_are_rejected() {
-    for flag in [
-        "--write-kagemusha-catalog-qualification-seal",
-        "--write-kagemusha-validator-qualification-seal",
-    ] {
-        let error = Args::try_parse_from(["iroha3d", flag, "/tmp/retired-seal.norito"])
-            .expect_err("retired local qualification-seal publication is not a daemon owner");
-        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
-    }
-}

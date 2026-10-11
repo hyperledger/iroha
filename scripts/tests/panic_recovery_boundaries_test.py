@@ -1912,23 +1912,23 @@ def test_nested_amx_support_refuses_missing_original_even_with_guessed_sibling(t
     assert failures == ["crates/iroha_core/src/executor/root_scope/tests.rs:1: mod must name one static local source file"]
 
 
-def test_ordinary_mint_permission_include_seals_full_original_caller(tmp_path: Path) -> None:
+def test_asset_lock_admission_include_seals_full_original_caller(tmp_path: Path) -> None:
     module = load_guard_module()
     parent = tmp_path / "crates/iroha_core/src"
     parent.mkdir(parents=True)
     executor = parent / "executor.rs"
-    included = parent / "executor_ordinary_mint_permission_tests.rs"
+    included = parent / "executor_asset_lock_admission_tests.rs"
     executor.write_text(
-        '#[cfg(test)] mod tests { include!("executor_ordinary_mint_permission_tests.rs"); }\n',
+        '#[cfg(test)] mod tests { include!("executor_asset_lock_admission_tests.rs"); }\n',
         encoding="utf-8",
     )
-    included.write_text("fn mint_permission() { original_root_and_scope(); }\n", encoding="utf-8")
+    included.write_text("fn asset_lock_admission() { original_root_and_scope(); }\n", encoding="utf-8")
     sources, failures = module.torii_rust_source_closure(tmp_path)
     assert failures == []
     assert included.resolve() in sources
-    assert Path("crates/iroha_core/src/executor_ordinary_mint_permission_tests.rs") in module.CORE_RECOVERY_SUPPORT_PATHS
+    assert Path("crates/iroha_core/src/executor_asset_lock_admission_tests.rs") in module.CORE_RECOVERY_SUPPORT_PATHS
     records, _, counts = module.torii_boundary_inventory(tmp_path, sources)
-    included.write_text("fn mint_permission() { substituted_root_and_scope(); }\n", encoding="utf-8")
+    included.write_text("fn asset_lock_admission() { substituted_root_and_scope(); }\n", encoding="utf-8")
     observed = module.torii_boundary_inventory(tmp_path)
     assert observed[2] == counts
     failures = module.closed_torii_boundary_inventory_failures(
@@ -1937,25 +1937,25 @@ def test_ordinary_mint_permission_include_seals_full_original_caller(tmp_path: P
     assert any("source inventory drifted" in error for error in failures), failures
 
 
-def test_ordinary_mint_permission_include_refuses_absence_and_guessed_sibling(tmp_path: Path) -> None:
+def test_asset_lock_admission_include_refuses_absence_and_guessed_sibling(tmp_path: Path) -> None:
     module = load_guard_module()
     parent = tmp_path / "crates/iroha_core/src"
     parent.mkdir(parents=True)
     executor = parent / "executor.rs"
-    original = parent / "executor_ordinary_mint_permission_tests.rs"
-    guessed = parent / "executor_ordinary_mint_permissions_tests.rs"
+    original = parent / "executor_asset_lock_admission_tests.rs"
+    guessed = parent / "executor_asset_locks_admission_tests.rs"
     executor.write_text(
-        '#[cfg(test)] mod tests { include!("executor_ordinary_mint_permission_tests.rs"); }\n',
+        '#[cfg(test)] mod tests { include!("executor_asset_lock_admission_tests.rs"); }\n',
         encoding="utf-8",
     )
     guessed.write_text("fn guessed_permission() {}\n", encoding="utf-8")
     sources, failures = module.torii_rust_source_closure(tmp_path)
     assert original.resolve() not in sources
     assert guessed.resolve() not in sources
-    assert Path("crates/iroha_core/src/executor_ordinary_mint_permissions_tests.rs") not in module.CORE_RECOVERY_SUPPORT_PATHS
+    assert Path("crates/iroha_core/src/executor_asset_locks_admission_tests.rs") not in module.CORE_RECOVERY_SUPPORT_PATHS
     assert failures == [
         "crates/iroha_core/src/executor.rs:1: include! source path is missing "
-        "or not a regular file: executor_ordinary_mint_permission_tests.rs"
+        "or not a regular file: executor_asset_lock_admission_tests.rs"
     ]
 
 

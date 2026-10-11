@@ -168,6 +168,41 @@ impl BlockSignatures {
             }
         }
     }
+    /// Admit only the empty local-construction leaf from its original finite pool.
+    /// This grants no signature or block authority and never decodes a second graph.
+    #[cfg(feature = "transparent_api")]
+    pub(super) fn prepare_local_unsigned(
+        &mut self,
+        budget: &AllocationBudget,
+    ) -> Result<(), BlockSignatureCustodyError> {
+        if !self.is_empty() {
+            return Err(BlockSignatureCustodyError::UnsignedProfile);
+        }
+        if matches!(&self.storage, Storage::Admitted(_)) {
+            return if self.admitted_to(budget) {
+                Ok(())
+            } else {
+                Err(BlockSignatureCustodyError::ForeignPool)
+            };
+        }
+        // Admit and allocate the sole exact immutable control before touching the source.
+        // Zero-capacity typed backings allocate nothing and keep this same pool identity.
+        let mut reservation = budget
+            .try_reserve(Self::allocation_layout())
+            .map_err(BlockSignatureCustodyError::ControlAdmission)?;
+        let shell = ChargedShared::<Funded>::reserve_from(&mut reservation)
+            .map_err(BlockSignatureCustodyError::ControlAllocation)?;
+        let values = ChargedBuffer::<BlockSignature>::new(0, budget)?;
+        let charges = ChargedBuffer::<AllocationCharge>::new(0, budget)?;
+        let owner = shell.initialize(Funded {
+            values,
+            charges,
+            budget: budget.clone(),
+        });
+        self.storage = Storage::Admitted(owner);
+        Ok(())
+    }
+
     pub(super) fn permits_replacement(&self, replacement: &Self) -> bool {
         match &self.storage {
             Storage::Untrusted(_) => true,
@@ -365,6 +400,9 @@ impl norito::json::JsonDeserialize for BlockSignatures {
 /// Original-source, canonical-wire or exact physical signature-custody refusal.
 #[derive(Debug, thiserror::Error)]
 pub enum BlockSignatureCustodyError {
+    /// Local construction admits only empty signatures on a resultless proposal.
+    #[error("local signature custody requires an unsigned resultless proposal")]
+    UnsignedProfile,
     /// Original charged input or budget changed.
     #[error("block signature source belongs to another original pool")]
     ForeignPool,
@@ -414,7 +452,7 @@ impl Identity {
 }
 /// Source-bound exact collection/ledger/leaf owners retained through every refusal.
 ///
-/// The enclosing owner must keep the original ChargedBuffer alive through this
+/// The enclosing owner must keep the original `ChargedBuffer` alive through this
 /// attempt. Prepared spans are inline and all byte leaves use the sole signature
 /// record walk. This funds signatures only; other block/result children remain
 /// separate preparation obligations.

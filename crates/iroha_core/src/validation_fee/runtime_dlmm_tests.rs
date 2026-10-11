@@ -179,8 +179,7 @@ fn pool_bin_quantity(
 
 #[test]
 fn production_dlmm_rounds_at_native_asset_precision_and_conserves_both_directions() {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     // Exact current production source. The cross-repository source guard checks
     // this copy byte-for-byte before the SoraSwap check/build/test workflows.
     let source = include_str!("fixtures/dlmm_pool.ko");
@@ -228,7 +227,14 @@ fn production_dlmm_rounds_at_native_asset_precision_and_conserves_both_direction
             crate::smartcontracts::code::register_manifest(
                 deployer,
                 DataSpaceId::UNIVERSAL,
-                verified.manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &key_pair(55)).expect("sign bounded fixture manifest"),
+                verified
+                    .manifest
+                    .try_signed(
+                        manifest_signing.context(),
+                        manifest_signing.max_frame_bytes(),
+                        &key_pair(55),
+                    )
+                    .expect("sign bounded fixture manifest"),
                 stx,
             )
             .unwrap();

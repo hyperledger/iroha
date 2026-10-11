@@ -114,10 +114,10 @@ data class ManifestStatus(
             now: Long
         ): DualStatus {
             val roles = roots.filter { it.active }.map { it.role }.toSet()
-            val required = setOf("kagemusha_release_signer", "kagemusha_device_attestation_ca")
+            val required = setOf("release_signer", "device_attestation_ca")
             val missing = required.filterNot { roles.contains(it) }
             return if (missing.isEmpty()) {
-                DualStatus(true, "KAGEMUSHA V1 trust roots present until ${formatDuration(manifest.validUntilMs - now)}")
+                DualStatus(true, "required trust roots present until ${formatDuration(manifest.validUntilMs - now)}")
             } else {
                 DualStatus(false, "missing ${missing.joinToString(", ")}")
             }

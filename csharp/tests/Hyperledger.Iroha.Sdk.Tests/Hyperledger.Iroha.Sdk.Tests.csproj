@@ -22,11 +22,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="../../../artifacts/openapi/torii.json" Link="Fixtures/torii-openapi.json" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../../../fixtures/governance/parliament_api_v1.json" Link="Fixtures/parliament_api_v1.json" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../../../fixtures/governance/kagemusha_verifier_release_install_v1.json" Link="Fixtures/kagemusha_verifier_release_install_v1.json" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../../../fixtures/governance/kagemusha_verifier_release_activate_v1.json" Link="Fixtures/kagemusha_verifier_release_activate_v1.json" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../../../fixtures/governance/kagemusha_verifier_release_retire_v1.json" Link="Fixtures/kagemusha_verifier_release_retire_v1.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../../fixtures/account/address_vectors.json" Link="Fixtures/address_vectors.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../../fixtures/torii/list_query/vectors.json" Link="Fixtures/torii/list_query/vectors.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../../fixtures/queries/contract_artifact_query_v1.json" Link="Fixtures/contract_artifact_query_v1.json" CopyToOutputDirectory="PreserveNewest" />

@@ -26,6 +26,18 @@ guard for that file. It fails when:
   engines, security models, dispatch arms or compiled-profile arms differ, or
   the cited test that asserts which profiles construct does not name a
   protocol recorded as constructed;
+* the thirteen Exact12 roles (`PrivacyActionRoleV1`), their protocols or the
+  typed dispatch registry (verification, limitation, effect class, delivery)
+  differ from the recorded rows, or a row's state effects are not what its
+  verification, its effect class and the admission gate of the handler imply;
+* a second authoritative route for an Exact12 role appears: the envelope is
+  assembled outside its one assembler, an envelope identity is assigned at an
+  unrecorded site, a second instruction carries an envelope, statement or
+  proof, the handler prepares, resolves the role, dispatches or consumes an
+  effect more than once, a role's native verifier is called outside its
+  engine, the dispatch and the recorded non-admission tooling, a verified
+  effect is consumed or matched at an unrecorded site, an action-driver
+  operation names no role, or a retired duplicate is back;
 * a closed enum the inventory mirrors gains or loses a variant: the generic
   proof relations, the Halo2 production circuits, the RAM-LFE classes,
   backends, verification modes and opening variants, the SoraCloud FHE job
@@ -98,6 +110,11 @@ Limits, stated once:
 * Digests. The census counts primitive names from a closed list in each
   product's owner paths; a primitive under a name outside the list is not
   counted.
+* Exact12 single route. The scan reads code without comments, literals and
+  test-gated items. A destructuring pattern of the envelope type counts as an
+  assembly; an envelope built through a type alias or a macro, and a native
+  verifier reached through a function that is not a recorded verifier, are
+  not seen.
 
 Maintenance. The inventory is edited by hand; `--refresh` does the mechanical
 part: it recomputes the SDK and bridge references of every operation and
@@ -186,6 +203,11 @@ SKIP_DIRS = frozenset(
 )
 
 
+# Files found under a set of roots of one checkout, kept for the process: the checker is a
+# short-lived command and its tests substitute contents through `Tree(overrides=...)`.
+_WALKS: dict[tuple, list[str]] = {}
+
+
 class Tree:
     """Read-only view of the checkout. Tests substitute file contents."""
 
@@ -214,6 +236,9 @@ class Tree:
     def walk(self, roots: list[str], extensions: tuple[str, ...]) -> list[str]:
         """Repository-relative files under `roots` with one of `extensions`, sorted."""
         key = (tuple(roots), tuple(extensions))
+        shared = (str(self.root),) + key
+        if key not in self._walks and shared in _WALKS:
+            self._walks[key] = _WALKS[shared]
         if key not in self._walks:
             found: set[str] = set()
             for root in roots:
@@ -227,7 +252,7 @@ class Tree:
                     for file in files:
                         if file.endswith(extensions):
                             found.add(os.path.relpath(os.path.join(directory, file), self.root))
-            self._walks[key] = sorted(found)
+            self._walks[key] = _WALKS[shared] = sorted(found)
         files = set(self._walks[key])
         for path, text in self.overrides.items():
             if not path.endswith(extensions):
@@ -411,15 +436,35 @@ def default_features(tree: Tree, crate: str) -> set[str]:
     return enabled
 
 
+def target_required_feature(tree: Tree, crate: str, relative: str) -> str | None:
+    """The non-default feature a Cargo target of `crates/<crate>` rooted at `relative` requires."""
+    text = tree.read(f"crates/{crate}/Cargo.toml") or ""
+    defaults = default_features(tree, crate)
+    for table in re.findall(r"^\[\[(?:bin|test|example|bench)\]\][^\n]*\n(.*?)(?=^\[|\Z)", text, re.M | re.S):
+        body = re.sub(r"#[^\n]*", "", table)
+        root = re.search(r'^path\s*=\s*"([^"]+)"', body, re.M)
+        required = re.search(r"^required-features\s*=\s*\[(.*?)\]", body, re.M | re.S)
+        if root is None or required is None or root.group(1) != relative:
+            continue
+        for feature in re.findall(r'"([^"]+)"', required.group(1)):
+            if feature not in defaults:
+                return feature
+    return None
+
+
 def feature_gate(tree: Tree, path: str) -> str | None:
     """The non-default Cargo feature gating the top-level module that holds `path`, if any.
 
-    Two gates are read: an inner `#![cfg(... feature = "..." ...)]` of the file itself (an
-    integration test under `tests/`), and `#[cfg(feature = "...")] mod name;` in the crate's
-    `src/lib.rs`.
+    Three gates are read: `required-features` of the Cargo target whose `path` is the file (a
+    binary, test, example or bench target), an inner `#![cfg(... feature = "..." ...)]` of the
+    file itself (an integration test under `tests/`), and `#[cfg(feature = "...")] mod name;` in
+    the crate's `src/lib.rs`.
     """
-    crate_of = re.match(r"crates/([^/]+)/", path)
+    crate_of = re.match(r"crates/([^/]+)/(.*)", path)
     if crate_of is not None:
+        required = target_required_feature(tree, crate_of.group(1), crate_of.group(2))
+        if required is not None:
+            return required
         defaults = default_features(tree, crate_of.group(1))
         for attribute in re.findall(r"#!\[cfg\(([^\]]*)\)\]", tree.read(path) or ""):
             for feature in re.findall(r'feature\s*=\s*"([^"]+)"', attribute):
@@ -1023,6 +1068,237 @@ def entry_point_census(tree: Tree, census: dict) -> list[dict]:
                 if count:
                     rows.append({"token": token["id"], "path": path, "count": count})
     rows.sort(key=lambda row: (row["token"], row.get("name", ""), row["path"]))
+    return rows
+
+
+# --------------------------------------------------------------------------- Exact12 single route
+
+ENVELOPE_IDENTITY_FIELDS = (
+    "wire_magic", "catalog_commitment", "protocol_id", "proof_system_id", "engine_id", "parameter_id",
+    "parameter_digest", "verifier_digest", "statement_schema_digest", "engine_manifest_digest", "statement_digest",
+)
+ROLE_VERIFICATION = ("implemented", "refused")
+EFFECT_USES = ("ledger_application", "read_only_evidence", "construction")
+_NOT_AN_EXPRESSION = re.compile(r"(?:->|\bstruct|\bimpl|\bfor|\benum|\bunion)\s*$")
+
+
+def drop_gated_items(text: str, gates: list[str]) -> str:
+    """`text` without the items that follow an attribute matching one of the `gates` patterns."""
+    for pattern in gates:
+        gate = re.compile(pattern)
+        out, index = [], 0
+        while True:
+            match = gate.search(text, index)
+            if match is None:
+                out.append(text[index:])
+                break
+            out.append(text[index : match.start()])
+            if _ITEM.match(text, match.end()):
+                index = rust_item_end(text, match.end())
+            else:
+                newline = text.find("\n", text.find("\n", match.end()) + 1)
+                index = newline if newline >= 0 else len(text)
+        text = "".join(out)
+    return text
+
+
+_FAMILY_WORD = "rivacy"
+_MENTIONS_FAMILY: dict[str, tuple[tuple[float, int], bool]] = {}
+
+
+def mentions_privacy(tree: Tree, path: str) -> bool:
+    """Whether the file's path or text names the privacy family.
+
+    Every Exact12 type, engine module and the owning crate carry the word, so a file without it
+    cannot assemble an envelope, call a native verifier or consume an effect. The answer for an
+    unchanged file on disk is kept for the process, which keeps repeated checks cheap.
+    """
+    if _FAMILY_WORD in path:
+        return True
+    if path in tree.overrides:
+        return _FAMILY_WORD in (tree.overrides[path] or "")
+    file = tree.root / path
+    try:
+        status = file.stat()
+    except OSError:
+        return False
+    stamp = (status.st_mtime, status.st_size)
+    cached = _MENTIONS_FAMILY.get(str(file))
+    if cached is None or cached[0] != stamp:
+        cached = (stamp, _FAMILY_WORD in (tree.read(path) or ""))
+        _MENTIONS_FAMILY[str(file)] = cached
+    return cached[1]
+
+
+_SCAN_MEMO: dict[tuple, object] = {}
+
+
+class RouteScan:
+    """Production code of the single-route scan: no comments, literals or test-gated items.
+
+    Only files that name the privacy family are read (`mentions_privacy`). What is read from a
+    file is kept for the process under the file's content, so a repeated check reads again only
+    the files that changed.
+    """
+
+    def __init__(self, tree: Tree, scan: dict) -> None:
+        self.tree = tree
+        self.gates = tuple(scan.get("test_gates", []))
+        self.files = [path for path in production_rust(tree, scan.get("roots", []), scan.get("exclude", []))
+                      if mentions_privacy(tree, path)]
+        self._code: dict[str, str] = {}
+        self._keys: dict[str, tuple] = {}
+
+    def key(self, path: str) -> tuple:
+        """Identity of the file's content and of the gates it is read under."""
+        if path not in self._keys:
+            raw = self.tree.read(path) or ""
+            self._keys[path] = (len(raw), hash(raw), self.gates)
+        return self._keys[path]
+
+    def memo(self, path: str, what: tuple, compute):
+        key = (what,) + self.key(path)
+        if key not in _SCAN_MEMO:
+            _SCAN_MEMO[key] = compute()
+        return _SCAN_MEMO[key]
+
+    def code(self, path: str) -> str:
+        if path not in self._code:
+            raw = self.tree.read(path) or ""
+            self._code[path] = self.memo(
+                path, ("code",), lambda: code_only(drop_gated_items(production_text(raw), list(self.gates))))
+        return self._code[path]
+
+    def holding(self, needle: str) -> list[str]:
+        """Scanned files whose raw text has `needle` (a cheap filter before `code`)."""
+        return [path for path in self.files
+                if self.memo(path, ("holds", needle), lambda: needle in (self.tree.read(path) or ""))]
+
+    def calls(self, name: str) -> dict[str, int]:
+        """{path: count} of calls of `name` (its definition is not a call)."""
+        pattern = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(name) + r"\s*(?:::\s*<[^>;{}]*>\s*)?\(")
+
+        def count(path: str) -> int:
+            code = self.code(path)
+            return sum(1 for match in pattern.finditer(code)
+                       if not re.search(r"\bfn\s+$", code[max(0, match.start() - 8) : match.start()]))
+
+        counts: dict[str, int] = {}
+        for path in self.holding(name):
+            found = self.memo(path, ("calls", name), lambda: count(path))
+            if found:
+                counts[path] = found
+        return counts
+
+
+def envelope_assemblies(scan: RouteScan, type_name: str) -> list[dict]:
+    """[{path, function, kind}] for every production expression that assembles `type_name`.
+
+    `kind` is `literal` for `Type { .. }` and `self_literal` for `Self { .. }` inside an
+    inherent `impl Type` block. A return type before a function body is not an expression.
+    """
+    literal = re.compile(r"(?<![A-Za-z0-9_])(?:[A-Za-z_]\w*\s*::\s*)*" + re.escape(type_name) + r"\s*\{")
+
+    def read(path: str) -> list[tuple[str | None, str]]:
+        code = scan.code(path)
+        index = rust_index(code)
+        found = []
+        for match in literal.finditer(code):
+            if not _NOT_AN_EXPRESSION.search(code[max(0, match.start() - 16) : match.start()]):
+                found.append((index.enclosing(match.start())[0], "literal"))
+        for block in index.impls:
+            if block["type"] != type_name or block["trait"]:
+                continue
+            start, end = block["span"]
+            for match in re.finditer(r"\bSelf\s*\{", code[start:end]):
+                position = start + match.start()
+                if not _NOT_AN_EXPRESSION.search(code[max(0, position - 16) : position]):
+                    found.append((index.enclosing(position)[0], "self_literal"))
+        return found
+
+    rows = []
+    for path in scan.holding(type_name):
+        for function, kind in scan.memo(path, ("assemblies", type_name), lambda: read(path)):
+            rows.append({"path": path, "function": function, "kind": kind})
+    return rows
+
+
+_IDENTITY_ASSIGNMENT = re.compile(r"\benvelope\s*\.\s*(?:" + "|".join(ENVELOPE_IDENTITY_FIELDS) + r")\s*=(?!=)")
+
+
+def envelope_field_assignments(scan: RouteScan) -> dict[str, int]:
+    """{path: count} of production assignments to an identity field of a value named `envelope`."""
+    counts: dict[str, int] = {}
+    for path in scan.holding("envelope"):
+        count = scan.memo(
+            path, ("identity_assignments",),
+            lambda: len(_IDENTITY_ASSIGNMENT.findall(scan.code(path)))
+            if _IDENTITY_ASSIGNMENT.search(scan.tree.read(path) or "") else 0,
+        )
+        if count:
+            counts[path] = count
+    return counts
+
+
+def struct_fields_of_types(code: str, types: list[str]) -> list[tuple[str, str, str]]:
+    """[(struct, field, type)] for every named struct field whose type is one of `types`."""
+    found = []
+    wanted = "|".join(re.escape(name) for name in types)
+    for match in re.finditer(r"\bstruct\s+([A-Za-z_]\w*)[^;{(]*\{", code):
+        end = balanced(code, match.end() - 1)
+        if end is None:
+            continue
+        body = strip_attributes(code[match.end() : end - 1])
+        for field in split_top_level(body):
+            declared = re.match(r"(?:pub(?:\([^)]*\))?\s+)?([A-Za-z_]\w*)\s*:\s*(.*)$", field, re.S)
+            if declared and re.search(r"(?<![A-Za-z0-9_])(?:" + wanted + r")(?![A-Za-z0-9_])", declared.group(2)):
+                hit = re.search(wanted, declared.group(2))
+                found.append((match.group(1), declared.group(1), hit.group(0)))
+    return found
+
+
+def registry_rows(text: str, table: str) -> list[dict] | None:
+    """Rows of the typed dispatch table: [{role, verification, limitation, effect_class}]."""
+    start = re.search(r"\bconst\s+" + re.escape(table) + r"\b[^=]*=\s*\[", text)
+    if start is None:
+        return None
+    end = balanced(text, start.end() - 1, "[", "]")
+    if end is None:
+        return None
+    rows = []
+    body = strip_comments(text[start.end() : end - 1])
+    for call in re.finditer(r"\brow\s*\(", body):
+        close = balanced(body, call.end() - 1, "(", ")")
+        if close is None:
+            return None
+        arguments = split_top_level(body[call.end() : close - 1])
+        if len(arguments) != 3:
+            return None
+        role, verification, effect_class = (" ".join(argument.split()) for argument in arguments)
+        limitation = re.fullmatch(r"unsupported\(\s*PrivacyRoleLimitationV1::(\w+)\s*\)", verification)
+        rows.append({
+            "role": role.split("::")[-1],
+            "verification": "implemented" if verification == "IMPLEMENTED" else "refused" if limitation else None,
+            "limitation": limitation.group(1) if limitation else None,
+            "effect_class": effect_class.split("::")[-1],
+        })
+    return rows
+
+
+def driver_operations(text: str, table: str) -> list[dict] | None:
+    """Rows of the action driver's operation table: [{name, role}] with constants resolved."""
+    start = re.search(r"\bconst\s+" + re.escape(table) + r"\b[^=]*=\s*\[", text)
+    if start is None:
+        return None
+    end = balanced(text, start.end() - 1, "[", "]")
+    if end is None:
+        return None
+    constants = dict(re.findall(r'\bconst\s+(\w+)\s*:\s*&str\s*=\s*"([^"]*)"\s*;', text))
+    rows = []
+    for operation, role in re.findall(
+        r"operation\s*:\s*(\w+)\s*,\s*role\s*:\s*PrivacyActionRoleV1::(\w+)", strip_comments(text[start.end() : end - 1])
+    ):
+        rows.append({"name": constants.get(operation), "role": role})
     return rows
 
 
@@ -1824,6 +2100,354 @@ class Checker:
         if variants is None or sorted(variants) != recorded:
             self.error(f"exact12: {effects.get('enum')} has variants {variants}, the protocols use {recorded}")
 
+    # ---- Exact12 roles and the single route
+
+    def handler_is_gated(self, handler: dict, gate: str) -> bool:
+        """Whether the instruction handler's `impl` block still calls the admission gate `gate`."""
+        text = self.production(handler.get("path", ""))
+        symbol = handler.get("symbol", "")
+        body = block_after(text, r"\s+".join(re.escape(part) for part in symbol.split()) + r"\s*\{") if symbol else None
+        return body is not None and names(code_only(body), gate)
+
+    def check_action_roles(self) -> None:
+        section = self.inv.get("exact12", {})
+        roles = section.get("roles")
+        if not isinstance(roles, dict):
+            self.error("exact12: `roles` is required (the thirteen typed roles of the twelve protocols)")
+            return
+        rows = roles.get("list", [])
+        listed = [row.get("role") for row in rows]
+        source = roles.get("source", {})
+        self.check_enum("exact12.roles", {"path": source.get("path", ""), "enum": source.get("enum", "")}, listed)
+        if len(rows) != roles.get("count"):
+            self.error(f"exact12.roles: count is {roles.get('count')}, {len(rows)} roles listed")
+        text = self.tree.read(source.get("path", "")) or ""
+        implementation = block_after(text, r"\bimpl\s+" + re.escape(source.get("enum", "")) + r"\s*\{") or ""
+        all_list = re.search(r"\bALL\s*:[^=]*=\s*\[([^\]]*)\]", implementation)
+        if all_list is None or re.findall(r"Self::(\w+)", all_list.group(1)) != listed:
+            self.error("exact12.roles: the ALL list of the role enum differs from the recorded order")
+        protocol_arms = match_arms(fn_body(implementation, "protocol_id") or "")
+        protocols = {row.get("variant"): row for row in section.get("protocols", [])}
+        registry = roles.get("registry", {})
+        registry_text = self.production(registry.get("path", ""))
+        table = registry_rows(registry_text, registry.get("table", ""))
+        if table is None:
+            self.error(f"exact12.roles.registry: table {registry.get('table')} not found in {registry.get('path')}")
+            table = []
+        elif [row["role"] for row in table] != listed:
+            self.error(f"exact12.roles.registry: {registry.get('table')} lists {[row['role'] for row in table]}, recorded {listed}")
+        typed = {row["role"]: row for row in table}
+        limitations = enum_variants(registry_text, registry.get("limitations", {}).get("enum", "")) or []
+        effect_classes = enum_variants(registry_text, registry.get("effect_classes", {}).get("enum", "")) or []
+        delivered_in_code = len(re.findall(r"PrivacyRoleDeliveryV1\s*::\s*Delivered\b", code_only(registry_text)))
+        for key in ("json_view_test", "profile_agreement_test"):
+            test = registry.get(key)
+            if not isinstance(test, dict) or not runs_by_default(test):
+                self.error(f"exact12.roles.registry.{key}: must cite a test that runs by default")
+        if not roles.get("tests"):
+            self.error("exact12.roles: tests are required")
+        dispatch = section.get("dispatch", {})
+        dispatch_code = anchor_closure(self.tree, {"path": dispatch.get("path", ""),
+                                                   "symbol": "fn " + dispatch.get("function", "") + "("}) or ""
+        instruction = section.get("single_route", {}).get("handler", {}).get("entry", {})
+        gate = roles.get("gate_site")
+        gated = self.handler_is_gated(instruction, "resolve_qualified_privacy_activation_v1")
+        if gated and not isinstance(gate, dict):
+            self.error("exact12.roles: the handler calls the admission gate; record it as `gate_site`")
+        if not gated and gate is not None:
+            self.error("exact12.roles: the handler no longer calls the admission gate; remove `gate_site` and "
+                       "record applied roles as `implemented`")
+        tasks = self.tasks()
+        seen_protocols: list[str] = []
+        for row in rows:
+            label = f"exact12.roles[{row.get('role')}]"
+            protocol = row.get("protocol")
+            if protocol_arms.get(row.get("role"), "").split("::")[-1] != protocol:
+                self.error(f"{label}: protocol_id gives `{protocol_arms.get(row.get('role'))}`, recorded `{protocol}`")
+            if protocol not in protocols:
+                self.error(f"{label}: protocol `{protocol}` is not a listed protocol")
+            if protocol not in seen_protocols:
+                seen_protocols.append(protocol)
+            elif seen_protocols[-1] != protocol:
+                self.error(f"{label}: the roles of one protocol are listed together")
+            verification = row.get("verification")
+            if verification not in ROLE_VERIFICATION:
+                self.error(f"{label}: verification must be one of {ROLE_VERIFICATION}")
+            if (verification == "refused") != bool(row.get("limitation")):
+                self.error(f"{label}: a refused role records its limitation, an implemented one none")
+            if row.get("limitation") and row["limitation"] not in limitations:
+                self.error(f"{label}: limitation `{row['limitation']}` is not a variant of the limitation enum")
+            if row.get("effect_class") not in effect_classes:
+                self.error(f"{label}: effect_class `{row.get('effect_class')}` is not a variant of the effect-class enum")
+            code_row = typed.get(row.get("role"))
+            if code_row is not None:
+                for key in ("verification", "limitation", "effect_class"):
+                    if code_row[key] != row.get(key):
+                        self.error(f"{label}: the typed registry gives {key} `{code_row[key]}`, recorded `{row.get(key)}`")
+            expected_ledger = "None" if row.get("effect_class") == "VerifyOnly" else row.get("effect_class")
+            if row.get("ledger_effect") != expected_ledger:
+                self.error(f"{label}: effect class `{row.get('effect_class')}` hands over ledger effect "
+                           f"`{expected_ledger}`, recorded `{row.get('ledger_effect')}`")
+            expected_effects = (
+                "unreachable" if verification == "refused"
+                else "none" if row.get("effect_class") == "VerifyOnly"
+                else "gated" if gated else "implemented"
+            )
+            if row.get("state_effects") != expected_effects:
+                self.error(
+                    f"{label}: state_effects must be `{expected_effects}` (verification `{verification}`, effect class "
+                    f"`{row.get('effect_class')}`, admission gate {'present' if gated else 'absent'}), "
+                    f"recorded `{row.get('state_effects')}`"
+                )
+            if row.get("delivery") not in DELIVERY:
+                self.error(f"{label}: delivery must be one of {DELIVERY}")
+            elif row["delivery"] == "delivered":
+                open_tasks = [task for task in row.get("owner_tasks", []) if tasks.get(task, {}).get("status") != "implemented"]
+                if open_tasks or not row.get("owner_tasks") or verification != "implemented":
+                    self.error(f"{label}: delivery is `delivered` while {', '.join(open_tasks) or 'its verification'} "
+                               "is not implemented")
+            elif not row.get("missing"):
+                self.error(f"{label}: missing must say what the delivery lacks")
+            if not row.get("owner_tasks"):
+                self.error(f"{label}: owner_tasks is required")
+            if not row.get("native_verifiers"):
+                self.error(f"{label}: native_verifiers is required")
+            for verifier in row.get("native_verifiers", []):
+                if not names(dispatch_code, verifier.get("name", "")):
+                    self.error(f"{label}: the dispatch `{dispatch.get('function')}` does not reach native verifier "
+                               f"`{verifier.get('name')}`")
+        delivered_rows = sum(1 for row in rows if row.get("delivery") == "delivered")
+        if bool(delivered_in_code) != bool(delivered_rows):
+            self.error(f"exact12.roles: the typed registry constructs `Delivered` {delivered_in_code} time(s), "
+                       f"{delivered_rows} role(s) recorded as delivered")
+        for variant, protocol in protocols.items():
+            own = [row for row in rows if row.get("protocol") == variant]
+            if not own:
+                self.error(f"exact12.roles: protocol {variant} has no role")
+                continue
+            if {row.get("verification") for row in own} != {protocol.get("status", {}).get("verification")}:
+                self.error(f"exact12.roles: protocol {variant} is recorded `{protocol.get('status', {}).get('verification')}`, "
+                           f"its roles {sorted({str(row.get('verification')) for row in own})}")
+            if sorted({row.get("ledger_effect") for row in own}) != sorted(protocol.get("ledger_effect", [])):
+                self.error(f"exact12.roles: protocol {variant} records ledger effects {protocol.get('ledger_effect')}, "
+                           f"its roles {sorted({str(row.get('ledger_effect')) for row in own})}")
+
+    def check_exact12_single_route(self) -> None:
+        section = self.inv.get("exact12", {})
+        route = section.get("single_route")
+        if not isinstance(route, dict):
+            self.error("exact12: `single_route` is required (the guard of the single Exact12 path)")
+            return
+        prefix = "exact12.single_route"
+        scan = RouteScan(self.tree, route.get("scan", {}))
+        rows = section.get("roles", {}).get("list", []) if isinstance(section.get("roles"), dict) else []
+        role_names = [row.get("role") for row in rows]
+
+        # One assembler of the envelope.
+        envelope = route.get("envelope", {})
+        type_name = envelope.get("type", "")
+        assembler = envelope.get("assembler", {})
+        assembler_name = verifier_name(assembler) or ""
+        inside = 0
+        for found in envelope_assemblies(scan, type_name):
+            if found["path"] == assembler.get("path") and found["function"] == assembler_name:
+                inside += 1
+            else:
+                self.error(
+                    f"{prefix}: {found['path']}: `{found['function']}` assembles {type_name} outside `{assembler_name}`; "
+                    f"a second envelope assembler is a second authoritative route. Bind through "
+                    f"`{type_name}::{assembler_name}`"
+                )
+        if inside != 1:
+            self.error(f"{prefix}: `{assembler_name}` of {assembler.get('path')} must assemble {type_name} exactly once, "
+                       f"found {inside}")
+        recorded = {item.get("path"): item.get("count") for item in envelope.get("field_assignments", [])}
+        observed = envelope_field_assignments(scan)
+        for path in sorted(set(recorded) | set(observed)):
+            if recorded.get(path) != observed.get(path):
+                self.error(
+                    f"{prefix}: {path} assigns an envelope identity field {observed.get(path, 0)} time(s), recorded "
+                    f"{recorded.get(path, 0)}; an identity is derived by `{assembler_name}`, not assigned"
+                )
+        for item in envelope.get("field_assignments", []):
+            if not item.get("why"):
+                self.error(f"{prefix}: field_assignments[{item.get('path')}] needs `why`")
+        if not envelope.get("tests"):
+            self.error(f"{prefix}: envelope.tests are required")
+
+        # One instruction that carries an envelope, statement or proof.
+        instruction = route.get("instruction", {})
+        carrier = instruction.get("carrier", {})
+        carried: list[tuple[str, str, str]] = []
+        for path in production_rust(self.tree, instruction.get("roots", []), route.get("scan", {}).get("exclude", [])):
+            for struct, field, _ in struct_fields_of_types(scan.code(path), instruction.get("carried_types", [])):
+                carried.append((path, struct, field))
+        expected = (carrier.get("path"), carrier.get("struct"), carrier.get("field"))
+        if expected not in carried:
+            self.error(f"{prefix}: {carrier.get('struct')}.{carrier.get('field')} of {carrier.get('path')} does not carry "
+                       f"an Exact12 envelope")
+        for found in carried:
+            if found != expected:
+                self.error(
+                    f"{prefix}: {found[0]}: `{found[1]}.{found[2]}` carries an Exact12 envelope, statement or proof; "
+                    f"`{carrier.get('struct')}` is the only instruction that does"
+                )
+        if instruction.get("type") not in {operation["id"] for operation in self.inv.get("operations", [])}:
+            self.error(f"{prefix}: instruction {instruction.get('type')} is not a listed operation")
+
+        # One call of each stage of the handler.
+        handler = route.get("handler", {})
+        handler_code = scan.code(handler.get("path", ""))
+        handler_index = rust_index(handler_code)
+        for item in handler.get("single_calls", []):
+            call = item.get("call", "")
+            pattern = re.compile(
+                r"(?<![A-Za-z0-9_])" + r"\s*::\s*".join(re.escape(part) for part in call.split("::")) + r"\s*\("
+            )
+            positions = [match.start() for match in pattern.finditer(handler_code)
+                         if not re.search(r"\bfn\s+$", handler_code[max(0, match.start() - 8) : match.start()])]
+            if len(positions) != 1:
+                self.error(
+                    f"{prefix}: `{call}` is called {len(positions)} time(s) in production code of {handler.get('path')}; "
+                    "the single path calls it once"
+                )
+                continue
+            if item.get("inside") not in handler_index.enclosing(positions[0]):
+                self.error(f"{prefix}: `{call}` is no longer called inside `{item.get('inside')}`")
+
+        # One consumer of a verified effect for ledger application.
+        effects = route.get("effects", {})
+        consumers = effects.get("ledger_consumers", [])
+        recorded = {item.get("path"): item.get("count") for item in consumers}
+        observed = scan.calls("into_ledger")
+        for path in sorted(set(recorded) | set(observed)):
+            if recorded.get(path) != observed.get(path):
+                self.error(f"{prefix}: {path} consumes a verified effect (`into_ledger`) {observed.get(path, 0)} time(s), "
+                           f"recorded {recorded.get(path, 0)}; only the handler applies an effect")
+        for item in consumers:
+            if item.get("use") not in EFFECT_USES:
+                self.error(f"{prefix}: ledger_consumers[{item.get('path')}].use must be one of {EFFECT_USES}")
+        applying = [item.get("path") for item in consumers if item.get("use") == "ledger_application"]
+        if applying != [handler.get("path")]:
+            self.error(f"{prefix}: exactly the handler applies a verified effect, recorded {applying}")
+        enum = effects.get("enum", {})
+        variants = enum_variants(self.tree.read(enum.get("path", "")) or "", enum.get("enum", "")) or []
+        variant_use = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(enum.get("enum", "")) + r"\s*::\s*(\w+)")
+        matching = {path for path in scan.holding(enum.get("enum", "\0")) if variant_use.search(scan.code(path))}
+        recorded_matchers = {item.get("path") for item in effects.get("matchers", [])}
+        for path in sorted(matching ^ recorded_matchers):
+            self.error(
+                f"{prefix}: {path} "
+                + ("names a variant of the verified ledger effect and is not a recorded matcher"
+                   if path in matching else "is a recorded matcher and names no variant of the verified ledger effect")
+            )
+        for item in effects.get("matchers", []):
+            if item.get("use") not in EFFECT_USES:
+                self.error(f"{prefix}: matchers[{item.get('path')}].use must be one of {EFFECT_USES}")
+        for variant in variants:
+            arms = len(re.findall(
+                re.escape(enum.get("enum", "")) + r"\s*::\s*" + re.escape(variant) + r"\b\s*(?:\([^)]*\))?\s*=>",
+                handler_code,
+            ))
+            if arms != 1:
+                self.error(f"{prefix}: the handler has {arms} executor arm(s) for effect `{variant}`; one state executor "
+                           "per effect")
+
+        # One caller of each native verifier outside its engine.
+        native = route.get("native_verifiers", {})
+        tooling = {item.get("path") for item in native.get("non_admission_callers", [])}
+        used_tooling: set[str] = set()
+
+        def check_callers(label: str, verifier: dict, allowed: set[str], required: list[str]) -> None:
+            name = verifier.get("name", "")
+            scope = verifier.get("engine_scope", "")
+            if not scope or not any(path.startswith(scope) for path in scan.files):
+                self.error(f"{label}: engine_scope `{scope}` holds no scanned file")
+            callers = scan.calls(name)
+            for path in sorted(callers):
+                if path.startswith(scope) or path in allowed:
+                    continue
+                if path in tooling:
+                    used_tooling.add(path)
+                    continue
+                self.error(
+                    f"{label}: native verifier `{name}` is called in {path}, outside its engine, its one admission "
+                    "caller and the recorded non-admission tooling; that is a second verifier route"
+                )
+            for path in required:
+                if path not in callers:
+                    self.error(f"{label}: {path} no longer calls native verifier `{name}`")
+
+        for row in rows:
+            for verifier in row.get("native_verifiers", []):
+                check_callers(f"{prefix}: role {row.get('role')}", verifier, {native.get("dispatch")},
+                              [native.get("dispatch")])
+        operations = {operation["id"] for operation in self.inv.get("operations", [])}
+        for item in route.get("administrative_proof_operations", []):
+            label = f"{prefix}: administrative operation {item.get('id')}"
+            if item.get("id") not in operations:
+                self.error(f"{label}: not a listed operation")
+            callers = list(item.get("callers", []))
+            check_callers(label, item.get("verifier", {}), set(callers), callers)
+            code = anchor_closure(self.tree, item.get("executor", {})) or ""
+            if not names(code, item.get("verifier", {}).get("name", "\0")):
+                self.error(f"{label}: its executor does not call `{item.get('verifier', {}).get('name')}`")
+        for path in sorted(tooling - used_tooling):
+            self.error(f"{prefix}: non_admission_callers[{path}] calls no recorded native verifier; remove the row")
+
+        # Entries of the path.
+        entries = {entry.get("id"): entry for entry in route.get("entries", [])}
+        for required in ("direct_instruction", "action_driver", "generic_verification", "contract_or_proved_executable"):
+            if required not in entries:
+                self.error(f"{prefix}: entries must record `{required}`")
+        for identifier, entry in entries.items():
+            if not isinstance(entry.get("applicable"), bool):
+                self.error(f"{prefix}: entries[{identifier}].applicable must be true or false")
+            if not entry.get("tests"):
+                self.error(f"{prefix}: entries[{identifier}] needs tests")
+            if entry.get("applicable") is False and not entry.get("refusals"):
+                self.error(f"{prefix}: entries[{identifier}] is not an entry of the path and must record its refusals")
+        driver = entries.get("action_driver", {})
+        driver_path = driver.get("site", {}).get("path", "")
+        driver_text = self.production(driver_path)
+        table = driver_operations(driver_text, driver.get("table", ""))
+        recorded_operations = [{"name": item.get("name"), "role": item.get("role")}
+                               for item in route.get("driver_operations", [])]
+        if table is None:
+            self.error(f"{prefix}: operation table {driver.get('table')} not found in {driver_path}")
+        elif table != recorded_operations:
+            self.error(f"{prefix}: {driver.get('table')} of {driver_path} is {table}, recorded {recorded_operations}")
+        by_role: dict[str, str] = {}
+        for item in recorded_operations:
+            if item["role"] not in role_names:
+                self.error(f"{prefix}: driver operation {item['name']} names `{item['role']}`, which is not a role")
+            elif item["role"] in by_role:
+                self.error(f"{prefix}: driver operations {by_role[item['role']]} and {item['name']} name one role")
+            else:
+                by_role[item["role"]] = item["name"]
+        for row in rows:
+            if row.get("driver_operation") != by_role.get(row.get("role")):
+                self.error(f"{prefix}: role {row.get('role')} records driver operation `{row.get('driver_operation')}`, "
+                           f"the driver table gives `{by_role.get(row.get('role'))}`")
+        driver_code = scan.code(driver_path) if driver_path else ""
+        for call in ("require_supported_privacy_action_role_v1", "require_canonical_role_submission_v1"):
+            if not re.search(r"(?<![A-Za-z0-9_])" + call + r"\s*\(", driver_code):
+                self.error(f"{prefix}: the action driver no longer calls `{call}`")
+        for forbidden in ("verify_privacy_envelope_v1", enum.get("enum", "\0")):
+            if names(driver_code, forbidden):
+                self.error(f"{prefix}: the action driver names `{forbidden}`; it owns no verifier and no effect")
+
+        # Retired duplicates stay retired.
+        for item in route.get("retired", []):
+            label = f"{prefix}: retired[{item.get('id')}]"
+            for key in ("what", "replaced_by", "equivalence", "tests"):
+                if not item.get(key):
+                    self.error(f"{label}: `{key}` is required")
+            for absent in item.get("absent", []):
+                if re.search(absent.get("pattern", "\0"), self.production(absent.get("path", ""))):
+                    self.error(f"{label}: `{absent.get('pattern')}` is back in {absent.get('path')}; "
+                               "the duplicate route was retired")
+
     def check_generic(self) -> None:
         section = self.inv.get("generic_relations", {})
         self.check_enum("generic_relations", section.get("source", {}), [row.get("variant") for row in section.get("relations", [])])
@@ -2383,6 +3007,8 @@ class Checker:
         self.check_registry()
         self.check_products()
         self.check_exact12()
+        self.check_action_roles()
+        self.check_exact12_single_route()
         self.check_generic()
         self.check_ram_lfe()
         self.check_soracloud()

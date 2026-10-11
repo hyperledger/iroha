@@ -5,7 +5,6 @@ use iroha_data_model::{
         AddSignatory, BurnBox, CustomInstruction, GrantBox, MintBox, RegisterBox,
         RemoveAssetKeyValue, RemoveKeyValueBox, RemoveSignatory, RevokeBox, SetAccountQuorum,
         SetAssetKeyValue, SetKeyValueBox, TransferAssetBatch, TransferBox, UnregisterBox,
-        kagemusha_v1::{RedeemKagemushaV1, TopUpKagemushaV1},
         staking::RecordPublicLaneRewards,
     },
     prelude::InstructionBox,
@@ -202,23 +201,6 @@ fn collect_instruction_account_activities(
         push_unique(
             out,
             rewards.reward_asset().account(),
-            AccountActivityRole::Incoming,
-        );
-        return;
-    }
-    if let Some(top_up) = any.downcast_ref::<TopUpKagemushaV1>() {
-        push_unique(out, &top_up.request.payer, AccountActivityRole::Outgoing);
-        push_unique(
-            out,
-            &top_up.request.recipient,
-            AccountActivityRole::Incoming,
-        );
-        return;
-    }
-    if let Some(redeem) = any.downcast_ref::<RedeemKagemushaV1>() {
-        push_unique(
-            out,
-            &redeem.request.voucher.statement.beneficiary,
             AccountActivityRole::Incoming,
         );
         return;

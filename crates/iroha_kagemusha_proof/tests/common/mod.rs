@@ -13,8 +13,8 @@ use std::{
 
 use ff::Field;
 use iroha_kagemusha_proof::{
-    Mutation, PrefixMode, ProofFormat, RelationShape, ShapePolicy, SigmaCircuit, SigmaProver,
-    SigmaShape, StateLayout, StepDigests, StepPublic, StepRelation, StepWitness, select_shape,
+    CONTROL_BLACKLIST, Mutation, PrefixMode, ProofFormat, RelationShape, ShapePolicy, SigmaCircuit,
+    SigmaProver, SigmaRelation, SigmaShape, StepDigests, StepPublic, StepWitness, select_shape,
 };
 use iroha_pasta::{Eq, Fp, PastaCurve, poseidon::PoseidonField};
 use iroha_plonk::{
@@ -26,48 +26,92 @@ use iroha_plonk::{
 };
 use rand_chacha::{ChaCha20Rng, rand_core::SeedableRng};
 
-/// The relation checks whose rejection is a range check: each step relation
+/// `sigma_send` with the blacklist control.
+pub const SEND_BLACKLIST: SigmaRelation = SigmaRelation::send(CONTROL_BLACKLIST);
+
+/// The relations under test: `sigma_send` without and with the blacklist
+/// control, and `sigma_recv`.
+pub const RELATIONS: [SigmaRelation; 3] =
+    [SigmaRelation::SEND, SEND_BLACKLIST, SigmaRelation::RECEIVE];
+
+/// The relation checks whose rejection is a range check: each relation
 /// accepts an honest witness; `sigma_send` rejects an overdraft, a balance
 /// that covers `amount + fee` only while ignoring the lineage
 /// `burned_total`, a newer Request policy epoch and an accepted time below
-/// the floor; `sigma_recv` rejects a `u128` overflow. (The M7 relation
-/// checks plus the `burned_total` case.)
-pub const RELATION_CASES: [(StepRelation, Mutation, bool); 7] = [
-    (StepRelation::Send, Mutation::None, true),
-    (StepRelation::Send, Mutation::Overdraft, false),
-    (StepRelation::Send, Mutation::Burned, false),
-    (StepRelation::Send, Mutation::StaleEpoch, false),
-    (StepRelation::Send, Mutation::EarlyTime, false),
-    (StepRelation::Receive, Mutation::None, true),
-    (StepRelation::Receive, Mutation::Overflow, false),
+/// the floor; with the blacklist control it rejects a list older than the
+/// maximum age or issued after the accepted upper time; `sigma_recv`
+/// rejects a `u128` overflow. (The M7 relation checks plus the
+/// `burned_total` and blacklist-age cases.)
+pub const RELATION_CASES: [(SigmaRelation, Mutation, bool); 10] = [
+    (SigmaRelation::SEND, Mutation::None, true),
+    (SigmaRelation::SEND, Mutation::Overdraft, false),
+    (SigmaRelation::SEND, Mutation::Burned, false),
+    (SigmaRelation::SEND, Mutation::StaleEpoch, false),
+    (SigmaRelation::SEND, Mutation::EarlyTime, false),
+    (SEND_BLACKLIST, Mutation::None, true),
+    (SEND_BLACKLIST, Mutation::StaleBlacklist, false),
+    (SEND_BLACKLIST, Mutation::FutureBlacklist, false),
+    (SigmaRelation::RECEIVE, Mutation::None, true),
+    (SigmaRelation::RECEIVE, Mutation::Overflow, false),
 ];
 
-/// The relation-check cases over every relation shape.
-pub const RELATION_CHECK_CASES: usize = 4 * RELATION_CASES.len();
+/// The relation-check cases over every relation shape (both prefix modes).
+pub const RELATION_CHECK_CASES: usize = 2 * RELATION_CASES.len();
 
-/// The two-level shape `(k, lanes)` the selector picks at the smallest `k`
-/// (both steps; `tests/shapes.rs` checks it).
-pub const TWO_LEVEL_SMALLEST: (u32, usize) = (10, 4);
-/// The two-level shape `(k, lanes)` the selector picks within the 3.5 KB
-/// budget (both steps; `tests/shapes.rs` checks it).
-pub const TWO_LEVEL_BUDGET: (u32, usize) = (12, 1);
+/// The shape `(k, lanes)` the selector picks at the smallest `k` (every
+/// relation; `tests/shapes.rs` checks it).
+pub const SMALLEST_SHAPE: (u32, usize) = (10, 4);
+/// The shape `(k, lanes)` the selector picks within the 3.5 KB budget
+/// (every relation; `tests/shapes.rs` checks it).
+pub const BUDGET_SHAPE: (u32, usize) = (12, 1);
+/// The fewest lanes at `k = 11` (every relation; `tests/shapes.rs` checks
+/// it).
+pub const K11_SHAPE: (u32, usize) = (11, 2);
+
+/// The shape of `relation` at `(k, lanes)` with `(k - 1)`-bit limbs.
+pub fn pinned_shape(relation: RelationShape, (k, lanes): (u32, usize)) -> SigmaShape {
+    let params = iroha_kagemusha_proof::SigmaParams::new(
+        relation,
+        lanes,
+        iroha_kagemusha_proof::limb_bits_for(k),
+    )
+    .expect("params");
+    SigmaShape::new(params, k)
+}
+
+/// The fewest lanes `relation` fits at `k` (the selector restricted to
+/// one `k`, without a byte budget).
+pub fn fewest_lanes_at(relation: RelationShape, k: u32) -> SigmaShape {
+    shape(
+        relation,
+        &ShapePolicy {
+            min_k: k,
+            max_k: k,
+            max_proof_bytes: None,
+            ..ShapePolicy::smallest_k()
+        },
+    )
+}
 
 /// The witness seed of the relation checks.
 pub const CHECK_SEED: u64 = 0x4d37;
 
-/// Every relation shape: both prefix modes, both layouts, both steps (the
-/// M7 backends x layouts x steps grid; the prefix modes are two circuits
-/// computing identical digests).
+/// Every relation shape: both prefix modes and every relation (the M7
+/// backends x steps grid; the prefix modes are two circuits computing
+/// identical digests).
 pub fn relation_shapes() -> Vec<RelationShape> {
     let mut shapes = Vec::new();
     for prefix in [PrefixMode::Folded, PrefixMode::Absorbed] {
-        for layout in [StateLayout::TwoLevel, StateLayout::Flat] {
-            for step in [StepRelation::Send, StepRelation::Receive] {
-                shapes.push(RelationShape::new(step, layout, prefix));
-            }
+        for relation in RELATIONS {
+            shapes.push(RelationShape::new(relation, prefix));
         }
     }
     shapes
+}
+
+/// The folded relation shape of `relation`.
+pub const fn folded(relation: SigmaRelation) -> RelationShape {
+    RelationShape::new(relation, PrefixMode::Folded)
 }
 
 /// The shape a policy selects for `relation` (on Vesta).
@@ -87,19 +131,24 @@ pub fn budget_shape(relation: RelationShape) -> SigmaShape {
     shape(relation, &ShapePolicy::default())
 }
 
+/// The relation of `shape`.
+pub fn relation_of(shape: &SigmaShape) -> SigmaRelation {
+    shape.params.relation().relation
+}
+
 /// The strict checker report of `witness` under `shape`, with the public
-/// outputs the circuit computes.
+/// input the circuit computes.
 pub fn check_witness<F: PoseidonField>(
     shape: &SigmaShape,
     witness: &StepWitness<F>,
 ) -> CheckReport<F> {
-    let public = witness.evaluate(shape.params.relation().layout).public();
+    let public = witness.evaluate(relation_of(shape)).public();
     check_claim(shape, witness, &public)
 }
 
 /// The strict checker report of `witness` under `shape` for the public
-/// outputs `claimed` (a forger's or a consumer's, not necessarily the ones
-/// the circuit computes).
+/// input `claimed` (a forger's or a consumer's, not necessarily the one the
+/// circuit computes).
 pub fn check_claim<F: PoseidonField>(
     shape: &SigmaShape,
     witness: &StepWitness<F>,
@@ -116,7 +165,7 @@ pub fn in_circuit_digests<F: PoseidonField>(
     shape: &SigmaShape,
     witness: &StepWitness<F>,
 ) -> StepDigests<F> {
-    let public = witness.evaluate(shape.params.relation().layout).public();
+    let public = witness.evaluate(relation_of(shape)).public();
     let circuit = SigmaCircuit::new(shape.params, witness.clone());
     let (cs, config) = configure(&circuit).expect("configure");
     let instances = [public.instance()];
@@ -251,7 +300,7 @@ where
     C::ScalarExt: PoseidonField,
 {
     let shape = prover.shape();
-    let public = witness.evaluate(shape.params.relation().layout).public();
+    let public = witness.evaluate(relation_of(shape)).public();
     let instances = vec![public.instance()];
     let circuit = prover.circuit(witness).expect("circuit");
     let mut synthesized = synthesize(&circuit, shape.k, Some(&instances)).expect("synthesis");
@@ -290,6 +339,6 @@ pub fn case_label(relation: RelationShape, mutation: Mutation) -> String {
 }
 
 /// A Vesta witness of the relation-check grid.
-pub fn check_witness_of(step: StepRelation, mutation: Mutation) -> StepWitness<Fp> {
-    iroha_kagemusha_proof::sample_witness(CHECK_SEED, step, mutation)
+pub fn check_witness_of(relation: SigmaRelation, mutation: Mutation) -> StepWitness<Fp> {
+    iroha_kagemusha_proof::sample_witness(CHECK_SEED, relation, mutation)
 }

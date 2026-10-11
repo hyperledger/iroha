@@ -89,13 +89,10 @@ fn header_block_original_first_field_enclosing_cause_keeps_same_source_and_retry
     use norito::core::{
         DecodeAttemptErrorKind, DecodeLimits, DecodeResourceError, with_decode_limits_scope,
     };
-    // The first canonical field an enclosing reader meets is the complete root
-    // payload of the frame: the prepared scope checks it with Norito's canonical
-    // root kernel before the record walk, exactly as `decode_canonical_with_limits`
-    // does. Inside the walk the empty signature sequence comes before
-    // BlockPayload/header; its original fixed-u64 count occupies eight bytes, far
-    // below the root. The standalone physical control separately reaches the
-    // header's height.
+    // The ordinary complete SignedBlock walk reaches its empty signature sequence
+    // before BlockPayload/header. Its original fixed-u64 count occupies eight
+    // bytes; the prepared path must preserve that same first refusal.
+    // The standalone physical control separately reaches the header's height.
     let original = header_block(0, Some(digest()));
     assert_eq!(
         norito::core::encoded_payload_len(&original.signatures).unwrap(),
@@ -122,6 +119,18 @@ fn header_block_original_first_field_enclosing_cause_keeps_same_source_and_retry
     let mut decoder = PreparedSignedBlockSignaturesDecode::new(&pool).unwrap();
     let protocol = DecodeLimits::new(1 << 20, 1 << 20, 1 << 20, 1 << 20, 64);
     let narrow = DecodeLimits::new(1 << 20, 1, 1 << 20, 1 << 20, 64);
+    let ordinary =
+        with_decode_limits_scope(narrow, || crate::block::decode_framed_signed_block(&wire))
+            .unwrap_err();
+    assert_eq!(ordinary.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+    let ordinary_resource = ordinary.into_error().decode_resource_error();
+    assert_eq!(
+        ordinary_resource,
+        Some(DecodeResourceError::FieldLengthExceeded {
+            length: std::mem::size_of::<u64>() as u64,
+            limit: 1
+        })
+    );
     let error =
         with_decode_limits_scope(narrow, || decoder.decode(&source, span, protocol)).unwrap_err();
     let PreparedSignatureBlockError::Decode(PreparedDecodeError::Codec(cause)) = error else {
@@ -131,29 +140,6 @@ fn header_block_original_first_field_enclosing_cause_keeps_same_source_and_retry
     };
     assert_eq!(cause.kind(), DecodeAttemptErrorKind::EnclosingLimit);
     assert!(decoder.retained_signatures(&source).unwrap().is_none());
-    // Boundary: one byte below the root still refuses the root itself and retains
-    // nothing, although every field inside the walk fits that ceiling.
-    let below = DecodeLimits::new(1 << 20, root - 1, 1 << 20, 1 << 20, 64);
-    let error =
-        with_decode_limits_scope(below, || decoder.decode(&source, span, protocol)).unwrap_err();
-    let PreparedSignatureBlockError::Decode(PreparedDecodeError::Codec(boundary)) = error else {
-        panic!("a ceiling below the root payload must stay the enclosing reader's refusal");
-    };
-    assert_eq!(boundary.kind(), DecodeAttemptErrorKind::EnclosingLimit);
-    assert_eq!(
-        boundary.into_error().decode_resource_error(),
-        Some(DecodeResourceError::FieldLengthExceeded {
-            length: root as u64,
-            limit: root as u64 - 1
-        })
-    );
-    assert!(decoder.retained_signatures(&source).unwrap().is_none());
-    // TODO: `decode_framed_signed_block` reads the same frame through the archive
-    // view, which does not check the root payload as a field. Under these enclosing
-    // scopes its first refusal is the eight-byte signature count, and it accepts
-    // the ceiling one byte below the root. Give the ordinary block decoder the same
-    // canonical root check. This orders a caller's resource refusal only: under the
-    // protocol limits both decoders accept and refuse the same bytes.
     let retry = decoder.decode(&source, span, protocol).unwrap();
     assert_eq!(retry.header(), original.header());
     assert_eq!(retry.header().hash(), original.header().hash());
@@ -165,22 +151,24 @@ fn header_block_original_first_field_enclosing_cause_keeps_same_source_and_retry
     assert_eq!(cause.kind(), DecodeAttemptErrorKind::EnclosingLimit);
     assert_eq!(
         cause.into_error().decode_resource_error(),
-        Some(DecodeResourceError::FieldLengthExceeded {
-            length: root as u64,
-            limit: 1
-        })
+        ordinary_resource
     );
-    // Boundary: a ceiling of exactly the root admits the same source under the
-    // enclosing scope and shares the custody the unscoped retry completed.
-    let exact = DecodeLimits::new(1 << 20, root, 1 << 20, 1 << 20, 64);
-    let admitted =
-        with_decode_limits_scope(exact, || decoder.decode(&source, span, protocol)).unwrap();
-    assert!(admitted.same_signature_custody(&retry));
-    assert_eq!(admitted.header(), original.header());
-    assert_eq!(admitted.encode_wire().unwrap(), wire);
-    assert_eq!(source.as_slice().as_ptr(), pointer);
-    assert_eq!(Hash::new(source.as_slice()), hash);
-    drop(admitted);
+    // The archive-view record is not a child field. Both decoders accept a
+    // field ceiling below its complete payload when each actual field fits.
+    for field_limit in [root - 1, root] {
+        let limits = DecodeLimits::new(1 << 20, field_limit, 1 << 20, 1 << 20, 64);
+        let ordinary =
+            with_decode_limits_scope(limits, || crate::block::decode_framed_signed_block(&wire))
+                .unwrap();
+        let admitted =
+            with_decode_limits_scope(limits, || decoder.decode(&source, span, protocol)).unwrap();
+        assert_eq!(admitted, ordinary);
+        assert!(admitted.same_signature_custody(&retry));
+        assert_eq!(admitted.header(), original.header());
+        assert_eq!(admitted.encode_wire().unwrap(), wire);
+        assert_eq!(source.as_slice().as_ptr(), pointer);
+        assert_eq!(Hash::new(source.as_slice()), hash);
+    }
     drop(retry);
     drop(decoder);
     assert_eq!(pool.reserved_bytes(), floor);

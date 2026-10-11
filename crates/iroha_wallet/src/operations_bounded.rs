@@ -9,9 +9,14 @@ pub(super) fn encode_bounded<T: norito::core::NoritoSerialize>(
     let _flags = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
     let length = norito::canonical_frame_len(value)?;
     eyre::ensure!(length <= maximum, "operation frame exceeds its byte bound");
-    norito::core::reserve_decode_allocation(length)?;
-    norito::core::to_bytes_bounded(value, length)
-        .map_err(|error| eyre::eyre!("bounded operation encoding: {error:?}"))
+    norito::core::to_bytes_bounded(value, length).map_err(|error| match error {
+        norito::core::BoundedEncodeError::Serialization(error)
+            if error.decode_resource_error().is_some() =>
+        {
+            error.into()
+        }
+        error => eyre::eyre!("bounded operation encoding: {error:?}"),
+    })
 }
 
 pub(super) fn decode_bounded<T>(bytes: &[u8], maximum: usize) -> Result<T>

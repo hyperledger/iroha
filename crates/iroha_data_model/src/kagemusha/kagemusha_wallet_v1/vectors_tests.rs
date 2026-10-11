@@ -9,7 +9,7 @@
 //! framed object type and marker state, the enum tag table, the σ-field element encodings
 //! (statement, state core and rest, chain appends, map and credit-digest leaves) and the
 //! Poseidon values computed over them, the `P_bytes` packing rule, `credit_id`, `proof_digest`
-//! and the Payment digest, the sparse, blacklist and quota-window trees with openings, and the
+//! and the Payment digest, the indexed, blacklist and quota-window trees with openings, and the
 //! verifying-key allowlist digest, that the native and in-circuit encoders must share (§3.2).
 //! The file is compared byte for byte; `IROHA_UPDATE_KAGEMUSHA_WALLET_VECTORS=1` rewrites it (a
 //! test-only convenience). Stand-in σ and Ω bytes, relation bindings and verifying keys are
@@ -32,13 +32,14 @@ use super::{
     },
     messages::messages_tests::{ACCEPTED_MS, MessageFixture, OPENING_SIBLINGS, message_fixture},
     state::state_tests::{
-        CREDIT_DIGEST_ROOT, LINEAGE_PENDING_ROOT, bootstrap_statement, field_value, signed_package,
-        stand_in_proof, transition_statement,
+        CREDIT_DIGEST_ROOT, LINEAGE_PENDING_ROOT, bootstrap_statement, controlled_state,
+        field_value, signed_package, stand_in_proof, transition_statement,
     },
     *,
 };
 
 type Role = KagemushaWalletDigestRoleV1;
+type Domain = KagemushaWalletSigningDomainV1;
 
 /// Path of the vectors file relative to this crate.
 const VECTORS_PATH: &str = "../../fixtures/kagemusha/wallet_v1_vectors.json";
@@ -88,8 +89,8 @@ const HALF_ORDER_HEX: &str = "7fffffff800000007fffffffffffffffde737d56d38bcf4279
 /// Fixed nonce `k` of the boundary signature (design C11).
 const BOUNDARY_NONCE: [u8; 32] = [0x5a; 32];
 /// Signed role and body of the boundary signature.
-const BOUNDARY_ROLE: Role = Role::ReceiptBody;
-const BOUNDARY_BODY: &[u8] = b"kagemusha wallet v1 low-S boundary";
+const BOUNDARY_DOMAIN: Domain = Domain::Receipt;
+const BOUNDARY_BODY: &[u8] = &[0x5c; Domain::Receipt.transcript_bytes()];
 
 // ---------------------------------------------------------------------------------------
 // Fixture world
@@ -490,7 +491,7 @@ fn build_world() -> VectorWorld {
         renewal_key,
         raw_output(
             &f.payer.payment,
-            &kagemusha_wallet_preimage_v1(Role::RenewalKeyBinding, &binding),
+            &kagemusha_wallet_signing_message_v1(Domain::RenewalKeyBinding, &binding),
         ),
         vec![
             KagemushaWalletDerCertificateV1 {
@@ -513,7 +514,7 @@ fn build_world() -> VectorWorld {
         RENEWAL_CHALLENGE,
         raw_output(
             &f.payer.payment,
-            &kagemusha_wallet_preimage_v1(Role::RenewalChallenge, &possession),
+            &kagemusha_wallet_signing_message_v1(Domain::RenewalChallenge, &possession),
         ),
         evidence,
     )
@@ -821,8 +822,8 @@ fn bytes32(hex_text: &str) -> [u8; 32] {
     out
 }
 
-fn signed_object_body(body_digest: &[u8; 32], signature: &KagemushaDeviceSignatureV1) -> Vec<u8> {
-    let mut body = body_digest.to_vec();
+fn signed_object_body(message: &[u8; 32], signature: &KagemushaDeviceSignatureV1) -> Vec<u8> {
+    let mut body = message.to_vec();
     body.extend_from_slice(signature.as_raw_bytes());
     body
 }
@@ -831,39 +832,128 @@ fn signed_object_body(body_digest: &[u8; 32], signature: &KagemushaDeviceSignatu
 // Digest vectors (one per role)
 // ---------------------------------------------------------------------------------------
 
-/// One `H(role, body)` vector.
+/// The four protocol delivery digests computed with `P_bytes`.
+#[derive(Clone, Copy)]
+enum PackedDomain {
+    Lineage,
+    CreditOpening,
+    CreditStatus,
+    Credited,
+}
+
+impl PackedDomain {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Lineage => "kgwlin_1",
+            Self::CreditOpening => "kgwcopn1",
+            Self::CreditStatus => "kgwcsts1",
+            Self::Credited => "kgwcrdd1",
+        }
+    }
+
+    fn domain(self) -> u64 {
+        match self {
+            Self::Lineage => KAGEMUSHA_WALLET_LINEAGE_DOMAIN_V1,
+            Self::CreditOpening => KAGEMUSHA_WALLET_CREDIT_OPENING_DOMAIN_V1,
+            Self::CreditStatus => KAGEMUSHA_WALLET_CREDIT_STATUS_DOMAIN_V1,
+            Self::Credited => KAGEMUSHA_WALLET_CREDITED_DOMAIN_V1,
+        }
+    }
+}
+
+/// Native digest operation of one vector, with no retired SHA body-role namespace.
+#[derive(Clone, Copy)]
+enum DigestKind {
+    Hash(Role),
+    Signing(Domain),
+    Packed(PackedDomain),
+}
+
+impl From<Role> for DigestKind {
+    fn from(role: Role) -> Self {
+        Self::Hash(role)
+    }
+}
+
+impl From<Domain> for DigestKind {
+    fn from(domain: Domain) -> Self {
+        Self::Signing(domain)
+    }
+}
+
+impl DigestKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Hash(role) => role.as_str(),
+            Self::Signing(domain) => domain.as_str(),
+            Self::Packed(domain) => domain.label(),
+        }
+    }
+
+    fn algorithm(self) -> &'static str {
+        match self {
+            Self::Hash(_) => "H",
+            Self::Signing(_) | Self::Packed(_) => "P_bytes",
+        }
+    }
+
+    fn digest(self, body: &[u8]) -> [u8; 32] {
+        match self {
+            Self::Hash(role) => kagemusha_wallet_digest_v1(role, body),
+            Self::Signing(domain) => kagemusha_wallet_signing_message_v1(domain, body),
+            Self::Packed(domain) => kagemusha_wallet_poseidon_bytes_v1(domain.domain(), body),
+        }
+    }
+
+    /// Exact input to the native hash. P_bytes carries its domain separately and packs body.
+    fn preimage(self, body: &[u8]) -> Vec<u8> {
+        match self {
+            Self::Hash(role) => {
+                let mut bytes = KAGEMUSHA_WALLET_DIGEST_PREFIX_V1.to_vec();
+                bytes.extend_from_slice(role.as_str().as_bytes());
+                bytes.push(0);
+                bytes.extend_from_slice(
+                    &u64::try_from(body.len())
+                        .expect("body length")
+                        .to_le_bytes(),
+                );
+                bytes.extend_from_slice(body);
+                bytes
+            }
+            Self::Signing(_) | Self::Packed(_) => body.to_vec(),
+        }
+    }
+}
+
+/// One canonical native H or P_bytes vector.
 struct DigestVector {
-    role: Role,
+    kind: DigestKind,
     object: &'static str,
     body: Vec<u8>,
     stand_in_proof: bool,
 }
 
-/// Build one digest vector and check it against the digest its owner computes.
+/// Check the independent transcript vector against the actual owner-computed value.
 fn digest_vector(
-    role: Role,
+    kind: impl Into<DigestKind>,
     object: &'static str,
     body: Vec<u8>,
     stand_in_proof: bool,
     expected: Option<[u8; 32]>,
 ) -> DigestVector {
+    let kind = kind.into();
     if let Some(expected) = expected {
-        assert_eq!(
-            kagemusha_wallet_digest_v1(role, &body),
-            expected,
-            "{}",
-            role.as_str()
-        );
+        assert_eq!(kind.digest(&body), expected, "{}", kind.label());
     }
     DigestVector {
-        role,
+        kind,
         object,
         body,
         stand_in_proof,
     }
 }
 
-/// One digest vector per role, in role declaration order.
+/// One vector per native H role, signing domain and transported P_bytes digest.
 fn digest_vectors(w: &VectorWorld) -> Vec<DigestVector> {
     let f = &w.f;
     let scheme = w.scheme();
@@ -987,16 +1077,16 @@ fn digest_vectors(w: &VectorWorld) -> Vec<DigestVector> {
             Some(payer.body.wallet_id),
         ),
         digest_vector(
-            Role::CertificateBody,
+            Domain::Certificate,
             "payer issuer certificate body",
             certificate.body.transcript(),
             false,
-            Some(certificate.body.body_digest()),
+            Some(certificate.body.signing_message()),
         ),
         digest_vector(
             Role::Certificate,
             "payer issuer certificate",
-            signed_object_body(&certificate.body.body_digest(), &certificate.signature),
+            signed_object_body(&certificate.body.signing_message(), &certificate.signature),
             false,
             Some(certificate.certificate_digest()),
         ),
@@ -1008,120 +1098,126 @@ fn digest_vectors(w: &VectorWorld) -> Vec<DigestVector> {
             Some(request.body.certificates),
         ),
         digest_vector(
-            Role::CredentialBody,
+            Domain::Credential,
             "payer credential body",
             payer.body.transcript(),
             false,
-            Some(payer.body.body_digest()),
+            Some(payer.body.signing_message()),
         ),
         digest_vector(
             Role::Credential,
             "payer credential",
-            signed_object_body(&payer.body.body_digest(), &payer.signature),
+            signed_object_body(&payer.body.signing_message(), &payer.signature),
             false,
             Some(payer.credential_digest()),
         ),
         digest_vector(
-            Role::SchemePolicyBody,
+            Domain::SchemePolicy,
             "scheme policy body",
             w.scheme_policy.body.transcript(),
             false,
-            Some(w.scheme_policy.body.body_digest()),
+            Some(w.scheme_policy.body.signing_message()),
         ),
         digest_vector(
             Role::SchemePolicy,
             "scheme policy",
             signed_object_body(
-                &w.scheme_policy.body.body_digest(),
+                &w.scheme_policy.body.signing_message(),
                 &w.scheme_policy.signature,
             ),
             false,
             Some(w.scheme_policy.scheme_policy_digest()),
         ),
         digest_vector(
-            Role::FeeScheduleBody,
+            Domain::FeeSchedule,
             "fee schedule body",
             w.fee_schedule.body.transcript(),
             false,
-            Some(w.fee_schedule.body.body_digest()),
+            Some(w.fee_schedule.body.signing_message()),
         ),
         digest_vector(
             Role::FeeSchedule,
             "fee schedule",
             signed_object_body(
-                &w.fee_schedule.body.body_digest(),
+                &w.fee_schedule.body.signing_message(),
                 &w.fee_schedule.signature,
             ),
             false,
             Some(w.fee_schedule.fee_schedule_digest()),
         ),
         digest_vector(
-            Role::BlacklistBody,
+            Domain::Blacklist,
             "blacklist body",
             w.blacklist.body.transcript(),
             false,
-            Some(w.blacklist.body.body_digest()),
+            Some(w.blacklist.body.signing_message()),
         ),
         digest_vector(
             Role::Blacklist,
             "blacklist",
-            signed_object_body(&w.blacklist.body.body_digest(), &w.blacklist.signature),
+            signed_object_body(&w.blacklist.body.signing_message(), &w.blacklist.signature),
             false,
             Some(w.blacklist.blacklist_digest()),
         ),
         digest_vector(
-            Role::QuotaShareBody,
+            Domain::QuotaShare,
             "quota share body",
             w.quota_share.body.transcript(),
             false,
-            Some(w.quota_share.body.body_digest()),
+            Some(w.quota_share.body.signing_message()),
         ),
         digest_vector(
             Role::QuotaShare,
             "quota share",
-            signed_object_body(&w.quota_share.body.body_digest(), &w.quota_share.signature),
+            signed_object_body(
+                &w.quota_share.body.signing_message(),
+                &w.quota_share.signature,
+            ),
             false,
             Some(w.quota_share.quota_share_digest()),
         ),
         digest_vector(
-            Role::TimeAnchorBody,
+            Domain::TimeAnchor,
             "time anchor body",
             w.time_anchor.body.transcript(),
             false,
-            Some(w.time_anchor.body.body_digest()),
+            Some(w.time_anchor.body.signing_message()),
         ),
         digest_vector(
             Role::TimeAnchor,
             "time anchor",
-            signed_object_body(&w.time_anchor.body.body_digest(), &w.time_anchor.signature),
+            signed_object_body(
+                &w.time_anchor.body.signing_message(),
+                &w.time_anchor.signature,
+            ),
             false,
             Some(w.time_anchor.time_anchor_digest()),
         ),
         digest_vector(
-            Role::OfferBody,
+            Domain::Offer,
             "Offer body",
             w.offer.body.transcript(),
             false,
-            Some(w.offer.body.body_digest()),
+            Some(w.offer.body.signing_message()),
         ),
         digest_vector(
-            Role::SessionControlBody,
+            Domain::SessionControl,
             "Close session control",
             w.close.transcript(),
             false,
-            Some(w.close.body_digest()),
+            Some(w.close.signing_message()),
         ),
         digest_vector(
-            Role::RequestBody,
+            Domain::Request,
             "Request body",
             request.body.transcript(),
             false,
-            Some(request.body.body_digest()),
+            Some(request.body.signing_message()),
         ),
         digest_vector(
             Role::Request,
             "Request",
-            signed_object_body(&request.body.body_digest(), &request.signature),
+            signed_object_body(&request.body.signing_message(), &request.signature),
             false,
             Some(digests.request),
         ),
@@ -1133,23 +1229,23 @@ fn digest_vectors(w: &VectorWorld) -> Vec<DigestVector> {
             Some(digests.package.statement),
         ),
         digest_vector(
-            Role::Lineage,
+            DigestKind::Packed(PackedDomain::Lineage),
             "stand-in Ω(pred) bytes of the Payment",
             omega_bytes.clone(),
             true,
             Some(w.lineage.lineage_digest()),
         ),
         digest_vector(
-            Role::ReceiptBody,
+            Domain::Receipt,
             "Send receipt body",
             receipt_body.transcript(),
             false,
-            Some(receipt_body.body_digest()),
+            Some(receipt_body.signing_message()),
         ),
         digest_vector(
             Role::Receipt,
             "Send receipt",
-            signed_object_body(&receipt_body.body_digest(), &send.receipt.signature),
+            signed_object_body(&receipt_body.signing_message(), &send.receipt.signature),
             false,
             Some(digests.package.receipt),
         ),
@@ -1166,14 +1262,14 @@ fn digest_vectors(w: &VectorWorld) -> Vec<DigestVector> {
             Some(digests.package.package),
         ),
         digest_vector(
-            Role::CreditOpening,
+            DigestKind::Packed(PackedDomain::CreditOpening),
             "CreditStatus credit-digest opening",
             status.opening.transcript().expect("opening transcript"),
             false,
             Some(status.opening.opening_digest().expect("opening digest")),
         ),
         digest_vector(
-            Role::CreditStatus,
+            DigestKind::Packed(PackedDomain::CreditStatus),
             "CreditStatus of the folded crediting head",
             [
                 &1_u16.to_le_bytes()[..],
@@ -1188,7 +1284,7 @@ fn digest_vectors(w: &VectorWorld) -> Vec<DigestVector> {
             Some(status.credit_status_digest().expect("credit status")),
         ),
         digest_vector(
-            Role::Credited,
+            DigestKind::Packed(PackedDomain::Credited),
             "Credited from the Receive package",
             [
                 &1_u16.to_le_bytes()[..],
@@ -1253,16 +1349,16 @@ fn digest_vectors(w: &VectorWorld) -> Vec<DigestVector> {
             Some(w.fold.fold_digest().expect("fold digest")),
         ),
         digest_vector(
-            Role::VoucherBody,
+            Domain::Voucher,
             "load voucher body",
             w.voucher.body.transcript(),
             false,
-            Some(w.voucher.body.body_digest()),
+            Some(w.voucher.body.signing_message()),
         ),
         digest_vector(
             Role::Voucher,
             "load voucher",
-            signed_object_body(&w.voucher.body.body_digest(), &w.voucher.signature),
+            signed_object_body(&w.voucher.body.signing_message(), &w.voucher.signature),
             false,
             Some(w.voucher.voucher_digest()),
         ),
@@ -1274,21 +1370,21 @@ fn digest_vectors(w: &VectorWorld) -> Vec<DigestVector> {
             Some(nullifier),
         ),
         digest_vector(
-            Role::LedgerControlBody,
+            Domain::LedgerControl,
             "Activate ledger control body",
             w.control.body.transcript(),
             false,
-            Some(w.control.body.body_digest()),
+            Some(w.control.body.signing_message()),
         ),
         digest_vector(
-            Role::RenewalChallenge,
+            Domain::RenewalChallenge,
             "renewal possession transcript",
             w.renewal.possession_transcript(),
             false,
             None,
         ),
         digest_vector(
-            Role::RenewalKeyBinding,
+            Domain::RenewalKeyBinding,
             "Android renewal key binding",
             kagemusha_wallet_renewal_key_binding_transcript_v1(
                 &scheme_id,
@@ -1307,16 +1403,16 @@ fn digest_vectors(w: &VectorWorld) -> Vec<DigestVector> {
             Some(w.renewal.assertion_client_data_hash()),
         ),
         digest_vector(
-            Role::ArtifactManifestBody,
+            Domain::ArtifactManifest,
             "artifact manifest body",
             w.manifest.body.transcript(),
             false,
-            Some(w.manifest.body.body_digest()),
+            Some(w.manifest.body.signing_message()),
         ),
         digest_vector(
             Role::ArtifactManifest,
             "artifact manifest",
-            signed_object_body(&w.manifest.body.body_digest(), &w.manifest.signature),
+            signed_object_body(&w.manifest.body.signing_message(), &w.manifest.signature),
             false,
             Some(w.manifest.manifest_digest()),
         ),
@@ -1332,17 +1428,17 @@ fn digest_vectors(w: &VectorWorld) -> Vec<DigestVector> {
             ),
         ),
         digest_vector(
-            Role::ChargeQuoteBody,
+            Domain::ChargeQuote,
             "load charge quote body",
             w.charge_quote.body.transcript(),
             false,
-            Some(w.charge_quote.body.body_digest()),
+            Some(w.charge_quote.body.signing_message()),
         ),
         digest_vector(
             Role::ChargeQuote,
             "load charge quote",
             signed_object_body(
-                &w.charge_quote.body.body_digest(),
+                &w.charge_quote.body.signing_message(),
                 &w.charge_quote.signature,
             ),
             false,
@@ -1367,16 +1463,14 @@ fn digest_vectors_json(vectors: &[DigestVector]) -> Value {
         vectors
             .iter()
             .map(|vector| {
-                let preimage = kagemusha_wallet_preimage_v1(vector.role, &vector.body);
+                let preimage = vector.kind.preimage(&vector.body);
                 json_object(vec![
-                    ("role", json_text(vector.role.as_str())),
+                    ("role", json_text(vector.kind.label())),
+                    ("algorithm", json_text(vector.kind.algorithm())),
                     ("object", json_text(vector.object)),
                     ("body_hex", json_hex(&vector.body)),
                     ("preimage_hex", json_hex(&preimage)),
-                    (
-                        "digest_hex",
-                        json_hex(&kagemusha_wallet_digest_v1(vector.role, &vector.body)),
-                    ),
+                    ("digest_hex", json_hex(&vector.kind.digest(&vector.body))),
                     ("stand_in_proof", Value::Bool(vector.stand_in_proof)),
                 ])
             })
@@ -1391,7 +1485,7 @@ fn digest_vectors_json(vectors: &[DigestVector]) -> Value {
 /// One frozen signature of a vectored object.
 struct SignatureVector {
     object: &'static str,
-    role: Role,
+    domain: Domain,
     key: KagemushaDevicePublicKeyV1,
     body: Vec<u8>,
     signature: KagemushaDeviceSignatureV1,
@@ -1434,112 +1528,112 @@ fn signature_vectors(w: &VectorWorld) -> Vec<SignatureVector> {
     vec![
         SignatureVector {
             object: "payer issuer certificate",
-            role: Role::CertificateBody,
+            domain: Domain::Certificate,
             key: w.scheme().scheme_root_key,
             body: certificate.body.transcript(),
             signature: certificate.signature,
         },
         SignatureVector {
             object: "payer credential",
-            role: Role::CredentialBody,
+            domain: Domain::Credential,
             key: certificate.body.key,
             body: payer.body.transcript(),
             signature: payer.signature,
         },
         SignatureVector {
             object: "Offer",
-            role: Role::OfferBody,
+            domain: Domain::Offer,
             key: payer_key,
             body: w.offer.body.transcript(),
             signature: w.offer.signature,
         },
         SignatureVector {
             object: "Request",
-            role: Role::RequestBody,
+            domain: Domain::Request,
             key: request.receiver_credential.body.payment_key,
             body: request.body.transcript(),
             signature: request.signature,
         },
         SignatureVector {
             object: "Send receipt",
-            role: Role::ReceiptBody,
+            domain: Domain::Receipt,
             key: payer_key,
             body: receipt_body.transcript(),
             signature: send.receipt.signature,
         },
         SignatureVector {
             object: "Receive receipt binding the Payment digest",
-            role: Role::ReceiptBody,
+            domain: Domain::Receipt,
             key: w.receiver().body.payment_key,
             body: receive_body.transcript(),
             signature: w.receive.receipt.signature,
         },
         SignatureVector {
             object: "Close session control",
-            role: Role::SessionControlBody,
+            domain: Domain::SessionControl,
             key: payer_key,
             body: w.close.transcript(),
             signature: w.close_signature(),
         },
         SignatureVector {
             object: "scheme policy",
-            role: Role::SchemePolicyBody,
+            domain: Domain::SchemePolicy,
             key: regulator_key,
             body: w.scheme_policy.body.transcript(),
             signature: w.scheme_policy.signature,
         },
         SignatureVector {
             object: "fee schedule",
-            role: Role::FeeScheduleBody,
+            domain: Domain::FeeSchedule,
             key: regulator_key,
             body: w.fee_schedule.body.transcript(),
             signature: w.fee_schedule.signature,
         },
         SignatureVector {
             object: "blacklist",
-            role: Role::BlacklistBody,
+            domain: Domain::Blacklist,
             key: regulator_key,
             body: w.blacklist.body.transcript(),
             signature: w.blacklist.signature,
         },
         SignatureVector {
             object: "quota share",
-            role: Role::QuotaShareBody,
+            domain: Domain::QuotaShare,
             key: regulator_key,
             body: w.quota_share.body.transcript(),
             signature: w.quota_share.signature,
         },
         SignatureVector {
             object: "time anchor",
-            role: Role::TimeAnchorBody,
+            domain: Domain::TimeAnchor,
             key: w.time_certificate.body.key,
             body: w.time_anchor.body.transcript(),
             signature: w.time_anchor.signature,
         },
         SignatureVector {
             object: "load voucher",
-            role: Role::VoucherBody,
+            domain: Domain::Voucher,
             key: w.load_certificate.body.key,
             body: w.voucher.body.transcript(),
             signature: w.voucher.signature,
         },
         SignatureVector {
             object: "Activate ledger control",
-            role: Role::LedgerControlBody,
+            domain: Domain::LedgerControl,
             key: payer_key,
             body: w.control.body.transcript(),
             signature: w.control.signature,
         },
         SignatureVector {
             object: "renewal possession",
-            role: Role::RenewalChallenge,
+            domain: Domain::RenewalChallenge,
             key: payer_key,
             body: w.renewal.possession_transcript(),
             signature: w.renewal.possession_signature,
         },
         SignatureVector {
             object: "Android renewal key binding",
-            role: Role::RenewalKeyBinding,
+            domain: Domain::RenewalKeyBinding,
             key: payer_key,
             body: kagemusha_wallet_renewal_key_binding_transcript_v1(
                 &w.renewal.scheme_id,
@@ -1551,14 +1645,14 @@ fn signature_vectors(w: &VectorWorld) -> Vec<SignatureVector> {
         },
         SignatureVector {
             object: "artifact manifest",
-            role: Role::ArtifactManifestBody,
+            domain: Domain::ArtifactManifest,
             key: w.artifact_certificate.body.key,
             body: w.manifest.body.transcript(),
             signature: w.manifest.signature,
         },
         SignatureVector {
             object: "load charge quote",
-            role: Role::ChargeQuoteBody,
+            domain: Domain::ChargeQuote,
             key: regulator_key,
             body: w.charge_quote.body.transcript(),
             signature: w.charge_quote.signature,
@@ -1609,17 +1703,17 @@ fn signature_vectors_json(vectors: &[SignatureVector]) -> Value {
         vectors
             .iter()
             .map(|vector| {
-                let preimage = kagemusha_wallet_preimage_v1(vector.role, &vector.body);
+                let message = kagemusha_wallet_signing_message_v1(vector.domain, &vector.body);
                 let raw = vector.signature.as_raw_bytes();
                 assert_eq!(
-                    signature_verdicts(&vector.key, &preimage, raw),
+                    signature_verdicts(&vector.key, &message, raw),
                     (true, true),
                     "{}",
                     vector.object
                 );
                 let twin = high_s_twin(&vector.signature);
                 assert_eq!(
-                    signature_verdicts(&vector.key, &preimage, &twin),
+                    signature_verdicts(&vector.key, &message, &twin),
                     (false, true),
                     "{} twin",
                     vector.object
@@ -1632,8 +1726,8 @@ fn signature_vectors_json(vectors: &[SignatureVector]) -> Value {
                     assert_eq!(
                         kagemusha_wallet_freeze_signature_v1(
                             &vector.key,
-                            vector.role,
-                            &vector.body,
+                            vector.domain,
+                            &message,
                             output
                         )
                         .expect("freeze twin"),
@@ -1642,13 +1736,11 @@ fn signature_vectors_json(vectors: &[SignatureVector]) -> Value {
                 }
                 json_object(vec![
                     ("object", json_text(vector.object)),
-                    ("role", json_text(vector.role.as_str())),
+                    ("domain", json_text(vector.domain.as_str())),
+                    ("body_hex", json_hex(&vector.body)),
                     ("public_key_hex", json_hex(vector.key.as_sec1_bytes())),
-                    ("preimage_hex", json_hex(&preimage)),
-                    (
-                        "e_hex",
-                        json_hex(&kagemusha_wallet_digest_v1(vector.role, &vector.body)),
-                    ),
+                    ("signing_message_hex", json_hex(&message)),
+                    ("e_hex", json_hex(&Sha256::digest(message))),
                     ("signature_hex", json_hex(raw)),
                     ("codec_ok", Value::Bool(true)),
                     ("verify_ok", Value::Bool(true)),
@@ -1671,7 +1763,7 @@ fn signature_vectors_json(vectors: &[SignatureVector]) -> Value {
 /// Signature with `s = floor(n/2)` that verifies, derived per design C11.
 ///
 /// Choose the nonce `k` and `s = floor(n/2)`; with `r = x(kG) mod n` and
-/// `e = SHA-256(preimage) mod n`, the key `d = (s*k - e) * r^-1 mod n` makes `(r, s)` a valid
+/// `e = SHA-256(signing_message) mod n`, the key `d = (s*k - e) * r^-1 mod n` makes `(r, s)` a valid
 /// signature: `u1*G + u2*Q = (e + r*d)/s * G = k*G`.
 struct BoundaryVector {
     k: Scalar,
@@ -1679,7 +1771,7 @@ struct BoundaryVector {
     e: Scalar,
     d: Scalar,
     key: KagemushaDevicePublicKeyV1,
-    preimage: Vec<u8>,
+    preimage: [u8; 32],
 }
 
 #[allow(
@@ -1687,7 +1779,7 @@ struct BoundaryVector {
     reason = "the ECDSA scalars k, r, e, s and d keep their standard names"
 )]
 fn boundary_vector() -> BoundaryVector {
-    let preimage = kagemusha_wallet_preimage_v1(BOUNDARY_ROLE, BOUNDARY_BODY);
+    let preimage = kagemusha_wallet_signing_message_v1(BOUNDARY_DOMAIN, BOUNDARY_BODY);
     let k = <Scalar as Reduce<U256>>::reduce_bytes(FieldBytes::from_slice(&BOUNDARY_NONCE));
     let r_point = (ProjectivePoint::GENERATOR * k).to_affine();
     let r = <Scalar as Reduce<U256>>::reduce_bytes(&r_point.x());
@@ -1762,8 +1854,8 @@ fn boundary_json() -> Value {
     // The high twin freezes to the boundary signature itself.
     let frozen = kagemusha_wallet_freeze_signature_v1(
         &boundary.key,
-        BOUNDARY_ROLE,
-        BOUNDARY_BODY,
+        BOUNDARY_DOMAIN,
+        &boundary.preimage,
         KagemushaWalletSignerOutputV1::Raw(cases[1].1),
     )
     .expect("freeze the high twin");
@@ -1777,13 +1869,13 @@ fn boundary_json() -> Value {
         (
             "derivation",
             json_text(
-                "r = x(k*G) mod n; s = floor(n/2); e = SHA-256(preimage) mod n; \
+                "r = x(k*G) mod n; s = floor(n/2); e = SHA-256(signing_message) mod n; \
                  d = (s*k - e) * r^-1 mod n; public key Q = d*G",
             ),
         ),
-        ("role", json_text(BOUNDARY_ROLE.as_str())),
+        ("domain", json_text(BOUNDARY_DOMAIN.as_str())),
         ("body_hex", json_hex(BOUNDARY_BODY)),
-        ("preimage_hex", json_hex(&boundary.preimage)),
+        ("signing_message_hex", json_hex(&boundary.preimage)),
         ("k_hex", json_hex(&boundary.k.to_repr())),
         ("r_hex", json_hex(&boundary.r.to_repr())),
         ("e_hex", json_hex(&boundary.e.to_repr())),
@@ -3184,21 +3276,165 @@ fn json_leaf(domain: u64, key: &[u8; 32], items: &[[u8; 32]], value: &[u8; 32]) 
     Value::Object(map)
 }
 
-/// One compressed sparse-tree opening.
+/// One exact indexed opening: key, linked leaf, allocated slot and 32 siblings.
 fn json_opening(
     key: &[u8; 32],
-    leaf: &[u8; 32],
-    opening: &KagemushaWalletSparseOpeningV1,
+    leaf: &KagemushaWalletIndexedLeafV1,
+    opening: &KagemushaWalletIndexedOpeningV1,
     root: &[u8; 32],
+    membership: bool,
 ) -> Value {
-    assert_eq!(opening.root(key, leaf).expect("opening root"), *root);
+    if membership {
+        assert_eq!(leaf.key, *key, "membership key");
+        kagemusha_wallet_indexed_verify_membership_v1(root, leaf, opening).expect("membership");
+    } else {
+        kagemusha_wallet_indexed_verify_non_membership_v1(root, key, leaf, opening)
+            .expect("ordered absence");
+    }
+    assert_eq!(opening.leaf_root(leaf).expect("opening root"), *root);
     json_object(vec![
         ("key_hex", json_hex(key)),
-        ("leaf_hex", json_hex(leaf)),
-        ("path_bitmap_hex", json_hex(&opening.path_bitmap)),
+        ("low_or_member_key_hex", json_hex(&leaf.key)),
+        ("value_hex", json_hex(&leaf.value)),
+        ("next_key_hex", json_hex(&leaf.next_key)),
+        ("leaf_hex", json_hex(&leaf.hash().expect("leaf"))),
+        (
+            "slot",
+            json_number(usize::try_from(opening.slot).expect("slot")),
+        ),
         ("siblings", json_items(&opening.siblings)),
+        (
+            "opening_transcript_hex",
+            json_hex(&opening.leaf_transcript(leaf)),
+        ),
+        ("membership", Value::Bool(membership)),
         ("root_hex", json_hex(root)),
     ])
+}
+
+fn json_membership(tree: &KagemushaWalletIndexedTreeV1, key: &[u8; 32]) -> Value {
+    let (leaf, opening) = tree.membership(key).expect("membership");
+    json_opening(key, &leaf, &opening, &tree.root(), true)
+}
+
+fn json_non_membership(tree: &KagemushaWalletIndexedTreeV1, key: &[u8; 32]) -> Value {
+    let (low, opening) = tree.non_membership(key).expect("absence");
+    json_opening(key, &low, &opening, &tree.root(), false)
+}
+
+/// The canonical frame, core and rest element lists, rest digest and commitment of `state`.
+fn json_state(state: &KagemushaWalletStateV1) -> Vec<(&'static str, Value)> {
+    vec![
+        (
+            "state_hex",
+            json_hex(&norito::encode_canonical(state).expect("state frame")),
+        ),
+        (
+            "core_items",
+            json_items(&state.core_field_items().expect("core items")),
+        ),
+        (
+            "rest_items",
+            json_items(&state.rest_field_items().expect("rest items")),
+        ),
+        (
+            "rest_digest_hex",
+            json_hex(&state.rest_digest().expect("rest digest")),
+        ),
+        (
+            "commitment_hex",
+            json_hex(&state.commitment().expect("commitment").value),
+        ),
+    ]
+}
+
+/// The controlled state over the identities of `base` ([`controlled_state`]): every core and
+/// rest element distinct, with each field's value by name (integers in decimal, 32-byte values
+/// in hex), so a consumer binds every element position to its field (owner answers Q3, Q4, Q5
+/// and Q10).
+fn json_controlled_state(base: &KagemushaWalletStateV1) -> Value {
+    let state = controlled_state(base);
+    let core = &state.core;
+    let rest = &state.rest;
+    let number = |value: u128| json_text(&value.to_string());
+    let mut entries = json_state(&state);
+    entries.push((
+        "core_fields",
+        json_object(vec![
+            ("lifecycle", number(u128::from(core.lifecycle.tag()))),
+            ("scheme_id", json_hex(&core.scheme_id)),
+            ("asset_digest", json_hex(&core.asset_digest)),
+            ("wallet_id", json_hex(&core.wallet_id)),
+            ("credential_digest", json_hex(&core.credential_digest)),
+            ("balance", number(core.balance)),
+            ("burned_total", number(core.burned_total)),
+            ("sequence", number(core.sequence)),
+            ("next_send", number(core.next_send)),
+            ("next_load", number(core.next_load)),
+            ("next_redeem", number(core.next_redeem)),
+            ("send_chain", json_hex(&core.send_chain)),
+            ("recv_chain", json_hex(&core.recv_chain)),
+            ("consumed_credit_root", json_hex(&core.consumed_credit_root)),
+            (
+                "pending_outgoing_root",
+                json_hex(&core.pending_outgoing_root),
+            ),
+            (
+                "load_redeem_recovery_root",
+                json_hex(&core.load_redeem_recovery_root),
+            ),
+            ("fee_claim_root", json_hex(&core.fee_claim_root)),
+            ("quota_usage_root", json_hex(&core.quota_usage_root)),
+            (
+                "enabled_controls",
+                number(u128::from(core.enabled_controls)),
+            ),
+            ("quota_windows_root", json_hex(&core.quota_windows_root)),
+            (
+                "blacklist_version",
+                number(u128::from(core.blacklist_version)),
+            ),
+            ("blacklist_root", json_hex(&core.blacklist_root)),
+            (
+                "blacklist_issued_at_ms",
+                number(u128::from(core.blacklist_issued_at_ms)),
+            ),
+            (
+                "blacklist_max_age_ms",
+                number(u128::from(core.blacklist_max_age_ms)),
+            ),
+            (
+                "lease_expires_at_ms",
+                number(u128::from(core.lease_expires_at_ms)),
+            ),
+            ("policy_epoch", number(u128::from(core.policy_epoch))),
+            (
+                "accepted_time_floor_ms",
+                number(u128::from(core.accepted_time_floor_ms)),
+            ),
+            ("state_nonce", json_hex(&core.state_nonce)),
+        ]),
+    ));
+    entries.push((
+        "rest_fields",
+        json_object(vec![
+            (
+                "permitted_controls",
+                number(u128::from(rest.permitted_controls)),
+            ),
+            (
+                "time_anchor_max_response_ms",
+                number(u128::from(rest.time_anchor_max_response_ms)),
+            ),
+            ("scheme_policy", json_hex(&rest.scheme_policy)),
+            ("fee_schedule", json_hex(&rest.fee_schedule)),
+            ("blacklist", json_hex(&rest.blacklist)),
+            ("quota_share", json_hex(&rest.quota_share)),
+            ("quota_share_id", number(u128::from(rest.quota_share_id))),
+            ("time_anchor", json_hex(&rest.time_anchor)),
+        ]),
+    ));
+    json_object(entries)
 }
 
 /// The σ-field encodings shared by native and in-circuit encoders (§3.2): the element lists of
@@ -3235,8 +3471,6 @@ fn field_encodings_json(w: &VectorWorld) -> Value {
             ])
         })
         .collect();
-    let core = state.core_field_items().expect("core items");
-    let rest = state.rest_field_items().expect("rest items");
     let send_items = send.field_items().expect("send statement items");
     let receive_items = receive.field_items().expect("receive statement items");
     let send_append = send_entry.append_preimage(&[0; 32]).expect("send append");
@@ -3303,25 +3537,8 @@ fn field_encodings_json(w: &VectorWorld) -> Value {
                 ),
             ]),
         ),
-        (
-            "receive_successor_state",
-            json_object(vec![
-                (
-                    "state_hex",
-                    json_hex(&norito::encode_canonical(state).expect("state frame")),
-                ),
-                ("core_items", json_items(&core)),
-                ("rest_items", json_items(&rest)),
-                (
-                    "rest_digest_hex",
-                    json_hex(&state.rest_digest().expect("rest digest")),
-                ),
-                (
-                    "commitment_hex",
-                    json_hex(&state.commitment().expect("commitment").value),
-                ),
-            ]),
-        ),
+        ("receive_successor_state", json_object(json_state(state))),
+        ("controlled_state", json_controlled_state(state)),
         ("send_chain_append_from_empty", json_items(&send_append)),
         (
             "send_chain_append_from_empty_hex",
@@ -3353,7 +3570,7 @@ fn field_encodings_json(w: &VectorWorld) -> Value {
 
 /// Poseidon vectors (owner answers Q1, Q2, Q7, Q9, Q10 and Q11): one KAT per domain, the
 /// packing rule, `credit_id`, both `proof_digest` domains, the Payment digest, every map leaf
-/// and its key, the sparse tree with membership and absence openings, the credit-digest opening
+/// and its key, the indexed tree with membership and low-leaf absence openings, the credit-digest opening
 /// of the vectored `CreditStatus`, the blacklist and quota-window trees, and the verifying-key
 /// allowlist.
 fn poseidon_json(w: &VectorWorld) -> Value {
@@ -3471,7 +3688,7 @@ fn poseidon_json(w: &VectorWorld) -> Value {
         (
             "consumed_credit",
             json_leaf(
-                KAGEMUSHA_WALLET_CONSUMED_CREDIT_LEAF_DOMAIN_V1,
+                KAGEMUSHA_WALLET_CONSUMED_CREDIT_VALUE_DOMAIN_V1,
                 &consumed.key(),
                 &consumed.field_items().expect("items"),
                 &consumed.leaf_value().expect("value"),
@@ -3480,7 +3697,7 @@ fn poseidon_json(w: &VectorWorld) -> Value {
         (
             "pending_outgoing",
             json_leaf(
-                KAGEMUSHA_WALLET_PENDING_OUTGOING_LEAF_DOMAIN_V1,
+                KAGEMUSHA_WALLET_PENDING_OUTGOING_VALUE_DOMAIN_V1,
                 &pending.key(),
                 &pending.field_items().expect("items"),
                 &pending.leaf_value().expect("value"),
@@ -3489,7 +3706,7 @@ fn poseidon_json(w: &VectorWorld) -> Value {
         (
             "load_recovery",
             json_leaf(
-                KAGEMUSHA_WALLET_LOAD_RECOVERY_LEAF_DOMAIN_V1,
+                KAGEMUSHA_WALLET_LOAD_VALUE_DOMAIN_V1,
                 &load.key(),
                 &load.field_items(),
                 &load.leaf_value(),
@@ -3498,7 +3715,7 @@ fn poseidon_json(w: &VectorWorld) -> Value {
         (
             "redeem_recovery",
             json_leaf(
-                KAGEMUSHA_WALLET_REDEEM_RECOVERY_LEAF_DOMAIN_V1,
+                KAGEMUSHA_WALLET_REDEEM_VALUE_DOMAIN_V1,
                 &redeem.key(),
                 &redeem.field_items(),
                 &redeem.leaf_value(),
@@ -3507,7 +3724,7 @@ fn poseidon_json(w: &VectorWorld) -> Value {
         (
             "fee_claim",
             json_leaf(
-                KAGEMUSHA_WALLET_FEE_CLAIM_LEAF_DOMAIN_V1,
+                KAGEMUSHA_WALLET_FEE_CLAIM_VALUE_DOMAIN_V1,
                 &fee.key(),
                 &fee.field_items().expect("items"),
                 &fee.leaf_value().expect("value"),
@@ -3516,63 +3733,53 @@ fn poseidon_json(w: &VectorWorld) -> Value {
         (
             "quota_usage",
             json_leaf(
-                KAGEMUSHA_WALLET_QUOTA_USAGE_LEAF_DOMAIN_V1,
+                KAGEMUSHA_WALLET_QUOTA_USAGE_VALUE_DOMAIN_V1,
                 &usage.key(),
                 &usage.field_items(),
                 &usage.leaf_value(),
             ),
         ),
     ]);
-    let mut recovery = KagemushaWalletSparseTreeV1::new();
+    let mut recovery = KagemushaWalletIndexedTreeV1::new();
     recovery
         .insert(load.key(), load.leaf_value())
         .expect("load leaf");
     recovery
         .insert(redeem.key(), redeem.leaf_value())
         .expect("redeem leaf");
-    let mut consumed_map = KagemushaWalletSparseTreeV1::new();
+    let mut consumed_map = KagemushaWalletIndexedTreeV1::new();
     consumed_map
         .insert(consumed.key(), consumed.leaf_value().expect("value"))
         .expect("consumed leaf");
     let absent = super::messages::messages_tests::flip_bit(&consumed.key(), 0);
-    let empty_leaf = kagemusha_wallet_sparse_default_v1(0).expect("empty leaf");
-    let sparse = json_object(vec![
-        ("empty_leaf_hex", json_hex(&empty_leaf)),
+    let indexed = json_object(vec![
+        ("empty_leaf_hex", json_hex(&[0; 32])),
+        (
+            "sentinel_leaf_hex",
+            json_hex(
+                &KagemushaWalletIndexedLeafV1::SENTINEL
+                    .hash()
+                    .expect("sentinel"),
+            ),
+        ),
         (
             "default_height_1_hex",
-            json_hex(&kagemusha_wallet_sparse_default_v1(1).expect("height 1")),
+            json_hex(&kagemusha_wallet_indexed_empty_subtree_v1(1).expect("height 1")),
         ),
         (
             "empty_root_hex",
             json_hex(&kagemusha_wallet_empty_map_root_v1()),
         ),
+        ("depth", json_number(KAGEMUSHA_WALLET_INDEXED_TREE_DEPTH_V1)),
         ("load_redeem_recovery_root_hex", json_hex(&recovery.root())),
-        (
-            "load_membership",
-            json_opening(
-                &load.key(),
-                &load.leaf_value(),
-                &recovery.opening(&load.key()).expect("opening"),
-                &recovery.root(),
-            ),
-        ),
+        ("load_membership", json_membership(&recovery, &load.key())),
         (
             "consumed_credit_membership",
-            json_opening(
-                &consumed.key(),
-                &consumed.leaf_value().expect("value"),
-                &consumed_map.opening(&consumed.key()).expect("opening"),
-                &consumed_map.root(),
-            ),
+            json_membership(&consumed_map, &consumed.key()),
         ),
         (
             "consumed_credit_absence",
-            json_opening(
-                &absent,
-                &empty_leaf,
-                &consumed_map.opening(&absent).expect("absence"),
-                &consumed_map.root(),
-            ),
+            json_non_membership(&consumed_map, &absent),
         ),
     ]);
 
@@ -3583,7 +3790,7 @@ fn poseidon_json(w: &VectorWorld) -> Value {
         (
             "leaf",
             json_leaf(
-                KAGEMUSHA_WALLET_CREDIT_DIGEST_LEAF_DOMAIN_V1,
+                KAGEMUSHA_WALLET_CREDIT_DIGEST_VALUE_DOMAIN_V1,
                 &leaf.key(),
                 &leaf.field_items().expect("items"),
                 &leaf.leaf_value().expect("value"),
@@ -3593,12 +3800,16 @@ fn poseidon_json(w: &VectorWorld) -> Value {
             "opening",
             json_opening(
                 &leaf.key(),
-                &leaf.leaf_value().expect("value"),
-                &KagemushaWalletSparseOpeningV1 {
-                    path_bitmap: status.opening.path_bitmap,
-                    siblings: status.opening.sibling_values().collect(),
-                },
+                &leaf
+                    .indexed_leaf(status.opening.next_key)
+                    .expect("indexed credit leaf"),
+                &KagemushaWalletIndexedOpeningV1::from_sibling_bytes(
+                    status.opening.slot,
+                    &status.opening.siblings,
+                )
+                .expect("indexed opening"),
                 &status.lineage.public.credit_digest_root,
+                true,
             ),
         ),
     ]);
@@ -3732,7 +3943,7 @@ fn poseidon_json(w: &VectorWorld) -> Value {
             ),
         ),
         ("leaves", leaves),
-        ("sparse_tree", sparse),
+        ("indexed_tree", indexed),
         ("credit_digest_opening", credit_opening),
         ("blacklist", blacklist),
         ("quota_windows", quota),
@@ -3778,7 +3989,7 @@ fn vectors_file_text(w: &VectorWorld) -> String {
         (
             "signature_rule",
             json_text(
-                "ECDSA-P256-SHA256 over preimage_hex; RFC 6979 from the fixed scalars, \
+                "ECDSA-P256-SHA256 over the 32-byte signing_message_hex; RFC 6979 from the fixed scalars, \
                  frozen to low S; a consumer accepts iff codec_ok and verify_ok",
             ),
         ),
@@ -3874,23 +4085,38 @@ fn kagemusha_wallet_v1_vectors_are_deterministic_and_parse() {
 #[test]
 fn kagemusha_wallet_v1_vectors_cover_every_role_once_in_order() {
     let vectors = digest_vectors(vector_world());
-    let roles: Vec<Role> = vectors.iter().map(|vector| vector.role).collect();
+    let roles: Vec<Role> = vectors
+        .iter()
+        .filter_map(|vector| match vector.kind {
+            DigestKind::Hash(role) => Some(role),
+            _ => None,
+        })
+        .collect();
     assert_eq!(roles, Role::ALL.to_vec());
+    let mut domains: Vec<Domain> = vectors
+        .iter()
+        .filter_map(|vector| match vector.kind {
+            DigestKind::Signing(domain) => Some(domain),
+            _ => None,
+        })
+        .collect();
+    domains.sort();
+    assert_eq!(domains, Domain::ALL.to_vec());
     let json = digest_vectors_json(&vectors);
     let Value::Array(rows) = json else {
         panic!("array");
     };
-    assert_eq!(rows.len(), Role::ALL.len());
+    assert_eq!(rows.len(), Role::ALL.len() + Domain::ALL.len() + 4);
     // Only the vectors whose bytes carry stand-in proof bytes are labelled.
     let labelled: Vec<&str> = vectors
         .iter()
         .filter(|vector| vector.stand_in_proof)
-        .map(|vector| vector.role.as_str())
+        .map(|vector| vector.kind.label())
         .collect();
     assert_eq!(
         labelled,
         [
-            "lineage",
+            "kgwlin_1",
             "capsule",
             "completion",
             "fold",
@@ -3935,8 +4161,13 @@ fn kagemusha_wallet_v1_signature_vectors_and_boundaries() {
     );
     let signature =
         KagemushaDeviceSignatureV1::from_raw_bytes(&cases[0].1).expect("s = floor(n/2)");
-    kagemusha_wallet_verify_signature_v1(&boundary.key, BOUNDARY_ROLE, BOUNDARY_BODY, &signature)
-        .expect("boundary signature verifies");
+    kagemusha_wallet_verify_signature_v1(
+        &boundary.key,
+        BOUNDARY_DOMAIN,
+        &boundary.preimage,
+        &signature,
+    )
+    .expect("boundary signature verifies");
     assert!(matches!(boundary_json(), Value::Object(_)));
     assert_eq!(
         high_s_twin(&signature).as_slice(),
@@ -4296,11 +4527,11 @@ fn kagemusha_wallet_v1_flips_certificate() {
 fn kagemusha_wallet_v1_flips_offer() {
     let w = vector_world();
     let scheme = w.scheme();
-    assert_flips(&w.offer, w.offer.body.body_digest(), |bytes| {
+    assert_flips(&w.offer, w.offer.body.signing_message(), |bytes| {
         let offer: KagemushaWalletOfferV1 =
             decode_frame_v1(bytes, KAGEMUSHA_WALLET_SESSION_MAX_BYTES_V1).ok()?;
         offer.verify(&scheme).ok()?;
-        Some(offer.body.body_digest())
+        Some(offer.body.signing_message())
     });
 }
 
@@ -4442,11 +4673,11 @@ fn kagemusha_wallet_v1_flips_blacklist_body_and_list() {
     let w = vector_world();
     let scheme = w.scheme();
     let list = &w.blacklist;
-    assert_flips(&list.body, list.body.body_digest(), |bytes| {
+    assert_flips(&list.body, list.body.signing_message(), |bytes| {
         let body: KagemushaWalletBlacklistBodyV1 =
             decode_frame_v1(bytes, KAGEMUSHA_WALLET_BLACKLIST_MAX_BYTES_V1).ok()?;
         body.validate().ok()?;
-        Some(body.body_digest())
+        Some(body.signing_message())
     });
     assert_flips(list, list.blacklist_digest(), |bytes| {
         let list = KagemushaWalletBlacklistV1::decode_canonical(bytes, &scheme.scheme_id()).ok()?;
@@ -4499,10 +4730,10 @@ fn kagemusha_wallet_v1_flips_ledger_control() {
     let w = vector_world();
     let scheme_id = w.scheme_id();
     let key = w.payer().body.payment_key;
-    assert_flips(&w.control, w.control.body.body_digest(), |bytes| {
+    assert_flips(&w.control, w.control.body.signing_message(), |bytes| {
         let control = KagemushaWalletLedgerControlV1::decode_canonical(bytes, &scheme_id).ok()?;
         control.verify(&key).ok()?;
-        Some(control.body.body_digest())
+        Some(control.body.signing_message())
     });
 }
 

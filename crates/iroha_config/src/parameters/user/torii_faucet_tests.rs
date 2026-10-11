@@ -12,7 +12,19 @@ impl TestKeyFile {
             "iroha-config-faucet-{}-{sequence}.key",
             std::process::id()
         ));
-        fs::write(&path, contents).expect("write faucet key file");
+        use std::io::Write as _;
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        options
+            .open(&path)
+            .expect("create private faucet key file")
+            .write_all(contents.as_bytes())
+            .expect("write faucet key file");
         Self(path)
     }
     fn path(&self) -> &Path {

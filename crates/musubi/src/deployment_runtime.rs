@@ -220,8 +220,9 @@ impl DeploymentRuntime {
         }
     }
 
-    /// Supply resolved storage policy for cold registry dependency downloads.
-    /// Local packages and already authenticated cached archives do not require it.
+    /// Bind external dependencies to this runtime's registry and retain its archive transport.
+    /// Even a complete cache requires the explicit registry binding; provider requests are
+    /// needed only for missing archives. Source, bytecode and local-only graphs need neither.
     #[must_use]
     pub fn with_archive_transport(
         mut self,

@@ -241,14 +241,6 @@ impl ServiceAuthority {
         .map_err(|_| invalid("invalid native operation finality source"))
     }
 
-    pub(super) fn decode_checkpoint(&self, bytes: &[u8]) -> Result<FinalityVerifier> {
-        decode_checkpoint(
-            bytes,
-            self.config.network_id,
-            &self.config.chain.to_string(),
-        )
-    }
-
     pub(super) fn retained_finality(
         &self,
         directory: &PrivateDirectory,

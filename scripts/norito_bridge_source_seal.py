@@ -173,16 +173,12 @@ _PUBLIC_SOURCE_SUFFIXES = frozenset({
     ".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif", ".snap", ".expect",
     ".hex", ".pub", ".hash", ".sha256", ".checksum",
 })
-# Exact public loader/consumer-rule inputs used by the maintained Android builds.
+# Exact public consumer-rule resources used by the maintained Android builds.
 # This admits their filenames only after the material/provider/path refusal above;
-# it does not admit another dotted SPI name or an arbitrary .pro file.
+# it does not admit a dotted SPI name or an arbitrary .pro file.
 _REVIEWED_PUBLIC_ANDROID_RESOURCE_INPUTS = frozenset({
     "java/iroha_android/core/src/main/resources/META-INF/proguard/iroha3.pro",
     "kotlin/core-jvm/src/main/resources/META-INF/proguard/consumer-proguard-rules.pro",
-    "kotlin/client-android/src/main/resources/META-INF/services/org.hyperledger.iroha.sdk.offline.KagemushaAndroidOrdinaryHardwareServiceFactoryV1",
-    "kotlin/client-android/src/main/resources/META-INF/services/org.hyperledger.iroha.sdk.offline.KagemushaFirstDeviceHardwareEvidenceServiceFactoryV1",
-    "kotlin/kagemusha-wallet-android/src/main/resources/META-INF/services/org.hyperledger.iroha.sdk.offline.KagemushaOrdinaryMintFundingNativeOwnerV1",
-    "kotlin/kagemusha-wallet-android/src/main/resources/META-INF/services/org.hyperledger.iroha.sdk.offline.wallet.KagemushaAndroidHardwareProviderFactoryV1",
 })
 # Exact public trybuild diagnostics in the maintained package closures.
 # These are 68 expected originals plus three tracked event-set diagnostic copies

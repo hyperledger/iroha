@@ -1,6 +1,7 @@
 //! Measurement harness (M12): native `sigma_send` / `sigma_recv` step proofs
-//! on Vesta in the KAGEMUSHA step format, at the shape within the 3.5 KB
-//! budget and at the smallest `k`.
+//! of the G1 layout on Vesta in the KAGEMUSHA step format, at `k = 12` with
+//! one lane (the shape within the 3.5 KB budget), and at `k = 11` and
+//! `k = 10` with the fewest lanes that fit.
 //!
 //! Each case prints one `M12` line per thread count: the shape, key
 //! generation (parameters excluded), and for [`RUNS`] proofs after one
@@ -34,11 +35,11 @@ mod common;
 use std::time::Instant;
 
 use common::{
-    TWO_LEVEL_BUDGET, TWO_LEVEL_SMALLEST, budget_shape, recovery, smallest_shape, vesta_params,
+    BUDGET_SHAPE, K11_SHAPE, SEND_BLACKLIST, SMALLEST_SHAPE, folded, pinned_shape, recovery,
+    vesta_params,
 };
 use iroha_kagemusha_proof::{
-    KeyOptions, Mutation, PrefixMode, ProofFormat, RelationShape, SigmaParams, SigmaProver,
-    SigmaShape, StateLayout, StepRelation, limb_bits_for, sample_witness,
+    KeyOptions, Mutation, ProofFormat, SigmaProver, SigmaRelation, SigmaShape, sample_witness,
 };
 use iroha_pasta::{Eq, Fp};
 
@@ -131,9 +132,14 @@ impl Series {
     }
 }
 
-fn series(prover: &SigmaProver<Eq>, step: StepRelation, threads: usize, runs: usize) -> Series {
+fn series(
+    prover: &SigmaProver<Eq>,
+    relation: SigmaRelation,
+    threads: usize,
+    runs: usize,
+) -> Series {
     let pool = pool(threads);
-    let witness = sample_witness::<Fp>(7, step, Mutation::None);
+    let witness = sample_witness::<Fp>(7, relation, Mutation::None);
     let verifier = prover.verifier();
     let warm = pool
         .install(|| prover.prove(&witness, recovery(1)))
@@ -203,7 +209,7 @@ fn measure(label: &str, shape: SigmaShape, options: KeyOptions) {
         .proof_length::<Eq>(ProofFormat::KAGEMUSHA_STEP)
         .expect("length");
     for (threads, keygen_ms) in [(1, keygen[0]), (4, keygen[1])] {
-        let s = series(&prover, relation.step, threads, RUNS);
+        let s = series(&prover, relation.relation, threads, RUNS);
         println!(
             "M12 {label} case={} k={} lanes={} limb_bits={} advice_cols={} fixed_cols={} \
              permutations={} cells={} threads={threads} runs={RUNS} params_ms={params_ms:.0} \
@@ -226,77 +232,91 @@ fn measure(label: &str, shape: SigmaShape, options: KeyOptions) {
     }
 }
 
-fn two_level(step: StepRelation) -> RelationShape {
-    RelationShape::new(step, StateLayout::TwoLevel, PrefixMode::Folded)
+/// The measured shape of `relation` at `(k, lanes)`.
+fn measured(relation: SigmaRelation, at: (u32, usize)) -> SigmaShape {
+    pinned_shape(folded(relation), at)
 }
 
 #[test]
 #[ignore = "M12 measurement; run in release, one case per process"]
-fn m12_send_two_level_budget() {
+fn m12_send_k12() {
     measure(
-        "budget",
-        budget_shape(two_level(StepRelation::Send)),
+        "k12",
+        measured(SigmaRelation::SEND, BUDGET_SHAPE),
         KeyOptions::default(),
     );
 }
 
 #[test]
 #[ignore = "M12 measurement; run in release, one case per process"]
-fn m12_recv_two_level_budget() {
+fn m12_recv_k12() {
     measure(
-        "budget",
-        budget_shape(two_level(StepRelation::Receive)),
+        "k12",
+        measured(SigmaRelation::RECEIVE, BUDGET_SHAPE),
         KeyOptions::default(),
     );
 }
 
 #[test]
 #[ignore = "M12 measurement; run in release, one case per process"]
-fn m12_send_two_level_smallest_k() {
+fn m12_send_blacklist_k12() {
     measure(
-        "smallest_k",
-        smallest_shape(two_level(StepRelation::Send)),
+        "k12",
+        measured(SEND_BLACKLIST, BUDGET_SHAPE),
         KeyOptions::default(),
     );
 }
 
 #[test]
 #[ignore = "M12 measurement; run in release, one case per process"]
-fn m12_recv_two_level_smallest_k() {
+fn m12_send_k11() {
     measure(
-        "smallest_k",
-        smallest_shape(two_level(StepRelation::Receive)),
+        "k11",
+        measured(SigmaRelation::SEND, K11_SHAPE),
         KeyOptions::default(),
     );
-}
-
-/// The two-level shape at `k = 11` with two lanes: over the size budget,
-/// measured for comparison.
-fn k11_two_lanes(step: StepRelation) -> SigmaShape {
-    let params = SigmaParams::new(two_level(step), 2, limb_bits_for(11)).expect("params");
-    SigmaShape::new(params, 11)
 }
 
 #[test]
 #[ignore = "M12 measurement; run in release, one case per process"]
-fn m12_send_two_level_k11_two_lanes() {
+fn m12_recv_k11() {
     measure(
-        "k11_two_lanes",
-        k11_two_lanes(StepRelation::Send),
+        "k11",
+        measured(SigmaRelation::RECEIVE, K11_SHAPE),
         KeyOptions::default(),
     );
 }
 
-/// Repeats `runs` proofs (or verifications) of the budget-shape relation on
-/// one thread, for a sampling profiler.
-fn profile(step: StepRelation, runs: usize, verify_only: bool) {
+#[test]
+#[ignore = "M12 measurement; run in release, one case per process"]
+fn m12_send_k10() {
+    measure(
+        "k10",
+        measured(SigmaRelation::SEND, SMALLEST_SHAPE),
+        KeyOptions::default(),
+    );
+}
+
+#[test]
+#[ignore = "M12 measurement; run in release, one case per process"]
+fn m12_recv_k10() {
+    measure(
+        "k10",
+        measured(SigmaRelation::RECEIVE, SMALLEST_SHAPE),
+        KeyOptions::default(),
+    );
+}
+
+/// Repeats `runs` proofs (or verifications) of the `k = 12` relation on one
+/// thread, for a sampling profiler.
+fn profile(relation: SigmaRelation, runs: usize, verify_only: bool) {
     assert!(release_build(), "profile a release build");
-    let shape = budget_shape(two_level(step));
+    let shape = measured(relation, BUDGET_SHAPE);
     let prover =
         SigmaProver::keygen_with_params(shape, ProofFormat::KAGEMUSHA_STEP, vesta_params(shape.k))
             .expect("keygen");
     let verifier = prover.verifier();
-    let witness = sample_witness::<Fp>(7, step, Mutation::None);
+    let witness = sample_witness::<Fp>(7, relation, Mutation::None);
     let pool = pool(1);
     let proof = pool
         .install(|| prover.prove(&witness, recovery(1)))
@@ -313,21 +333,10 @@ fn profile(step: StepRelation, runs: usize, verify_only: bool) {
         }
     }
     println!(
-        "M12_PROFILE step={step:?} verify_only={verify_only} runs={runs} mean_ms={:.2}",
+        "M12_PROFILE relation={} verify_only={verify_only} runs={runs} mean_ms={:.2}",
+        relation.label(),
         started.elapsed().as_secs_f64() * 1_000.0 / f64::from(u32::try_from(runs).expect("runs"))
     );
-}
-
-/// The shape a footprint workload pins: the budget or the smallest-`k`
-/// shape of the two-level relation.
-fn footprint_shape(step: StepRelation, smallest: bool) -> SigmaShape {
-    let (k, lanes) = if smallest {
-        TWO_LEVEL_SMALLEST
-    } else {
-        TWO_LEVEL_BUDGET
-    };
-    let params = SigmaParams::new(two_level(step), lanes, limb_bits_for(k)).expect("params");
-    SigmaShape::new(params, k)
 }
 
 /// One key generation, one proof and one verification on one thread: the
@@ -336,9 +345,9 @@ fn footprint_shape(step: StepRelation, smallest: bool) -> SigmaShape {
 /// The shape is built directly (a deployed prover pins it; the selector is a
 /// build-time tool), so no selection dry run inflates the footprint;
 /// `tests/shapes.rs` checks the pinned shapes are the selector's.
-fn footprint(step: StepRelation, smallest: bool, options: KeyOptions) {
+fn footprint(relation: SigmaRelation, at: (u32, usize), options: KeyOptions) {
     assert!(release_build(), "M12 footprints need a release build");
-    let shape = footprint_shape(step, smallest);
+    let shape = measured(relation, at);
     pool(1).install(|| {
         let params = vesta_params(shape.k);
         let prover = SigmaProver::<Eq>::keygen_with_options(
@@ -348,7 +357,7 @@ fn footprint(step: StepRelation, smallest: bool, options: KeyOptions) {
             options,
         )
         .expect("keys");
-        let witness = sample_witness::<Fp>(7, step, Mutation::None);
+        let witness = sample_witness::<Fp>(7, relation, Mutation::None);
         let proof = prover.prove(&witness, recovery(1)).expect("proof");
         prover
             .verifier()
@@ -367,64 +376,86 @@ fn footprint(step: StepRelation, smallest: bool, options: KeyOptions) {
 
 #[test]
 #[ignore = "M12 footprint; run in release under /usr/bin/time -l"]
-fn m12_footprint_send_budget() {
-    footprint(StepRelation::Send, false, KeyOptions::default());
+fn m12_footprint_send_k12() {
+    footprint(SigmaRelation::SEND, BUDGET_SHAPE, KeyOptions::default());
 }
 
 #[test]
 #[ignore = "M12 footprint; run in release under /usr/bin/time -l"]
-fn m12_footprint_recv_budget() {
-    footprint(StepRelation::Receive, false, KeyOptions::default());
+fn m12_footprint_recv_k12() {
+    footprint(SigmaRelation::RECEIVE, BUDGET_SHAPE, KeyOptions::default());
 }
 
 #[test]
 #[ignore = "M12 footprint; run in release under /usr/bin/time -l"]
-fn m12_footprint_send_smallest_k() {
-    footprint(StepRelation::Send, true, KeyOptions::default());
+fn m12_footprint_send_blacklist_k12() {
+    footprint(SEND_BLACKLIST, BUDGET_SHAPE, KeyOptions::default());
+}
+
+#[test]
+#[ignore = "M12 footprint; run in release under /usr/bin/time -l"]
+fn m12_footprint_send_k11() {
+    footprint(SigmaRelation::SEND, K11_SHAPE, KeyOptions::default());
+}
+
+#[test]
+#[ignore = "M12 footprint; run in release under /usr/bin/time -l"]
+fn m12_footprint_recv_k11() {
+    footprint(SigmaRelation::RECEIVE, K11_SHAPE, KeyOptions::default());
+}
+
+#[test]
+#[ignore = "M12 footprint; run in release under /usr/bin/time -l"]
+fn m12_footprint_send_k10() {
+    footprint(SigmaRelation::SEND, SMALLEST_SHAPE, KeyOptions::default());
+}
+
+#[test]
+#[ignore = "M12 footprint; run in release under /usr/bin/time -l"]
+fn m12_footprint_recv_k10() {
+    footprint(
+        SigmaRelation::RECEIVE,
+        SMALLEST_SHAPE,
+        KeyOptions::default(),
+    );
 }
 
 #[test]
 #[ignore = "M12 measurement; run in release, one case per process"]
-fn m12_send_two_level_budget_tables() {
+fn m12_send_k12_tables() {
     measure(
-        "budget_tables",
-        budget_shape(two_level(StepRelation::Send)),
+        "k12_tables",
+        measured(SigmaRelation::SEND, BUDGET_SHAPE),
         KeyOptions::WITH_TABLES,
     );
 }
 
 #[test]
 #[ignore = "M12 measurement; run in release, one case per process"]
-fn m12_recv_two_level_budget_tables() {
+fn m12_recv_k12_tables() {
     measure(
-        "budget_tables",
-        budget_shape(two_level(StepRelation::Receive)),
+        "k12_tables",
+        measured(SigmaRelation::RECEIVE, BUDGET_SHAPE),
         KeyOptions::WITH_TABLES,
     );
 }
 
 #[test]
 #[ignore = "M12 footprint; run in release under /usr/bin/time -l"]
-fn m12_footprint_send_budget_tables() {
-    footprint(StepRelation::Send, false, KeyOptions::WITH_TABLES);
-}
-
-#[test]
-#[ignore = "M12 footprint; run in release under /usr/bin/time -l"]
-fn m12_footprint_recv_budget_tables() {
-    footprint(StepRelation::Receive, false, KeyOptions::WITH_TABLES);
+fn m12_footprint_send_k12_tables() {
+    footprint(SigmaRelation::SEND, BUDGET_SHAPE, KeyOptions::WITH_TABLES);
 }
 
 #[test]
 #[ignore = "profiling workload; run in release under a sampling profiler"]
 fn m12_profile_send_prove() {
-    profile(StepRelation::Send, 40, false);
+    profile(SigmaRelation::SEND, 40, false);
 }
 
 #[test]
 #[ignore = "profiling workload; run in release under a sampling profiler"]
 fn m12_profile_send_verify() {
-    profile(StepRelation::Send, 400, true);
+    profile(SigmaRelation::SEND, 400, true);
 }
 
 #[test]
@@ -455,15 +486,13 @@ fn summaries_and_probes() {
     };
     assert!(!series.gate_grade());
     assert!(!series.cpu.is_empty() && !series.verify.is_empty());
-    // The comparison shape is k = 11 with two lanes.
-    let k11 = k11_two_lanes(StepRelation::Send);
-    assert_eq!((k11.k, k11.params.lanes()), (11, 2));
-    // The footprint shapes are the pinned ones.
-    assert_eq!(
-        (
-            footprint_shape(StepRelation::Send, false).k,
-            footprint_shape(StepRelation::Send, false).params.lanes()
-        ),
-        TWO_LEVEL_BUDGET
-    );
+    // The measured shapes are the pinned ones.
+    for at in [BUDGET_SHAPE, K11_SHAPE, SMALLEST_SHAPE] {
+        let shape = measured(SigmaRelation::SEND, at);
+        assert_eq!((shape.k, shape.params.lanes()), at);
+        assert_eq!(
+            shape.params.limb_bits(),
+            usize::try_from(at.0 - 1).expect("k")
+        );
+    }
 }

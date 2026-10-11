@@ -1,18 +1,5 @@
 //! End-point querying logic, including custom public and authenticated routes.
 mod authority_originals;
-mod ordinary_native;
-pub use ordinary_native::{
-    KagemushaAdmittedOrdinaryNativeInventoryV1, KagemushaNativeAccountCustodyV1,
-    KagemushaNativeClockCatchupRequiredV1, KagemushaNativeClockTransportV1,
-    KagemushaNativeCurrentWalletReadV1, KagemushaNativeEnrollmentRequestContextV1,
-    KagemushaNativeInstalledRuntimeAuthorityV1, KagemushaNativeOrdinaryInstalledContextV1,
-    KagemushaNativePreparedEnrollmentRequestV1, KagemushaNativeSignedEnrollmentHttpOriginalV1,
-    KagemushaOrdinaryNativeArtifactResolverV1, KagemushaOrdinaryNativeCurrentWalletOriginalV1,
-    KagemushaOrdinaryNativeInventoryV1, KagemushaOrdinaryNativeNodeTargetV1,
-    KagemushaOrdinaryNativeOriginalDescriptorV1,
-    assemble_kagemusha_ordinary_native_clock_selection_v1,
-    assemble_kagemusha_ordinary_native_inventory_v1,
-};
 pub(crate) mod bounded_async_response;
 #[cfg(test)]
 mod capability_test_support;
@@ -61,6 +48,10 @@ mod validator_committee;
 pub use transaction_wait::TransactionFinalityFailure;
 #[cfg(test)]
 mod transaction_wait_tests;
+mod workflow_ledger;
+pub use workflow_ledger::AccountWorkflowContext;
+#[cfg(test)]
+mod workflow_ledger_tests;
 pub use crate::query::QueryError;
 use crate::{
     Error as SdkError, TransactionPreparationError, TransactionSigningError,
@@ -7242,6 +7233,42 @@ enum TransactionSubmissionDisposition {
     Accepted,
     TransactionDispatchOutcomeUnknown(TransactionDispatchOutcomeUnknownContext),
 }
+/// Why a prepared payload never left the client.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PreflightFailure {
+    /// The capability probe could not be completed.
+    CompatibilityProbe,
+    /// The node advertises an incompatible data model or transaction schema.
+    IncompatibleNode,
+    /// The payload bytes and hash are not one canonical signed transaction.
+    NonCanonicalPayload,
+    /// The HTTP request could not be built.
+    RequestBuild,
+}
+/// Typed classification of one prepared-payload dispatch.
+///
+/// Every variant except `Accepted` carries the report that
+/// `submit_prepared_transaction_payload` returns for it.
+#[derive(Debug)]
+pub(crate) enum PreparedDispatch {
+    /// Torii acknowledged admission (HTTP 200 or 202).
+    Accepted,
+    /// Nothing was sent.
+    NotDispatched {
+        /// Actual cause of the local failure.
+        cause: PreflightFailure,
+        /// Original failure report.
+        report: eyre::Report,
+    },
+    /// Torii proved the exact transaction is already queued or committed.
+    AlreadyKnown(eyre::Report),
+    /// A validated definite refusal: this dispatch did not admit the transaction.
+    Refused(eyre::Report),
+    /// Validated backpressure: not admitted, the same signed bytes may be sent again.
+    Deferred(eyre::Report),
+    /// The request left the client and nothing proves whether it was admitted.
+    Ambiguous(eyre::Report),
+}
 /// Phantom struct that handles Transaction API HTTP response
 #[derive(Clone, Copy)]
 struct TransactionResponseHandler;
@@ -13696,7 +13723,7 @@ pub struct AccountTransactionDraft {
     executable: Executable,
     fee_payment: FeePaymentIntent,
     metadata: Metadata,
-    attachments: Option<iroha_data_model::proof::ProofAttachmentList>,
+    attachments: Option<Vec<iroha_data_model::proof::ProofAttachment>>,
     time_to_live: Option<Duration>,
 }
 
@@ -13716,13 +13743,16 @@ impl AccountTransactionDraft {
         }
     }
 
-    /// Attach proof payloads to the exact transaction signature preimage.
+    /// Carry proof attachments in the exact transaction signature preimage,
+    /// one transaction-level proof carrier each, in order.
+    ///
+    /// Preparation rejects an empty or structurally invalid set.
     #[must_use]
-    pub fn with_attachments(
+    pub fn with_proof_attachments(
         mut self,
-        attachments: iroha_data_model::proof::ProofAttachmentList,
+        attachments: impl IntoIterator<Item = iroha_data_model::proof::ProofAttachment>,
     ) -> Self {
-        self.attachments = Some(attachments);
+        self.attachments = Some(attachments.into_iter().collect());
         self
     }
 
@@ -14507,7 +14537,10 @@ impl AccountClient {
                 .with_executable(draft.executable)
                 .with_metadata(draft.metadata);
         if let Some(attachments) = draft.attachments {
-            builder = builder.with_attachments(attachments);
+            builder = builder
+                .with_proof_attachments(attachments)
+                .map_err(|source| TransactionPreparationError::InvalidAttachments { source })
+                .map_err(SdkError::from)?;
         }
         self.apply_transaction_defaults_with_rng(&mut builder, rng)?;
         if let Some(time_to_live) = time_to_live {
@@ -15070,31 +15103,109 @@ impl AccountClient {
         &self,
         payload: &PreparedTransactionPayload,
     ) -> Result<HashOf<SignedTransaction>> {
+        match self.dispatch_prepared_transaction_payload(payload).await {
+            PreparedDispatch::Accepted => Ok(payload.hash()),
+            PreparedDispatch::NotDispatched { report, .. }
+            | PreparedDispatch::AlreadyKnown(report)
+            | PreparedDispatch::Refused(report)
+            | PreparedDispatch::Deferred(report)
+            | PreparedDispatch::Ambiguous(report) => Err(report),
+        }
+    }
+
+    /// Dispatch one prepared payload at most once and classify the result.
+    ///
+    /// This is the single submission owner behind
+    /// [`Self::submit_prepared_transaction_payload`] and durable workflows. The
+    /// classification is typed: it is established from the dispatch stage, the
+    /// outcome-unknown evidence and the closed non-admission table, never from
+    /// report text.
+    pub(crate) async fn dispatch_prepared_transaction_payload(
+        &self,
+        payload: &PreparedTransactionPayload,
+    ) -> PreparedDispatch {
         let client = self.client();
-        client
+        if let Err(report) = client
             .ensure_compatibility(CompatibilityRequirement::Submission, false)
-            .await?;
-        let expected = TransactionDispatchOutcomeUnknownIdentity::for_prepared_payload(payload)?;
+            .await
+        {
+            let incompatible = report.chain().any(|cause| {
+                cause
+                    .downcast_ref::<DataModelCompatibilityError>()
+                    .is_some()
+                    || cause
+                        .downcast_ref::<TransactionSchemaCompatibilityError>()
+                        .is_some()
+            });
+            return PreparedDispatch::NotDispatched {
+                cause: if incompatible {
+                    PreflightFailure::IncompatibleNode
+                } else {
+                    PreflightFailure::CompatibilityProbe
+                },
+                report,
+            };
+        }
+        let expected =
+            match TransactionDispatchOutcomeUnknownIdentity::for_prepared_payload(payload) {
+                Ok(expected) => expected,
+                Err(report) => {
+                    return PreparedDispatch::NotDispatched {
+                        cause: PreflightFailure::NonCanonicalPayload,
+                        report,
+                    };
+                }
+            };
         let hash = payload.hash();
         tracing::trace!(%hash, "Submitting prepared transaction payload");
-        let request = client
-            .prepare_transaction_payload_request(payload)
-            .build()?;
+        let request = match client.prepare_transaction_payload_request(payload).build() {
+            Ok(request) => request,
+            Err(report) => {
+                return PreparedDispatch::NotDispatched {
+                    cause: PreflightFailure::RequestBuild,
+                    report,
+                };
+            }
+        };
         let response = match request.send().await {
             Ok(response) => response,
             Err(error) => {
-                let disposition = transaction_post_dispatch_disposition(
+                // The request left the client: a transport failure never proves non-admission.
+                let report = transaction_post_dispatch_disposition(
                     Some(&expected),
                     error.wrap_err(format!("Failed to send transaction with hash {hash:?}")),
-                )?;
-                return finish_nonblocking_transaction_submission(disposition, hash);
+                )
+                .and_then(|disposition| {
+                    finish_nonblocking_transaction_submission(disposition, hash)
+                })
+                .err()
+                .unwrap_or_else(|| eyre!("transaction transport failed without a disposition"));
+                return PreparedDispatch::Ambiguous(report);
             }
         };
-        let disposition = TransactionResponseHandler::handle_with_transaction_identity(
+        match TransactionResponseHandler::handle_with_transaction_identity(
             &response,
             Some(&expected),
-        )?;
-        finish_nonblocking_transaction_submission(disposition, hash)
+        ) {
+            Ok(disposition) => match finish_nonblocking_transaction_submission(disposition, hash) {
+                Ok(_) => PreparedDispatch::Accepted,
+                Err(report) => PreparedDispatch::Ambiguous(report),
+            },
+            Err(report) => match transaction_dispatch_error::classify_definite(&response) {
+                Some(transaction_dispatch_error::DefiniteDispatchResult::AlreadyKnown) => {
+                    PreparedDispatch::AlreadyKnown(report)
+                }
+                Some(transaction_dispatch_error::DefiniteDispatchResult::Refused) => {
+                    PreparedDispatch::Refused(report)
+                }
+                Some(transaction_dispatch_error::DefiniteDispatchResult::Deferred) => {
+                    PreparedDispatch::Deferred(report)
+                }
+                // Any other non-acknowledgement (5xx, an oversized or undecodable body,
+                // an unlisted code) proves nothing about admission.
+                None => PreparedDispatch::Ambiguous(report),
+            },
+        }
     }
     /// Submit already encoded transaction payloads with the asynchronous batched transport.
     ///

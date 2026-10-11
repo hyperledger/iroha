@@ -18144,7 +18144,7 @@ seiyaku OpaqueInstructionSubmission {
                 assert_eq!(vm.remaining_gas(), 0);
                 assert_eq!(host.queued, vec![expected.clone()]);
             } else {
-                // An unaffordable quote is refused before its gas debit.
+                // Refusing the unaffordable quote precedes its debit and native queue mutation.
                 assert_eq!(vm.remaining_gas(), available);
                 assert!(
                     host.queued.is_empty(),

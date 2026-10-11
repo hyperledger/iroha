@@ -55,8 +55,8 @@ class KagemushaWalletAndroidPlatformV1 private constructor(
         adapter.keyGenerate(slot, challengeDigest, profileTag)
 
     @Suppress("unused")
-    private fun keySign(slot: ByteArray, preimage: ByteArray): KagemushaWalletAndroidSignatureV1 =
-        adapter.keySign(slot, preimage)
+    private fun keySign(slot: ByteArray, message: ByteArray): KagemushaWalletAndroidSignatureV1 =
+        adapter.keySign(slot, message)
 
     @Suppress("unused")
     private fun keyDelete(slot: ByteArray): KagemushaWalletAndroidRemoveV1 = adapter.keyDelete(slot)
@@ -126,8 +126,8 @@ internal class KagemushaWalletAndroidPlatformAdapterV1(
         return paymentKey.generate(slot, challengeDigest, profile)
     }
 
-    /** Sign the exact digest [preimage] with the payment key of [slot]. */
-    fun keySign(slot: ByteArray, preimage: ByteArray): KagemushaWalletAndroidSignatureV1 = paymentKey.sign(slot, preimage)
+    /** Sign the exact digest [message] with the payment key of [slot]. */
+    fun keySign(slot: ByteArray, message: ByteArray): KagemushaWalletAndroidSignatureV1 = paymentKey.sign(slot, message)
 
     /** Delete the payment key of [slot]; the Rust provider calls this only at custody deletion. */
     fun keyDelete(slot: ByteArray): KagemushaWalletAndroidRemoveV1 = paymentKey.delete(slot)

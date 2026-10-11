@@ -86,73 +86,7 @@ fn corrupt_root_transition(statement: &mut PrivacyStatementV1, corruption: RootC
     }
 }
 fn protocol_limits(protocol: PrivacyProtocolIdV1) -> PrivacyProtocolActivationLimitsV1 {
-    match protocol {
-        PrivacyProtocolIdV1::ZkAcePqAuthorizationV1 => {
-            PrivacyProtocolActivationLimitsV1::ZkAcePqAuthorizationV1
-        }
-        PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1 => {
-            PrivacyProtocolActivationLimitsV1::AnonymousPgcKOutOfNV1(
-                AnonymousPgcActivationLimitsV1 {
-                    max_anonymity_set_size: ANONYMOUS_PGC_MAX_ANONYMITY_SET_SIZE_V1,
-                    max_recipient_count: ANONYMOUS_PGC_MAX_RECIPIENTS_V1,
-                },
-            )
-        }
-        PrivacyProtocolIdV1::VeRangeTransparentRangeV1 => {
-            PrivacyProtocolActivationLimitsV1::VeRangeTransparentRangeV1(
-                VeRangeActivationLimitsV1 {
-                    max_aggregation_count: VERANGE_TAIRA_MAX_AGGREGATION_COUNT_V1,
-                },
-            )
-        }
-        PrivacyProtocolIdV1::IrohaZkAmsV1 => {
-            PrivacyProtocolActivationLimitsV1::IrohaZkAmsV1(ZkAmsActivationLimitsV1 {
-                max_batch_size: ZK_AMS_MAX_BATCH_SIZE_V1,
-                max_ring_size: ZK_AMS_MAX_RING_SIZE_V1,
-            })
-        }
-        PrivacyProtocolIdV1::VegaExistingCredentialZkV1 => {
-            PrivacyProtocolActivationLimitsV1::VegaExistingCredentialZkV1
-        }
-        PrivacyProtocolIdV1::IrohaZkX509StarkP256V1 => {
-            PrivacyProtocolActivationLimitsV1::IrohaZkX509StarkP256V1
-        }
-        PrivacyProtocolIdV1::IrohaJindoPolynomialCommitmentV1 => {
-            PrivacyProtocolActivationLimitsV1::IrohaJindoPolynomialCommitmentV1(
-                JindoActivationLimitsV1 {
-                    max_polynomial_count: IROHA_JINDO_MAX_POLYNOMIALS_V1,
-                },
-            )
-        }
-        PrivacyProtocolIdV1::IrohaBootleLanternAnoncredV1 => {
-            PrivacyProtocolActivationLimitsV1::IrohaBootleLanternAnoncredV1
-        }
-        PrivacyProtocolIdV1::OrchardHalo2ActionsV1 => {
-            PrivacyProtocolActivationLimitsV1::OrchardHalo2ActionsV1(OrchardActivationLimitsV1 {
-                max_action_count: ORCHARD_MAX_ACTIONS_V1,
-            })
-        }
-        PrivacyProtocolIdV1::MoneroFcmpPlusPlusV1 => {
-            PrivacyProtocolActivationLimitsV1::MoneroFcmpPlusPlusV1(FcmpActivationLimitsV1 {
-                max_input_count: FCMP_MAX_INPUTS_V1,
-                max_output_count: FCMP_MAX_OUTPUTS_V1,
-            })
-        }
-        PrivacyProtocolIdV1::IrohaIvmPrivateNoteStarkV1 => {
-            PrivacyProtocolActivationLimitsV1::IrohaIvmPrivateNoteStarkV1(
-                IvmPrivateNoteActivationLimitsV1 {
-                    max_input_count: IVM_PRIVATE_NOTE_MAX_INPUTS_V1,
-                    max_output_count: IVM_PRIVATE_NOTE_MAX_OUTPUTS_V1,
-                },
-            )
-        }
-        PrivacyProtocolIdV1::PqMaspStarkV1 => {
-            PrivacyProtocolActivationLimitsV1::PqMaspStarkV1(PqMaspActivationLimitsV1 {
-                max_input_count: PQ_MASP_MAX_INPUTS_V1,
-                max_output_count: PQ_MASP_MAX_OUTPUTS_V1,
-            })
-        }
-    }
+    super::exact12_fixture::sample_protocol_limits(protocol)
 }
 fn assert_stable_schema_wire<T>(value: &T, schema_name: &str, expected_schema_hash: [u8; 16])
 where
@@ -276,23 +210,7 @@ fn first_release_privacy_schema_names_and_old_headers_are_frozen() {
     );
 }
 fn activation(envelope: &PrivacyProofEnvelopeV1) -> PrivacyProtocolActivationRecordV1 {
-    PrivacyProtocolActivationRecordV1 {
-        protocol_id: envelope.protocol_id,
-        proof_system_id: envelope.proof_system_id,
-        engine_id: envelope.engine_id,
-        parameter_id: envelope.parameter_id,
-        parameter_digest: envelope.parameter_digest,
-        verifier_digest: envelope.verifier_digest,
-        statement_schema_digest: envelope.statement_schema_digest,
-        engine_manifest_digest: envelope.engine_manifest_digest,
-        lifecycle: PrivacyProtocolLifecycleV1::Active(PrivacyActiveLifecycleV1 {
-            proposed_at_height: 1,
-            activated_at_height: 2,
-            state_since_height: 2,
-        }),
-        protocol_limits: protocol_limits(envelope.protocol_id),
-        pending_protocol_limits_tightening: None,
-    }
+    super::exact12_fixture::sample_activation(envelope)
 }
 fn compiled_profile_snapshot(
     activation: &PrivacyProtocolActivationRecordV1,

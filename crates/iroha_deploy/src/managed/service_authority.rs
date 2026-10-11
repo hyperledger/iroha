@@ -6,24 +6,28 @@ use super::{
 };
 use crate::{
     localnet::service_authorities::{
-        NetworkServiceAuthorityRole, ProviderServiceInventory, RetainedProviderServicePlan,
-        StreamTokenAuthorityManifest, StreamTokenAuthorityRole,
+        NetworkServiceAuthorityRole, ProviderServiceInventory, RetainedGatewayCompliancePlan,
+        RetainedProviderServicePlan, RetainedServiceProfile, StreamTokenAuthorityManifest,
+        StreamTokenAuthorityRole, capture_retained,
     },
     verify::finality::{FinalityVerifier, GenesisAnchor},
 };
 use iroha::{client::Client, config::Config};
+#[cfg(test)]
+use iroha_data_model::NetworkId;
 use iroha_data_model::{
-    NetworkId,
     account::{AccountId, address::ChainDiscriminantGuard},
     sorafs::{
         capacity::ProviderId,
         reserve::{ReserveAuthorityPolicyV1, account_proof::VerifiedReserveAccountStateV1},
     },
-    sumeragi_finality::{FinalityValidator, genesis_epoch},
 };
 use iroha_fs::PrivateDirectory;
 use iroha_model_base::peer::PeerId;
-use std::{collections::BTreeSet, fs::File, time::Instant};
+use std::{fs::File, time::Instant};
+
+#[path = "service_authority/checkpoint_cache.rs"]
+mod checkpoint_cache;
 
 #[path = "service_authority/inventory.rs"]
 mod inventory;
@@ -87,6 +91,8 @@ enum Scope {
 
 pub(super) struct ServiceAuthority {
     scope: Scope,
+    profile: RetainedServiceProfile,
+    checkpoint_cache: checkpoint_cache::CheckpointCache,
     pub(super) prepared: PreparedLocalnet,
     pub(super) directory: PrivateDirectory,
     pub(super) _lock: File,
@@ -97,7 +103,7 @@ pub(super) struct ServiceAuthority {
 }
 
 fn operation_directory(
-    generation: &PrivateDirectory,
+    runtime: &PrivateDirectory,
     scope: Scope,
     purpose: &str,
     create: bool,
@@ -115,10 +121,7 @@ fn operation_directory(
             Err(error) => Err(error.into()),
         }
     };
-    let Some(runtime) = child(generation, "runtime")? else {
-        return Ok(None);
-    };
-    let Some(operations) = child(&runtime, "service-operations")? else {
+    let Some(operations) = child(runtime, "service-operations")? else {
         return Ok(None);
     };
     let selected = match scope {
@@ -177,9 +180,10 @@ impl ServiceAuthority {
     ) -> Result<Option<Self>> {
         #[cfg(test)]
         inventory::record_authority_open();
-        let manifest = prepared.stream_token_authorities()?.ok_or_else(|| {
+        let captured = capture_retained(prepared)?.ok_or_else(|| {
             invalid("managed native operation requires its original StreamTokenAuthorities profile")
         })?;
+        let manifest = captured.retained.manifest().clone();
         // Resolve the original provider before any operation directory or lock is created.
         let scope = match provider {
             Some(provider) => Scope::Provider {
@@ -188,69 +192,10 @@ impl ServiceAuthority {
             },
             None => Scope::Network,
         };
-        let config = prepared.context.load_client_config()?;
+        let config = captured.config;
         let _profile = ChainDiscriminantGuard::enter(config.account_chain_discriminant);
-        let path = prepared
-            .context
-            .client_config
-            .parent()
-            .ok_or_else(|| invalid("managed native operation has no generation"))?;
-        let generation = PrivateDirectory::open_exact(path)?;
-        let bytes = generation.read(
-            "genesis.signed.nrt",
-            iroha_genesis::SIGNED_GENESIS_MAX_BYTES_V1,
-        )?;
-        let genesis = iroha_data_model::block::decode_framed_signed_block(&bytes)
-            .map_err(|_| invalid("invalid original signed service genesis"))?;
-        let epoch = genesis_epoch(&genesis)
-            .map_err(|_| invalid("cannot authenticate original service genesis"))?;
-        if epoch.network_id != config.network_id
-            || NetworkId::from_genesis_hash(genesis.hash()) != manifest.network_id
-            || prepared.context.dataspace_id != 0
-            || manifest.manager != config.account
-        {
-            return Err(invalid("original service network or manager differs"));
-        }
-        let validators = epoch
-            .committee
-            .iter()
-            .map(|member| FinalityValidator {
-                public_key: member.validator.public_key().clone(),
-                proof_of_possession: member.proof_of_possession.clone(),
-            })
-            .collect();
-        let expected: BTreeSet<_> = epoch
-            .committee
-            .iter()
-            .map(|member| member.validator.clone())
-            .collect();
-        let mut peers = Vec::new();
-        for peer in &prepared.peers {
-            let bytes = iroha_fs::read_private(&peer.config_path, 1024 * 1024)?;
-            let rendered = std::str::from_utf8(&bytes)
-                .map_err(|_| invalid("invalid retained service peer configuration"))?;
-            let table = crate::secret_toml::parse_table(rendered, "managed native operation peer")
-                .map_err(|_| invalid("invalid retained service peer configuration"))?;
-            let reader = iroha_config::node_config::open_node_config(
-                iroha_config::node_config::NodeFile::Verified {
-                    path: peer.config_path.clone(),
-                    table,
-                },
-                iroha_config::node_config::NodeConfigOptions::default(),
-            )
-            .map_err(|_| invalid("cannot resolve retained service peer"))?;
-            let (user, _) = reader
-                .read()
-                .map_err(|_| invalid("cannot read retained service peer"))?;
-            let actual = user
-                .parse()
-                .map_err(|_| invalid("invalid retained service peer"))?;
-            let id = PeerId::new(actual.common.key_pair.public_key().clone());
-            if actual.genesis.expected_hash != genesis.hash() || !expected.contains(&id) {
-                return Err(invalid(
-                    "service peer differs from original genesis committee",
-                ));
-            }
+        let mut peers = Vec::with_capacity(4);
+        for (peer, id) in prepared.peers.iter().zip(captured.peer_ids) {
             let mut selected = config.clone();
             selected.torii_api_url = peer
                 .torii_url
@@ -261,18 +206,9 @@ impl ServiceAuthority {
                 .map_err(|_| invalid("cannot construct service peer client"))?;
             peers.push((id, client));
         }
-        if peers.len() != expected.len()
-            || peers
-                .iter()
-                .map(|(peer, _)| peer.clone())
-                .collect::<BTreeSet<_>>()
-                != expected
-        {
-            return Err(invalid(
-                "service endpoints do not cover the exact original committee",
-            ));
-        }
-        let Some(directory) = operation_directory(&generation, scope, purpose, create)? else {
+        let Some(directory) =
+            operation_directory(captured.retained.runtime(), scope, purpose, create)?
+        else {
             return Ok(None);
         };
         let lock = if create {
@@ -291,19 +227,17 @@ impl ServiceAuthority {
         lock.try_lock()
             .map_err(|_| invalid("another managed native operation holds this generation"))?;
         directory.revalidate()?;
+        captured.retained.revalidate(prepared, &manifest)?;
         Ok(Some(Self {
             scope,
+            profile: captured.retained,
+            checkpoint_cache: checkpoint_cache::CheckpointCache::default(),
             prepared: prepared.clone(),
             directory,
             _lock: lock,
             manifest,
-            config: config.clone(),
-            genesis: GenesisAnchor {
-                network_id: config.network_id,
-                chain_id: config.chain.to_string(),
-                genesis,
-                validators,
-            },
+            config,
+            genesis: captured.genesis,
             peers,
         }))
     }
@@ -341,11 +275,45 @@ impl ServiceAuthority {
         Ok(&self.manifest.network.authority(role)?.account)
     }
 
-    pub(super) fn provider_plan(&self) -> Result<RetainedProviderServicePlan> {
-        self.prepared
-            .provider_service_plan(self.provider_id()?)?
-            .ok_or_else(|| invalid("selected service provider plan is absent"))
+    /// Borrow the complete original network selection after rechecking every captured input.
+    /// This conveys neither a current provider permission nor a live service eligibility claim.
+    pub(super) fn provider_plans(&self) -> Result<&[RetainedProviderServicePlan; 3]> {
+        self.validate_profile()?;
+        if matches!(self.scope, Scope::Provider { .. }) {
+            return Err(invalid("provider service cannot select all network plans"));
+        }
+        Ok(self.profile.original_plans())
     }
+
+    /// Project original compliance intent within this operation's authenticated provider scope.
+    pub(super) fn gateway_compliance_plan(
+        &self,
+        provider: ProviderId,
+    ) -> Result<RetainedGatewayCompliancePlan> {
+        self.validate_profile()?;
+        self.provider_inventory(provider)?;
+        self.profile.original_compliance_plan(provider)
+    }
+
+    /// Project singleton publication intent from the original parsed client and manifest.
+    /// The network operation retains full-image custody; this grants no current eligibility.
+    pub(super) fn publication_plan(
+        &self,
+    ) -> Result<crate::localnet::service_authorities::RetainedPublicationServicePlan> {
+        self.validate_profile()?;
+        if matches!(self.scope, Scope::Provider { .. }) {
+            return Err(invalid(
+                "provider service cannot select network publication intent",
+            ));
+        }
+        self.profile.original_publication_plan()
+    }
+
+    pub(super) fn provider_plan(&self) -> Result<RetainedProviderServicePlan> {
+        self.validate_profile()?;
+        self.profile.original_plan(self.provider_id()?)
+    }
+
     /// Select only the original generated issuer operator after authenticating the whole profile.
     /// The manager and independently selected finality peers stay unchanged. This is a local
     /// signing configuration, not evidence of current native permission, registration or funds.
@@ -392,15 +360,16 @@ impl ServiceAuthority {
     }
 
     pub(super) fn validate_profile(&self) -> Result<()> {
+        #[cfg(test)]
+        let _timing = crate::custody_timing::Span::enter(crate::custody_timing::Category::Profile);
         self.validate_operation_custody()?;
-        if self.prepared.stream_token_authorities()?.as_ref() != Some(&self.manifest) {
-            return Err(invalid("original service authority profile changed"));
-        }
+        self.profile.revalidate(&self.prepared, &self.manifest)?;
         if let Scope::Provider { provider, slot } = self.scope
             && self.manifest.provider(provider)?.slot != slot
         {
             return Err(invalid("original provider operation scope changed"));
         }
+        self.validate_operation_custody()?;
         Ok(())
     }
 }
@@ -447,3 +416,7 @@ impl ServiceAuthority {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "service_authority/capture_tests.rs"]
+mod capture_tests;

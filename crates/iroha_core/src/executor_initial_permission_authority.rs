@@ -47,22 +47,6 @@ fn validate_initial_permission_payload_constraints(
         }};
     }
     match permission.name().as_ref() {
-        "CanAuthorizeKagemushaOrdinaryMint" => {
-            let token =
-                executor_permission::kagemusha::CanAuthorizeKagemushaOrdinaryMint::try_from(
-                    permission,
-                )
-                .map_err(|error| invalid_initial_permission_payload(permission, error))?;
-            token
-                .validate_scope()
-                .map_err(|error| invalid_initial_permission_payload(permission, error))?;
-            if Permission::from(token) != *permission {
-                return Err(invalid_initial_permission_payload(
-                    permission,
-                    "ordinary Mint permission requires the complete exact issuer policy and release",
-                ));
-            }
-        }
         "CanManageSmartContractCode"
         | "CanGrantSmartContractCodeManagement"
         | "CanManageSoracloud"
@@ -507,22 +491,6 @@ fn initial_permission_capability_root_authority(
                 &token.asset_definition,
             )?
         }
-        "CanAuthorizeKagemushaOrdinaryMint" => {
-            let token = decode!(executor_permission::kagemusha::CanAuthorizeKagemushaOrdinaryMint);
-            let runtime = &token.issuer_policy.runtime;
-            runtime.network_id == *state_transaction.network_id()
-                && state_transaction
-                    .world
-                    .axt_asset_incarnations
-                    .get(&runtime.asset)
-                    .copied()
-                    == Some(runtime.asset_incarnation)
-                && authority_owns_asset_definition(
-                    &state_transaction.world,
-                    authority,
-                    &runtime.asset,
-                )?
-        }
         "CanMintAssetWithDefinition" => {
             let token = decode!(executor_permission::asset::CanMintAssetWithDefinition);
             authority_owns_asset_definition(
@@ -842,7 +810,6 @@ fn initial_permission_delegation_allowed(
             permission.name().as_ref(),
             "CanManageSmartContractCode"
                 | "CanReadAccountData"
-                | "CanAuthorizeKagemushaOrdinaryMint"
                 | "CanResolveAccountAlias"
                 | "CanIssueSoranetVpnQuote"
                 | "CanExecuteSettlement"
@@ -1409,13 +1376,6 @@ fn initial_native_instruction_is_explicitly_admitted(instruction: &InstructionBo
         iroha_data_model::isi::smart_contract_code::CancelSmartContractCodeUpload,
         iroha_data_model::isi::smart_contract_code::RemoveSmartContractBytes,
         iroha_data_model::isi::contract_alias::SetContractAlias,
-    ) {
-        return true;
-    }
-    // Kagemusha V1 execution is guarded by exact native checks in Core.
-    if is_any!(
-        iroha_data_model::isi::kagemusha_v1::TopUpKagemushaV1,
-        iroha_data_model::isi::kagemusha_v1::RedeemKagemushaV1,
     ) {
         return true;
     }
@@ -2796,8 +2756,6 @@ const INITIAL_EXECUTOR_PERMISSION_NAMES: &[&str] = &[
     "CanManageConsensusKeys",
     "CanManageConfidentialParams",
     "CanProposeSccpRouteGovernance",
-    "CanManageKagemushaReserve",
-    "CanAuthorizeKagemushaOrdinaryMint",
     "CanManageRoles",
     "CanUpgradeExecutor",
     "CanManageSmartContractCode",

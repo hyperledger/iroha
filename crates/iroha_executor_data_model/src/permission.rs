@@ -608,55 +608,6 @@ pub mod escrow {
         pub struct CanResolveEscrowDispute;
     }
 }
-/// Permission tokens covering KAGEMUSHA settlement.
-pub mod kagemusha {
-    use super::*;
-    permission! {
-        /// Permission to manage native KAGEMUSHA reserve issuance and settlement.
-        #[derive(Copy)]
-        pub struct CanManageKagemushaReserve;
-    }
-    permission! {
-        /// Explicit ordinary pre-debit Mint issuer purpose for one complete FI policy and release.
-        /// The exact token must be granted by the live asset-definition owner. An enrollment
-        /// certificate, decoded policy, generic reserve token or token holder cannot create it.
-        pub struct CanAuthorizeKagemushaOrdinaryMint {
-            /// Complete original policy, including exact issuer key, FI/routing/asset incarnation
-            /// and immutable authorization window. Current World grant is its independent root.
-            pub issuer_policy: iroha_data_model::kagemusha::KagemushaRetailEnrollmentIssuerPolicyV1,
-            /// Exact authenticated ordinary proof release allowed for this separate Mint purpose.
-            pub release_id: [u8; 32],
-            /// Full independently owner-granted app identity governance roots. Offered C policy
-            /// or a Core debit decision cannot choose another authority set or public key.
-            pub app_identity_authority: iroha_data_model::kagemusha::KagemushaOrdinaryAppIdentityAuthorityPolicyV1,
-            /// SHA256 of the complete independently owner-selected Native clock selection original,
-            /// including exact checkpoint, four nodes/build/config and finite software-clock policy.
-            pub clock_selection_original_sha256: [u8; 32],
-            /// Exact exclusive DATA authority independently selected in current asset World.
-            pub lineage_data_authority: iroha_data_model::kagemusha::KagemushaOrdinaryLineageDataAuthorityV1,
-        }
-    }
-    impl CanAuthorizeKagemushaOrdinaryMint {
-        /// Validate exact token data; this does not supply World permission or proof authority.
-        /// # Errors
-        /// Refuses invalid FI policy, unsupported issuer algorithm or absent release selector.
-        pub fn validate_scope(&self) -> Result<(), String> {
-            self.issuer_policy
-                .validate()
-                .map_err(|error| error.to_string())?;
-            self.app_identity_authority.validate()?;
-            self.lineage_data_authority
-                .validate_for_runtime(&self.issuer_policy.runtime)?;
-            if self.release_id == [0; 32]
-                || self.clock_selection_original_sha256 == [0; 32]
-                || self.app_identity_authority.network_id != self.issuer_policy.runtime.network_id
-            {
-                return Err("ordinary Mint permission release/source roots differ".into());
-            }
-            Ok(())
-        }
-    }
-}
 /// Permission tokens covering NFT operations.
 pub mod nft {
     use super::*;

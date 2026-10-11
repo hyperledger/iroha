@@ -23,6 +23,15 @@ final class PosManifestTests: XCTestCase {
     XCTAssertEqual(manifest.backendRoots.count, 2)
   }
 
+  func testSharedFixtureActivatesEveryRequiredTrustRoot() throws {
+    // The required roles and the shared signed fixture must change together.
+    let manifest = try PosManifestLoader.parse(data: try manifestData())
+    let inWindow = Date(timeIntervalSince1970: TimeInterval(manifest.validFromMs) / 1000.0)
+    let status = PosManifestStatus.from(manifest: manifest, now: inWindow)
+    XCTAssertTrue(status.dualStatusHealthy, status.dualStatusLabel)
+    XCTAssertTrue(status.backendRoots.allSatisfy(\.active))
+  }
+
   func testTamperedSignatureFails() throws {
     let envelope = try fixtureEnvelope()
     var signature = envelope["operator_signature"]!

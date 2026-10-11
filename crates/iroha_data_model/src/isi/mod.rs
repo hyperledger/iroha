@@ -801,10 +801,7 @@ impl<W: std::io::Write + ?Sized> std::io::Write for ExactInstructionFrameWriter<
 pub fn instruction_wire_id(instr: &InstructionBox) -> Option<&'static str> {
     let inner = &**instr;
     let type_name = Instruction::id(inner);
-    let registry = instruction_registry();
-    registry
-        .entry_for_type_name(type_name)
-        .map(|entry| entry.wire_id)
+    instruction_encoding_entry(type_name).map(|entry| entry.wire_id)
 }
 /// Encode one registered instruction into its stable wire id and exact Norito frame.
 ///
@@ -837,20 +834,14 @@ fn encoded_instruction_pair_payload(instr: &InstructionBox) -> Option<(&'static 
 fn encoded_instruction_pair_len(instr: &InstructionBox) -> Option<usize> {
     let inner = &**instr;
     let type_name = Instruction::id(inner);
-    let entry = {
-        let registry = instruction_registry();
-        registry.entry_for_type_name(type_name)?
-    };
+    let entry = instruction_encoding_entry(type_name)?;
     let framed_payload_len = inner.dyn_frame_len().ok()?;
     encoded_instruction_tuple_len(entry.wire_id, framed_payload_len)
 }
 fn encoded_instruction_pair_hint(instr: &InstructionBox) -> Option<usize> {
     let inner = &**instr;
     let type_name = Instruction::id(inner);
-    let entry = {
-        let registry = instruction_registry();
-        registry.entry_for_type_name(type_name)?
-    };
+    let entry = instruction_encoding_entry(type_name)?;
     let payload_len = {
         let _guard = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
         Instruction::dyn_encode_capacity_hint(inner)?
@@ -887,13 +878,10 @@ impl norito::core::SerializePayload for InstructionBox {
     fn serialize(&self, writer: &mut norito::core::Encoder<'_>) -> Result<(), norito::core::Error> {
         let inner = &**self;
         let type_name = Instruction::id(inner);
-        let entry = {
-            let registry = instruction_registry();
-            registry.entry_for_type_name(type_name)
-        }
-        .ok_or_else(|| {
-            norito::core::Error::Message("failed to encode instruction payload".to_owned())
-        })?;
+        let entry =
+            instruction_encoding_entry(type_name).ok_or(norito::core::Error::InvalidValue {
+                context: "unregistered instruction",
+            })?;
         inner.dyn_write_pair(writer, entry.wire_id)
     }
     fn encoded_len_hint(&self) -> Option<usize> {
@@ -1379,6 +1367,21 @@ pub struct InstructionRegistry {
     /// Decoding-side lookup keyed only by the canonical wire identifier.
     wire_entries: HashMap<&'static str, RegistryEntry>,
 }
+/// Borrowed wire identity and frame geometry; constructing this record owns no registry.
+#[derive(Clone, Copy)]
+struct InstructionEncodingEntry {
+    wire_id: &'static str,
+    frame_len: fn(usize) -> Option<usize>,
+}
+impl From<RegistryEntry> for InstructionEncodingEntry {
+    fn from(entry: RegistryEntry) -> Self {
+        Self {
+            wire_id: entry.wire_id,
+            frame_len: entry.frame_len,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct RegistryEntry {
     type_name: &'static str,
@@ -1650,6 +1653,9 @@ thread_local! {
         const { RefCell::new(None) };
 }
 /// Set global [`InstructionRegistry`] used for deserializing [`crate::isi::InstructionBox`].
+///
+/// The supplied registry replaces an earlier registry even when decoder initialization races
+/// with this call. Test builds retain their independent thread-local override.
 pub fn set_instruction_registry(registry: InstructionRegistry) {
     let registry = Arc::new(registry);
     #[cfg(test)]
@@ -1659,14 +1665,7 @@ pub fn set_instruction_registry(registry: InstructionRegistry) {
         });
     }
     #[cfg(not(test))]
-    if let Some(lock) = INSTRUCTION_REGISTRY.get() {
-        let mut guard = lock
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *guard = registry;
-    } else {
-        let _ = INSTRUCTION_REGISTRY.set(RwLock::new(registry));
-    }
+    registry_install::install(&INSTRUCTION_REGISTRY, registry);
 }
 enum InstructionRegistryReadGuard {
     Global(std::sync::RwLockReadGuard<'static, Arc<InstructionRegistry>>),
@@ -1686,6 +1685,30 @@ impl std::ops::Deref for InstructionRegistryReadGuard {
         }
     }
 }
+// Installed registries are authoritative, including an intentionally missing entry.
+// Only an uninstalled cold registry uses the sole static built-in inventory.
+fn instruction_encoding_entry(type_name: &'static str) -> Option<InstructionEncodingEntry> {
+    #[cfg(test)]
+    if let Some(local) = INSTRUCTION_REGISTRY_OVERRIDE.with(|cell| {
+        cell.borrow().as_ref().map(|registry| {
+            registry
+                .entry_for_type_name(type_name)
+                .map(InstructionEncodingEntry::from)
+        })
+    }) {
+        return local;
+    }
+    if let Some(lock) = INSTRUCTION_REGISTRY.get() {
+        let registry = lock
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        return registry
+            .entry_for_type_name(type_name)
+            .map(InstructionEncodingEntry::from);
+    }
+    registry::default_encoding_entry(type_name)
+}
+
 fn instruction_registry() -> InstructionRegistryReadGuard {
     #[cfg(test)]
     if let Some(local) = INSTRUCTION_REGISTRY_OVERRIDE.with(|cell| cell.borrow().clone()) {
@@ -1884,6 +1907,7 @@ pub mod ram_lfe;
 pub mod register;
 /// Instruction registries shared across instruction families.
 pub mod registry;
+mod registry_install;
 /// Repo settlement instructions.
 pub mod repo;
 pub mod retail_daily_limit;

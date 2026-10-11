@@ -15,21 +15,29 @@ What this tool does:
     crates/iroha_crypto/src/ram_lfe/class.rs, the costing harness, the error
     parameter, the basis limit), and the pinned primes of the Rust candidates
     equal the first-prime rule;
-  - every number is classified `measured`, `projection` or `parameter`;
+  - every number is classified `measured`, `projection`, `parameter` or
+    `estimator`;
   - what each measured run reported (geometry, sizes, operation counts, public
     noise bounds, work per opcode) equals this model;
   - every projection is recomputed from the parameters and the measured values
     the file itself carries;
+  - the tracked Lattice Estimator record
+    (specs/fhe_bgv_lattice_estimator_output.txt) was printed by the code
+    scripts/fhe_bgv_lattice_estimator.sage now holds, at the commit it pins,
+    for exactly the moduli, dimensions and distributions of this model, with
+    a passing self-check; and `security_estimate` of the summary is the
+    restatement of that record;
   - the tables the specifications embed and the view that a Rust test reads
     (crates/iroha_fhe/tests/vectors/bgv_cost_model_v1.txt) are the renderings
     of the summary.
-  It needs no measurement log.
+  It needs no measurement log, and neither SageMath nor the estimator.
 * `--build RUN_DIR [RUN_DIR ...]` reads accepted run directories of
   scripts/zk_resource_harness.py (under the ignored dist/zk-resource-harness/)
   and prints the summary; with `--write` it replaces the tracked file, the
   view and the embedded tables.
 * `--rederive` recomputes every derived block from the measured runs the
-  tracked summary already holds, for a changed model without new runs.
+  tracked summary already holds and from the tracked estimator record, for a
+  changed model or a new estimator run without new measurements.
 * `--plan` prints the noise plans, the tape plans and the security sanity numbers.
 * `--tables` prints the embedded tables.
 
@@ -57,19 +65,25 @@ Classification:
   scaling a measured time with model units, or by the core-SVP sanity formula.
 * `parameter`: an exact input that defines a profile or a workload shape, or
   an illustrative setting of a projection that nobody has selected.
+* `estimator`: copied from a line of the tracked output record of
+  scripts/fhe_bgv_lattice_estimator.sage, or a minimum, a count or a
+  difference of such values. This script never runs the estimator.
 
-Nothing here establishes security. The core-SVP numbers are a sanity
-calculation (primal uSVP under the geometric series assumption, one cost
-exponent per model). They are not a run of the Lattice Estimator, cover no
-dual, hybrid or algebraic attack, and qualify no profile.
-scripts/fhe_bgv_lattice_estimator.sage pins the estimator invocation that has
-to be run; its status is recorded in the summary as `not_run`. The flooding
-and proof-work figures are projections of constructions that do not exist.
+Nothing here establishes security or qualifies a profile. The estimator
+numbers are the output of one tool for plain LWE under its heuristics; what
+they do not cover is listed in the summary
+(`security_estimate.lattice_estimator.not_covered`). The core-SVP numbers are
+this script's own sanity calculation (primal uSVP under the geometric series
+assumption, one cost exponent per model) and are kept beside the estimator's
+for comparison. An attack the record has no cost for is reported with the
+reason, never as a cost. The flooding and proof-work figures are projections
+of constructions that do not exist.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -88,9 +102,10 @@ HARNESS_SOURCE = "crates/iroha_fhe/tests/support/machine.rs"
 COINS_SOURCE = "crates/iroha_fhe/src/bgv/coins.rs"
 CHAIN_SOURCE = "crates/iroha_fhe/src/rns_chain.rs"
 ESTIMATOR_SCRIPT = "scripts/fhe_bgv_lattice_estimator.sage"
+ESTIMATOR_OUTPUT = "specs/fhe_bgv_lattice_estimator_output.txt"
 SCHEMA = "iroha.fhe.bgv_cost_summary.v2"
 ERROR_ETA = 21
-CLASSES = ("measured", "projection", "parameter")
+CLASSES = ("measured", "projection", "parameter", "estimator")
 
 # RAM-LFE V1 shape. crates/iroha_crypto/src/ram_lfe/class.rs is authoritative; `--check`
 # compares every value below with that file and with the costing harness.
@@ -1168,6 +1183,474 @@ def projection(value, unit: str, **extra) -> dict:
     return number(value, unit, "projection", **extra)
 
 
+# ---------------------------------------------------------------------------
+# Lattice Estimator record (scripts/fhe_bgv_lattice_estimator.sage)
+# ---------------------------------------------------------------------------
+
+ESTIMATOR_MODELS = ("BDGL16", "ADPS16", "ADPS16-quantum")
+ESTIMATOR_CLASSICAL_MODELS = ("BDGL16", "ADPS16")
+ESTIMATOR_MODEL_FREE = "none"
+ESTIMATOR_INSTANCES = ("Q:n", "QP:n", "QP:oo")
+ESTIMATOR_LATTICE_ATTACKS = ("usvp", "bdd", "bdd_hybrid", "bdd_mitm_hybrid", "dual", "dual_hybrid")
+ESTIMATOR_MODEL_FREE_ATTACKS = ("arora-gb", "bkw")
+ESTIMATOR_ATTACK_NAMES = {
+    "usvp": "primal uSVP",
+    "bdd": "primal BDD",
+    "bdd_hybrid": "primal hybrid",
+    "bdd_mitm_hybrid": "primal hybrid with meet in the middle",
+    "dual": "dual",
+    "dual_hybrid": "dual hybrid",
+    "arora-gb": "Arora-GB with guessing",
+    "bkw": "coded BKW",
+}
+# The design target of task C.3: classical bits under the reduction cost model its design memo names.
+DESIGN_TARGET_BITS = 128
+DESIGN_TARGET_MODEL = "BDGL16"
+_PROPOSAL_NAME = re.compile(r"^bgv\.derive\.n(\d+)\.t(\d+)\.q(\d+)x(\d+)\.p(\d+)x(\d+)$")
+
+
+def estimated_profiles() -> dict:
+    """Name -> (shape, role) of every profile the estimator record has to cover."""
+    out = {name: (shape, f"candidate for {CANDIDATE_CLASS[name]}") for name, shape in CANDIDATES.items()}
+    for config, (name, shape) in MEASURED_CONFIGS.items():
+        slots = profile(name, shape).slots()
+        kind = "batching comparator" if slots == 1 << shape[0] else "timing configuration"
+        out.setdefault(name, (shape, f"measured {kind}; not a candidate"))
+    return out
+
+
+def proposal_shape(name: str) -> Optional[tuple]:
+    """The shape a name of the estimator's `--shape` option states, or None."""
+    match = _PROPOSAL_NAME.match(name)
+    if match is None:
+        return None
+    log_degree, t, main_count, main_bits, special_count, special_bits = (int(item) for item in match.groups())
+    return (log_degree, t, (main_bits, main_count), (special_bits, special_count), 2)
+
+
+def estimator_script_facts(root: Path) -> dict:
+    """The pinned commit of the estimator script and the hash of its code (the file below its header)."""
+    text = (root / ESTIMATOR_SCRIPT).read_text()
+    commit = re.search(r'^ESTIMATOR_COMMIT = "([0-9a-f]{40})"$', text, re.M)
+    lines = text.splitlines(keepends=True)
+    start = next((index for index, line in enumerate(lines) if not line.startswith("#")), len(lines))
+    return {
+        "commit": commit.group(1) if commit else None,
+        "code_sha256": hashlib.sha256("".join(lines[start:]).encode()).hexdigest(),
+    }
+
+
+def read_estimator_record(text: str) -> dict:
+    """The JSON lines of an estimator output record, by kind, in file order.
+
+    `invocations` pairs each RUN line with the END line that follows it, or
+    with None when the invocation was cut off before it printed one.
+    """
+    record: dict = {"RUN": [], "INSTANCE": [], "RESULT": [], "SELFCHECK": [], "END": [], "invocations": []}
+    for line in text.splitlines():
+        kind, _, body = line.partition(" ")
+        if kind not in ("RUN", "INSTANCE", "RESULT", "SELFCHECK", "END"):
+            continue
+        item = json.loads(body)
+        record[kind].append(item)
+        if kind == "RUN":
+            record["invocations"].append([item, None])
+        elif kind == "END" and record["invocations"] and record["invocations"][-1][1] is None:
+            record["invocations"][-1][1] = item
+    return record
+
+
+def estimator_results(record: dict) -> dict:
+    """(profile, instance, model, attack) -> the RESULT to report: the last finished one, else the last."""
+    chosen: dict = {}
+    for result in record["RESULT"]:
+        key = (result["profile"], result["instance"], result["model"], result["attack"])
+        if result["status"] == "ok" or chosen.get(key, {}).get("status") != "ok":
+            chosen[key] = result
+    return chosen
+
+
+def estimator_record_problems(root: Path) -> list:
+    """Defects of the tracked estimator record against the script that produced it and against this model."""
+    path = root / ESTIMATOR_OUTPUT
+    if not path.is_file():
+        return [f"{ESTIMATOR_OUTPUT} is missing"]
+    try:
+        record = read_estimator_record(path.read_text())
+    except ValueError as error:
+        return [f"{ESTIMATOR_OUTPUT}: {error}"]
+    problems = []
+    facts = estimator_script_facts(root)
+    if not record["RUN"]:
+        problems.append(f"{ESTIMATOR_OUTPUT}: no RUN line")
+    if len(record["END"]) != len(record["RUN"]) or any(end is None for _run, end in record["invocations"]):
+        problems.append(f"{ESTIMATOR_OUTPUT}: an invocation has no END line")
+    for run in record["RUN"]:
+        if facts["commit"] is None or run.get("estimator_commit") != facts["commit"]:
+            problems.append(f"{ESTIMATOR_OUTPUT}: a run did not use the commit {ESTIMATOR_SCRIPT} pins")
+        if run.get("script_code_sha256") != facts["code_sha256"]:
+            problems.append(f"{ESTIMATOR_OUTPUT}: a run was produced by other code than {ESTIMATOR_SCRIPT} now holds")
+    checks = [check.get("equal_to_LWE_estimate") for check in record["SELFCHECK"]]
+    if not checks or not all(check is True for check in checks):
+        problems.append(f"{ESTIMATOR_OUTPUT}: no passing self-check against LWE.estimate")
+    profiles = estimated_profiles()
+    seen = set()
+    for instance in record["INSTANCE"]:
+        name = instance.get("profile")
+        label = f"{name}/{instance.get('instance')}"
+        shape = profiles[name][0] if instance.get("pinned") and name in profiles else None
+        if shape is None and not instance.get("pinned"):
+            shape = proposal_shape(str(name))
+        if shape is None or instance.get("instance") not in ESTIMATOR_INSTANCES:
+            problems.append(f"{ESTIMATOR_OUTPUT}: instance {label} is not one this model knows")
+            continue
+        p = profile(str(name), shape)
+        modulus = p.modulus(p.top) * (p.special_product if instance["modulus"] == "QP" else 1)
+        if instance.get("q") != str(modulus) or instance.get("n") != p.degree:
+            problems.append(f"{ESTIMATOR_OUTPUT}: the modulus or the dimension of {label} differs from this model")
+        if instance.get("error") != f"centered binomial, eta = {ERROR_ETA}":
+            problems.append(f"{ESTIMATOR_OUTPUT}: the error distribution of {label} differs from this model")
+        if instance.get("secret") != "uniform ternary on {-1, 0, 1}":
+            problems.append(f"{ESTIMATOR_OUTPUT}: the secret distribution of {label} differs from this model")
+        seen.add((name, instance["instance"]))
+    for name in profiles:
+        for instance in ESTIMATOR_INSTANCES:
+            if (name, instance) not in seen:
+                problems.append(f"{ESTIMATOR_OUTPUT}: no instance {name}/{instance}")
+    models = ESTIMATOR_MODELS + (ESTIMATOR_MODEL_FREE,)
+    attacks = ESTIMATOR_LATTICE_ATTACKS + ESTIMATOR_MODEL_FREE_ATTACKS
+    for result in record["RESULT"]:
+        key = (result.get("profile"), result.get("instance"))
+        if key not in seen or result.get("model") not in models or result.get("attack") not in attacks:
+            problems.append(f"{ESTIMATOR_OUTPUT}: a RESULT names an unknown instance, cost model or attack")
+        elif result.get("status") == "ok" and not (
+            result.get("log2_rop") == "oo" or isinstance(result.get("log2_rop"), (int, float))
+        ):
+            problems.append(f"{ESTIMATOR_OUTPUT}: a finished RESULT has no cost")
+    return problems
+
+
+def estimated(value, unit: str, **extra) -> dict:
+    return number(value, unit, "estimator", **extra)
+
+
+def _attack_entry(result: Optional[dict]) -> dict:
+    """One attack on one instance under one cost model, as the summary reports it."""
+    if result is None:
+        return {
+            "status": "not_attempted",
+            "reason": "the output record holds no RESULT line for this attack on this instance",
+        }
+    entry: dict = {"status": result["status"]}
+    if result["status"] == "ok":
+        infinite = result["log2_rop"] == "oo"
+        entry["log2_cost"] = "infinite" if infinite else estimated(result["log2_rop"], "bits")
+        for key, label in (("beta", "block_size"), ("d", "lattice_dimension"), ("zeta", "guessed_coordinates")):
+            if isinstance(result["cost"].get(key), int):
+                entry[label] = estimated(result["cost"][key], "count")
+    else:
+        # How long the attack ran before it was cut off; the record has the time of every attack.
+        entry["reason"] = result["message"]
+        entry["seconds"] = estimated(result["seconds"], "seconds")
+    return entry
+
+
+def _finite_cost(entry: dict) -> Optional[float]:
+    cost = entry.get("log2_cost")
+    return cost["value"] if isinstance(cost, dict) else None
+
+
+def _instance_block(results: dict, name: str, instance: str, p: Profile) -> dict:
+    modulus = p.modulus(p.top) * (p.special_product if instance.startswith("QP") else 1)
+    block: dict = {
+        "modulus_bits": projection(modulus.bit_length(), "bits"),
+        "samples": "n" if instance.endswith(":n") else "unlimited",
+        "models": {},
+        "attacks_without_a_cost_model": {
+            attack: _attack_entry(results.get((name, instance, ESTIMATOR_MODEL_FREE, attack)))
+            for attack in ESTIMATOR_MODEL_FREE_ATTACKS
+        },
+    }
+    for model in ESTIMATOR_MODELS:
+        attacks = {
+            attack: _attack_entry(results.get((name, instance, model, attack)))
+            for attack in ESTIMATOR_LATTICE_ATTACKS
+        }
+        finite = [(cost, attack) for attack, entry in attacks.items() if (cost := _finite_cost(entry)) is not None]
+        entry: dict = {"attacks": attacks}
+        if finite:
+            cost, attack = min(finite)
+            entry["minimum"] = {"attack": attack, "log2_cost": estimated(cost, "bits")}
+        entry["attacks_without_a_cost"] = [
+            f"{attack} ({item['status']})" for attack, item in attacks.items() if item["status"] != "ok"
+        ]
+        block["models"][model] = entry
+    return block
+
+
+def _verdict_block(instances: dict) -> dict:
+    """Per cost model: the cheapest finished attack over every instance, and the design target."""
+    out: dict = {}
+    for model in ESTIMATOR_MODELS:
+        finite = []
+        missing = []
+        for instance, block in instances.items():
+            attacks = dict(block["models"][model]["attacks"])
+            attacks.update(block["attacks_without_a_cost_model"])
+            for attack, entry in attacks.items():
+                cost = _finite_cost(entry)
+                if cost is not None:
+                    finite.append((cost, instance, attack))
+                elif entry["status"] != "ok":
+                    missing.append(f"{instance} {attack} ({entry['status']})")
+        verdict: dict = {"attacks_without_a_cost": missing}
+        if finite:
+            cost, instance, attack = min(finite)
+            verdict.update(
+                {
+                    "minimum_log2_cost": estimated(cost, "bits"),
+                    "minimum_instance": instance,
+                    "minimum_attack": attack,
+                }
+            )
+            if model in ESTIMATOR_CLASSICAL_MODELS:
+                verdict["meets_design_target_on_the_attacks_with_a_cost"] = cost >= DESIGN_TARGET_BITS
+                verdict["margin_bits"] = estimated(round(cost - DESIGN_TARGET_BITS, 4), "bits")
+        out[model] = verdict
+    return out
+
+
+def _sanity_comparison(p: Profile, instances: dict) -> dict:
+    """The core-SVP sanity numbers of this script beside the estimator's primal uSVP on Q*P with m = n."""
+    sanity = security_sanity(p)
+    out: dict = {"instance": "QP:n", "attack": "usvp"}
+    largest = 0.0
+    for label, model, key in (
+        ("core_svp_classical", "ADPS16", "core_svp_classical_bits"),
+        ("core_svp_quantum", "ADPS16-quantum", "core_svp_quantum_bits"),
+        ("bdgl16_style_classical", "BDGL16", "bdgl16_style_classical_bits"),
+    ):
+        entry = instances["QP:n"]["models"][model]["attacks"]["usvp"]
+        cost = _finite_cost(entry)
+        if cost is None:
+            continue
+        difference = round(cost - sanity[key]["value"], 4)
+        largest = max(largest, abs(difference))
+        out[label] = {
+            "sanity_bits": sanity[key],
+            "estimator_bits": estimated(cost, "bits"),
+            "estimator_minus_sanity_bits": estimated(difference, "bits"),
+        }
+        if model == "ADPS16" and "block_size" in entry:
+            out["block_size"] = {
+                "sanity": sanity["bkz_block_size"],
+                "estimator": entry["block_size"],
+            }
+    out["largest_difference_bits"] = estimated(round(largest, 4), "bits")
+    out["agrees_within_one_bit"] = largest <= 1.0
+    return out
+
+
+def _estimated_profile_block(results: dict, name: str, shape: tuple) -> dict:
+    p = profile(name, shape)
+    instances = {instance: _instance_block(results, name, instance, p) for instance in ESTIMATOR_INSTANCES}
+    keys = p.digit_count() * (1 + p.broadcast_steps())
+    return {
+        "lwe_dimension": number(p.degree, "count", "parameter"),
+        "published_samples": {
+            "public_key_modulo_Q": projection(p.degree, "count"),
+            "one_fresh_ciphertext_modulo_Q_under_its_own_mask": projection(2 * p.degree, "count"),
+            "relinearization_and_broadcast_galois_keys_modulo_QP": projection(keys * p.degree, "count"),
+        },
+        "instances": instances,
+        "verdict": _verdict_block(instances),
+        "core_svp_sanity_comparison": _sanity_comparison(p, instances),
+    }
+
+
+def _variation_of(shape: tuple) -> Optional[tuple]:
+    """(candidate, kind) when `shape` differs from a candidate in its chain length or its ring degree only.
+
+    A chain that lies between two candidates of one ring degree is a shorter
+    chain of the longer one.
+    """
+    chains = []
+    for name, candidate in CANDIDATES.items():
+        if shape[1:] == candidate[1:] and shape[0] != candidate[0]:
+            return name, "ring_degree"
+        same_but_count = (
+            shape[0] == candidate[0]
+            and shape[1] == candidate[1]
+            and shape[2][0] == candidate[2][0]
+            and shape[3:] == candidate[3:]
+        )
+        if same_but_count and shape[2][1] != candidate[2][1]:
+            chains.append((candidate[2][1], name))
+    longer = sorted(item for item in chains if item[0] > shape[2][1])
+    if longer:
+        return longer[0][1], "main_primes"
+    if chains:
+        return max(chains)[1], "main_primes"
+    return None
+
+
+def _proposals_block(results: dict, profiles: dict) -> dict:
+    """Shapes outside the pinned list that the record estimates, and what they say about each candidate."""
+    names = sorted({key[0] for key in results} - set(estimated_profiles()))
+    shapes = {}
+    for name in names:
+        shape = proposal_shape(name)
+        if shape is None:
+            continue
+        block = _estimated_profile_block(results, name, shape)
+        block["shape"] = {key: number(value, "count", "parameter") for key, value in profile(name, shape).shape().items()}
+        variation = _variation_of(shape)
+        if variation is not None:
+            block["varies"] = {"candidate": variation[0], "in": variation[1]}
+        shapes[name] = block
+    by_candidate: dict = {}
+    for name, shape in CANDIDATES.items():
+        shortfalls = {}
+        for model in ESTIMATOR_CLASSICAL_MODELS:
+            verdict = profiles[name]["verdict"][model]
+            if verdict.get("meets_design_target_on_the_attacks_with_a_cost") is not False:
+                continue
+            entry: dict = {"shortfall_bits": estimated(round(-verdict["margin_bits"]["value"], 4), "bits")}
+            # Chain lengths at the same ring degree, shorter than the candidate's, by what the record says.
+            meets = {}
+            for other, block in shapes.items():
+                other_shape = proposal_shape(other)
+                if block.get("varies") == {"candidate": name, "in": "main_primes"} and other_shape is not None:
+                    meets[other_shape[2][1]] = block["verdict"][model].get(
+                        "meets_design_target_on_the_attacks_with_a_cost"
+                    )
+            meets[shape[2][1]] = False
+            passing = [count for count, verdict_ in meets.items() if verdict_ is True]
+            if passing:
+                best = max(passing)
+                entry["longest_chain_meeting_the_target_at_the_same_ring_degree"] = {
+                    "main_primes": estimated(best, "count"),
+                    "shape": next(
+                        other
+                        for other in shapes
+                        if proposal_shape(other)[0] == shape[0] and proposal_shape(other)[2][1] == best
+                        and shapes[other].get("varies") == {"candidate": name, "in": "main_primes"}
+                    ),
+                    "the_next_longer_chain_is_recorded_and_fails": meets.get(best + 1) is False,
+                }
+            larger = [
+                other
+                for other, block in shapes.items()
+                if block.get("varies") == {"candidate": name, "in": "ring_degree"}
+                and block["verdict"][model].get("meets_design_target_on_the_attacks_with_a_cost") is True
+            ]
+            if larger:
+                entry["same_chain_at_a_larger_ring_degree_meeting_the_target"] = sorted(
+                    larger, key=lambda other: proposal_shape(other)[0]
+                )[0]
+            shortfalls[model] = entry
+        by_candidate[name] = shortfalls
+    return {
+        "status": (
+            "Proposals for the task C.3 owner, not changes: no pinned parameter set was altered. A shape here"
+            " is estimated under the same assumptions as the candidates and is as unqualified as they are."
+        ),
+        "shapes": shapes,
+        "shortfalls_and_smallest_changes": by_candidate,
+    }
+
+
+def estimator_block(root: Path) -> dict:
+    """`security_estimate.lattice_estimator`: the tracked output record of the estimator script, restated."""
+    path = root / ESTIMATOR_OUTPUT
+    if not path.is_file():
+        return {"status": "not_run", "reason": f"{ESTIMATOR_OUTPUT} is missing", "script": ESTIMATOR_SCRIPT}
+    raw = path.read_bytes()
+    record = read_estimator_record(raw.decode("utf-8"))
+    results = estimator_results(record)
+    profiles = {
+        name: dict(_estimated_profile_block(results, name, shape), role=role)
+        for name, (shape, role) in estimated_profiles().items()
+    }
+    invocations = []
+    for run, end in record["invocations"]:
+        end = end or {}
+        invocation = {
+            "command": run["command"],
+            "started_utc": run["started_utc"],
+            "finished_utc": end.get("finished_utc", "unknown"),
+            "limit_seconds_per_attack": number(run["timeout_seconds"], "seconds", "parameter"),
+            "limit_resident_gib_per_attack": number(run["memory_limit_gib"], "gibibytes", "parameter"),
+            "attacks_at_once": number(run["parallel"], "count", "parameter"),
+            "results_by_status": {
+                status: estimated(count, "count") for status, count in sorted(end.get("by_status", {}).items())
+            },
+        }
+        if "wall_seconds" in end:
+            invocation["wall_seconds"] = estimated(end["wall_seconds"], "seconds")
+        invocations.append(invocation)
+    first = record["RUN"][0] if record["RUN"] else {}
+    host = first.get("host", {})
+    return {
+        "status": "run",
+        "script": ESTIMATOR_SCRIPT,
+        "output_record": ESTIMATOR_OUTPUT,
+        "output_record_sha256": hashlib.sha256(raw).hexdigest(),
+        "provenance": (
+            "Every number of class estimator is copied from a RESULT, RUN or END line of the output record,"
+            " or is a minimum, a count or a difference of such values. The record is the raw output of the"
+            " script; `--check` holds this block to it and holds the record to the code of the script."
+        ),
+        "estimator_commit": first.get("estimator_commit", "unknown"),
+        "sagemath": first.get("sagemath", "unknown"),
+        "python": first.get("python", "unknown"),
+        "host": {key: str(host.get(key, "unknown")) for key in ("model", "cpu", "machine", "system", "release")},
+        "invocations": invocations,
+        "self_check": (
+            "equal to LWE.estimate on Kyber512 for every attack and cost model"
+            if record["SELFCHECK"] and all(check.get("equal_to_LWE_estimate") is True for check in record["SELFCHECK"])
+            else "missing or failed"
+        ),
+        "what_is_estimated": {
+            "problem": "plain LWE of dimension n = N with the exact modulus of the profile; the ring structure is ignored",
+            "secret": "uniform ternary on {-1, 0, 1}",
+            "error": f"centered binomial, eta = {ERROR_ETA}: the error e of a sample b = -a*s + t*e after multiplying by 1/t",
+            "instances": {
+                "Q:n": "modulus Q, m = n samples: the public key",
+                "QP:n": "modulus Q*P, m = n samples: one switching-key polynomial",
+                "QP:oo": "modulus Q*P, unlimited samples: the conservative instance for every exposure of the secret key",
+            },
+            "attacks": dict(ESTIMATOR_ATTACK_NAMES),
+            "cost_models": {
+                "BDGL16": "classical sieving, 0.292*beta + 16.4 + log2(8*d) per reduction",
+                "ADPS16": "classical core-SVP, 0.292*beta",
+                "ADPS16-quantum": "quantum core-SVP, 0.265*beta",
+            },
+        },
+        "design_target": {
+            "classical_bits": number(DESIGN_TARGET_BITS, "bits", "parameter"),
+            "cost_model": DESIGN_TARGET_MODEL,
+            "source": (
+                "the task C.3 design memo: at least 128 classical bits under BDGL16 reduction costs, quantum"
+                " costs reported separately; the verdict under ADPS16 (core-SVP) is reported beside it"
+            ),
+        },
+        "not_covered": [
+            "the ring structure: the estimate is for plain LWE of the same dimension",
+            "the circular-security (key-dependent message) assumption of publishing encryptions of s^2 and"
+            " s(X^k) under s",
+            "keys or ciphertexts that were not sampled honestly, and any malformed key",
+            "side channels of the implementation",
+            "the class fit: no candidate holds the maximum shape of its class under instruction-by-instruction"
+            " lowering, and an estimate does not change that",
+            "review: the numbers are the output of one tool under its heuristics; nobody has reviewed the"
+            " parameters, and no profile is qualified",
+        ],
+        "profiles": profiles,
+        "proposals": _proposals_block(results, profiles),
+    }
+
+
 def profile_block(p: Profile, galois_keys: int) -> dict:
     top = p.top
     return {
@@ -2018,7 +2501,7 @@ def contract_budget_check(name: str, shape: tuple, load_units: int) -> dict:
     return check
 
 
-def summary_frame(runs: list, host: dict) -> dict:
+def summary_frame(runs: list, host: dict, root: Path = ROOT) -> dict:
     """The part of the summary that is neither a run nor derived from one."""
     return {
         "schema": SCHEMA,
@@ -2032,6 +2515,7 @@ def summary_frame(runs: list, host: dict) -> dict:
             "measured": "copied from an accepted record of scripts/zk_resource_harness.py on the host below, or a sum, a ratio or an extreme of such values",
             "projection": "computed from profile parameters by the noise rules, the work-unit model, the tape lowering, a stated relation layout, a scaled measurement or the core-SVP sanity formula",
             "parameter": "an exact input that defines a profile, a workload shape or an illustrative setting of a projection",
+            "estimator": "copied from the tracked output record of scripts/fhe_bgv_lattice_estimator.sage (the Lattice Estimator at its pinned commit), or a minimum, a count or a difference of such values",
         },
         "host": host,
         "measurement_notes": [
@@ -2047,18 +2531,19 @@ def summary_frame(runs: list, host: dict) -> dict:
             " per multiplication cannot bring back.",
         ],
         "security_estimate": {
-            "lattice_estimator": {
-                "status": "not_run",
-                "reason": "SageMath is not installed on the measurement host and nothing was installed for this task",
-                "script": ESTIMATOR_SCRIPT,
-            },
+            "status": (
+                "Estimates only. No profile is qualified and no security level is claimed: the estimator"
+                " numbers hold under the assumptions and limits lattice_estimator.what_is_estimated and"
+                " lattice_estimator.not_covered state, and the parameters have not been reviewed."
+            ),
+            "lattice_estimator": estimator_block(root),
             "core_svp_sanity": (
                 "primal uSVP on the largest modulus Q*P with error sigma = sqrt(10.5) and a ternary secret,"
                 " geometric series assumption, 2016 estimate. Reported: the block size beta, the core-SVP"
                 " exponents 0.292*beta (classical) and 0.265*beta (quantum), and 0.292*beta + 16.4 +"
                 " log2(8*d) in the style of the BDGL16 reduction cost model. Not a substitute for the"
-                " Lattice Estimator: no dual, hybrid or algebraic attack is costed, and a hybrid attack on"
-                " a ternary secret can cost less than the primal attack."
+                " Lattice Estimator: no dual, hybrid or algebraic attack is costed. The estimator block"
+                " compares these numbers with its own primal uSVP result for every profile."
             ),
         },
         "runs": runs,
@@ -2097,9 +2582,9 @@ def build_summary(run_dirs: list) -> dict:
     return summary
 
 
-def rederive(summary: dict) -> dict:
-    """The summary rebuilt from its own measured runs: for a changed model without new runs."""
-    rebuilt = summary_frame(summary["runs"], summary["host"])
+def rederive(summary: dict, root: Path = ROOT) -> dict:
+    """The summary rebuilt from its own measured runs and the tracked estimator record."""
+    rebuilt = summary_frame(summary["runs"], summary["host"], root)
     rebuilt.update(derived_blocks(summary["runs"]))
     return rebuilt
 
@@ -2227,6 +2712,9 @@ CANDIDATE_MARKER = "fhe-bgv-candidates"
 CLASS_FIT_MARKER = "fhe-bgv-class-fit"
 INSTRUCTION_MARKER = "fhe-bgv-instruction-costs"
 INPUT_PROOF_MARKER = "fhe-bgv-input-proof-projection"
+ESTIMATOR_MARKER = "fhe-bgv-lattice-estimator"
+ESTIMATOR_ATTACKS_MARKER = "fhe-bgv-lattice-estimator-attacks"
+ESTIMATOR_PROPOSALS_MARKER = "fhe-bgv-lattice-estimator-proposals"
 SPARSE_CONFIG = "bgv.f257.n16.q22x50.p2x60/sparse128"
 BATCHING_CONFIG = "bgv.derive.n16.t786433.q25x60.p3x60.d2/split65536"
 BOUNDED_TAPE_CONFIG = "bgv.f257.n16.q22x50.p2x60/tape_profile"
@@ -2471,6 +2959,142 @@ def input_proof_table(summary: dict) -> str:
     return "\n".join(lines)
 
 
+def _cost_cell(entry: dict) -> str:
+    """One attack as a table cell: its cost in bits, or why it has none."""
+    if entry["status"] != "ok":
+        return entry["status"].replace("_", " ")
+    cost = entry["log2_cost"]
+    return "infinite" if cost == "infinite" else f"{cost['value']:.1f}"
+
+
+def _minimum_cell(verdict: dict) -> str:
+    if "minimum_log2_cost" not in verdict:
+        return "no attack has a cost"
+    return "{:.1f} ({}, {})".format(
+        verdict["minimum_log2_cost"]["value"],
+        verdict["minimum_attack"],
+        verdict["minimum_instance"].replace(":", ", m = ").replace("oo", "∞").replace("QP", "Q*P"),
+    )
+
+
+def _target_cell(verdict: dict) -> str:
+    if "margin_bits" not in verdict:
+        return "unknown"
+    met = "met" if verdict["meets_design_target_on_the_attacks_with_a_cost"] else "**not met**"
+    return f"{met} ({verdict['margin_bits']['value']:+.1f})"
+
+
+def _attacks_with_a_cost(block: dict, of_attempted: bool = False) -> str:
+    """How many attacks have a result, of all of them or of those the record attempted."""
+    entries = []
+    for instance in block["instances"].values():
+        for model in instance["models"].values():
+            entries.extend(model["attacks"].values())
+        entries.extend(instance["attacks_without_a_cost_model"].values())
+    if of_attempted:
+        entries = [entry for entry in entries if entry["status"] != "not_attempted"]
+    finished = sum(1 for entry in entries if entry["status"] == "ok")
+    return f"{finished} of {len(entries)}"
+
+
+def _profiles_in_listed_order(estimator: dict) -> list:
+    """(name, block) of the estimated profiles, candidates first; a stored summary sorts its keys."""
+    profiles = estimator.get("profiles", {})
+    return [(name, profiles[name]) for name in estimated_profiles() if name in profiles]
+
+
+def estimator_verdict_table(summary: dict) -> str:
+    """The cheapest attack per profile and cost model against the design target, as Markdown."""
+    estimator = summary["security_estimate"]["lattice_estimator"]
+    lines = [
+        "| Profile | Role | BDGL16 classical | ADPS16 classical | ADPS16 quantum"
+        f" | {DESIGN_TARGET_BITS} bits under BDGL16 | {DESIGN_TARGET_BITS} bits under ADPS16"
+        " | Sanity: core-SVP classical / BDGL16-style | Attacks with a result |",
+        "| --- | --- | ---: | ---: | ---: | --- | --- | ---: | ---: |",
+    ]
+    for name, block in _profiles_in_listed_order(estimator):
+        verdict = block["verdict"]
+        comparison = block["core_svp_sanity_comparison"]
+        sanity = " / ".join(
+            f"{comparison[key]['sanity_bits']['value']}" if key in comparison else "unknown"
+            for key in ("core_svp_classical", "bdgl16_style_classical")
+        )
+        lines.append(
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} | {} |".format(
+                name,
+                block["role"],
+                _minimum_cell(verdict["BDGL16"]),
+                _minimum_cell(verdict["ADPS16"]),
+                _minimum_cell(verdict["ADPS16-quantum"]),
+                _target_cell(verdict["BDGL16"]),
+                _target_cell(verdict["ADPS16"]),
+                sanity,
+                _attacks_with_a_cost(block),
+            )
+        )
+    return "\n".join(lines)
+
+
+def estimator_attack_table(summary: dict) -> str:
+    """Every attack on the largest modulus, with m = n and with unlimited samples, as Markdown."""
+    estimator = summary["security_estimate"]["lattice_estimator"]
+    lines = [
+        "| Profile | Cost model | "
+        + " | ".join(ESTIMATOR_ATTACK_NAMES[attack] for attack in ESTIMATOR_LATTICE_ATTACKS)
+        + " | Cheapest on Q, m = n |",
+        "| --- | --- | " + " | ".join("---:" for _ in ESTIMATOR_LATTICE_ATTACKS) + " | ---: |",
+    ]
+    for name, block in _profiles_in_listed_order(estimator):
+        for model in ESTIMATOR_MODELS:
+            cells = []
+            for attack in ESTIMATOR_LATTICE_ATTACKS:
+                pair = [
+                    _cost_cell(block["instances"][instance]["models"][model]["attacks"][attack])
+                    for instance in ("QP:n", "QP:oo")
+                ]
+                cells.append(pair[0] if pair[0] == pair[1] and not pair[0][0].isdigit() else " / ".join(pair))
+            minimum = block["instances"]["Q:n"]["models"][model].get("minimum")
+            cells.append(
+                "{:.1f} ({})".format(minimum["log2_cost"]["value"], minimum["attack"]) if minimum else "no cost"
+            )
+            lines.append(f"| `{name}` | {model} | " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
+def estimator_proposal_table(summary: dict) -> str:
+    """The shapes outside the pinned list that the record estimates, as Markdown."""
+    proposals = summary["security_estimate"]["lattice_estimator"].get("proposals", {})
+    lines = [
+        "| Shape (not pinned) | Differs from | BDGL16 classical | ADPS16 classical | ADPS16 quantum"
+        f" | {DESIGN_TARGET_BITS} bits under BDGL16 | {DESIGN_TARGET_BITS} bits under ADPS16"
+        " | Attacks with a result, of those run |",
+        "| --- | --- | ---: | ---: | ---: | --- | --- | ---: |",
+    ]
+    for name, block in proposals.get("shapes", {}).items():
+        varies = block.get("varies")
+        shape = block["shape"]
+        if varies is None:
+            differs = "no candidate"
+        elif varies["in"] == "main_primes":
+            differs = "`{}`: {} main primes".format(varies["candidate"], shape["main_primes"]["value"])
+        else:
+            differs = "`{}`: N = 2^{}".format(varies["candidate"], shape["log_degree"]["value"])
+        verdict = block["verdict"]
+        lines.append(
+            "| `{}` | {} | {} | {} | {} | {} | {} | {} |".format(
+                name,
+                differs,
+                _minimum_cell(verdict["BDGL16"]),
+                _minimum_cell(verdict["ADPS16"]),
+                _minimum_cell(verdict["ADPS16-quantum"]),
+                _target_cell(verdict["BDGL16"]),
+                _target_cell(verdict["ADPS16"]),
+                _attacks_with_a_cost(block, of_attempted=True),
+            )
+        )
+    return "\n".join(lines)
+
+
 def embedded_block(marker: str, table: str) -> str:
     return f"<!-- {marker}:begin (generated by scripts/fhe_bgv_cost_model.py --tables) -->\n{table}\n<!-- {marker}:end -->"
 
@@ -2483,6 +3107,9 @@ def embedded_tables(summary: dict) -> tuple:
         (COMPARISON_SPEC, INPUT_PROOF_MARKER, input_proof_table(summary)),
         (CANDIDATE_SPEC, CANDIDATE_MARKER, candidate_table(summary)),
         (CANDIDATE_SPEC, CLASS_FIT_MARKER, class_fit_table(summary)),
+        (CANDIDATE_SPEC, ESTIMATOR_MARKER, estimator_verdict_table(summary)),
+        (CANDIDATE_SPEC, ESTIMATOR_ATTACKS_MARKER, estimator_attack_table(summary)),
+        (CANDIDATE_SPEC, ESTIMATOR_PROPOSALS_MARKER, estimator_proposal_table(summary)),
     )
 
 
@@ -2801,13 +3428,17 @@ def check_summary(summary: dict, root: Path = ROOT) -> list:
     for key, expected in derived_blocks(runs).items():
         if summary.get(key) != expected:
             problems.append(f"{key}: differs from its recomputation")
-    frame = summary_frame(runs, summary.get("host"))
+    # The estimator record is the output of the script as it stands, for the moduli of this model.
+    problems.extend(estimator_record_problems(root))
+    if problems:
+        return problems
+    frame = summary_frame(runs, summary.get("host"), root)
     for key in ("classification", "measurement_notes", "scope", "generator", "task"):
         if summary.get(key) != frame[key]:
             problems.append(f"{key}: differs from the generator")
-    status = summary.get("security_estimate", {}).get("lattice_estimator", {}).get("status")
-    if status != "not_run":
-        problems.append("security_estimate.lattice_estimator.status must stay not_run until the script has been run")
+    # Every estimator number of the summary is the restatement of the tracked output record.
+    if summary.get("security_estimate") != frame["security_estimate"]:
+        problems.append(f"security_estimate: differs from its recomputation from {ESTIMATOR_OUTPUT}")
     if problems:
         return problems
     # The tables the specifications embed and the view the Rust test reads are rendered from this summary.

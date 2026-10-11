@@ -1,0 +1,76 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "concurrent_cancel_during_a_round_start_records_its_completion",
+  "category": "cancellation",
+  "rules": [
+    "persist_before_effect",
+    "cancellation_is_sticky_and_never_rolls_back",
+    "per_transaction_atomicity_only"
+  ],
+  "description": "Another actor cancels after the round intent is durable. The round runs to completion; its transcript is recorded and the workflow ends cancelled with the round confirmed. The opening transaction is never built.",
+  "plan": {
+    "kind": "threshold_opening",
+    "instance": "concurrent-cancel-during-a-round-start-records-its-completion",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "collect",
+        "kind": "offchain_round",
+        "irreversible": true,
+        "participants_required": 2,
+        "custody_handles_required": 0
+      },
+      {
+        "label": "open",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "round_starts": [
+          "completed:p1,p2"
+        ]
+      },
+      "concurrent": {
+        "when": "round_started",
+        "action": "cancel"
+      },
+      "expect": {
+        "result": {
+          "error": "CancelledBeforeSubmission",
+          "stage": "cancel",
+          "step": 1
+        },
+        "effects": [
+          "concurrent:cancel:cancelling",
+          "round_start:0"
+        ],
+        "status": "cancelled",
+        "steps": [
+          "round_completed",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

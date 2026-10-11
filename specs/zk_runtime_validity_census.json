@@ -1608,8 +1608,8 @@
    "sites": [
     ["crates/iroha_core/src/smartcontracts/isi/account_admission.rs", "node_policy_read", "crypto.allowed_curve_ids", 1],
     ["crates/iroha_core/src/smartcontracts/isi/account_admission.rs", "node_policy_read", "crypto.allowed_signing", 1],
-    ["crates/iroha_core/src/smartcontracts/isi/domain.rs", "node_policy_read", "crypto.allowed_curve_ids", 2],
-    ["crates/iroha_core/src/smartcontracts/isi/domain.rs", "node_policy_read", "crypto.allowed_signing", 2],
+    ["crates/iroha_core/src/smartcontracts/isi/domain.rs", "node_policy_read", "crypto.allowed_curve_ids", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/domain.rs", "node_policy_read", "crypto.allowed_signing", 1],
     ["crates/iroha_core/src/smartcontracts/isi/helpers.rs", "node_policy_read", "crypto.allowed_curve_ids", 1],
     ["crates/iroha_core/src/smartcontracts/isi/helpers.rs", "node_policy_read", "crypto.allowed_signing", 1],
     ["crates/iroha_core/src/smartcontracts/isi/multisig.rs", "node_policy_read", "crypto.allowed_curve_ids", 2],
@@ -1898,7 +1898,7 @@
    "decided_by": "Compile the verifier unconditionally in every node build; the daemon's `node` feature already enables it. B.2 and B.3 replace the STARK consumers on the shared backend.",
    "attribution": "read",
    "note": "The gate is measured, not only listed: the unit test feature_parity_record (crates/iroha_core/src/zk_validity_policy_feature_parity_tests.rs) prints one record per build and scripts/check_zk_feature_parity.py compares builds with and without the feature. Certified history, policy identities, limit decisions and verification gas must be identical; the record `gated.zk-stark.real_proof` (a real proof accepted, or not compiled) may differ only while this entry is open, and the script fails when the census and the builds disagree.",
-   "open_reason": "397 conditional-compilation sites in 30 Rust files of iroha_core, iroha_core_zk, iroha_core_privacy, iroha_torii and the integration tests (23 of them `not(feature)` fallbacks to delete with their items), the optional `fastpq_prover` dependency of iroha_core_zk, and the feature name in 12 manifests (the workspace root does not define it). The removal is one coordinated change with records other tasks own and are editing: two selection sites of specs/zk_operation_inventory.json quote `#[cfg(feature = \"zk-stark\")]` lines of isi/world.rs (F.1), six scopes of specs/zk_resource_contract.json carry the feature condition (F.2), scripts/check_cargo_feature_hygiene.py and scripts/check_release_feature_graph.py pin the feature tables, ci/dependency_budget.json the feature sets, and seven integration tests require a daemon built with the feature (`require_test_network_feature`). Filed as a shared-file request of F.4 for the integration pass.",
+   "open_reason": "394 conditional-compilation sites in 30 Rust files of iroha_core, iroha_core_zk, iroha_core_privacy, iroha_torii and the integration tests (20 of them `not(feature)` fallbacks to delete with their items; P.1 deleted three with the feature-only `EngineUnavailable` verification error), the optional `fastpq_prover` dependency of iroha_core_zk, and the feature name in 12 manifests (the workspace root does not define it). The removal is one coordinated change with records other tasks own and are editing: two selection sites of specs/zk_operation_inventory.json quote `#[cfg(feature = \"zk-stark\")]` lines of isi/world.rs (F.1), six scopes of specs/zk_resource_contract.json carry the feature condition (F.2), scripts/check_cargo_feature_hygiene.py and scripts/check_release_feature_graph.py pin the feature tables, ci/dependency_budget.json the feature sets, and seven integration tests require a daemon built with the feature (`require_test_network_feature`). Filed as a shared-file request of F.4 for the integration pass.",
    "sites": []
   },
   {
@@ -2761,12 +2761,6 @@
    "attribution": "path_rule",
    "note": "KAGEMUSHA is the offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate; it is not a product of the ZK delivery plan, which only requires mixed blocks with KAGEMUSHA top-ups to be exercised (A.1, A.3). Its release, qualification and lifecycle names are recorded so that a change to them is seen, not because F.4 or a later plan task removes them.",
    "sites": [
-    ["crates/iroha_core/src/smartcontracts/isi/kagemusha.rs", "activation", "lifecycle", 48],
-    ["crates/iroha_core/src/smartcontracts/isi/kagemusha/authority.rs", "activation", "lifecycle", 17],
-    ["crates/iroha_core/src/smartcontracts/isi/kagemusha/kagemusha_v1_reserve.rs", "activation", "lifecycle", 21],
-    ["crates/iroha_core/src/smartcontracts/isi/kagemusha/ordinary_mint_credit_runtime.rs", "activation", "lifecycle", 2],
-    ["crates/iroha_core/src/smartcontracts/isi/kagemusha/ordinary_top_up.rs", "activation", "lifecycle", 2],
-    ["crates/iroha_core/src/state/kagemusha_runtime_installation.rs", "activation", "lifecycle", 5],
     ["crates/iroha_core_zk/src/kagemusha_sender_wire.rs", "activation", "lifecycle", 10],
     ["crates/iroha_core_zk/src/kagemusha_v1_recursion/composite.rs", "activation", "lifecycle", 91],
     ["crates/iroha_core_zk/src/kagemusha_v1_recursion/generation.rs", "activation", "lifecycle", 23],
@@ -2858,20 +2852,15 @@
    "kind": "chain_identity",
    "status": "out_of_plan",
    "owner": null,
-   "path": "crates/iroha_kagami/src/kagemusha.rs",
-   "symbol": "read_experimental_release_material_v1",
+   "path": "crates/iroha_data_model/src/kagemusha/kagemusha_release_v1.rs",
+   "symbol": "KagemushaReleasePurposeV1",
    "gates": "KAGEMUSHA offline monetary authority: code that names a production, integration, testnet or mainnet condition.",
    "decided_by": "Outside the ZK delivery plan; recorded for visibility only.",
    "attribution": "path_rule",
    "note": "KAGEMUSHA is the offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate; it is not a product of the ZK delivery plan, which only requires mixed blocks with KAGEMUSHA top-ups to be exercised (A.1, A.3). Its release, qualification and lifecycle names are recorded so that a change to them is seen, not because F.4 or a later plan task removes them.",
    "sites": [
     ["crates/iroha_config/src/parameters/actual/kagemusha.rs", "chain_condition", "testnet", 2],
-    ["crates/iroha_config/src/parameters/user.rs", "chain_condition", "testnet", 3],
-    ["crates/iroha_core/src/smartcontracts/isi/kagemusha.rs", "chain_condition", "testnet", 7],
-    ["crates/iroha_data_model/src/kagemusha/kagemusha_release_v1.rs", "chain_condition", "testnet", 1],
-    ["crates/iroha_kagami/src/kagemusha.rs", "chain_condition", "testnet", 18],
-    ["crates/iroha_kagami/src/kagemusha/mobile_bootstrap.rs", "chain_condition", "testnet", 1],
-    ["crates/irohad/src/main.rs", "chain_condition", "testnet", 7]
+    ["crates/iroha_data_model/src/kagemusha/kagemusha_release_v1.rs", "chain_condition", "testnet", 1]
    ]
   },
   {
@@ -2913,8 +2902,7 @@
     ["crates/iroha_data_model/src/kagemusha/kagemusha_play_integrity_refresh_v1.rs", "digest_identity", "release", 1],
     ["crates/iroha_data_model/src/kagemusha/kagemusha_raw_app_attestation_admission_v1.rs", "digest_identity", "release", 5],
     ["crates/iroha_data_model/src/kagemusha/kagemusha_v1/app_attest_extensions.rs", "digest_identity", "release", 1],
-    ["crates/iroha_data_model/src/kagemusha/kagemusha_v1/hardware_selection.rs", "digest_identity", "release", 2],
-    ["crates/iroha_kagami/src/kagemusha.rs", "digest_identity", "release", 2]
+    ["crates/iroha_data_model/src/kagemusha/kagemusha_v1/hardware_selection.rs", "digest_identity", "release", 2]
    ]
   },
   {
@@ -2922,19 +2910,17 @@
    "kind": "global_manifest",
    "status": "out_of_plan",
    "owner": null,
-   "path": "crates/iroha_kagami/src/kagemusha.rs",
+   "path": "crates/iroha_data_model/src/kagemusha/kagemusha_release_v1.rs",
    "symbol": "KagemushaReleaseManifestV1",
    "gates": "KAGEMUSHA offline monetary authority: code that names the Exact12 catalog, a capability or release manifest or an availability pin.",
    "decided_by": "Outside the ZK delivery plan; recorded for visibility only.",
    "attribution": "path_rule",
    "note": "KAGEMUSHA is the offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate; it is not a product of the ZK delivery plan, which only requires mixed blocks with KAGEMUSHA top-ups to be exercised (A.1, A.3). Its release, qualification and lifecycle names are recorded so that a change to them is seen, not because F.4 or a later plan task removes them.",
    "sites": [
-    ["crates/iroha_core/src/smartcontracts/isi/kagemusha.rs", "global_manifest", "release_manifest", 3],
     ["crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_cash_carrier_budget.rs", "global_manifest", "release_manifest", 2],
     ["crates/iroha_core_zk/src/kagemusha_v1_recursion/ordinary_redeem_output_opening.rs", "global_manifest", "release_manifest", 2],
     ["crates/iroha_data_model/src/kagemusha/kagemusha_release_v1.rs", "global_manifest", "release_manifest", 7],
-    ["crates/iroha_data_model/src/kagemusha/verifier_registry_v1.rs", "global_manifest", "release_manifest", 2],
-    ["crates/iroha_kagami/src/kagemusha.rs", "global_manifest", "release_manifest", 14]
+    ["crates/iroha_data_model/src/kagemusha/verifier_registry_v1.rs", "global_manifest", "release_manifest", 2]
    ]
   },
   {
@@ -2969,7 +2955,6 @@
     ["crates/iroha_data_model/src/kagemusha/kagemusha_retail_enrollment_challenge_v1.rs", "qualification", "qualification", 3],
     ["crates/iroha_data_model/src/kagemusha/kagemusha_v1.rs", "qualification", "qualification", 7],
     ["crates/iroha_data_model/src/kagemusha/kagemusha_v1/hardware.rs", "qualification", "qualification", 3],
-    ["crates/iroha_kagami/src/kagemusha.rs", "qualification", "qualification", 5],
     ["crates/iroha_torii_shared/src/kagemusha_api.rs", "qualification", "readiness", 8]
    ]
   },
@@ -2985,8 +2970,6 @@
    "attribution": "path_rule",
    "note": "KAGEMUSHA is the offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate; it is not a product of the ZK delivery plan, which only requires mixed blocks with KAGEMUSHA top-ups to be exercised (A.1, A.3). Its release, qualification and lifecycle names are recorded so that a change to them is seen, not because F.4 or a later plan task removes them.",
    "sites": [
-    ["crates/iroha_core/src/smartcontracts/isi/kagemusha/ordinary_mint_publication.rs", "time_budget", "deadline", 4],
-    ["crates/iroha_core/src/smartcontracts/isi/kagemusha/ordinary_mint_submission.rs", "time_budget", "deadline", 5],
     ["crates/iroha_core_zk/src/kagemusha_v1_recursion/terminal_authorization.rs", "time_budget", "deadline", 2],
     ["crates/iroha_core_zk/src/kagemusha_v1_state/hardware_evidence_bootstrap.rs", "time_budget", "deadline", 8],
     ["crates/iroha_data_model/src/kagemusha/kagemusha_hardware_evidence_bootstrap_v1.rs", "time_budget", "deadline", 3],
@@ -3005,9 +2988,6 @@
    "attribution": "path_rule",
    "note": "KAGEMUSHA is the offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate; it is not a product of the ZK delivery plan, which only requires mixed blocks with KAGEMUSHA top-ups to be exercised (A.1, A.3). Its release, qualification and lifecycle names are recorded so that a change to them is seen, not because F.4 or a later plan task removes them.",
    "sites": [
-    ["crates/iroha_core/src/smartcontracts/isi/kagemusha.rs", "unavailable", "unavailable", 2],
-    ["crates/iroha_core/src/smartcontracts/isi/kagemusha/execution_availability.rs", "unavailable", "unavailable", 4],
-    ["crates/iroha_core/src/smartcontracts/isi/kagemusha/kagemusha_v1_reserve.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core_zk/src/kagemusha_v1_recursion/artifact_resource_preflight.rs", "unavailable", "unavailable", 6],
     ["crates/iroha_core_zk/src/kagemusha_v1_recursion/artifact_resource_preflight.rs", "unavailable", "unsupported", 4],
     ["crates/iroha_core_zk/src/kagemusha_v1_recursion/guard_verifier.rs", "unavailable", "unavailable", 14],
@@ -3070,7 +3050,6 @@
    "attribution": "path_rule",
    "note": "Canonical-layout validation of carried bytes (UnsupportedVersion, UnsupportedProofVersion and the like): the same bytes are rejected by every validator, no configuration, feature or environment is read, and nothing is unfinished. A version that becomes defined removes its arm.",
    "sites": [
-    ["crates/iroha_core/src/smartcontracts/isi/kagemusha/kagemusha_v1_reserve.rs", "unavailable", "version_check", 2],
     ["crates/iroha_core_zk/src/kagemusha_v1_recursion/mod.rs", "unavailable", "version_check", 3],
     ["crates/iroha_core_zk/src/kagemusha_v1_state/mod.rs", "unavailable", "version_check", 4],
     ["crates/iroha_data_model/src/isi/kagemusha_v1.rs", "unavailable", "version_check", 2],
@@ -3323,7 +3302,7 @@
    "gates": "Exact12 privacy protocol registry: code that names the Exact12 catalog, a capability or release manifest or an availability pin.",
    "decided_by": "Remove. Each protocol is valid by its own committed relation identity and keys; no all-protocol manifest or zero pin decides availability.",
    "attribution": "read",
-   "note": "The Exact12 catalog and its manifests: the catalog identifier and commitment (`PRIVACY_EXACT12_CATALOG_ID_V1`, `PrivacyExact12CatalogCommitmentV1`), the release manifest and deployment qualification (`PrivacyExact12ReleaseManifestV1`, `PrivacyExact12DeploymentQualificationV1`), the qualification record and its instruction (`PrivacyExact12QualificationRecordV1`, `RegisterPrivacyExact12QualificationV1`), the capability manifest Torii serves (`PrivacyExact12CapabilityManifestV1`) and the capability archive limits. One record covers all twelve protocols and a protocol is usable only when the record lists it as qualified.",
+   "note": "The Exact12 catalog and its manifests: the catalog identifier and commitment (`PRIVACY_EXACT12_CATALOG_ID_V1`, `PrivacyExact12CatalogCommitmentV1`), the release manifest and deployment qualification (`PrivacyExact12ReleaseManifestV1`, `PrivacyExact12DeploymentQualificationV1`), the qualification record and its instruction (`PrivacyExact12QualificationRecordV1`, `RegisterPrivacyExact12QualificationV1`), the capability manifest Torii serves (`PrivacyExact12CapabilityManifestV1`) and the capability archive limits. One record covers all twelve protocols and a protocol is usable only when the record lists it as qualified. The catalog commitment is written into every proof envelope by the one assembler `PrivacyProofEnvelopeV1::bind_v1` (crates/iroha_data_model/src/privacy/action_role.rs); the protocol builders, the ZK-ACE prover among them, no longer write it themselves, so the former entry zk_ace.global_manifest is this site (P.1). A catalog membership hash used as identity; F.5 and P.15 replace it for ZK-ACE.",
    "sites": [
     ["crates/iroha_core/src/privacy_release_evidence.rs", "global_manifest", "exact12", 4],
     ["crates/iroha_core/src/smartcontracts/isi/privacy.rs", "global_manifest", "exact12", 7],
@@ -3336,6 +3315,7 @@
     ["crates/iroha_data_model/src/privacy.rs", "global_manifest", "capability_manifest", 2],
     ["crates/iroha_data_model/src/privacy.rs", "global_manifest", "exact12", 22],
     ["crates/iroha_data_model/src/privacy.rs", "global_manifest", "release_manifest", 2],
+    ["crates/iroha_data_model/src/privacy/action_role.rs", "global_manifest", "exact12", 2],
     ["crates/iroha_data_model/src/privacy/capability_manifest.rs", "global_manifest", "exact12", 56],
     ["crates/iroha_data_model/src/privacy/proofs.rs", "global_manifest", "exact12", 1],
     ["crates/iroha_data_model/src/privacy/protocol.rs", "global_manifest", "capability_manifest", 20],
@@ -3395,17 +3375,19 @@
    "gates": "Exact12 privacy protocol registry: typed unavailable, suspended or unsupported outcomes other than local-resource failures and version checks, which have their own entries. The names fall into two groups, which `note` separates for this entry: outcomes of an engine, profile, provider or protocol that is not available or not finished (EngineUnavailable, ProtocolUnavailable, CompiledProfileUnavailable, NotImplemented and the like), and rejections of a carried parameter value this release does not define (an unsupported degree, bit length, authority kind or layout).",
    "decided_by": "For the first group: an unfinished operation keeps an accurate typed error that no configuration, feature or environment changes, and stays mandatory work of the owner; a finished operation removes it. For the second group nothing changes: it is ordinary validation of carried bytes, identical on every validator.",
    "attribution": "read",
-   "note": "Two groups. The accurate errors of an engine or profile this binary does not complete: `EngineUnavailable`, `ProtocolUnavailable`, `CompiledProfileUnavailable`, `PrivacyCompiledProfileUnavailableReasonV1`, `PrivacyEngineUnavailableFailureV1` and `UnsupportedCompression`. Names of the activation lifecycle, which are a gate and belong to entry privacy.activation: `Suspended`, `PrivacySuspendedLifecycleV1`, `UnavailableActivation` and the reasons `NotRegistered`, `Proposed` and `Suspended` of `PrivacyCapabilityUnavailableReasonV1` (crates/iroha_data_model/src/privacy/capability_manifest.rs, protocol.rs). Issuance-service answers, statement validation and local entropy have their own entries (privacy.issuance_service, privacy.statement_validation, privacy.local_resource).",
+   "note": "Two groups. The accurate errors of an engine or profile this binary does not complete: `EngineUnavailable`, `ProtocolUnavailable`, `CompiledProfileUnavailable`, `PrivacyCompiledProfileUnavailableReasonV1` and `UnsupportedCompression`, and the typed refusal of the single Exact12 dispatch, `PrivacyVerificationErrorV1::UnsupportedOperation` carrying `PrivacyUnsupportedOperationV1` (crates/iroha_core_privacy/src/privacy_dispatch.rs, privacy_verifier.rs; mapped to an instruction error in crates/iroha_core/src/smartcontracts/isi/privacy.rs). That refusal names the role and one concrete limitation of the typed dispatch registry, is returned before any proof byte is read, depends on no activation record, configuration or feature, and replaced the variant that existed only without the `zk-stark` feature, `PrivacyEngineUnavailableFailureV1` (P.1); the owners of the five refused roles are P.15, C.5, P.14 and X.3. Names of the activation lifecycle, which are a gate and belong to entry privacy.activation: `Suspended`, `PrivacySuspendedLifecycleV1`, `UnavailableActivation` and the reasons `NotRegistered`, `Proposed` and `Suspended` of `PrivacyCapabilityUnavailableReasonV1` (crates/iroha_data_model/src/privacy/capability_manifest.rs, protocol.rs). Issuance-service answers, statement validation and local entropy have their own entries (privacy.issuance_service, privacy.statement_validation, privacy.local_resource).",
    "sites": [
     ["crates/iroha_core/src/privacy.rs", "unavailable", "suspended", 1],
     ["crates/iroha_core/src/privacy_release_evidence.rs", "unavailable", "unavailable", 4],
     ["crates/iroha_core/src/privacy_release_evidence/network_actions.rs", "unavailable", "unavailable", 6],
     ["crates/iroha_core/src/privacy_release_evidence/network_actions/retained.rs", "unavailable", "unavailable", 2],
-    ["crates/iroha_core/src/smartcontracts/isi/privacy.rs", "unavailable", "unavailable", 1],
+    ["crates/iroha_core/src/smartcontracts/isi/privacy.rs", "unavailable", "unsupported", 1],
+    ["crates/iroha_core_privacy/src/privacy_dispatch.rs", "unavailable", "unsupported", 14],
     ["crates/iroha_core_privacy/src/privacy_engines/p256.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core_privacy/src/privacy_profiles.rs", "unavailable", "unavailable", 17],
     ["crates/iroha_core_privacy/src/privacy_state.rs", "unavailable", "suspended", 1],
-    ["crates/iroha_core_privacy/src/privacy_verifier.rs", "unavailable", "unavailable", 8],
+    ["crates/iroha_core_privacy/src/privacy_verifier.rs", "unavailable", "unavailable", 3],
+    ["crates/iroha_core_privacy/src/privacy_verifier.rs", "unavailable", "unsupported", 6],
     ["crates/iroha_data_model/src/privacy/capability_manifest.rs", "unavailable", "suspended", 3],
     ["crates/iroha_data_model/src/privacy/capability_manifest.rs", "unavailable", "unavailable", 20],
     ["crates/iroha_data_model/src/privacy/protocol.rs", "unavailable", "suspended", 8],
@@ -3591,14 +3573,12 @@
    "gates": "privacy, voting, RAM-LFE and SoraCloud names in shared State, instruction and Torii code: typed unavailable, suspended or unsupported outcomes other than local-resource failures and version checks, which have their own entries. The names fall into two groups, which `note` separates for this entry: outcomes of an engine, profile, provider or protocol that is not available or not finished (EngineUnavailable, ProtocolUnavailable, CompiledProfileUnavailable, NotImplemented and the like), and rejections of a carried parameter value this release does not define (an unsupported degree, bit length, authority kind or layout).",
    "decided_by": "For the first group: an unfinished operation keeps an accurate typed error that no configuration, feature or environment changes, and stays mandatory work of the owner; a finished operation removes it. For the second group nothing changes: it is ordinary validation of carried bytes, identical on every validator.",
    "attribution": "read",
-   "note": "Unfinished operations with an accurate typed error: `PrivacyTransactionIntentUnsupportedPathV1` and `privacy_in_unsupported_path` (crates/iroha_data_model/src/transaction/signed.rs: a privacy action inside a contract call, raw or proved IVM code, a mixed batch, a custom instruction or a by-call trigger has no V1 intent projection; I.1 to I.3 and P.5) and `ProofBackedTriggerUnavailable` (isi/triggers/set.rs: a proof-backed executable cannot be registered as a trigger; M.2). Not gates: `unsupported_proof_backend_error` (isi/world.rs) rejects a backend tag this release does not define; `SnapshotMerkleError::ProofUnavailable` (snapshot.rs) is a missing Merkle proof of a local snapshot chunk; `PrivacyOverlayUnsupported` (streaming.rs) is a streaming capability mismatch; `KagemushaGovernanceUnavailable` is outside the plan; `BallotReleasePulseUnavailable` is a telemetry label and `FreshBallotUnavailable` a failure kind of the committed time-lock key schedule.",
+   "note": "Unfinished operations with an accurate typed error: `PrivacyTransactionIntentUnsupportedPathV1` and `privacy_in_unsupported_path` (crates/iroha_data_model/src/transaction/signed.rs: a privacy action inside a contract call, raw or proved IVM code, a mixed batch, a custom instruction or a by-call trigger has no V1 intent projection; I.1 to I.3 and P.5) and `ProofBackedTriggerUnavailable` (isi/triggers/set.rs: a proof-backed executable cannot be registered as a trigger; M.2). Not gates: `unsupported_proof_backend_error` (isi/world.rs) rejects a backend tag this release does not define; `SnapshotMerkleError::ProofUnavailable` (snapshot.rs) is a missing Merkle proof of a local snapshot chunk; `PrivacyOverlayUnsupported` (streaming.rs) is a streaming capability mismatch; `BallotReleasePulseUnavailable` is a telemetry label and `FreshBallotUnavailable` a failure kind of the committed time-lock key schedule.",
    "sites": [
     ["crates/iroha_core/src/smartcontracts/isi/triggers/set.rs", "unavailable", "unavailable", 2],
     ["crates/iroha_core/src/smartcontracts/isi/world.rs", "unavailable", "unsupported", 3],
     ["crates/iroha_core/src/snapshot.rs", "unavailable", "unavailable", 4],
     ["crates/iroha_core/src/state.rs", "unavailable", "unavailable", 1],
-    ["crates/iroha_core/src/state/publication.rs", "unavailable", "unavailable", 1],
-    ["crates/iroha_core/src/state/storage_transactions.rs", "unavailable", "unavailable", 1],
     ["crates/iroha_core/src/streaming.rs", "unavailable", "unsupported", 2],
     ["crates/iroha_core/src/telemetry.rs", "unavailable", "unavailable", 2],
     ["crates/iroha_data_model/src/transaction/signed.rs", "unavailable", "unsupported", 12]
@@ -4044,12 +4024,10 @@
    "attribution": "path_rule",
    "note": "SoraFS, Musubi, SoraNet and runtime-signer services qualify providers, signers and releases of those services. They are not a ZK, privacy, FHE or proof-validity path of the ZK delivery plan; the names match a detector by word only.",
    "sites": [
-    ["crates/iroha/src/client/ordinary_native/inventory.rs", "global_manifest", "release_manifest", 1],
     ["crates/iroha_cli/src/commands/sorafs/toolkit.rs", "global_manifest", "release_manifest", 10],
     ["crates/iroha_cli/src/commands/sorafs/toolkit/validation.rs", "global_manifest", "release_manifest", 5],
     ["crates/iroha_cli/src/commands/sorafs/toolkit/validation/args.rs", "global_manifest", "release_manifest", 1],
     ["crates/iroha_cli/src/commands/sorafs/toolkit/validation/release_manifest_receipt.rs", "global_manifest", "release_manifest", 7],
-    ["crates/iroha_config/src/parameters/user.rs", "global_manifest", "release_manifest", 3],
     ["crates/iroha_core/src/query/mod.rs", "global_manifest", "release_manifest", 1],
     ["crates/iroha_core/src/query/release_manifest_authority.rs", "global_manifest", "release_manifest", 6],
     ["crates/iroha_core/src/query/signer_check.rs", "global_manifest", "release_manifest", 10],
@@ -4073,7 +4051,6 @@
     ["crates/iroha_test_network/src/lib.rs", "global_manifest", "release_manifest", 5],
     ["crates/irohad/src/external_software_signer/adapter.rs", "global_manifest", "release_manifest", 1],
     ["crates/irohad/src/external_software_signer/protocol.rs", "global_manifest", "release_manifest", 1],
-    ["crates/irohad/src/main.rs", "global_manifest", "release_manifest", 5],
     ["crates/irohad/src/musubi_publication_service/finality.rs", "global_manifest", "release_manifest", 4],
     ["crates/irohad/src/signer_operation/journal.rs", "global_manifest", "release_manifest", 4]
    ]
@@ -4214,36 +4191,6 @@
    "note": "SoraFS, Musubi, SoraNet and runtime-signer services qualify providers, signers and releases of those services. They are not a ZK, privacy, FHE or proof-validity path of the ZK delivery plan; the names match a detector by word only.",
    "sites": [
     ["crates/iroha_crypto/src/sorafs/proof_token.rs", "wall_clock", "system_time", 5]
-   ]
-  },
-  {
-   "id": "taira_tools.activation",
-   "kind": "activation_lifecycle",
-   "status": "not_a_gate",
-   "owner": null,
-   "path": "crates/iroha_cli/src/taira.rs",
-   "symbol": "KAGEMUSHA_DEVICE_LIFECYCLE_VERSION_V1",
-   "gates": "Taira deployment diagnostics (`iroha taira doctor`): code that names an activation or a lifecycle state.",
-   "decided_by": "Committed State already decides it.",
-   "attribution": "path_rule",
-   "note": "Read-only diagnostics of a deployment (`iroha taira doctor` readiness probes). AGENTS.md states these verdicts are engineering diagnostics, never signing or deployment prerequisites; no node consults them.",
-   "sites": [
-    ["crates/iroha_cli/src/taira.rs", "activation", "lifecycle", 1]
-   ]
-  },
-  {
-   "id": "taira_tools.qualification",
-   "kind": "readiness_qualification",
-   "status": "not_a_gate",
-   "owner": null,
-   "path": "crates/iroha_cli/src/taira.rs",
-   "symbol": "validate_kagemusha_readiness",
-   "gates": "Taira deployment diagnostics (`iroha taira doctor`): code that names a qualification, a readiness record or a reviewer.",
-   "decided_by": "Committed State already decides it.",
-   "attribution": "path_rule",
-   "note": "Read-only diagnostics of a deployment (`iroha taira doctor` readiness probes). AGENTS.md states these verdicts are engineering diagnostics, never signing or deployment prerequisites; no node consults them.",
-   "sites": [
-    ["crates/iroha_cli/src/taira.rs", "qualification", "readiness", 3]
    ]
   },
   {
@@ -4592,21 +4539,6 @@
    "sites": [
     ["crates/zk_ace_prover/src/lib.rs", "activation", "lifecycle", 2],
     ["crates/zk_ace_prover/src/lib.rs", "activation", "revocation_state", 3]
-   ]
-  },
-  {
-   "id": "zk_ace.global_manifest",
-   "kind": "global_manifest",
-   "status": "open",
-   "owner": "P.15",
-   "path": "crates/zk_ace_prover/src/lib.rs",
-   "symbol": "PrivacyExact12CatalogCommitmentV1",
-   "gates": "ZK-ACE: code that names the Exact12 catalog, a capability or release manifest or an availability pin.",
-   "decided_by": "Remove. Each protocol is valid by its own committed relation identity and keys; no all-protocol manifest or zero pin decides availability.",
-   "attribution": "read",
-   "note": "`PrivacyExact12CatalogCommitmentV1::default()` is written into every ZK-ACE proof envelope (crates/zk_ace_prover/src/lib.rs): the proof binds the commitment of the all-protocol catalog. A catalog membership hash used as identity; F.1, F.5 and P.15 replace it.",
-   "sites": [
-    ["crates/zk_ace_prover/src/lib.rs", "global_manifest", "exact12", 3]
    ]
   },
   {
@@ -4968,21 +4900,6 @@
    ]
   },
   {
-   "id": "sdk_csharp.kagemusha_release",
-   "kind": "readiness_qualification",
-   "status": "out_of_plan",
-   "owner": null,
-   "path": "csharp/src/Hyperledger.Iroha.Sdk/Torii/KagemushaReleaseGovernanceV1.cs",
-   "symbol": "ReleaseManifest",
-   "gates": "C# SDK: KAGEMUSHA release-governance and verifier-proposal models.",
-   "decided_by": "Outside the ZK delivery plan; recorded for visibility only.",
-   "attribution": "read",
-   "note": "Qualification reports, qualified helper circuits and the release manifest of the KAGEMUSHA offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate from the ZK delivery plan.",
-   "sites": [
-    ["csharp/src/Hyperledger.Iroha.Sdk/Torii/KagemushaReleaseGovernanceV1.cs", "sdk_availability", "release_manifest", 1]
-   ]
-  },
-  {
    "id": "sdk_csharp.names",
    "kind": "readiness_qualification",
    "status": "not_a_gate",
@@ -5028,22 +4945,6 @@
     ["javascript/iroha_js/src/toriiClient.js", "sdk_availability", "capability_manifest", 7],
     ["javascript/iroha_js/src/toriiClient.js", "sdk_availability", "exact12", 10],
     ["javascript/iroha_js/src/transaction.js", "sdk_availability", "exact12", 1]
-   ]
-  },
-  {
-   "id": "sdk_javascript.kagemusha_release",
-   "kind": "readiness_qualification",
-   "status": "out_of_plan",
-   "owner": null,
-   "path": "javascript/iroha_js/src/governanceKagemushaReleaseSchemasV1.js",
-   "symbol": "Qualif",
-   "gates": "JavaScript SDK: KAGEMUSHA release-governance and verifier-proposal models.",
-   "decided_by": "Outside the ZK delivery plan; recorded for visibility only.",
-   "attribution": "read",
-   "note": "Qualification reports, qualified helper circuits and the release manifest of the KAGEMUSHA offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate from the ZK delivery plan.",
-   "sites": [
-    ["javascript/iroha_js/src/governanceKagemushaReleaseSchemasV1.js", "sdk_availability", "qualification", 28],
-    ["javascript/iroha_js/src/governanceKagemushaReleaseSchemasV1.js", "sdk_availability", "release_manifest", 1]
    ]
   },
   {
@@ -5112,22 +5013,6 @@
     ["kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyNativeBridge.kt", "sdk_availability", "exact12", 75],
     ["kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyNativeBridge.kt", "sdk_availability", "readiness", 2],
     ["kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/tx/norito/TransactionPayloadAdapter.kt", "sdk_availability", "exact12", 3]
-   ]
-  },
-  {
-   "id": "sdk_kotlin.kagemusha_release",
-   "kind": "readiness_qualification",
-   "status": "out_of_plan",
-   "owner": null,
-   "path": "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/KagemushaVerifierProposalValidatorV1.kt",
-   "symbol": "Qualif",
-   "gates": "Kotlin/Java/Android SDK: KAGEMUSHA release-governance and verifier-proposal models.",
-   "decided_by": "Outside the ZK delivery plan; recorded for visibility only.",
-   "attribution": "read",
-   "note": "Qualification reports, qualified helper circuits and the release manifest of the KAGEMUSHA offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate from the ZK delivery plan.",
-   "sites": [
-    ["kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/KagemushaVerifierProposalValidatorV1.kt", "sdk_availability", "qualification", 33],
-    ["kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/client/KagemushaVerifierProposalValidatorV1.kt", "sdk_availability", "release_manifest", 2]
    ]
   },
   {
@@ -5216,22 +5101,6 @@
    ]
   },
   {
-   "id": "sdk_python.kagemusha_release",
-   "kind": "readiness_qualification",
-   "status": "out_of_plan",
-   "owner": null,
-   "path": "python/iroha_torii_client/governance_kagemusha_release_schema_v1.py",
-   "symbol": "Qualif",
-   "gates": "Python SDK: KAGEMUSHA release-governance and verifier-proposal models.",
-   "decided_by": "Outside the ZK delivery plan; recorded for visibility only.",
-   "attribution": "read",
-   "note": "Qualification reports, qualified helper circuits and the release manifest of the KAGEMUSHA offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate from the ZK delivery plan.",
-   "sites": [
-    ["python/iroha_torii_client/governance_kagemusha_release_schema_v1.py", "sdk_availability", "qualification", 28],
-    ["python/iroha_torii_client/governance_kagemusha_release_schema_v1.py", "sdk_availability", "release_manifest", 1]
-   ]
-  },
-  {
    "id": "sdk_python.names",
    "kind": "readiness_qualification",
    "status": "not_a_gate",
@@ -5301,22 +5170,6 @@
     ["IrohaSwift/Sources/IrohaSwift/ToriiClient.swift", "sdk_availability", "capability_manifest", 5],
     ["IrohaSwift/Sources/IrohaSwift/ToriiClient.swift", "sdk_availability", "exact12", 14],
     ["IrohaSwift/Sources/IrohaSwift/TxBuilder.swift", "sdk_availability", "exact12", 16]
-   ]
-  },
-  {
-   "id": "sdk_swift.kagemusha_release",
-   "kind": "readiness_qualification",
-   "status": "out_of_plan",
-   "owner": null,
-   "path": "IrohaSwift/Sources/IrohaSwift/ToriiGovernanceKagemushaReleaseInstallV1.swift",
-   "symbol": "Qualif",
-   "gates": "Swift SDK: KAGEMUSHA release-governance and verifier-proposal models.",
-   "decided_by": "Outside the ZK delivery plan; recorded for visibility only.",
-   "attribution": "read",
-   "note": "Qualification reports, qualified helper circuits and the release manifest of the KAGEMUSHA offline monetary authority. AGENTS.md keeps its hardware-backed release and custody policy separate from the ZK delivery plan.",
-   "sites": [
-    ["IrohaSwift/Sources/IrohaSwift/ToriiGovernanceKagemushaReleaseInstallV1.swift", "sdk_availability", "qualification", 75],
-    ["IrohaSwift/Sources/IrohaSwift/ToriiGovernanceKagemushaReleaseInstallV1.swift", "sdk_availability", "release_manifest", 5]
    ]
   },
   {
@@ -5814,7 +5667,6 @@
   },
   "iroha": {
    "default": {"class": "packaging", "reason": "The default feature set of the crate."},
-   "dev-tools": {"class": "development_or_test", "reason": "Development, test, benchmark or measurement tooling; not part of a node release."},
    "gost": {"class": "validity_gate", "entry": "feature.sm_gost_bls_pqc", "cfg_sites": 0},
    "sm": {"class": "validity_gate", "entry": "feature.sm_gost_bls_pqc", "cfg_sites": 1},
    "test-fixtures": {"class": "development_or_test", "reason": "Development, test, benchmark or measurement tooling; not part of a node release."},
@@ -5872,7 +5724,7 @@
    "zk-ipa-native": {"class": "validity_gate", "entry": "feature.zk_halo2_family", "cfg_sites": 1},
    "zk-preverify": {"class": "validity_gate", "entry": "feature.zk_halo2_family", "cfg_sites": 15},
    "zk-proof-tags": {"class": "validity_gate", "entry": "feature.zk_halo2_family", "cfg_sites": 0},
-   "zk-stark": {"class": "validity_gate", "entry": "feature.zk_stark", "cfg_sites": 48},
+   "zk-stark": {"class": "validity_gate", "entry": "feature.zk_stark", "cfg_sites": 47},
    "zk-tests": {"class": "development_or_test", "reason": "Development, test, benchmark or measurement tooling; not part of a node release."}
   },
   "iroha_core_privacy": {
@@ -5881,7 +5733,7 @@
    "privacy-release-evidence": {"class": "availability_gate", "entry": "feature.privacy_release_evidence", "cfg_sites": 12},
    "simd": {"class": "acceleration", "reason": "Hardware acceleration or parallelism with a deterministic scalar fallback."},
    "test-utils": {"class": "development_or_test", "reason": "Development, test, benchmark or measurement tooling; not part of a node release."},
-   "zk-stark": {"class": "validity_gate", "entry": "feature.zk_stark", "cfg_sites": 20}
+   "zk-stark": {"class": "validity_gate", "entry": "feature.zk_stark", "cfg_sites": 18}
   },
   "iroha_core_timed_ovn": {
    "default": {"class": "packaging", "reason": "The default feature set of the crate."},
@@ -6048,9 +5900,9 @@
   }
  },
  "summary": {
-  "entries": 224,
-  "sites": 1484,
-  "by_status": {"done": 10, "local_resource": 22, "not_a_gate": 94, "open": 57, "out_of_plan": 26, "unsupported": 15},
-  "by_owner": {"-": 120, "A.3": 2, "B.2": 2, "C.2": 1, "C.5": 6, "C.6": 4, "F.4": 26, "M.2": 6, "P.11": 1, "P.12": 2, "P.13": 2, "P.14": 4, "P.15": 4, "P.16": 1, "P.17": 1, "P.18": 1, "P.19": 1, "P.20": 3, "P.5": 16, "P.8": 3, "P.9": 3, "R.12": 3, "S.1": 1, "S.3": 1, "S.4": 2, "S.5": 2, "X.4": 6}
+  "entries": 216,
+  "sites": 1449,
+  "by_status": {"done": 10, "local_resource": 22, "not_a_gate": 92, "open": 56, "out_of_plan": 21, "unsupported": 15},
+  "by_owner": {"-": 113, "A.3": 2, "B.2": 2, "C.2": 1, "C.5": 6, "C.6": 4, "F.4": 26, "M.2": 6, "P.11": 1, "P.12": 2, "P.13": 2, "P.14": 4, "P.15": 3, "P.16": 1, "P.17": 1, "P.18": 1, "P.19": 1, "P.20": 3, "P.5": 16, "P.8": 3, "P.9": 3, "R.12": 3, "S.1": 1, "S.3": 1, "S.4": 2, "S.5": 2, "X.4": 6}
  }
 }

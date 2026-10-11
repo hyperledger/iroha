@@ -606,9 +606,9 @@ final class KagemushaWalletApplePlatformV1Tests: XCTestCase {
 
     // Signing is not bracketed; a refused keychain is told apart the same way.
     keychain.copyStatus = errSecInteractionNotAllowed
-    XCTAssertEqual(failure(platform.keySign(slot, preimage: Data([1]))), .beforeFirstUnlock)
+    XCTAssertEqual(failure(platform.keySign(slot, message: Data(repeating: 1, count: 32))), .beforeFirstUnlock)
     probe.firstUnlock = 0
-    XCTAssertEqual(failure(platform.keySign(slot, preimage: Data([1]))), .locked)
+    XCTAssertEqual(failure(platform.keySign(slot, message: Data(repeating: 1, count: 32))), .locked)
   }
 
   func testProtectedDataBracketsSurroundEveryAbsence() throws {
@@ -802,26 +802,36 @@ final class KagemushaWalletApplePlatformV1Tests: XCTestCase {
     }
   }
 
-  func testKeySignReturnsDERThatVerifiesOverTheSHA256Preimage() throws {
+  func testKeySignReturnsDERThatVerifiesOverTheSHA256SigningMessage() throws {
     let keychain = FakeWalletKeychain()
     let platform = try makePlatform(keychain: keychain)
     let publicKey = try generatedKey(platform)
-    let preimage = Data("iroha:kagemusha:wallet:v1:receipt-body\u{0}example".utf8)
+    let message = Data(repeating: 7, count: 32)
     let der: Data
-    switch platform.keySign(slot, preimage: preimage) {
+    switch platform.keySign(slot, message: message) {
     case .success(let signature): der = signature
     case .failure(let reason): return XCTFail("sign: \(reason)")
     }
     XCTAssertEqual(der.first, 0x30, "strict DER sequence; low-S normalization is Rust's")
     let signature = try P256.Signing.ECDSASignature(derRepresentation: der)
     let verifier = try P256.Signing.PublicKey(x963Representation: publicKey)
-    XCTAssertTrue(verifier.isValidSignature(signature, for: preimage))
-    XCTAssertFalse(verifier.isValidSignature(signature, for: preimage + Data([0])))
+    XCTAssertTrue(verifier.isValidSignature(signature, for: message))
+    XCTAssertFalse(verifier.isValidSignature(signature, for: message + Data([0])))
 
     let other = KagemushaWalletAppleSlotV1(Data(repeating: 9, count: 32))!
-    XCTAssertEqual(failure(platform.keySign(other, preimage: preimage)), .platform(errSecItemNotFound))
+    XCTAssertEqual(failure(platform.keySign(other, message: message)), .platform(errSecItemNotFound))
     keychain.copyStatus = errSecInteractionNotAllowed
-    XCTAssertEqual(failure(platform.keySign(slot, preimage: preimage)), .locked)
+    XCTAssertEqual(failure(platform.keySign(slot, message: message)), .locked)
+  }
+
+  func testKeySignRejectsWrongMessageLengthsBeforeKeychainAccess() throws {
+    let keychain = FakeWalletKeychain()
+    let platform = try makePlatform(keychain: keychain)
+    let queries = keychain.queries.count
+    for length in [0, 31, 33, 1024] {
+      XCTAssertEqual(failure(platform.keySign(slot, message: Data(repeating: 7, count: length))), .keyUnusable)
+    }
+    XCTAssertEqual(keychain.queries.count, queries, "malformed messages never reach the keychain")
   }
 
   func testKeySignReportsAKeyThatCannotSignAsUnusable() throws {
@@ -830,7 +840,7 @@ final class KagemushaWalletApplePlatformV1Tests: XCTestCase {
     let platform = try makePlatform(keychain: keychain, diagnostics: diagnostics)
     let publicOnly = try XCTUnwrap(SecKeyCopyPublicKey(FakeWalletKeychain.softwareKey()))
     keychain.storeKey(tag: slot.applicationTag, label: nil, key: publicOnly)
-    XCTAssertEqual(failure(platform.keySign(slot, preimage: Data([1]))), .keyUnusable)
+    XCTAssertEqual(failure(platform.keySign(slot, message: Data(repeating: 1, count: 32))), .keyUnusable)
     XCTAssertEqual(diagnostics.all.count, 1)
     XCTAssertEqual(diagnostics.all.first?.slot, slot.keychainName)
   }

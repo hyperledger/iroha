@@ -11,7 +11,6 @@ mod lane_geometry;
 mod lane_storage;
 mod membership_storage;
 use crate::telemetry::StateTelemetry;
-use crate::zk::kagemusha_v1_recursion::KagemushaMintAuthorityCheckpointV1;
 use crate::{
     block::CommittedBlock,
     secure_file_metadata::{self, SecureMetadata},
@@ -40,10 +39,6 @@ use iroha_data_model::{
     block::{
         BlockHeader, SignedBlock, consensus::MAX_EXECUTED_BLOCK_WIRE_BYTES,
         decode_framed_signed_block,
-    },
-    isi::kagemusha_v1::{
-        KAGEMUSHA_CHAIN_VERSION_V1, KagemushaFinalityTrustAnchorV1, KagemushaOperationFinalityV1,
-        KagemushaTopUpResultV1,
     },
     kaigi::KaigiId,
     nexus::{LaneCatalog, LaneLifecycleParameterV1},
@@ -129,16 +124,6 @@ const EVICTION_COMPACTION_INDEX_FILE_NAME: &str = "blocks.index.eviction-v1";
 const MAX_EVICTION_COMPACTION_STAGE_BYTES: u64 = 1024 * 1024;
 const MAX_EVICTION_COMPACTION_ENTRIES: usize = 4096;
 const EVICTION_FILE_DIGEST_DOMAIN: &[u8] = b"iroha:kura:eviction-file:v1\0";
-const KAGEMUSHA_MINT_OUTBOX_DIR_NAME: &str = "kagemusha_v1_mint_outbox";
-const KAGEMUSHA_ORDINARY_MINT_PROGRESS_DIR_NAME: &str = "kagemusha_v1_ordinary_mint_progress";
-const MAX_KAGEMUSHA_ORDINARY_MINT_PROGRESS_BYTES: usize = 4096;
-const KAGEMUSHA_ORDINARY_MINT_OUTBOX_DIR_NAME: &str = "kagemusha_v1_ordinary_mint_outbox";
-const MAX_KAGEMUSHA_ORDINARY_MINT_OUTBOX_BYTES: usize =
-    iroha_data_model::kagemusha::KAGEMUSHA_ORDINARY_FINALIZED_MINT_CREDIT_MAX_BYTES_V1;
-const KAGEMUSHA_MINT_AUTHORITY_DIR_NAME: &str = "kagemusha_v1_mint_authority";
-const MAX_KAGEMUSHA_MINT_OUTBOX_ENTRY_BYTES: usize =
-    iroha_data_model::isi::kagemusha_v1::KAGEMUSHA_OPERATION_RESULT_MAX_BYTES_V1 + 256;
-const MAX_KAGEMUSHA_MINT_AUTHORITY_CHECKPOINT_BYTES: usize = 64 * 1024;
 
 include!("kura/storage_identity.rs");
 include!("kura/read_only_evidence.rs");
@@ -5915,47 +5900,6 @@ impl Kura {
             && Self::stable_sidecar_metadata_unchanged(&left.hashes, &right.hashes)
             && Self::stable_sidecar_metadata_unchanged(&left.commit_marker, &right.commit_marker)
     }
-    fn kagemusha_mint_outbox_dir_for(blocks_dir: &Path) -> PathBuf {
-        blocks_dir.join(KAGEMUSHA_MINT_OUTBOX_DIR_NAME)
-    }
-    fn kagemusha_mint_outbox_dir(&self) -> PathBuf {
-        Self::kagemusha_mint_outbox_dir_for(&self.active_blocks_dir.lock())
-    }
-    fn kagemusha_mint_outbox_path_for(blocks_dir: &Path, operation_id: [u8; 32]) -> PathBuf {
-        Self::kagemusha_mint_outbox_dir_for(blocks_dir)
-            .join(format!("{}.norito", hex::encode(operation_id)))
-    }
-    fn kagemusha_mint_outbox_path(&self, operation_id: [u8; 32]) -> PathBuf {
-        Self::kagemusha_mint_outbox_path_for(&self.active_blocks_dir.lock(), operation_id)
-    }
-    fn kagemusha_mint_authority_dir_for(blocks_dir: &Path) -> PathBuf {
-        blocks_dir.join(KAGEMUSHA_MINT_AUTHORITY_DIR_NAME)
-    }
-    fn kagemusha_mint_authority_dir(&self) -> PathBuf {
-        Self::kagemusha_mint_authority_dir_for(&self.active_blocks_dir.lock())
-    }
-    fn kagemusha_mint_authority_path_for(
-        blocks_dir: &Path,
-        release_id: [u8; 32],
-        authority_head: [u8; 32],
-    ) -> PathBuf {
-        Self::kagemusha_mint_authority_dir_for(blocks_dir).join(format!(
-            "{}-{}.norito",
-            hex::encode(release_id),
-            hex::encode(authority_head)
-        ))
-    }
-    fn kagemusha_mint_authority_path(
-        &self,
-        release_id: [u8; 32],
-        authority_head: [u8; 32],
-    ) -> PathBuf {
-        Self::kagemusha_mint_authority_path_for(
-            &self.active_blocks_dir.lock(),
-            release_id,
-            authority_head,
-        )
-    }
     #[cfg(test)]
     pub(crate) fn canonical_body_bytes_read_for_test(&self) -> u64 {
         self.block_store
@@ -5983,330 +5927,7 @@ impl Kura {
     pub(crate) fn instance_identity(&self) -> KuraInstanceIdentity {
         KuraInstanceIdentity(Arc::clone(&self.instance_identity))
     }
-
-    fn decode_kagemusha_mint_authority_checkpoint_v1(
-        &self,
-        path: &Path,
-    ) -> Result<
-        Option<(
-            KagemushaMintAuthorityCheckpointEntryV1,
-            StableSidecarRead<Vec<u8>>,
-        )>,
-    > {
-        let directory = self.kagemusha_mint_authority_dir();
-        let Some(snapshot) = self.read_regular_sidecar_snapshot(
-            path,
-            &directory,
-            MAX_KAGEMUSHA_MINT_AUTHORITY_CHECKPOINT_BYTES,
-        )?
-        else {
-            return Ok(None);
-        };
-        let mut cursor = snapshot.bytes.as_slice();
-        let entry = KagemushaMintAuthorityCheckpointEntryV1::decode_all(&mut cursor)
-            .map_err(Error::NoritoFrame)?;
-        if entry.encode() != snapshot.bytes {
-            return Err(Error::KagemushaMintOutbox(
-                "mint-authority checkpoint is not canonical Norito".to_owned(),
-            ));
-        }
-        Ok(Some((entry, snapshot)))
-    }
-
-    fn validate_kagemusha_mint_authority_checkpoint_v1(
-        entry: &KagemushaMintAuthorityCheckpointEntryV1,
-    ) -> Result<()> {
-        entry
-            .checkpoint
-            .validate_shape()
-            .map_err(Error::KagemushaMintOutbox)?;
-        if entry.version != KAGEMUSHA_CHAIN_VERSION_V1
-            || entry.release_id == [0; 32]
-            || entry.authority_head == [0; 32]
-            || entry.release_id != entry.checkpoint.release_id
-            || entry.authority_head != entry.checkpoint.authority_head
-            || entry.checkpoint_wire_hash != Hash::new(entry.checkpoint.encode())
-        {
-            return Err(Error::KagemushaMintOutbox(
-                "mint-authority checkpoint identity or content digest is invalid".to_owned(),
-            ));
-        }
-        Ok(())
-    }
-
-    /// Persist one recursively proved bootstrap or rotation authority checkpoint.
-    ///
-    /// Kura authenticates the immutable bytes and path identity. Monetary authority is granted
-    /// only after the release runtime recursively verifies the loaded proof again.
-    pub(crate) fn store_kagemusha_mint_authority_checkpoint_v1(
-        &self,
-        checkpoint: &KagemushaMintAuthorityCheckpointV1,
-    ) -> Result<()> {
-        self.durable_mutation_authorized()?;
-        let entry = KagemushaMintAuthorityCheckpointEntryV1 {
-            version: KAGEMUSHA_CHAIN_VERSION_V1,
-            release_id: checkpoint.release_id,
-            authority_head: checkpoint.authority_head,
-            checkpoint: checkpoint.clone(),
-            checkpoint_wire_hash: Hash::new(checkpoint.encode()),
-        };
-        Self::validate_kagemusha_mint_authority_checkpoint_v1(&entry)?;
-        let bytes = entry.encode();
-        if bytes.len() > MAX_KAGEMUSHA_MINT_AUTHORITY_CHECKPOINT_BYTES {
-            return Err(Error::KagemushaMintOutboxTooLarge {
-                actual: bytes.len(),
-                max: MAX_KAGEMUSHA_MINT_AUTHORITY_CHECKPOINT_BYTES,
-            });
-        }
-        let directory = self.kagemusha_mint_authority_dir();
-        let path = self.kagemusha_mint_authority_path(entry.release_id, entry.authority_head);
-        let _guard = self.sidecar_lock.lock();
-        create_dir_all_with_context(&directory)?;
-        if let Some(parent) = directory.parent() {
-            sync_dir(parent).map_err(|error| Error::IO(error, parent.to_path_buf()))?;
-        }
-        if let Some((existing, _)) = self.decode_kagemusha_mint_authority_checkpoint_v1(&path)? {
-            return if existing == entry {
-                Ok(())
-            } else {
-                Err(Error::KagemushaMintOutbox(
-                    "authority head already owns different checkpoint bytes".to_owned(),
-                ))
-            };
-        }
-        let resource_mutation = self
-            .begin_total_disk_usage_mutation()
-            .with_resource_paths(vec![path.clone()]);
-        if !self.write_atomic_synced_noclobber(&path, &bytes)? {
-            let Some((existing, _)) = self.decode_kagemusha_mint_authority_checkpoint_v1(&path)?
-            else {
-                return Err(Error::KagemushaMintOutbox(
-                    "mint-authority checkpoint disappeared during publication".to_owned(),
-                ));
-            };
-            if existing != entry {
-                return Err(Error::KagemushaMintOutbox(
-                    "no-clobber race published different mint-authority bytes".to_owned(),
-                ));
-            }
-        }
-        let Some((persisted, identity)) =
-            self.decode_kagemusha_mint_authority_checkpoint_v1(&path)?
-        else {
-            return Err(Error::KagemushaMintOutbox(
-                "mint-authority checkpoint disappeared after publication".to_owned(),
-            ));
-        };
-        if persisted != entry || identity.bytes != bytes || identity.bytes_hash != Hash::new(&bytes)
-        {
-            return Err(Error::KagemushaMintOutbox(
-                "mint-authority checkpoint changed during durable readback".to_owned(),
-            ));
-        }
-        resource_mutation.finish_resources_before_disk_rescan();
-        Ok(())
-    }
-
-    /// Load an immutable authority checkpoint for one authenticated release and roster head.
-    pub(crate) fn kagemusha_mint_authority_checkpoint_v1(
-        &self,
-        release_id: [u8; 32],
-        authority_head: [u8; 32],
-    ) -> Result<Option<KagemushaMintAuthorityCheckpointV1>> {
-        if release_id == [0; 32] || authority_head == [0; 32] {
-            return Err(Error::KagemushaMintOutbox(
-                "mint-authority checkpoint lookup identity is zero".to_owned(),
-            ));
-        }
-        let path = self.kagemusha_mint_authority_path(release_id, authority_head);
-        let entry = {
-            let _guard = self.sidecar_lock.lock();
-            self.decode_kagemusha_mint_authority_checkpoint_v1(&path)?
-                .map(|(entry, _)| entry)
-        };
-        let Some(entry) = entry else {
-            return Ok(None);
-        };
-        if entry.release_id != release_id || entry.authority_head != authority_head {
-            return Err(Error::KagemushaMintOutbox(
-                "mint-authority checkpoint path differs from its identity".to_owned(),
-            ));
-        }
-        Self::validate_kagemusha_mint_authority_checkpoint_v1(&entry)?;
-        Ok(Some(entry.checkpoint))
-    }
-
-    fn decode_kagemusha_mint_outbox_entry_v1(
-        &self,
-        path: &Path,
-    ) -> Result<Option<(KagemushaMintOutboxEntryV1, StableSidecarRead<Vec<u8>>)>> {
-        let directory = self.kagemusha_mint_outbox_dir();
-        let Some(snapshot) = self.read_regular_sidecar_snapshot(
-            path,
-            &directory,
-            MAX_KAGEMUSHA_MINT_OUTBOX_ENTRY_BYTES,
-        )?
-        else {
-            return Ok(None);
-        };
-        let mut cursor = snapshot.bytes.as_slice();
-        let entry =
-            KagemushaMintOutboxEntryV1::decode_all(&mut cursor).map_err(Error::NoritoFrame)?;
-        if entry.encode() != snapshot.bytes {
-            return Err(Error::KagemushaMintOutbox(
-                "mint outbox entry is not canonical Norito".to_owned(),
-            ));
-        }
-        Ok(Some((entry, snapshot)))
-    }
-    fn validate_kagemusha_mint_outbox_entry_v1(
-        &self,
-        entry: &KagemushaMintOutboxEntryV1,
-        view: &impl crate::state::StateReadOnly,
-    ) -> Result<()> {
-        if !std::ptr::eq(self, view.kura()) {
-            return Err(Error::KagemushaMintOutbox(
-                "mint outbox belongs to another native State store".into(),
-            ));
-        }
-        if entry.version != KAGEMUSHA_CHAIN_VERSION_V1
-            || entry.operation_id == [0; 32]
-            || entry.result.request.operation_id != entry.operation_id
-            || entry.result_wire_hash != Hash::new(entry.result.encode())
-            || entry.finality_proof_hash != HashOf::new(&entry.result.finality)
-        {
-            return Err(Error::KagemushaMintOutbox(
-                "mint outbox identity or content digest is invalid".to_owned(),
-            ));
-        }
-        let height = entry.result.finality.finality_proof.height();
-        let Some(canonical_finality) = crate::query::native_receipts::kagemusha_operation_finality(
-            view,
-            height,
-            entry.operation_id,
-        )
-        .map_err(Error::KagemushaMintOutbox)?
-        else {
-            return Err(Error::KagemushaMintOutbox(
-                "mint outbox entry has no canonical reserve-receipt finality proof".to_owned(),
-            ));
-        };
-        if canonical_finality != entry.result.finality {
-            return Err(Error::KagemushaMintOutbox(
-                "mint outbox finality differs from canonical Kura evidence".to_owned(),
-            ));
-        }
-        let anchor = KagemushaFinalityTrustAnchorV1 {
-            network_id: *view.network_id(),
-            checkpoint: crate::sumeragi::finality::build_checkpoint(view, height)
-                .map_err(|error| Error::KagemushaMintOutbox(error.to_string()))?,
-        };
-        entry.result.validate_against(&anchor).map_err(|error| {
-            Error::KagemushaMintOutbox(format!(
-                "mint outbox result failed canonical finality validation: {error}"
-            ))
-        })
-    }
-    /// Persist one fully proved mint result as an immutable, content-checked Kura outbox entry.
-    ///
-    /// The caller must hold Kura's durable-mutation authority. The result is accepted only
-    /// after its finality and receipt witness exactly match canonical Kura evidence.
-    pub fn store_kagemusha_mint_outbox_entry_v1(
-        &self,
-        result: &KagemushaTopUpResultV1,
-        view: &impl crate::state::StateReadOnly,
-    ) -> Result<()> {
-        self.durable_mutation_authorized()?;
-        let entry = KagemushaMintOutboxEntryV1 {
-            version: KAGEMUSHA_CHAIN_VERSION_V1,
-            operation_id: result.request.operation_id,
-            result: result.clone(),
-            result_wire_hash: Hash::new(result.encode()),
-            finality_proof_hash: HashOf::new(&result.finality),
-        };
-        self.validate_kagemusha_mint_outbox_entry_v1(&entry, view)?;
-        let bytes = entry.encode();
-        if bytes.len() > MAX_KAGEMUSHA_MINT_OUTBOX_ENTRY_BYTES {
-            return Err(Error::KagemushaMintOutboxTooLarge {
-                actual: bytes.len(),
-                max: MAX_KAGEMUSHA_MINT_OUTBOX_ENTRY_BYTES,
-            });
-        }
-        let directory = self.kagemusha_mint_outbox_dir();
-        let path = self.kagemusha_mint_outbox_path(entry.operation_id);
-        let _guard = self.sidecar_lock.lock();
-        create_dir_all_with_context(&directory)?;
-        if let Some(parent) = directory.parent() {
-            sync_dir(parent).map_err(|error| Error::IO(error, parent.to_path_buf()))?;
-        }
-        if let Some((existing, _)) = self.decode_kagemusha_mint_outbox_entry_v1(&path)? {
-            return if existing == entry {
-                Ok(())
-            } else {
-                Err(Error::KagemushaMintOutbox(
-                    "operation id already owns different mint outbox bytes".to_owned(),
-                ))
-            };
-        }
-        let resource_mutation = self
-            .begin_total_disk_usage_mutation()
-            .with_resource_paths(vec![path.clone()]);
-        if !self.write_atomic_synced_noclobber(&path, &bytes)? {
-            let Some((existing, _)) = self.decode_kagemusha_mint_outbox_entry_v1(&path)? else {
-                return Err(Error::KagemushaMintOutbox(
-                    "mint outbox entry disappeared during publication".to_owned(),
-                ));
-            };
-            if existing != entry {
-                return Err(Error::KagemushaMintOutbox(
-                    "no-clobber race published different mint outbox bytes".to_owned(),
-                ));
-            }
-        }
-        let Some((persisted, identity)) = self.decode_kagemusha_mint_outbox_entry_v1(&path)? else {
-            return Err(Error::KagemushaMintOutbox(
-                "mint outbox entry disappeared after publication".to_owned(),
-            ));
-        };
-        if persisted != entry || identity.bytes != bytes || identity.bytes_hash != Hash::new(&bytes)
-        {
-            return Err(Error::KagemushaMintOutbox(
-                "mint outbox entry changed during durable readback".to_owned(),
-            ));
-        }
-        resource_mutation.finish_resources_before_disk_rescan();
-        Ok(())
-    }
-    /// Load one fully proved mint result from the immutable Kura outbox.
-    pub fn kagemusha_mint_outbox_entry_v1(
-        &self,
-        operation_id: [u8; 32],
-        view: &impl crate::state::StateReadOnly,
-    ) -> Result<Option<KagemushaTopUpResultV1>> {
-        if operation_id == [0; 32] {
-            return Err(Error::KagemushaMintOutbox(
-                "mint outbox operation id is zero".to_owned(),
-            ));
-        }
-        let path = self.kagemusha_mint_outbox_path(operation_id);
-        let entry = {
-            let _guard = self.sidecar_lock.lock();
-            self.decode_kagemusha_mint_outbox_entry_v1(&path)?
-                .map(|(entry, _)| entry)
-        };
-        let Some(entry) = entry else {
-            return Ok(None);
-        };
-        if entry.operation_id != operation_id {
-            return Err(Error::KagemushaMintOutbox(
-                "mint outbox path does not match its operation id".to_owned(),
-            ));
-        }
-        self.validate_kagemusha_mint_outbox_entry_v1(&entry, view)?;
-        Ok(Some(entry.result))
-    }
 }
-include!("kura/ordinary_mint_credit_outbox.rs");
 include!("kura/durable_block_and_atomic_sidecar_io.rs");
 impl Kura {
     fn rollback_intent_path(blocks_root: &Path) -> PathBuf {
@@ -6575,12 +6196,6 @@ impl Kura {
         let mut total = 0u64;
         let da_dir = blocks_dir.join(DA_BLOCKS_DIR_NAME);
         total = total.saturating_add(Self::dir_file_bytes(&da_dir)?);
-        for directory in [
-            KAGEMUSHA_MINT_OUTBOX_DIR_NAME,
-            KAGEMUSHA_MINT_AUTHORITY_DIR_NAME,
-        ] {
-            total = total.saturating_add(Self::dir_file_bytes(&blocks_dir.join(directory))?);
-        }
         Ok(total)
     }
     fn blocks_root_usage_bytes(root: &Path) -> Result<(u64, u64)> {

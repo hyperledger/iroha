@@ -315,7 +315,7 @@ impl GatewayCompliancePlanV1 {
 }
 
 pub(super) fn validate_retained(
-    directory: &iroha_fs::PrivateDirectory,
+    directory: &capture::CapturedDirectory,
     manifest: &StreamTokenAuthorityManifest,
     selected: &ProviderServiceInventory,
     creation_time_ms: u64,

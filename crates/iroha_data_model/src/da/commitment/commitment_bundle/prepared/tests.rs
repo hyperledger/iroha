@@ -188,7 +188,7 @@ fn da_commitment_generated_children_reject_truncated_wire_bad_utf8_and_original_
             panic!("bad UTF-8 must preserve the original decode error");
         };
         assert!(matches!(original.into_error(), norito::Error::InvalidUtf8));
-        assert!(!pending.payload_admitted);
+        assert!(pending.phase < PreparationPhase::PayloadAdmitted);
         assert!(pending.values.value.is_none());
         drop(pending);
         drop(source);
@@ -207,7 +207,7 @@ fn da_commitment_generated_children_reject_truncated_wire_bad_utf8_and_original_
             assert!(
                 matches!(error,DaCommitmentCustodyError::Signature(PreparedCryptoDecodeError::Signature(actual)) if actual==expected)
             );
-            assert!(!pending.payload_admitted);
+            assert!(pending.phase < PreparationPhase::PayloadAdmitted);
             assert!(pending.values.value.is_none());
             drop(pending);
             drop(source);
@@ -267,4 +267,54 @@ fn da_commitment_actual_finish_interruption_destroys_original_tag_signature_arra
         drop(source);
         assert_eq!(pool.reserved_bytes(), 0);
     }
+}
+
+#[test]
+fn da_commitment_payload_refusal_keeps_planned_phase_and_original_backings_until_retry() {
+    let _flags = DecodeFlagsGuard::enter(header_flags::COMPACT_LEN);
+    let original = fixture();
+    let pool = AllocationBudget::new(1 << 20);
+    let (source, span) = source(&original, &pool);
+    let source_floor = pool.reserved_bytes();
+    let mut pending = PreparedDaCommitmentBundle::from_source(&source, span, &pool).unwrap();
+    assert_eq!(pending.phase, PreparationPhase::Unadmitted);
+    let metadata_bytes = pending
+        .planning_layouts()
+        .unwrap()
+        .iter()
+        .map(std::alloc::Layout::size)
+        .sum::<usize>();
+    let blocker = pool
+        .try_reserve_bytes(pool.limit_bytes() - pool.reserved_bytes() - metadata_bytes)
+        .unwrap();
+    assert!(matches!(
+        pending.prepare(&source),
+        Err(DaCommitmentCustodyError::Admission(_))
+    ));
+    assert_eq!(pending.phase, PreparationPhase::Planned);
+    let rows = pending.rows.value.as_ref().unwrap().as_slice().as_ptr();
+    let spans = pending.spans.value.as_ref().unwrap().as_slice().as_ptr();
+    let refused_reservation = pool.reserved_bytes();
+    assert!(pending.prepare(&source).is_err());
+    assert_eq!(pending.phase, PreparationPhase::Planned);
+    assert_eq!(
+        pending.rows.value.as_ref().unwrap().as_slice().as_ptr(),
+        rows
+    );
+    assert_eq!(
+        pending.spans.value.as_ref().unwrap().as_slice().as_ptr(),
+        spans
+    );
+    assert_eq!(pool.reserved_bytes(), refused_reservation);
+    drop(blocker);
+    pending.prepare(&source).unwrap();
+    assert_eq!(pending.phase, PreparationPhase::Ready);
+    let admitted = pending
+        .finish(&source)
+        .unwrap_or_else(|_| panic!("complete original owner after exact retry"));
+    assert_eq!(admitted, original);
+    drop(admitted);
+    assert_eq!(pool.reserved_bytes(), source_floor);
+    drop(source);
+    assert_eq!(pool.reserved_bytes(), 0);
 }

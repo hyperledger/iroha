@@ -153,7 +153,7 @@ fn build_vk_record(
 }
 fn signed_empty_tx_with_attachments(
     network_id: NetworkId,
-    attachments: iroha_data_model::proof::ProofAttachmentList,
+    attachments: Vec<iroha_data_model::proof::ProofAttachment>,
 ) -> SignedTransaction {
     TransactionBuilder::new(
         network_id,
@@ -163,14 +163,14 @@ fn signed_empty_tx_with_attachments(
     .with_executable(Executable::Instructions(
         Vec::<InstructionBox>::new().into(),
     ))
-    .with_attachments(attachments)
+    .with_proof_attachments(attachments)
+    .expect("valid proof carriers")
     .sign(iroha_test_samples::ALICE_KEYPAIR.private_key())
 }
 fn bounded_proof_attachments(
     attachments: Vec<iroha_data_model::proof::ProofAttachment>,
-) -> iroha_data_model::proof::ProofAttachmentList {
-    iroha_data_model::proof::ProofAttachmentList::try_from(attachments)
-        .expect("test attachment set is a valid bounded proof list")
+) -> Vec<iroha_data_model::proof::ProofAttachment> {
+    attachments
 }
 fn grant_vk_management(
     exec: &Executor,
@@ -229,7 +229,8 @@ fn duplicate_proof_in_same_block_is_rejected() {
     .with_executable(Executable::Instructions(
         Vec::<InstructionBox>::new().into(),
     ))
-    .with_attachments(attachments.clone())
+    .with_proof_attachments(attachments.clone())
+    .expect("valid proof carriers")
     .sign(&private_key);
     let mut stx1 = block.transaction();
     exec.execute_transaction(&mut stx1, &authority, tx1, &mut ivm_cache)
@@ -244,7 +245,8 @@ fn duplicate_proof_in_same_block_is_rejected() {
     .with_executable(Executable::Instructions(
         Vec::<InstructionBox>::new().into(),
     ))
-    .with_attachments(attachments)
+    .with_proof_attachments(attachments)
+    .expect("valid proof carriers")
     .sign(&private_key);
     let mut stx2 = block.transaction();
     let err = rejected(
@@ -441,7 +443,8 @@ fn preverify_rejects_missing_vk_reference() {
     .with_executable(Executable::Instructions(
         Vec::<InstructionBox>::new().into(),
     ))
-    .with_attachments(attachments)
+    .with_proof_attachments(attachments)
+    .expect("valid proof carriers")
     .sign(&private_key);
     let mut stx = block.transaction();
     let err = rejected(
@@ -945,7 +948,8 @@ fn preverify_rejects_empty_proof_as_malformed() {
     .with_executable(Executable::Instructions(
         Vec::<InstructionBox>::new().into(),
     ))
-    .with_attachments(attachments)
+    .with_proof_attachments(attachments)
+    .expect("valid proof carriers")
     .sign(&private_key);
     let mut stx = block.transaction();
     let err = rejected(
@@ -998,7 +1002,8 @@ fn preverify_rejects_proof_too_big() {
     .with_executable(Executable::Instructions(
         Vec::<InstructionBox>::new().into(),
     ))
-    .with_attachments(attachments)
+    .with_proof_attachments(attachments)
+    .expect("valid proof carriers")
     .sign(&private_key);
     let mut stx = block.transaction();
     let err = rejected(

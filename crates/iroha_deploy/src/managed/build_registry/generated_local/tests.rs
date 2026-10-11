@@ -35,7 +35,11 @@ fn generated_registry_preparation_is_lazy_and_retains_lock_through_materialized_
     );
     let original = prepared.context.load_client_config().unwrap();
     let deadline = Instant::now() + Duration::from_secs(30);
-    let (config, transport) = prepare(prepared.clone(), deadline).unwrap().unwrap();
+    let ((config, transport), parses) =
+        crate::localnet::service_authorities::count_profile_validations(|| {
+            prepare(prepared.clone(), deadline).unwrap().unwrap()
+        });
+    assert_eq!(parses, 1);
     assert_eq!(config.chain, original.chain);
     assert_eq!(config.network_id, original.network_id);
     assert_eq!(config.account, original.account);

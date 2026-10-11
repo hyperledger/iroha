@@ -221,7 +221,8 @@ impl<'a> DecodeFromSlice<'a> for NetworkId {
 }
 mod id_box_codec {
     use super::*;
-    #[derive(norito::SerializePayload, norito::DeserializePayload)]
+    #[derive(norito::DeserializePayload)]
+    #[cfg_attr(test, derive(norito::SerializePayload))]
     enum IdBoxCandidate {
         DomainId(iroha_model_base::domain::DomainId),
         AccountId(account::AccountId),
@@ -237,6 +238,7 @@ mod id_box_codec {
         CustomParameterId(parameter::CustomParameterId),
         RepoAgreementId(repo::RepoAgreementId),
     }
+    #[cfg(test)]
     impl From<IdBox> for IdBoxCandidate {
         fn from(id: IdBox) -> Self {
             match id {
@@ -276,13 +278,62 @@ mod id_box_codec {
         }
     }
 
+    // Keep the current variant order and field layout while borrowing the
+    // original identity. Counting or writing never clones its name, key or JSON.
+    struct BorrowedIdValue<'a, T>(&'a T);
+
+    impl<T: norito::core::SerializePayload> norito::core::SerializePayload for BorrowedIdValue<'_, T> {
+        fn serialize(
+            &self,
+            writer: &mut norito::core::Encoder<'_>,
+        ) -> Result<(), norito::core::Error> {
+            norito::core::SerializePayload::serialize(self.0, writer)
+        }
+    }
+
+    #[derive(norito::SerializePayload)]
+    enum IdBoxView<'a> {
+        DomainId(BorrowedIdValue<'a, iroha_model_base::domain::DomainId>),
+        AccountId(BorrowedIdValue<'a, account::AccountId>),
+        AssetDefinitionId(BorrowedIdValue<'a, asset::id::AssetDefinitionId>),
+        AssetId(BorrowedIdValue<'a, asset::id::AssetId>),
+        NftId(BorrowedIdValue<'a, nft::NftId>),
+        RwaId(BorrowedIdValue<'a, rwa::RwaId>),
+        PeerId(BorrowedIdValue<'a, iroha_model_base::peer::PeerId>),
+        LaneId(BorrowedIdValue<'a, iroha_model_base::topology::LaneId>),
+        TriggerId(BorrowedIdValue<'a, trigger::TriggerId>),
+        RoleId(BorrowedIdValue<'a, role::RoleId>),
+        Permission(BorrowedIdValue<'a, permission::Permission>),
+        CustomParameterId(BorrowedIdValue<'a, parameter::CustomParameterId>),
+        RepoAgreementId(BorrowedIdValue<'a, repo::RepoAgreementId>),
+    }
+
+    impl<'a> From<&'a IdBox> for IdBoxView<'a> {
+        fn from(id: &'a IdBox) -> Self {
+            match id {
+                IdBox::DomainId(v) => Self::DomainId(BorrowedIdValue(v)),
+                IdBox::AccountId(v) => Self::AccountId(BorrowedIdValue(v)),
+                IdBox::AssetDefinitionId(v) => Self::AssetDefinitionId(BorrowedIdValue(v)),
+                IdBox::AssetId(v) => Self::AssetId(BorrowedIdValue(v)),
+                IdBox::NftId(v) => Self::NftId(BorrowedIdValue(v)),
+                IdBox::RwaId(v) => Self::RwaId(BorrowedIdValue(v)),
+                IdBox::PeerId(v) => Self::PeerId(BorrowedIdValue(v)),
+                IdBox::LaneId(v) => Self::LaneId(BorrowedIdValue(v)),
+                IdBox::TriggerId(v) => Self::TriggerId(BorrowedIdValue(v)),
+                IdBox::RoleId(v) => Self::RoleId(BorrowedIdValue(v)),
+                IdBox::Permission(v) => Self::Permission(BorrowedIdValue(v)),
+                IdBox::CustomParameterId(v) => Self::CustomParameterId(BorrowedIdValue(v)),
+                IdBox::RepoAgreementId(v) => Self::RepoAgreementId(BorrowedIdValue(v)),
+            }
+        }
+    }
+
     impl norito::core::SerializePayload for IdBox {
         fn serialize(
             &self,
             writer: &mut norito::core::Encoder<'_>,
         ) -> Result<(), norito::core::Error> {
-            let candidate: IdBoxCandidate = self.clone().into();
-            norito::core::SerializePayload::serialize(&candidate, writer)
+            norito::core::SerializePayload::serialize(&IdBoxView::from(self), writer)
         }
     }
 
@@ -296,6 +347,92 @@ mod id_box_codec {
         ) -> Result<Self, norito::core::Error> {
             <IdBoxCandidate as norito::core::DeserializePayload>::try_deserialize(archived.cast())
                 .map(Into::into)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn borrowed_id_box_preserves_every_original_variant_in_both_v1_layouts() {
+            let name = "original_identity_"
+                .repeat(7)
+                .parse::<iroha_model_base::name::Name>()
+                .expect("long checked name");
+            let domain = iroha_model_base::domain::DomainId::try_new(
+                "originaldomainlabel".repeat(2).as_str(),
+                "universal",
+            )
+            .expect("checked domain");
+            let key = iroha_crypto::KeyPair::try_from_seed(
+                vec![0x39; 32],
+                iroha_crypto::Algorithm::Ed25519,
+            )
+            .expect("deterministic identity key");
+            let account = account::AccountId::new(key.public_key().clone());
+            let definition =
+                asset::id::AssetDefinitionId::derive_from_components(domain.clone(), name.clone());
+            let cases = [
+                IdBox::DomainId(domain.clone()),
+                IdBox::AccountId(account.clone()),
+                IdBox::AssetDefinitionId(definition.clone()),
+                IdBox::AssetId(asset::id::AssetId::of(definition, account)),
+                IdBox::NftId(nft::NftId::new(domain.clone(), name.clone())),
+                IdBox::RwaId(rwa::RwaId::new(
+                    domain,
+                    iroha_crypto::Hash::prehashed([0x17; 32]),
+                )),
+                IdBox::PeerId(iroha_model_base::peer::PeerId::new(
+                    key.public_key().clone(),
+                )),
+                IdBox::LaneId(iroha_model_base::topology::LaneId::new(7)),
+                IdBox::TriggerId(name.as_ref().parse().expect("trigger")),
+                IdBox::RoleId(name.as_ref().parse().expect("role")),
+                IdBox::Permission(permission::Permission::new(
+                    "CanObserve".into(),
+                    iroha_primitives::json::Json::default(),
+                )),
+                IdBox::CustomParameterId(parameter::CustomParameterId::new(name.clone())),
+                IdBox::RepoAgreementId(repo::RepoAgreementId::new(name)),
+            ];
+            for (tag, id) in cases.into_iter().enumerate() {
+                let original = IdBoxCandidate::from(id.clone());
+                let mut payloads = Vec::new();
+                for flags in [0, norito::core::header_flags::COMPACT_LEN] {
+                    let _flags = norito::core::DecodeFlagsGuard::enter(flags);
+                    let (expected, expected_flags) =
+                        norito::codec::encode_with_header_flags(&original);
+                    let (actual, actual_flags) = norito::codec::encode_with_header_flags(&id);
+                    assert_eq!(expected_flags, flags, "oracle used another layout");
+                    assert_eq!(actual_flags, flags, "public identity used another layout");
+                    assert_eq!(
+                        actual, expected,
+                        "variant wire changed in layout {flags:#04x}"
+                    );
+                    assert_eq!(
+                        &actual[..4],
+                        &u32::try_from(tag).expect("variant tag").to_le_bytes()
+                    );
+                    let frame = norito::to_bytes(&id).expect("frame original declared layout");
+                    let header =
+                        norito::core::Header::read(&mut frame.as_slice()).expect("declared header");
+                    assert_eq!(header.flags, flags);
+                    assert_eq!(
+                        header.schema,
+                        norito::schema::identity::frame_hash::<IdBox>()
+                    );
+                    assert_eq!(
+                        norito::decode_from_bytes::<IdBox>(&frame).expect("sole original decoder"),
+                        id
+                    );
+                    payloads.push(actual);
+                }
+                assert_ne!(
+                    payloads[0], payloads[1],
+                    "the two actual V1 layouts were not exercised"
+                );
+            }
         }
     }
 }

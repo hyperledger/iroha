@@ -319,19 +319,12 @@ This section is only a pipeline summary.
 
 - Iroha 3 has one ABI version: V1. Runtime-upgrade proposals target
   `abi_version = 1`; this document does not define a V2 compatibility path.
-- Proposal-backed governance accepts the closed, typed twelve-kind
+- Proposal-backed governance accepts the closed, typed ten-kind
   `ProposalKind`: `DeployContract`, `RuntimeUpgrade`, `SccpRouteGovernance`,
   `ValidationFeePolicy`, `ValidationFeePayoutLifecycle`,
   `MusubiRegistryGovernance`, `SorafsProviderGovernance`,
-  `ContractLifecycleGovernance`, `ContractEmergencyHold`,
-  `GlobalDataTriggerPermissionGovernance`, and
-  `KagemushaVerifierPolicyInstall`, and
-  `KagemushaVerifierReleaseInstall`, and
-  `KagemushaVerifierReleaseActivate`. Install adds one authenticated standby
-  release under the finalized signer policy. A later exact-due certificate can
-  first activate the sole standby release from an inactive predecessor under the full
-  registry CAS. Local
-  reject-all verification remains closed until exact artifact reload.
+  `ContractLifecycleGovernance`, `ContractEmergencyHold`, and
+  `GlobalDataTriggerPermissionGovernance`.
 - A Parliament attempt owns its body pipeline, sortition evidence, results,
   policy and effect bindings, compare-and-set head, and
   `GovernanceCertificateV1`. Core constructs the certificate automatically

@@ -16671,18 +16671,6 @@ public enum ToriiGovernanceProposalKind: Decodable, Sendable, Equatable {
     case globalDataTriggerPermissionGovernance(
         ToriiGovernanceGlobalDataTriggerPermissionProposalV1
     )
-    case kagemushaVerifierPolicyInstall(
-        ToriiGovernanceKagemushaVerifierPolicyInstallProposalV1
-    )
-    case kagemushaVerifierReleaseInstall(
-        ToriiGovernanceKagemushaVerifierReleaseInstallProposalV1
-    )
-    case kagemushaVerifierReleaseActivate(
-        ToriiGovernanceKagemushaVerifierReleaseActivateProposalV1
-    )
-    case kagemushaVerifierReleaseRetire(
-        ToriiGovernanceKagemushaVerifierReleaseRetireProposalV1
-    )
 
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case kind
@@ -16755,34 +16743,6 @@ public enum ToriiGovernanceProposalKind: Decodable, Sendable, Equatable {
             self = .globalDataTriggerPermissionGovernance(
                 try container.decode(
                     ToriiGovernanceGlobalDataTriggerPermissionProposalV1.self,
-                    forKey: .payload
-                )
-            )
-        case "KagemushaVerifierPolicyInstall":
-            self = .kagemushaVerifierPolicyInstall(
-                try container.decode(
-                    ToriiGovernanceKagemushaVerifierPolicyInstallProposalV1.self,
-                    forKey: .payload
-                )
-            )
-        case "KagemushaVerifierReleaseInstall":
-            self = .kagemushaVerifierReleaseInstall(
-                try container.decode(
-                    ToriiGovernanceKagemushaVerifierReleaseInstallProposalV1.self,
-                    forKey: .payload
-                )
-            )
-        case "KagemushaVerifierReleaseActivate":
-            self = .kagemushaVerifierReleaseActivate(
-                try container.decode(
-                    ToriiGovernanceKagemushaVerifierReleaseActivateProposalV1.self,
-                    forKey: .payload
-                )
-            )
-        case "KagemushaVerifierReleaseRetire":
-            self = .kagemushaVerifierReleaseRetire(
-                try container.decode(
-                    ToriiGovernanceKagemushaVerifierReleaseRetireProposalV1.self,
                     forKey: .payload
                 )
             )

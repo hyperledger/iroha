@@ -1234,3 +1234,41 @@ fn phase_checkpoint_bound_matches_original_physical_source_without_preparing_pri
         assert_eq!(pool.reserved_bytes(), 0);
     }
 }
+
+#[test]
+fn unfinished_finish_returns_the_same_prepaid_owner_without_allocating_or_refunding() {
+    let parameters = parameters::<BeaconPurpose>(4);
+    let budget = AllocationBudget::new(512 * 1024);
+    let prepared = PreparedDkgSecretsCheckpointV1::new(&parameters, 1, &budget).unwrap();
+    let source = prepared.source.0.as_slice().as_ptr();
+    let work = prepared.work.0.as_slice().as_ptr();
+    let destination = prepared.destination.record.as_slice().as_ptr();
+    let shares = prepared.shares.as_ref().unwrap().as_slice().as_ptr();
+    let reserved = budget.reserved_bytes();
+
+    let returned = without_allocations(|| prepared.finish().err().unwrap());
+    assert!(returned.belongs_to(&budget));
+    assert_eq!(budget.reserved_bytes(), reserved);
+    assert_eq!(returned.source.0.as_slice().as_ptr(), source);
+    assert_eq!(returned.work.0.as_slice().as_ptr(), work);
+    assert_eq!(returned.destination.record.as_slice().as_ptr(), destination);
+    assert_eq!(
+        returned.shares.as_ref().unwrap().as_slice().as_ptr(),
+        shares
+    );
+    private_is_erased(&returned);
+
+    let returned = without_allocations(|| returned.finish().err().unwrap());
+    assert!(returned.belongs_to(&budget));
+    assert_eq!(budget.reserved_bytes(), reserved);
+    assert_eq!(returned.source.0.as_slice().as_ptr(), source);
+    assert_eq!(returned.work.0.as_slice().as_ptr(), work);
+    assert_eq!(returned.destination.record.as_slice().as_ptr(), destination);
+    assert_eq!(
+        returned.shares.as_ref().unwrap().as_slice().as_ptr(),
+        shares
+    );
+    private_is_erased(&returned);
+    drop(returned);
+    assert_eq!(budget.reserved_bytes(), 0);
+}

@@ -940,8 +940,7 @@ fn install_canonical_post_enactment_validation_fee_state(
     authority_key_pair: &KeyPair,
     policy: ValidationFeePolicyV1,
 ) {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     let (registry, enacted_attempts) = canonical_policy_registry_state(state, &policy);
     assert_eq!(
         registry.registered_policies[0]
@@ -976,7 +975,13 @@ fn install_canonical_post_enactment_validation_fee_state(
     iroha_core::smartcontracts::code::register_manifest(
         authority,
         payout_dataspace,
-        contract_manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), authority_key_pair).expect("sign bounded fixture manifest"),
+        contract_manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                authority_key_pair,
+            )
+            .expect("sign bounded fixture manifest"),
         &mut state_transaction,
     )
     .expect("register signed payout-contract manifest");
@@ -1010,7 +1015,13 @@ fn install_canonical_post_enactment_validation_fee_state(
     iroha_core::smartcontracts::code::register_manifest(
         authority,
         pool_dataspace,
-        pool_manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), authority_key_pair).expect("sign bounded fixture manifest"),
+        pool_manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                authority_key_pair,
+            )
+            .expect("sign bounded fixture manifest"),
         &mut state_transaction,
     )
     .expect("register signed pool-contract manifest");

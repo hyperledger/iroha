@@ -35,7 +35,10 @@ fn parliament_expected_head_root_keeps_the_length_prefixed_domain_preimage() {
         .expect("32-byte head output");
     assert_eq!(head, expected);
     assert_ne!(head, [0; 32]);
-    assert_ne!(head, parliament_expected_head_root_v1(&(8_u64, [0x51_u8; 32])));
+    assert_ne!(
+        head,
+        parliament_expected_head_root_v1(&(8_u64, [0x51_u8; 32]))
+    );
 }
 
 #[test]

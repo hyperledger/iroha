@@ -93,13 +93,12 @@ pub const MINT_FINALITY_SEED_FILE_BYTES_V1: usize = 32;
 pub const AUTHORITY_KEY_FILE_MAX_BYTES_V1: usize = 64 * 1024;
 /// Key files the configuration parser reads from `<data_dir>/secrets/` when the configuration
 /// names them; [`verify_config_key_custody`] checks each one that exists.
-pub const CONFIG_KEY_FILES_V1: [NodeSecretFile; 6] = [
+pub const CONFIG_KEY_FILES_V1: [NodeSecretFile; 5] = [
     NodeSecretFile::Validator,
     NodeSecretFile::Transport,
     NodeSecretFile::Streaming,
     NodeSecretFile::FaucetAuthority,
     NodeSecretFile::OnboardingAuthority,
-    NodeSecretFile::KagemushaRedemptionAuthority,
 ];
 
 /// Compiled public binding of one file-backed Soracloud runtime signer adapter.

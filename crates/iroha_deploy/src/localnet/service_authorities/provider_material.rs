@@ -41,8 +41,15 @@ const PROFILE: &str = "sorafs.sf1@1.0.0";
 pub(super) const VALIDITY_SECONDS: u64 = 30 * 86_400;
 const ADVERT_KEY: &str = "provider-advert.key";
 const VRF_KEY: &str = "provider-por-vrf.key";
+pub(super) const MAX_TLS_BYTES: usize = tls_identity::MAX_DER;
+pub(super) fn credential_filenames() -> impl Iterator<Item = &'static str> {
+    [ADVERT_KEY, VRF_KEY].into_iter()
+}
+pub(super) fn tls_filenames() -> impl Iterator<Item = &'static str> {
+    tls_identity::FILES.into_iter()
+}
 pub(super) fn filenames() -> impl Iterator<Item = &'static str> {
-    [ADVERT_KEY, VRF_KEY].into_iter().chain(tls_identity::FILES)
+    credential_filenames().chain(tls_filenames())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, norito::Encode, norito::Decode, norito::NoritoSchema)]
@@ -58,7 +65,7 @@ struct ProviderServicePlanV1 {
 ///
 /// No public decoder or constructor turns copied plan bytes into this value. This is original
 /// local intent, not a fresh admission, reserve, credit, capacity, or transport capability.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct RetainedProviderServicePlan {
     network_id: NetworkId,
     slot: u8,
@@ -489,7 +496,7 @@ pub(super) fn initialization_entry(
 }
 
 pub(super) fn validate_retained(
-    directory: &iroha_fs::PrivateDirectory,
+    directory: &capture::CapturedDirectory,
     selected: &ProviderServiceInventory,
     network: &network_material::NetworkServicePlanV1,
     keys: &mut BTreeSet<iroha_crypto::PublicKey>,

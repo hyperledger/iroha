@@ -465,9 +465,11 @@ impl VerifyingKeyRecord {
                 .is_none_or(|withdraw| height < withdraw)
     }
 }
-/// Attachment of a zero-knowledge proof to a transaction.
+/// A zero-knowledge proof with the registry reference of its verifying key.
 ///
-/// Proof attachments carry only a registry reference to the verifying key.
+/// Instructions embed it directly. A signed transaction carries it wrapped,
+/// as the canonical Norito frame inside one signed attachment occurrence
+/// (a transaction-level proof carrier).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoSchema)]
 #[norito(reuse_archived)]
 #[norito(deny_unknown_fields)]
@@ -1744,13 +1746,14 @@ impl<'a> ncore::DecodeFromSlice<'a> for ProofAttachment {
 }
 /// Maximum complete canonical Norito frame for a first-release proof attachment list.
 ///
-/// This intrinsic 8 MiB binary ceiling leaves room beneath Taira's governed 10 MiB
-/// signed-transaction wire ceiling. It is not a claim that a maximal frame fits Torii's 8 MiB JSON
-/// proof body: base64 and JSON quotes expand the transport, whose exact largest decoded binary
-/// string at that body limit is 6,291,453 bytes.
-// TODO(I.1): this frame is below the 9,437,184-byte zk-X509 proof ceiling, so a ceiling-sized
-// proof cannot travel as a signed-transaction attachment
-// (`specs/zk_resource_contract.json`, `attachment_list_frame_holds_a_ceiling_proof`).
+/// The list is the body format of Torii's non-consensus prover API and a
+/// staging container of SDK builders. It is not a signed-transaction field: a
+/// transaction carries proofs as signed attachment occurrences
+/// ([`crate::transaction::signed_attachments::SignedAttachmentsV1`]), whose
+/// frame bound admits a ceiling-sized proof. This intrinsic 8 MiB binary
+/// ceiling is not a claim that a maximal frame fits Torii's 8 MiB JSON proof
+/// body: base64 and JSON quotes expand the transport, whose exact largest
+/// decoded binary string at that body limit is 6,291,453 bytes.
 pub const PROOF_ATTACHMENT_LIST_MAX_CANONICAL_FRAME_BYTES_V1: usize = 8 * 1024 * 1024;
 /// Maximum attachments carried by one first-release proof attachment list.
 ///
@@ -1764,8 +1767,7 @@ std::thread_local! {
 /// Failure to construct a bounded first-release proof attachment list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ProofAttachmentListError {
-    /// First-release transactions must carry at least one attachment when the
-    /// optional attachment-list field is present.
+    /// A present list carries at least one attachment.
     #[error("proof attachment list must not be empty")]
     Empty,
     /// The verifier batch boundary would be exceeded.
@@ -1791,7 +1793,12 @@ pub enum ProofAttachmentListError {
         maximum: usize,
     },
 }
-/// A list of proof attachments for a transaction.
+/// A bounded list of proof attachments.
+///
+/// Torii's non-consensus prover API reads this list and SDK builders stage
+/// proof attachments in it. A signed transaction does not carry it: each proof
+/// attachment travels as one transaction-level carrier of
+/// [`crate::transaction::signed_attachments::SignedAttachmentsV1`].
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, IntoSchema)]
 #[norito(reuse_archived)]
 #[derive(norito::NoritoSchema)]

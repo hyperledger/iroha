@@ -36,8 +36,15 @@ impl Client {
             if length > REQUEST_MAX {
                 return Err(eyre!("provider attestation request exceeds bound"));
             }
-            norito::core::reserve_decode_allocation(length)?;
-            let body = norito::core::to_bytes_bounded(&key, length)?;
+            let body =
+                norito::core::to_bytes_bounded(&key, length).map_err(|error| match error {
+                    norito::core::BoundedEncodeError::Serialization(error)
+                        if error.decode_resource_error().is_some() =>
+                    {
+                        eyre::Report::from(error)
+                    }
+                    error => eyre::Report::from(error),
+                })?;
             let url = join_torii_url(
                 &self.torii_url,
                 iroha_torii_shared::route_catalog::sorafs::PROVIDER_ATTESTATION

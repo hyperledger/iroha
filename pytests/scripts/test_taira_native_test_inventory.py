@@ -63,10 +63,28 @@ class NativeInventoryTests(unittest.TestCase):
     def test_real_checkout_matches_every_reviewed_owner(self):
         names = inventory.validate_native_source_inventory(ROOT)
         self.assertEqual(len(names), sum(len(row[-1]) for row in inventory.NATIVE_CORE_TEST_OWNERS))
-        self.assertEqual(len(names), 318)
+        self.assertEqual(len(names), 340)
 
     def test_current_native_owner_additions_reject_same_count_selector_replacement(self):
         expected = {
+            'native proposal attestation policy': (
+                ('sumeragi/executor.rs', 'sumeragi/executor_attestation_policy_tests.rs', 'attestation_policy_tests', 'sumeragi::executor::attestation_policy_tests'),
+                (
+                    'native_top_up_proposal_requires_attestation_before_an_epoch_boundary',
+                    'ordinary_nonboundary_proposal_has_no_mint_attestation_requirement',
+                    'ordinary_boundary_proposal_requires_its_authenticated_scheduled_attestation',
+                    'executed_top_up_count_cannot_finalize_without_the_flag_even_if_static_work_is_ordinary',
+                )),
+            'native driver scheduling': (
+                ('sumeragi/driver/tests/mod.rs', 'sumeragi/driver/tests/sched.rs', 'sched', 'sumeragi::driver::tests::sched'),
+                (
+                    'successor_build_waits_for_core_parent_activation_and_keeps_empty_readiness',
+                    'successor_build_activation_preserves_arrival_and_rejects_another_height_or_view',
+                    'activated_build_withdrawal_cancels_original_running_and_empty_owners',
+                )),
+            'native stored body custody': (
+                ('sumeragi/block_store/body_read.rs', 'sumeragi/block_store/body_read_tests.rs', 'tests', 'sumeragi::block_store::body_read::tests'),
+                ('stored_body_projection_accepts_the_payload_limit_and_refuses_one_over',)),
             'native preparation refusal identity': (
                 ('sumeragi/executor/preparation.rs', 'sumeragi/executor/preparation/tests.rs', 'tests', 'sumeragi::executor::preparation::tests'),
                 (
@@ -89,6 +107,28 @@ class NativeInventoryTests(unittest.TestCase):
                 ('sumeragi/executor.rs', 'sumeragi/executor_publication_tests.rs', 'publication_tests', 'sumeragi::executor::publication_tests'),
                 (
                     'replay_completion_retirement_keeps_exact_source_and_original_pool_retry',
+                    'original_prepared_signature_owner_survives_refusal_validation_publication_apply_and_replay',
+                    'explicit_signature_preparation_rejection_retires_only_its_original_source',
+                    'later_canonical_child_allocator_refusal_keeps_the_original_prepared_signature_owner',
+                    'global_build_carries_a_transaction_of_the_payload_limit_less_the_reserve',
+                )),
+            'native local empty signature preparation': (
+                ('sumeragi/executor.rs', 'sumeragi/executor_local_signature_preparation_tests.rs', 'local_signature_preparation_tests', 'sumeragi::executor::local_signature_preparation_tests'),
+                (
+                    'original_local_payload_signature_refusal_keeps_job_and_exact_release_owner',
+                    'original_local_payload_wire_refusal_retains_completed_leaf_without_repreparation',
+                )),
+            'native completed decoded custody': (
+                ('sumeragi/executor.rs', 'sumeragi/executor_decoded_custody_tests.rs', 'decoded_custody_tests', 'sumeragi::executor::decoded_custody_tests'),
+                (
+                    'completed_decoded_retry_borrows_original_graph_without_canonical_reentry',
+                    'completed_decoded_foreign_pool_refusal_retains_exact_original_graph',
+                    'completed_decoded_same_bytes_new_physical_source_cannot_replace_original',
+                    'original_decoded_graph_survives_actual_prevalidation_policy_refusal_and_retry',
+                    'original_validation_return_projection_refusal_keeps_typed_error_and_same_graph',
+                    'original_validation_return_cannot_rebind_changed_header_to_authenticated_wire',
+                    'explicit_completed_decoded_rejection_retires_only_original_height_view_hash',
+                    'same_source_same_pool_distinct_prepared_signature_owner_is_refused_at_both_boundaries',
                 )),
             'native completed replay identity': (
                 ('sumeragi/executor/replay.rs', 'sumeragi/executor/replay/tests.rs', 'tests', 'sumeragi::executor::replay::tests'),

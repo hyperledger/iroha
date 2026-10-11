@@ -5,7 +5,6 @@ use crate::sumeragi_finality::{
 };
 use iroha_crypto::{Algorithm, Hash, KeyPair};
 use norito::core::{DecodeFlagsGuard, Encoder, SerializePayload, header_flags};
-use std::io::Write as _;
 
 fn fixture() -> FinalizedGlobalThresholdBeaconPulseV1 {
     // A genuine canonical G1 point exercises shape validation. This is not a

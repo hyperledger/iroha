@@ -280,7 +280,7 @@ impl FastpqProofEngine for RealProofEngine {
             statement,
             expected,
             self.proving,
-            self.verification,
+            &self.verification,
             budget,
             reservation,
         )?;
@@ -715,7 +715,7 @@ fn prove_entry(
     job: &FastpqWitnessJob,
 ) -> Result<FastpqProofOutput, FastpqWorkRefusal> {
     let (proving, verification) = engine.limits();
-    let mut prepared = source::prepare(&job.source, job.next_statement, proving, verification)?;
+    let mut prepared = source::prepare(&job.source, job.next_statement, proving, &verification)?;
     let expected = ExpectedExecutionEffects {
         source: prepared.original.leaf(),
         statement: prepared.expectations,
@@ -1280,7 +1280,10 @@ mod tests {
     fn native_job_with_chain(
         balance: Quantity,
         amounts: &[u32],
-    ) -> (crate::sumeragi::test_chain::CertifiedTestChain, FastpqWitnessJob) {
+    ) -> (
+        crate::sumeragi::test_chain::CertifiedTestChain,
+        FastpqWitnessJob,
+    ) {
         let (chain, source) =
             crate::fastpq::finalized_source::test_fixture::original_source(balance, amounts);
         let job = match FastpqWitnessJob::from_finalized(source) {
@@ -1298,7 +1301,7 @@ mod tests {
             &job.source,
             job.next_statement,
             ProvingLimits::default(),
-            ExecutionEffectVerificationLimits::default(),
+            &ExecutionEffectVerificationLimits::default(),
         )
         .unwrap()
     }
@@ -1597,7 +1600,7 @@ mod tests {
         let demand = source::allocation_bytes(
             &job.source.entry(0).unwrap(),
             ProvingLimits::default(),
-            ExecutionEffectVerificationLimits::default(),
+            &ExecutionEffectVerificationLimits::default(),
         )
         .unwrap();
         assert!(
@@ -1890,7 +1893,7 @@ mod tests {
                     &job.source,
                     index,
                     ProvingLimits::default(),
-                    ExecutionEffectVerificationLimits::default(),
+                    &ExecutionEffectVerificationLimits::default(),
                 )
                 .unwrap();
                 assert_eq!(prepared.original.leaf(), &job.source.leaves()[index]);
@@ -1920,14 +1923,20 @@ mod tests {
     }
     #[test]
     fn unavailable_or_unsupported_optional_archive_never_creates_work_admission() {
+        // Whole-pool equality includes published State generations unrelated
+        // to this rejected handoff; retain them through the measured operation.
+        let _retirement_pin = crossbeam_epoch::pin();
         for issue in [
             crate::state::QuantityCaptureIssue::Capacity,
             crate::state::QuantityCaptureIssue::UnsupportedOwner,
         ] {
-            let (_, mut source) = crate::fastpq::finalized_source::test_fixture::original_source(
-                Quantity::from(100_u32),
-                &[3, 5],
-            );
+            // Keep the fixture State and serialized worker alive until all
+            // source-custody assertions finish; dropping the sender detaches cleanup.
+            let (_chain, mut source) =
+                crate::fastpq::finalized_source::test_fixture::original_source(
+                    Quantity::from(100_u32),
+                    &[3, 5],
+                );
             let manifest = norito::encode_canonical(source.manifest()).unwrap();
             let native = source.native().committed().result();
             // Explicit local optional-archive fault before admission. It changes no

@@ -113,7 +113,7 @@ pub(in crate::backend) fn encode_parts(
 
 /// Complete verification reuses unchanged parent decode/query/byte/work controls.
 pub(in crate::backend) fn verify(
-    inputs: EffectVerificationInputs<'_, '_>,
+    inputs: &EffectVerificationInputs<'_, '_>,
     bytes: &[u8],
     policy: EffectVerificationLimits,
     budget: &AllocationBudget,

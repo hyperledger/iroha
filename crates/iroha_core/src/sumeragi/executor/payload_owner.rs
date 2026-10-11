@@ -440,8 +440,7 @@ mod tests {
             &merges,
         )
         .unwrap();
-        let attest =
-            height == scheduled.epoch.authorization.last_height || attestation_required(&block);
+        let attest = height == scheduled.epoch.authorization.last_height;
         let wire_len = block.resultless_proposal_wire_len().unwrap();
         worker.payload_build = Some(GlobalPayloadBuild {
             scope,
@@ -454,8 +453,16 @@ mod tests {
                 budget.clone(),
                 1 << 20,
             ),
+            preparation_refusal: None,
         });
         drop((current_view, parent, selected));
+        worker
+            .payload_build
+            .as_mut()
+            .unwrap()
+            .job
+            .prepare_source()
+            .expect("original unsigned signature custody precedes wire admission");
         let limit = budget.limit_bytes();
         let occupied = budget
             .try_reserve_bytes(limit - budget.reserved_bytes() - wire_len)
@@ -1216,8 +1223,7 @@ mod tests {
                 &selected,
             )
             .unwrap();
-            let attest =
-                2 == scheduled.epoch.authorization.last_height || attestation_required(&block);
+            let attest = 2 == scheduled.epoch.authorization.last_height;
             worker.payload_build = Some(GlobalPayloadBuild {
                 scope,
                 job: super::super::super::driver::payload_build::PayloadBuild::new(
@@ -1229,6 +1235,7 @@ mod tests {
                     worker.state.ivm_execution_budget(),
                     1 << 20,
                 ),
+                preparation_refusal: None,
             });
             queue.clear_all();
             clock.advance(Duration::from_millis(1));
@@ -1358,8 +1365,7 @@ mod tests {
                     &selected,
                 )
                 .unwrap();
-                let attest =
-                    2 == scheduled.epoch.authorization.last_height || attestation_required(&block);
+                let attest = 2 == scheduled.epoch.authorization.last_height;
                 worker.payload_build = Some(GlobalPayloadBuild {
                     scope,
                     job: super::super::super::driver::payload_build::PayloadBuild::new(
@@ -1371,6 +1377,7 @@ mod tests {
                         budget.clone(),
                         1 << 20,
                     ),
+                    preparation_refusal: None,
                 });
                 // The original staged builder already owns its real signed source.
                 // A genuine publisher then opens before the output physically completes.

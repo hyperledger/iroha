@@ -969,7 +969,6 @@ fn rekey_account_id(
             .provider_owners
             .insert(provider_id, new_account.clone());
     }
-    replace_account_id_in_kagemusha(state_transaction, old_account, new_account);
     replace_account_id_in_public_lane(state_transaction, old_account, new_account);
     replace_account_id_in_repo_agreements(state_transaction, old_account, new_account);
     replace_account_id_in_citizens(state_transaction, old_account, new_account);
@@ -1270,13 +1269,6 @@ fn multisig_spec_from_policy(
         quorum,
         transaction_ttl_ms,
     })
-}
-fn replace_account_id_in_kagemusha(
-    state_transaction: &mut StateTransaction<'_, '_>,
-    old: &AccountId,
-    new: &AccountId,
-) {
-    let _ = (state_transaction, old, new);
 }
 fn replace_account_id_in_public_lane(
     state_transaction: &mut StateTransaction<'_, '_>,

@@ -1204,7 +1204,6 @@ mod tests {
                 mcp: iroha_config::parameters::actual::ToriiMcp::default(),
                 account_onboarding: None,
                 faucet: None,
-                kagemusha_v1_commands: None,
                 proof_api: iroha_config::parameters::actual::ProofApi {
                     rate_per_minute: iroha_config::parameters::defaults::torii::PROOF_RATE_PER_MIN
                         .and_then(NonZeroU32::new),

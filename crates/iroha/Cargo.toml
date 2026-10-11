@@ -24,8 +24,6 @@ is-it-maintained-open-issues = { repository = "https://github.com/hyperledger-ir
 maintenance = { status = "actively-developed" }
 
 [features]
-# Release assembly tools are explicit and never selected by shipping SDK consumers.
-dev-tools = []
 # Use rustls by default to avoid OpenSSL dependency, simplifying compilation with musl.
 # Enable every portable production algorithm while retaining one coherent TLS policy.
 default = ["tls-rustls-native-roots", "gost", "sm"]
@@ -65,9 +63,6 @@ tls-rustls-webpki-roots = [
 ]
 
 [dependencies]
-# Ordinary Native custody and genuine production proving are mandatory even with
-# this SDK's defaults disabled. Test/key-generation features remain unselected.
-iroha_core_zk = { workspace = true, default-features = false, features = [] }
 iroha_fs = { workspace = true }
 iroha_model_base = { workspace = true }
 iroha_service_model = { workspace = true }
@@ -119,13 +114,3 @@ tempfile = { workspace = true }
 [[test]]
 name = "tx_ttl"
 path = "tests/tx_ttl.rs"
-
-[[bin]]
-name = "iroha_ordinary_native_inventory_assemble"
-path = "src/bin/ordinary_native_inventory_assemble.rs"
-required-features = ["dev-tools"]
-
-[[bin]]
-name = "hardware_evidence_bootstrap_prepare"
-path = "src/bin/hardware_evidence_bootstrap_prepare.rs"
-required-features = ["dev-tools"]

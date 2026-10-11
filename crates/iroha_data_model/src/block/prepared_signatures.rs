@@ -1,4 +1,4 @@
-//! Signature custody through the sole canonical SignedBlock field/frame walk.
+//! Signature custody through the sole canonical `SignedBlock` field/frame walk.
 //!
 //! This prepared owner funds signatures, four certificate byte leaves, DA proof-policy
 //! arrays/UTF-8 aliases, DA commitment arrays/tags/signatures and reusable decode controls.
@@ -16,6 +16,7 @@ use crate::da::commitment::{
     DaCommitmentBundle, DaCommitmentCustodyError, DaProofPolicyBundle, DaProofPolicyCustodyError,
     PreparedDaCommitmentBundle, PreparedDaProofPolicyBundle,
 };
+use crate::inline_fields::DecodedField;
 use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError};
 use iroha_crypto::Hash;
 use iroha_version::Version;
@@ -52,7 +53,7 @@ pub enum PreparedSignatureBlockError {
     /// Original DA commitment children refused; their exact source/owners remain retained.
     #[error(transparent)]
     Commitments(#[from] DaCommitmentCustodyError),
-    /// The original charged input, bytes or exact selected SignedBlockWire changed.
+    /// The original charged input, bytes or exact selected `SignedBlockWire` changed.
     #[error("prepared block signature decoder changed its original source")]
     SourceChanged,
     /// Source belongs to a different original pool or range is outside initialized input.
@@ -84,9 +85,9 @@ impl Source {
 /// Original-pool decoder controls and retained signature/certificate preparation for one source.
 ///
 /// Construct before consuming a protocol attempt. The caller must retain the actual
-/// input ChargedBuffer alive until success or explicit abandonment. Every refusal
+/// input `ChargedBuffer` alive until success or explicit abandonment. Every refusal
 /// preserves original signature/certificate preparation. Success shares those exact immutable
-/// owners with SignedBlock while this decoder retains them through validation refusal.
+/// owners with `SignedBlock` while this decoder retains them through validation refusal.
 /// Explicit retirement leaves the original block holding the same custody for publication/recovery.
 /// TODO: prepare every other transaction, result, DA and authority graph child.
 pub struct PreparedSignedBlockSignaturesDecode {
@@ -188,13 +189,33 @@ impl PreparedSignedBlockSignaturesDecode {
         if !input.belongs_to(&self.budget) {
             return Err(PreparedSignatureBlockError::Source);
         }
-        if let Some(source) = &self.source {
-            if !source.matches(input.as_slice(), source.span) {
-                return Err(PreparedSignatureBlockError::SourceChanged);
-            }
+        if let Some(source) = &self.source
+            && !source.matches(input.as_slice(), source.span)
+        {
+            return Err(PreparedSignatureBlockError::SourceChanged);
         }
         Ok(self.completed.as_ref())
     }
+    /// Whether this block retains this decoder's exact completed signature control.
+    ///
+    /// This allocation-free observation compares physical owners after the same original
+    /// input address, whole-wire content and pool checks. Equal values or admission to
+    /// the same pool do not substitute another independently prepared collection.
+    /// It proves signature custody only, never execution, finality or full-graph admission.
+    ///
+    /// # Errors
+    /// Rejects a changed original source or foreign pool exactly as retained_signatures.
+    /// An incomplete/retired decoder or a different collection returns false.
+    pub fn retains_signature_custody(
+        &self,
+        input: &ChargedBuffer<u8>,
+        block: &SignedBlock,
+    ) -> Result<bool, PreparedSignatureBlockError> {
+        Ok(self
+            .retained_signatures(input)?
+            .is_some_and(|original| BlockSignatures::ptr_eq(original, &block.signatures)))
+    }
+
     /// Borrow the original admitted certificate only for its unchanged complete source.
     /// Custody identity does not establish whole-frame validity or finality authority.
     ///
@@ -260,7 +281,7 @@ impl PreparedSignedBlockSignaturesDecode {
         }
         Ok(self.commitments_completed.as_ref())
     }
-    /// Decode the original complete SignedBlockWire through its one canonical field walk.
+    /// Decode the original complete `SignedBlockWire` through its one canonical field walk.
     ///
     /// # Errors
     /// Preserves partial signature/certificate owners and original canonical/error provenance.
@@ -305,12 +326,12 @@ impl PreparedSignedBlockSignaturesDecode {
             policy_completed: &mut self.policy_completed,
             certificate_pending: &mut self.certificate_pending,
             certificate_completed: &mut self.certificate_completed,
-            payload: None,
-            result: None,
-            certificate: None,
+            payload: DecodedField::Missing,
+            result: DecodedField::Missing,
+            certificate: DecodedField::Missing,
         };
         self.workspace
-            .decode_canonical_into::<SignedBlock, _>(framed, limits, &mut destination)
+            .decode_canonical_archive_into::<SignedBlock, _>(framed, limits, &mut destination)
             .map_err(retain_field_failure)?;
         let block = SignedBlock {
             signatures: destination
@@ -349,9 +370,9 @@ struct Fields<'a> {
     policy_completed: &'a mut Option<DaProofPolicyBundle>,
     certificate_pending: &'a mut Option<PreparedCommitCertificate>,
     certificate_completed: &'a mut Option<CommitCertificate>,
-    payload: Option<BlockPayload>,
-    result: Option<Option<BlockResult>>,
-    certificate: Option<Option<CommitCertificate>>,
+    payload: DecodedField<BlockPayload>,
+    result: DecodedField<Option<BlockResult>>,
+    certificate: DecodedField<Option<CommitCertificate>>,
 }
 impl FieldDestination for Fields<'_> {
     type Error = FieldFailure;
@@ -419,7 +440,7 @@ macro_rules! owned_field {
                 &mut self,
                 field: CanonicalField<'_, $ty>,
             ) -> Result<(), DecodeIntoError<Self::Error>> {
-                self.$field = Some(field.decode_owned()?);
+                self.$field = DecodedField::Decoded(field.decode_owned()?);
                 Ok(())
             }
         }
@@ -439,20 +460,20 @@ impl DecodeField<1, BlockPayload> for Fields<'_> {
                 commitments_completed: self.commitments_completed,
                 pending: self.policy_pending,
                 completed: self.policy_completed,
-                header: None,
-                external_entrypoints: None,
-                da_commitments: None,
-                da_proof_policies: None,
-                da_pin_intents: None,
-                npos_consensus_effects: None,
-                global_beacon_pulse: None,
-                execution_context: None,
+                header: DecodedField::Missing,
+                external_entrypoints: DecodedField::Missing,
+                da_commitments: DecodedField::Missing,
+                da_proof_policies: DecodedField::Missing,
+                da_pin_intents: DecodedField::Missing,
+                npos_consensus_effects: DecodedField::Missing,
+                global_beacon_pulse: DecodedField::Missing,
+                execution_context: DecodedField::Missing,
             };
             let (_, used) = BlockPayload::decode_fields(bytes, &mut payload)?;
             if used != bytes.len() {
                 return Err(norito::Error::LengthMismatch.into());
             }
-            self.payload = Some(payload.finish()?);
+            self.payload = DecodedField::Decoded(payload.finish()?);
             Ok(())
         })
     }
@@ -467,14 +488,15 @@ struct PayloadFields<'a> {
     commitments_completed: &'a mut Option<DaCommitmentBundle>,
     pending: &'a mut Option<PreparedDaProofPolicyBundle>,
     completed: &'a mut Option<DaProofPolicyBundle>,
-    header: Option<super::BlockHeader>,
-    external_entrypoints: Option<Vec<crate::transaction::signed::TransactionEntrypoint>>,
-    da_commitments: Option<Option<crate::da::commitment::DaCommitmentBundle>>,
-    da_proof_policies: Option<Option<DaProofPolicyBundle>>,
-    da_pin_intents: Option<Option<crate::da::pin_intent::DaPinIntentBundle>>,
-    npos_consensus_effects: Option<Option<crate::consensus::NposConsensusEffects>>,
-    global_beacon_pulse: Option<Option<crate::consensus::FinalizedGlobalThresholdBeaconPulseV1>>,
-    execution_context: Option<Option<super::execution_context::BlockExecutionContextBundle>>,
+    header: DecodedField<super::BlockHeader>,
+    external_entrypoints: DecodedField<Vec<crate::transaction::signed::TransactionEntrypoint>>,
+    da_commitments: DecodedField<Option<crate::da::commitment::DaCommitmentBundle>>,
+    da_proof_policies: DecodedField<Option<DaProofPolicyBundle>>,
+    da_pin_intents: DecodedField<Option<crate::da::pin_intent::DaPinIntentBundle>>,
+    npos_consensus_effects: DecodedField<Option<crate::consensus::NposConsensusEffects>>,
+    global_beacon_pulse:
+        DecodedField<Option<crate::consensus::FinalizedGlobalThresholdBeaconPulseV1>>,
+    execution_context: DecodedField<Option<super::execution_context::BlockExecutionContextBundle>>,
 }
 impl FieldDestination for PayloadFields<'_> {
     type Error = FieldFailure;
@@ -487,7 +509,7 @@ macro_rules! payload_owned_field {
                 &mut self,
                 field: CanonicalField<'_, $ty>,
             ) -> Result<(), DecodeIntoError<Self::Error>> {
-                self.$field = Some(field.decode_owned()?);
+                self.$field = DecodedField::Decoded(field.decode_owned()?);
                 Ok(())
             }
         }
@@ -499,7 +521,7 @@ impl DecodeField<0, super::BlockHeader> for PayloadFields<'_> {
         &mut self,
         field: CanonicalField<'_, super::BlockHeader>,
     ) -> Result<(), DecodeIntoError<Self::Error>> {
-        self.header = Some(field.with_payload(|bytes| {
+        self.header = DecodedField::Decoded(field.with_payload(|bytes| {
             super::BlockHeader::decode_inline_payload(bytes).map_err(DecodeIntoError::Codec)
         })?);
         Ok(())
@@ -528,7 +550,7 @@ impl DecodeField<6, Option<crate::consensus::FinalizedGlobalThresholdBeaconPulse
         &mut self,
         field: CanonicalField<'_, Option<crate::consensus::FinalizedGlobalThresholdBeaconPulseV1>>,
     ) -> Result<(), DecodeIntoError<Self::Error>> {
-        self.global_beacon_pulse = Some(field.decode_optional(|field| {
+        self.global_beacon_pulse = DecodedField::Decoded(field.decode_optional(|field| {
             field.with_payload(|bytes| {
                 crate::consensus::FinalizedGlobalThresholdBeaconPulseV1::decode_inline_payload(
                     bytes,
@@ -596,7 +618,7 @@ impl DecodeField<3, Option<DaProofPolicyBundle>> for PayloadFields<'_> {
                         }
                     }
                 }
-                self.da_proof_policies = Some(Some(
+                self.da_proof_policies = DecodedField::Decoded(Some(
                     self.completed
                         .as_ref()
                         .expect("same original immutable policies")
@@ -606,7 +628,7 @@ impl DecodeField<3, Option<DaProofPolicyBundle>> for PayloadFields<'_> {
             })
         })?;
         if present.is_none() {
-            self.da_proof_policies = Some(None);
+            self.da_proof_policies = DecodedField::Decoded(None);
         }
         Ok(())
     }
@@ -661,7 +683,7 @@ impl DecodeField<2, Option<DaCommitmentBundle>> for PayloadFields<'_> {
                         }
                     }
                 }
-                self.da_commitments = Some(Some(
+                self.da_commitments = DecodedField::Decoded(Some(
                     self.commitments_completed
                         .as_ref()
                         .expect("same original immutable commitments")
@@ -671,7 +693,7 @@ impl DecodeField<2, Option<DaCommitmentBundle>> for PayloadFields<'_> {
             })
         })?;
         if present.is_none() {
-            self.da_commitments = Some(None);
+            self.da_commitments = DecodedField::Decoded(None);
         }
         Ok(())
     }
@@ -679,23 +701,37 @@ impl DecodeField<2, Option<DaCommitmentBundle>> for PayloadFields<'_> {
 impl PayloadFields<'_> {
     fn finish(self) -> Result<BlockPayload, norito::Error> {
         Ok(BlockPayload {
-            header: self.header.ok_or(norito::Error::LengthMismatch)?,
+            header: self
+                .header
+                .into_value()
+                .ok_or(norito::Error::LengthMismatch)?,
             external_entrypoints: self
                 .external_entrypoints
+                .into_value()
                 .ok_or(norito::Error::LengthMismatch)?,
-            da_commitments: self.da_commitments.ok_or(norito::Error::LengthMismatch)?,
+            da_commitments: self
+                .da_commitments
+                .into_value()
+                .ok_or(norito::Error::LengthMismatch)?,
             da_proof_policies: self
                 .da_proof_policies
+                .into_value()
                 .ok_or(norito::Error::LengthMismatch)?,
-            da_pin_intents: self.da_pin_intents.ok_or(norito::Error::LengthMismatch)?,
+            da_pin_intents: self
+                .da_pin_intents
+                .into_value()
+                .ok_or(norito::Error::LengthMismatch)?,
             npos_consensus_effects: self
                 .npos_consensus_effects
+                .into_value()
                 .ok_or(norito::Error::LengthMismatch)?,
             global_beacon_pulse: self
                 .global_beacon_pulse
+                .into_value()
                 .ok_or(norito::Error::LengthMismatch)?,
             execution_context: self
                 .execution_context
+                .into_value()
                 .ok_or(norito::Error::LengthMismatch)?,
         })
     }
@@ -784,7 +820,7 @@ impl DecodeField<3, Option<CommitCertificate>> for Fields<'_> {
                         }
                     }
                 }
-                self.certificate = Some(Some(
+                self.certificate = DecodedField::Decoded(Some(
                     self.certificate_completed
                         .as_ref()
                         .expect("same original immutable certificate")
@@ -794,7 +830,7 @@ impl DecodeField<3, Option<CommitCertificate>> for Fields<'_> {
             })
         })?;
         if present.is_none() {
-            self.certificate = Some(None);
+            self.certificate = DecodedField::Decoded(None);
         }
         Ok(())
     }
@@ -833,9 +869,9 @@ impl SerializePayload for Fields<'_> {
 impl PreparedRecordDestination<SignedBlock> for Fields<'_> {
     fn reset(&mut self) {
         self.signature_ready = false;
-        self.payload = None;
-        self.result = None;
-        self.certificate = None;
+        self.payload = DecodedField::Missing;
+        self.result = DecodedField::Missing;
+        self.certificate = DecodedField::Missing;
     }
 }
 

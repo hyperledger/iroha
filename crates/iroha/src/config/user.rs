@@ -8,6 +8,7 @@ use error_stack::{Report, ResultExt};
 use iroha_config_base::{
     ParameterOrigin, ReadConfig, WithOrigin,
     attach::ConfigValueAndOrigin,
+    file_source::{ConfigFileAccess, ConfigFileRequest, ConfigFileSource, read_checked},
     util::{DurationMs, Emitter, EmitterResultExt},
 };
 use iroha_model_base::chain::ChainId;
@@ -20,6 +21,39 @@ use url::Url;
 /// Minimal allowed transaction time-to-live.
 const MIN_TRANSACTION_TTL: Duration = Duration::from_secs(1);
 const MAX_PUBLIC_IDENTITY_FILE_BYTES: u64 = 512;
+
+pub(super) struct NativeConfigFiles;
+impl ConfigFileSource for NativeConfigFiles {
+    fn read(
+        &self,
+        path: &std::path::Path,
+        request: ConfigFileRequest,
+    ) -> std::io::Result<zeroize::Zeroizing<Vec<u8>>> {
+        if request.access == ConfigFileAccess::Private {
+            return iroha_fs::read_private(path, request.maximum);
+        }
+        let file = File::open(path)?;
+        if !file.metadata()?.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "public identity source is not a regular file",
+            ));
+        }
+        let maximum = u64::try_from(request.maximum)
+            .ok()
+            .and_then(|maximum| maximum.checked_add(1))
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "configuration byte bound overflows",
+                )
+            })?;
+        let mut bytes = zeroize::Zeroizing::new(Vec::new());
+        file.take(maximum).read_to_end(&mut bytes)?;
+        Ok(bytes)
+    }
+}
+
 /// Root of the user-facing configuration loaded from TOML + env.
 #[derive(Clone, Debug, ReadConfig)]
 pub struct Root {
@@ -153,6 +187,7 @@ fn resolve_account_private_key(
     inline: Option<WithOrigin<PrivateKey>>,
     file: Option<WithOrigin<PathBuf>>,
     emitter: &mut Emitter<ParseError>,
+    files: &dyn ConfigFileSource,
 ) -> Option<(PrivateKey, ParameterOrigin)> {
     let file = match (inline, file) {
         (Some(_), Some(_)) => {
@@ -180,7 +215,17 @@ fn resolve_account_private_key(
         emitter.emit(Report::new(ParseError::KeyPair).attach("account.private_key_file is empty"));
         return None;
     }
-    match super::private_key_file::read(&path) {
+    let private_key = read_checked(
+        files,
+        &path,
+        ConfigFileRequest {
+            access: ConfigFileAccess::Private,
+            maximum: 4096,
+        },
+    )
+    .map_err(eyre::Report::from)
+    .and_then(|bytes| super::private_key_file::parse(&bytes));
+    match private_key {
         Ok(private_key) => Some((private_key, origin)),
         Err(error) => {
             emitter.emit(Report::new(ParseError::KeyPair).attach(format!(
@@ -195,6 +240,7 @@ pub(super) fn resolve_network_id_source(
     inline: Option<NetworkId>,
     file: Option<WithOrigin<PathBuf>>,
     emitter: &mut Emitter<ParseError>,
+    files: &dyn ConfigFileSource,
 ) -> Option<NetworkId> {
     let file = match (inline, file) {
         (Some(_), Some(_)) => {
@@ -219,61 +265,35 @@ pub(super) fn resolve_network_id_source(
         );
         return None;
     }
-    let opened = match File::open(&path) {
-        Ok(opened) => opened,
-        Err(err) => {
+    let bytes = match read_checked(
+        files,
+        &path,
+        ConfigFileRequest {
+            access: ConfigFileAccess::Public,
+            maximum: MAX_PUBLIC_IDENTITY_FILE_BYTES as usize,
+        },
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) => {
             emitter.emit(
                 Report::new(ParseError::InvalidNetworkIdentity).attach(format!(
-                    "failed to open network_id_file `{}`: {err}",
+                    "cannot read network_id_file `{}`: {error}",
                     path.display()
                 )),
             );
             return None;
         }
     };
-    let metadata = match opened.metadata() {
-        Ok(metadata) => metadata,
-        Err(err) => {
+    let encoded = match std::str::from_utf8(&bytes) {
+        Ok(encoded) => encoded,
+        Err(_) => {
             emitter.emit(
-                Report::new(ParseError::InvalidNetworkIdentity).attach(format!(
-                    "failed to inspect network_id_file `{}`: {err}",
-                    path.display()
-                )),
+                Report::new(ParseError::InvalidNetworkIdentity)
+                    .attach("network_id_file must contain UTF-8"),
             );
             return None;
         }
     };
-    if !metadata.is_file() {
-        emitter.emit(
-            Report::new(ParseError::InvalidNetworkIdentity).attach(format!(
-                "network_id_file `{}` must reference a regular file",
-                path.display()
-            )),
-        );
-        return None;
-    }
-    let mut encoded = String::new();
-    if let Err(err) = opened
-        .take(MAX_PUBLIC_IDENTITY_FILE_BYTES + 1)
-        .read_to_string(&mut encoded)
-    {
-        emitter.emit(
-            Report::new(ParseError::InvalidNetworkIdentity).attach(format!(
-                "failed to read network_id_file `{}` as UTF-8: {err}",
-                path.display()
-            )),
-        );
-        return None;
-    }
-    if encoded.len() as u64 > MAX_PUBLIC_IDENTITY_FILE_BYTES {
-        emitter.emit(
-            Report::new(ParseError::InvalidNetworkIdentity).attach(format!(
-                "network_id_file `{}` exceeds the {MAX_PUBLIC_IDENTITY_FILE_BYTES}-byte limit",
-                path.display()
-            )),
-        );
-        return None;
-    }
     let Some(identity_text) = encoded.strip_suffix('\n') else {
         emitter.emit(
             Report::new(ParseError::InvalidNetworkIdentity).attach(format!(
@@ -325,18 +345,20 @@ impl Root {
     /// # Errors
     /// If a set of validity errors occurs.
     pub fn parse(self) -> ReportResult<super::Config, ParseError> {
-        self.parse_with_musubi_sections()
+        self.parse_with_musubi_sections(&NativeConfigFiles)
             .map(|(configuration, _publication, _fetch)| configuration)
     }
-    pub(crate) fn parse_with_musubi(
+    pub(crate) fn parse_with_musubi_file_source(
         self,
+        files: &dyn ConfigFileSource,
     ) -> ReportResult<(super::Config, MusubiPublication), ParseError> {
-        self.parse_with_musubi_sections()
+        self.parse_with_musubi_sections(files)
             .map(|(configuration, publication, _fetch)| (configuration, publication))
     }
     #[allow(clippy::too_many_lines)]
     fn parse_with_musubi_sections(
         self,
+        files: &dyn ConfigFileSource,
     ) -> ReportResult<(super::Config, MusubiPublication, MusubiFetch), ParseError> {
         let Self {
             chain: chain_id,
@@ -368,7 +390,8 @@ impl Root {
                 },
         } = self;
         let mut emitter = Emitter::new();
-        let network_id = resolve_network_id_source(network_id, network_id_file, &mut emitter);
+        let network_id =
+            resolve_network_id_source(network_id, network_id_file, &mut emitter, files);
         if tx_ttl.value().get() < MIN_TRANSACTION_TTL {
             emitter.emit(
                 Report::new(ParseError::TxTtlTooSmall)
@@ -404,7 +427,8 @@ impl Root {
         let account_chain_discriminant =
             resolve_account_network_context(profile.as_deref(), chain_discriminant, &mut emitter);
         let (public_key, public_key_origin) = public_key.into_tuple();
-        let private_key = resolve_account_private_key(private_key, private_key_file, &mut emitter);
+        let private_key =
+            resolve_account_private_key(private_key, private_key_file, &mut emitter, files);
         let key_pair = private_key.and_then(|(private_key, private_key_origin)| {
             KeyPair::new(public_key.clone(), private_key)
                 .attach(ConfigValueAndOrigin::new("[REDACTED]", public_key_origin))
@@ -816,6 +840,7 @@ mod tests {
             None,
             Some(WithOrigin::inline(identity_file.path().to_path_buf())),
             &mut emitter,
+            &NativeConfigFiles,
         );
         assert_eq!(resolved, Some(expected));
         assert!(emitter.into_result().is_ok());
@@ -844,6 +869,7 @@ mod tests {
                     None,
                     Some(WithOrigin::inline(identity_file.path().to_path_buf())),
                     &mut emitter,
+                    &NativeConfigFiles,
                 )
                 .is_none(),
                 "{label} must fail closed"
@@ -866,6 +892,7 @@ mod tests {
                 Some(expected),
                 Some(WithOrigin::inline(identity_file.path().to_path_buf())),
                 &mut emitter,
+                &NativeConfigFiles,
             )
             .is_none()
         );

@@ -207,6 +207,10 @@ fn funded_predecessors<'a>(
         )
     })
 }
+#[expect(
+    single_use_lifetimes,
+    reason = "anonymous lifetimes in impl Trait are unstable on the pinned Rust compiler"
+)]
 fn contains_account<'a>(
     mut accounts: impl ExactSizeIterator<Item = &'a AccountId>,
     account: &AccountId,

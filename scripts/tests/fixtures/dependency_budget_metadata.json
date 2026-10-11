@@ -43,11 +43,23 @@
         "deps": [
           {
             "name": "iroha_crypto",
-            "pkg": "path+file:///fixture/crypto#iroha_crypto@1.0.0"
+            "pkg": "path+file:///fixture/crypto#iroha_crypto@1.0.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
           },
           {
             "name": "serde_json",
-            "pkg": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.0"
+            "pkg": "registry+https://github.com/rust-lang/crates.io-index#serde_json@1.0.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
           }
         ],
         "id": "path+file:///fixture/model#iroha_data_model@1.0.0"
@@ -60,11 +72,23 @@
         "deps": [
           {
             "name": "iroha_data_model",
-            "pkg": "path+file:///fixture/model#iroha_data_model@1.0.0"
+            "pkg": "path+file:///fixture/model#iroha_data_model@1.0.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
           },
           {
             "name": "tokio",
-            "pkg": "registry+https://github.com/rust-lang/crates.io-index#tokio@1.0.0"
+            "pkg": "registry+https://github.com/rust-lang/crates.io-index#tokio@1.0.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
           }
         ],
         "id": "path+file:///fixture/daemon#irohad@1.0.0"
@@ -73,7 +97,13 @@
         "deps": [
           {
             "name": "iroha_data_model",
-            "pkg": "path+file:///fixture/model#iroha_data_model@1.0.0"
+            "pkg": "path+file:///fixture/model#iroha_data_model@1.0.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
           }
         ],
         "id": "path+file:///fixture/cli#iroha_cli@1.0.0"

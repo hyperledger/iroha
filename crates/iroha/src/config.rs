@@ -43,6 +43,7 @@ pub fn resolve_network_identity(
         inline,
         file.map(|path| iroha_config_base::WithOrigin::inline(path.to_path_buf())),
         &mut emitter,
+        &user::NativeConfigFiles,
     );
     emitter.into_result()?;
     identity.ok_or_else(|| Report::new(ParseError::InvalidNetworkIdentity).expand())
@@ -413,22 +414,50 @@ impl Config {
         path: impl AsRef<Path>,
         bytes: &[u8],
     ) -> Result<(Self, MusubiPublicationConfig), ConfigLoadError> {
+        Self::load_bytes_with_musubi_publication_and_file_source(
+            path,
+            bytes,
+            &user::NativeConfigFiles,
+        )
+    }
+    /// Parse already-read client bytes using one explicit source for every referenced file.
+    ///
+    /// The source receives paths resolved against the original configuration provenance. Its
+    /// errors are final; this parser never falls back to the filesystem for missing source bytes.
+    /// The same canonical record and configuration validators handle both source kinds.
+    ///
+    /// # Errors
+    /// Refuses invalid configuration, referenced file custody, oversized inputs or invalid records.
+    pub fn load_bytes_with_musubi_publication_and_file_source(
+        path: impl AsRef<Path>,
+        bytes: &[u8],
+        files: &dyn iroha_config_base::file_source::ConfigFileSource,
+    ) -> Result<(Self, MusubiPublicationConfig), ConfigLoadError> {
         let source = core::str::from_utf8(bytes).change_context(LoadError)?;
         let table = source.parse::<toml::Table>().change_context(LoadError)?;
-        Self::load_source_with_musubi_publication(TomlSource::new(
-            path.as_ref().to_path_buf(),
-            table,
-        ))
+        Self::load_source_with_musubi_publication_and_file_source(
+            TomlSource::new(path.as_ref().to_path_buf(), table),
+            files,
+        )
     }
     fn load_source_with_musubi_publication(
         toml_source: TomlSource,
+    ) -> Result<(Self, MusubiPublicationConfig), ConfigLoadError> {
+        Self::load_source_with_musubi_publication_and_file_source(
+            toml_source,
+            &user::NativeConfigFiles,
+        )
+    }
+    fn load_source_with_musubi_publication_and_file_source(
+        toml_source: TomlSource,
+        files: &dyn iroha_config_base::file_source::ConfigFileSource,
     ) -> Result<(Self, MusubiPublicationConfig), ConfigLoadError> {
         Ok(ConfigReader::new()
             .with_toml_source(toml_source)
             .with_env(|_: &str| None::<std::borrow::Cow<'static, str>>)
             .read_and_complete::<user::Root>()
             .change_context(LoadError)?
-            .parse_with_musubi()
+            .parse_with_musubi_file_source(files)
             .change_context(LoadError)?)
     }
     /// Loads configuration from a file
@@ -815,6 +844,211 @@ mod tests {
             "parsing an already-read source must not create or reopen its provenance path"
         );
     }
+    struct CapturedConfigFiles {
+        values: std::collections::BTreeMap<
+            std::path::PathBuf,
+            (iroha_config_base::file_source::ConfigFileAccess, Vec<u8>),
+        >,
+        reads: std::cell::RefCell<Vec<std::path::PathBuf>>,
+    }
+    impl iroha_config_base::file_source::ConfigFileSource for CapturedConfigFiles {
+        fn read(
+            &self,
+            path: &Path,
+            request: iroha_config_base::file_source::ConfigFileRequest,
+        ) -> std::io::Result<zeroize::Zeroizing<Vec<u8>>> {
+            self.reads.borrow_mut().push(path.to_path_buf());
+            let (access, bytes) = self.values.get(path).ok_or(std::io::ErrorKind::NotFound)?;
+            if *access != request.access {
+                return Err(std::io::ErrorKind::PermissionDenied.into());
+            }
+            // Deliberately leave the size check to the canonical parser boundary.
+            Ok(zeroize::Zeroizing::new(bytes.clone()))
+        }
+    }
+
+    fn referenced_client_fixture(path: &Path) -> (String, CapturedConfigFiles) {
+        use iroha_config_base::file_source::ConfigFileAccess;
+        let mut table = config_sample();
+        let identity = table
+            .remove("network_id")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_owned();
+        table.insert(
+            "network_id_file".into(),
+            toml::Value::String("network.identity".into()),
+        );
+        let account = table.get_mut("account").unwrap().as_table_mut().unwrap();
+        let key = account
+            .remove("private_key")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .to_owned();
+        account.insert(
+            "private_key_file".into(),
+            toml::Value::String("account.key".into()),
+        );
+        let root = path.parent().unwrap();
+        let files = CapturedConfigFiles {
+            values: [
+                (
+                    root.join("network.identity"),
+                    (
+                        ConfigFileAccess::Public,
+                        format!("{identity}\n").into_bytes(),
+                    ),
+                ),
+                (
+                    root.join("account.key"),
+                    (ConfigFileAccess::Private, format!("{key}\n").into_bytes()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+            reads: std::cell::RefCell::new(Vec::new()),
+        };
+        (toml::to_string(&table).unwrap(), files)
+    }
+
+    #[test]
+    fn supplied_client_files_preserve_origins_and_use_the_canonical_parser_without_disk() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("absent/client.toml");
+        let (source, files) = referenced_client_fixture(&path);
+        let (actual, _) = Config::load_bytes_with_musubi_publication_and_file_source(
+            &path,
+            source.as_bytes(),
+            &files,
+        )
+        .unwrap();
+        let ordinary_source = toml::to_string(&config_sample()).unwrap();
+        let (expected, _) =
+            Config::load_bytes_with_musubi_publication(&path, ordinary_source.as_bytes()).unwrap();
+        assert_eq!(actual.account, expected.account);
+        assert_eq!(actual.network_id, expected.network_id);
+        assert_eq!(actual.chain, expected.chain);
+        assert_eq!(actual.torii_api_url, expected.torii_api_url);
+        assert!(actual.key_pair == expected.key_pair);
+        assert_eq!(
+            files.reads.borrow().as_slice(),
+            &[
+                path.with_file_name("network.identity"),
+                path.with_file_name("account.key")
+            ]
+        );
+        assert!(!path.parent().unwrap().exists());
+    }
+
+    #[test]
+    fn supplied_client_files_refuse_missing_oversized_and_malformed_inputs_without_fallback() {
+        let temporary = tempfile::tempdir().unwrap();
+        let directory =
+            iroha_fs::PrivateDirectory::open_or_create(temporary.path().join("client")).unwrap();
+        let path = directory.path().join("client.toml");
+        let (source, mut files) = referenced_client_fixture(&path);
+        for (file, (_, bytes)) in &files.values {
+            directory
+                .write_atomic(
+                    file.file_name().unwrap(),
+                    bytes,
+                    iroha_fs::PublishMode::CreateNew,
+                )
+                .unwrap();
+        }
+        let (native, _) =
+            Config::load_bytes_with_musubi_publication(&path, source.as_bytes()).unwrap();
+        let (captured, _) = Config::load_bytes_with_musubi_publication_and_file_source(
+            &path,
+            source.as_bytes(),
+            &files,
+        )
+        .unwrap();
+        assert_eq!(native.account, captured.account);
+        assert_eq!(native.network_id, captured.network_id);
+        for (name, replacement) in [
+            ("network.identity", Vec::new()),
+            ("network.identity", vec![b'x'; 513]),
+            ("account.key", vec![b'x'; 4097]),
+            ("account.key", b"not a canonical key\n".to_vec()),
+        ] {
+            let key = path.with_file_name(name);
+            let prior = files.values.get_mut(&key).unwrap();
+            let original = std::mem::replace(&mut prior.1, replacement);
+            assert!(
+                Config::load_bytes_with_musubi_publication_and_file_source(
+                    &path,
+                    source.as_bytes(),
+                    &files
+                )
+                .is_err()
+            );
+            files.values.get_mut(&key).unwrap().1 = original;
+        }
+        let mut conflicting = source.parse::<toml::Table>().unwrap();
+        let inline = config_sample()["account"]["private_key"].clone();
+        conflicting
+            .get_mut("account")
+            .unwrap()
+            .as_table_mut()
+            .unwrap()
+            .insert("private_key".into(), inline);
+        let error = Config::load_bytes_with_musubi_publication_and_file_source(
+            &path,
+            toml::to_string(&conflicting).unwrap().as_bytes(),
+            &files,
+        )
+        .unwrap_err();
+        assert!(format!("{error:?}").contains("mutually exclusive"));
+        let identity_path = path.with_file_name("network.identity");
+        let private_key_path = path.with_file_name("account.key");
+        let original_identity = std::mem::replace(
+            &mut files.values.get_mut(&identity_path).unwrap().1,
+            b"invalid-network".to_vec(),
+        );
+        let original_private_key = std::mem::replace(
+            &mut files.values.get_mut(&private_key_path).unwrap().1,
+            b"private-sentinel".to_vec(),
+        );
+        let error = Config::load_bytes_with_musubi_publication_and_file_source(
+            &path,
+            source.as_bytes(),
+            &files,
+        )
+        .unwrap_err();
+        let diagnostic = format!("{error:?}");
+        assert!(diagnostic.contains("network_id_file"));
+        assert!(diagnostic.contains("account.private_key_file"));
+        assert!(!diagnostic.contains("private-sentinel"));
+        files.values.get_mut(&identity_path).unwrap().1 = original_identity;
+        files.values.get_mut(&private_key_path).unwrap().1 = original_private_key;
+        Config::load_bytes_with_musubi_publication(&path, source.as_bytes())
+            .expect("all disk inputs remain valid before one-at-a-time source refusals");
+        let references: Vec<_> = files.values.keys().cloned().collect();
+        assert_eq!(references.len(), 2);
+        for missing in references {
+            Config::load_bytes_with_musubi_publication_and_file_source(
+                &path,
+                source.as_bytes(),
+                &files,
+            )
+            .expect("every supplied input is valid immediately before removing one");
+            let input = files.values.remove(&missing).unwrap();
+            files.reads.borrow_mut().clear();
+            let error = Config::load_bytes_with_musubi_publication_and_file_source(
+                &path,
+                source.as_bytes(),
+                &files,
+            )
+            .expect_err("valid disk bytes must not replace one absent supplied input");
+            assert!(files.reads.borrow().contains(&missing));
+            assert!(format!("{error:?}").contains(missing.file_name().unwrap().to_str().unwrap()));
+            files.values.insert(missing, input);
+        }
+    }
+
     #[test]
     fn signer_free_chain_discriminant_resolution_matches_profiles() {
         assert_eq!(

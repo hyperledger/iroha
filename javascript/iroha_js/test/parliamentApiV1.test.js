@@ -77,8 +77,6 @@ const NETWORK_ID = NetworkId.fromBytes(Uint8Array.from([
   ...Array(31).fill(0),
   1,
 ])).toString();
-const KAGEMUSHA_SIGNER =
-  "ed01201509A611AD6D97B01D871E58ED00C8FD7C3917B6CA61A8C2833A19E000AAC2E4";
 const ACCOUNTS = Object.freeze([
   "treasury",
   "vault",
@@ -90,19 +88,6 @@ const ACCOUNTS = Object.freeze([
 const fixturePath = fileURLToPath(
   new URL("../../../fixtures/governance/parliament_api_v1.json", import.meta.url),
 );
-const KAGEMUSHA_RELEASE_INSTALL_FIXTURE = JSON.parse(readFileSync(
-  new URL("../../../fixtures/governance/kagemusha_verifier_release_install_v1.json", import.meta.url),
-  "utf8",
-));
-const KAGEMUSHA_RELEASE_ACTIVATE_FIXTURE = JSON.parse(readFileSync(
-  new URL("../../../fixtures/governance/kagemusha_verifier_release_activate_v1.json", import.meta.url),
-  "utf8",
-));
-const KAGEMUSHA_RELEASE_RETIRE_FIXTURE = JSON.parse(readFileSync(
-  new URL("../../../fixtures/governance/kagemusha_verifier_release_retire_v1.json", import.meta.url),
-  "utf8",
-));
-
 function exactNoritoFrame(payload, schemaHashHex, { flags = 0x02, padding = 0 } = {}) {
   const body = Buffer.from(payload);
   const frame = Buffer.alloc(40 + padding + body.length);
@@ -455,23 +440,23 @@ test("attempt drafts admit all ten exact proposal wire variants", () => {
   assert.deepEqual(retrospective.payload.action.payload.retrospective_finding_root, Array(32).fill(0x45));
 });
 
+test("effect-bound proposal drafts require an explicit canonical operator", () => {
+  for (const index of [0, 1, 7]) {
+    const proposal = structuredClone(parliamentProposalFixtures()[index]);
+    delete proposal.payload.proposal_operator;
+    assert.throws(
+      () => buildParliamentAttemptDraftRequestV1(proposal, 0),
+      /missing required fields/u,
+    );
+  }
+});
+
 test("retired Kagemusha proposal kinds reject at the current draft boundary", () => {
   for (const proposal of retiredParliamentProposalFixtures()) {
     assert.ok(!PARLIAMENT_PROPOSAL_KINDS_V1.includes(proposal.kind));
     assert.throws(
       () => buildParliamentAttemptDraftRequestV1(proposal, 0),
       /unsupported V1 proposal variant/u,
-    );
-  }
-});
-
-test("effect-bound proposal drafts require an explicit canonical operator", () => {
-  for (const index of [0, 1, 3, 4, 7]) {
-    const proposal = structuredClone(parliamentProposalFixtures()[index]);
-    delete proposal.payload.proposal_operator;
-    assert.throws(
-      () => buildParliamentAttemptDraftRequestV1(proposal, 0),
-      /missing required fields/u,
     );
   }
 });
@@ -496,10 +481,7 @@ test("Parliament declarations expose the closed wire union and tuple newtypes", 
     proposalDeclarations,
     /kind: "GlobalDataTriggerPermissionGovernance";/u,
   );
-  assert.doesNotMatch(proposalDeclarations, /kind: "KagemushaVerifierPolicyInstall";/u);
-  assert.doesNotMatch(proposalDeclarations, /kind: "KagemushaVerifierReleaseInstall";/u);
-  assert.doesNotMatch(proposalDeclarations, /kind: "KagemushaVerifierReleaseActivate";/u);
-  assert.doesNotMatch(proposalDeclarations, /kind: "KagemushaVerifierReleaseRetire";/u);
+  assert.doesNotMatch(proposalDeclarations, /Kagemusha/u);
   assert.doesNotMatch(proposalDeclarations, /payload: Record<string, unknown>/u);
 });
 
@@ -1253,7 +1235,7 @@ test("ToriiClient typed proposal reads use the strict local V1 parser", async ()
     /unsupported fields/u,
   );
 
-  for (const index of [0, 1, 3, 4, 7]) {
+  for (const index of [0, 1, 7]) {
     const operatorBoundKind = parliamentProposalFixtures()[index];
     client.getGovernanceProposal = async () => ({
       found: true,
@@ -1288,6 +1270,15 @@ test("ToriiClient typed proposal reads reject retired Kagemusha variants", async
     await assert.rejects(client.getGovernanceProposalTyped(PROPOSAL_ID), /unsupported proposal variant/u);
   }
 });
+
+function retiredParliamentProposalFixtures() {
+  return [
+    "KagemushaVerifierPolicyInstall",
+    "KagemushaVerifierReleaseInstall",
+    "KagemushaVerifierReleaseActivate",
+    "KagemushaVerifierReleaseRetire",
+  ].map((kind) => ({ kind, payload: { proposal_operator: ACCOUNTS[0] } }));
+}
 
 function fixtureAccountId(label) {
   for (let attempt = 0; attempt < 1024; attempt += 1) {
@@ -1433,34 +1424,6 @@ function parliamentProposalFixtures() {
         action: { action: "grant", value: null },
       },
     },
-  ];
-}
-
-function retiredParliamentProposalFixtures() {
-  const treasury = ACCOUNTS[0];
-  return [
-    {
-      kind: "KagemushaVerifierPolicyInstall",
-      payload: {
-        proposal_operator: treasury,
-        network_id: NETWORK_ID,
-        expected_predecessor: {
-          version: 1,
-          authority_policy: null,
-          active_release_id: null,
-          releases: [],
-        },
-        authority_policy: {
-          version: 1,
-          authority_set_id: Array(32).fill(0x40),
-          threshold: 1,
-          authorized_signers: [KAGEMUSHA_SIGNER],
-        },
-      },
-    },
-    structuredClone(KAGEMUSHA_RELEASE_INSTALL_FIXTURE),
-    structuredClone(KAGEMUSHA_RELEASE_ACTIVATE_FIXTURE),
-    structuredClone(KAGEMUSHA_RELEASE_RETIRE_FIXTURE),
   ];
 }
 
@@ -1952,37 +1915,3 @@ function stateFrame() {
   header.writeBigUInt64LE(crc64Xz(payload), 31);
   return Buffer.concat([header, payload]);
 }
-
-
-test("retirement admits the authentic unused standby and defensively owns its predecessor", () => {
-  const original = structuredClone(KAGEMUSHA_RELEASE_RETIRE_FIXTURE);
-  const parsed = buildParliamentAttemptDraftRequestV1(original, 0).proposal;
-  assert.deepEqual(new Set(parsed.payload.expected_predecessor.releases.map((row) => row.status)), new Set([1, 2, 3]));
-  const selected = [...parsed.payload.standby_release_id];
-  original.payload.standby_release_id[0] ^= 1;
-  original.payload.expected_predecessor.releases[0].status = 2;
-  assert.deepEqual(parsed.payload.standby_release_id, selected);
-  assert.deepEqual(parsed.payload.expected_predecessor, KAGEMUSHA_RELEASE_RETIRE_FIXTURE.payload.expected_predecessor);
-});
-
-test("retirement rejects missing, active, historical and malformed complete predecessors", () => {
-  const mutations = [
-    (p) => { delete p.standby_release_id; },
-    (p) => { p.retired_alias = true; },
-    (p) => { p.standby_release_id = Array(31).fill(1); },
-    (p) => { p.standby_release_id = Array(32).fill(0); },
-    (p) => { p.standby_release_id = p.expected_predecessor.releases.find((row) => row.status === 1).release_id; },
-    (p) => { p.standby_release_id = p.expected_predecessor.releases.find((row) => row.status === 3).release_id; },
-    (p) => { p.expected_predecessor.authority_policy = null; },
-    (p) => { p.expected_predecessor.active_release_id = null; },
-    (p) => { p.expected_predecessor.releases.reverse(); },
-    (p) => { p.expected_predecessor.releases.push(structuredClone(p.expected_predecessor.releases.at(-1))); },
-    (p) => { p.expected_predecessor.releases[0].profile_digest = Array(32).fill(0); },
-    (p) => { p.expected_predecessor.releases = p.expected_predecessor.releases.filter((row) => row.status !== 2); },
-  ];
-  for (const mutate of mutations) {
-    const proposal = structuredClone(KAGEMUSHA_RELEASE_RETIRE_FIXTURE);
-    mutate(proposal.payload);
-    assert.throws(() => buildParliamentAttemptDraftRequestV1(proposal, 0), TypeError);
-  }
-});

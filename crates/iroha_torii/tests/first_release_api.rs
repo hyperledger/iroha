@@ -223,50 +223,33 @@ async fn assembled_router_canonicalizes_early_path_and_accept_failures() {
     runtime.shutdown().await;
 }
 #[tokio::test]
-async fn kagemusha_command_header_admission_precedes_body_decoding() {
+async fn retired_kagemusha_routes_are_absent() {
     let runtime = build_router();
     let router = runtime.router();
-    for path in ["/v1/kagemusha/top-up", "/v1/kagemusha/redeem"] {
+    for (method, path) in [
+        (Method::GET, "/v1/kagemusha/readiness"),
+        (Method::POST, "/v1/kagemusha/top-up"),
+        (Method::POST, "/v1/kagemusha/redeem"),
+        (Method::GET, "/v1/kagemusha/operations/11"),
+        (Method::POST, "/v1/kagemusha/ordinary/current-wallet"),
+    ] {
         let response = router
             .clone()
             .oneshot(
                 Request::builder()
-                    .method(Method::POST)
+                    .method(method.clone())
                     .uri(path)
                     .extension(local_connect_info())
                     .header(ACCEPT, "application/json")
                     .header(CONTENT_TYPE, "application/json")
                     .body(axum::body::Body::from("{"))
-                    .expect("malformed command without idempotency key"),
+                    .expect("retired-route request"),
             )
             .await
-            .expect("header rejection");
+            .expect("retired-route response");
         let (status, _, envelope) = decode_error_response(response).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST, "path={path}");
-        assert_eq!(envelope.code(), "idempotency_key_missing", "path={path}");
-        let response = router
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method(Method::POST)
-                    .uri(path)
-                    .extension(local_connect_info())
-                    .header(ACCEPT, "application/json")
-                    .header(CONTENT_TYPE, "application/json")
-                    .header("idempotency-key", "11".repeat(32))
-                    .header("x-iroha-account", "forbidden-before-body")
-                    .body(axum::body::Body::from("{"))
-                    .expect("malformed command with forbidden auth header"),
-            )
-            .await
-            .expect("header rejection");
-        let (status, _, envelope) = decode_error_response(response).await;
-        assert_eq!(status, StatusCode::FORBIDDEN, "path={path}");
-        assert_eq!(
-            envelope.code(),
-            "kagemusha_auth_header_unsupported",
-            "path={path}"
-        );
+        assert_eq!(status, StatusCode::NOT_FOUND, "{method} {path}");
+        assert_eq!(envelope.code(), "route_not_found", "{method} {path}");
     }
     runtime.shutdown().await;
 }

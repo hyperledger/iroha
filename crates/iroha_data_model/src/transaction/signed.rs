@@ -1,6 +1,7 @@
 //! Transaction structures and related implementations.
 pub use self::model::*;
 mod ivm_proved_intent;
+mod ordered_intent;
 /// Exact original-pool allocation custody for closed native pin/outbox transaction graphs.
 pub mod pin_allocation;
 mod wire_v1;
@@ -41,6 +42,7 @@ use norito::{
     codec::{Decode, Encode},
     core::DecodeFromSlice,
 };
+pub use ordered_intent::ORDERED_INTENT_DIGEST_DOMAIN_V1;
 use std::{
     collections::BTreeMap,
     convert::TryFrom,
@@ -256,7 +258,6 @@ mod model {
         Eq,
         PartialOrd,
         Ord,
-        Decode,
         Encode,
         IntoSchema,
         crate :: DeriveJsonSerialize,
@@ -282,13 +283,15 @@ mod model {
         pub fee_payment: FeePaymentIntent,
         /// Store for additional information.
         pub metadata: Metadata,
-        /// Proof attachments whose exact contents affect transaction execution.
+        /// Ordered intent descriptor and signed inline attachment occurrences.
         ///
-        /// Attachments are part of the signed intent. Relays cannot add,
-        /// remove, or replace them without invalidating every authorization
-        /// signature and changing the transaction identifier.
+        /// The transaction signature covers every occurrence byte. Relays
+        /// cannot add, remove, reorder or replace an action or an occurrence
+        /// without invalidating every authorization signature and changing
+        /// the transaction identifier. A proof binds the normalized ordered
+        /// intent, which excludes generated proof bytes, lengths and hashes.
         #[norito(required)]
-        pub attachments: Option<crate::proof::ProofAttachmentList>,
+        pub attachments: Option<crate::transaction::signed_attachments::SignedAttachmentsV1>,
     }
     /// Signature of a transaction, encoded in its declared tuple-field frame.
     #[derive(norito::NoritoSchema)]
@@ -632,6 +635,26 @@ where
     let mut cursor = std::io::Cursor::new(field);
     <T as norito::codec::Decode>::decode(&mut cursor)
 }
+// The payload has one decoder. Archive-based decoding delegates to the slice
+// decoder below, so the binding of the attachment descriptor to the rest of the
+// payload is checked whichever way a transaction is decoded.
+impl<'de> norito::DeserializePayload<'de> for model::TransactionPayload {
+    fn deserialize(archived: &'de norito::core::Archived<Self>) -> Self {
+        Self::try_deserialize(archived)
+            .expect("TransactionPayload deserialization requires a canonical valid archive")
+    }
+    fn try_deserialize(
+        archived: &'de norito::core::Archived<Self>,
+    ) -> Result<Self, norito::core::Error> {
+        let ptr = core::ptr::from_ref(archived).cast::<u8>();
+        let bytes = norito::core::payload_slice_from_ptr(ptr)?;
+        let (value, used) = <Self as norito::core::DecodeFromSlice>::decode_from_slice(bytes)?;
+        if used != bytes.len() {
+            return Err(norito::core::Error::LengthMismatch);
+        }
+        Ok(value)
+    }
+}
 impl<'a> norito::core::DecodeFromSlice<'a> for model::TransactionPayload {
     fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
         let flags = norito::core::effective_decode_flags()
@@ -661,28 +684,31 @@ impl<'a> norito::core::DecodeFromSlice<'a> for model::TransactionPayload {
         )?;
         let metadata =
             decode_canonical_field::<Metadata>(read_aos_field(bytes, &mut offset, flags)?, flags)?;
-        let attachments = decode_slice_field::<Option<crate::proof::ProofAttachmentList>>(
-            read_aos_field(bytes, &mut offset, flags)?,
-            flags,
-        )?;
+        let attachments = decode_slice_field::<
+            Option<crate::transaction::signed_attachments::SignedAttachmentsV1>,
+        >(read_aos_field(bytes, &mut offset, flags)?, flags)?;
         if offset != bytes.len() {
             return Err(norito::core::Error::LengthMismatch);
         }
         norito::core::note_payload_access(bytes, offset);
-        Ok((
-            Self {
-                domain,
-                authority,
-                creation_time_ms,
-                instructions,
-                time_to_live_ms,
-                nonce,
-                fee_payment,
-                metadata,
-                attachments,
-            },
-            offset,
-        ))
+        let payload = Self {
+            domain,
+            authority,
+            creation_time_ms,
+            instructions,
+            time_to_live_ms,
+            nonce,
+            fee_payment,
+            metadata,
+            attachments,
+        };
+        // The attachment decoder has checked everything that is independent of
+        // the rest of the payload. The descriptor is bound to this payload here,
+        // so a stale, foreign or mis-targeted declaration never decodes.
+        payload
+            .validate_signed_attachments_v1()
+            .map_err(|error| norito::core::Error::Message(error.to_string()))?;
+        Ok((payload, offset))
     }
 }
 impl<'a> norito::core::DecodeFromSlice<'a> for model::SignedTransaction {
@@ -1555,9 +1581,11 @@ impl SignedTransaction {
                 .map_or(0, |bundle| bundle.signatures.len()),
         }
     }
-    /// Optional proof attachments carried alongside the payload.
+    /// Ordered intent descriptor and attachment occurrences of the signed payload.
     #[inline]
-    pub fn attachments(&self) -> Option<&crate::proof::ProofAttachmentList> {
+    pub fn attachments(
+        &self,
+    ) -> Option<&crate::transaction::signed_attachments::SignedAttachmentsV1> {
         self.payload.attachments.as_ref()
     }
     /// Height-based TTL advertised via transaction metadata.
@@ -2367,16 +2395,19 @@ impl TransactionBuilder {
             .map(Into::into)
             .collect::<Vec<InstructionBox>>()
             .into();
+        self.rebind_attachments();
         self
     }
     /// Add IVM bytecode to this transaction
     pub fn with_bytecode(mut self, bytecode: IvmBytecode) -> Self {
         self.payload.instructions = bytecode.into();
+        self.rebind_attachments();
         self
     }
     /// Set executable for this transaction
     pub fn with_executable(mut self, executable: Executable) -> Self {
         self.payload.instructions = executable;
+        self.rebind_attachments();
         self
     }
     /// Set an ordered, atomic mix of instructions and deployed-contract calls.
@@ -2394,21 +2425,19 @@ impl TransactionBuilder {
                 .collect::<Vec<crate::transaction::ExecutableBatchItem>>()
                 .into(),
         );
+        self.rebind_attachments();
         self
     }
     /// Adds metadata to this transaction
     pub fn with_metadata(mut self, metadata: Metadata) -> Self {
         self.payload.metadata = metadata;
+        self.rebind_attachments();
         self
     }
     /// Set the required signature-bound fee payer and charge limits.
     pub fn with_fee_payment_intent(mut self, intent: FeePaymentIntent) -> Self {
         self.payload.fee_payment = intent;
-        self
-    }
-    /// Attach proof payloads to this transaction before signing.
-    pub fn with_attachments(mut self, attachments: crate::proof::ProofAttachmentList) -> Self {
-        self.payload.attachments = Some(attachments);
+        self.rebind_attachments();
         self
     }
     /// Attach multisig signatures for a multisig authority.
@@ -2419,6 +2448,7 @@ impl TransactionBuilder {
     /// Set nonce for this transaction
     pub fn set_nonce(&mut self, nonce: NonZeroU32) -> &mut Self {
         self.payload.nonce = Some(nonce);
+        self.rebind_attachments();
         self
     }
     /// Set time-to-live for this transaction
@@ -2431,12 +2461,14 @@ impl TransactionBuilder {
             .try_into()
             .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
         self.payload.time_to_live_ms = NonZeroU64::new(ttl);
+        self.rebind_attachments();
         self
     }
     /// Set creation time of transaction
     pub fn set_creation_time(&mut self, value: Duration) -> &mut Self {
         self.payload.creation_time_ms = u64::try_from(value.as_millis())
             .expect("INTERNAL BUG: Unix timestamp exceedes u64::MAX");
+        self.rebind_attachments();
         self
     }
     /// Encode the transaction payload to canonical Norito bytes.

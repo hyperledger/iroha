@@ -482,7 +482,6 @@ fn bounded_frame_attempt<T: norito::NoritoSerialize>(
     if length > FINAL_PROMOTION_NATIVE_TRANSACTION_MAX_BYTES_V1 {
         return Err(Error::Transaction.into());
     }
-    norito::core::reserve_decode_allocation(length).map_err(native_codec_attempt_error)?;
     norito::core::to_bytes_bounded(value, length).map_err(|error| {
         native_codec_attempt_error(match error {
             norito::core::BoundedEncodeError::Serialization(error) => error,

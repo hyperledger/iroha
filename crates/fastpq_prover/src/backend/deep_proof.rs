@@ -48,9 +48,12 @@ pub(super) const MAX_FRAME_BYTES: usize = 500_084;
 pub(super) const PROOF_BYTE_TARGET: usize = 512 * 1024;
 /// Fixed maximum cumulative Norito allocation charges for one proof decode.
 pub(super) const MAX_ALLOCATION_CHARGES: usize = 8 * 1024 * 1024;
-const MAX_SEQUENCE_ELEMENTS: usize = 1283;
-const MAX_TOTAL_ELEMENTS: usize = 6182;
-const MAX_DECODE_DEPTH: usize = 16;
+/// Longest single sequence a maximal frame holds.
+pub(super) const MAX_SEQUENCE_ELEMENTS: usize = 1283;
+/// Cumulative sequence elements of a maximal frame.
+pub(super) const MAX_TOTAL_ELEMENTS: usize = 6182;
+/// Deepest nesting admitted while decoding one frame.
+pub(super) const MAX_DECODE_DEPTH: usize = 16;
 
 /// Sole canonical frame for the proposed DEEP proof layout.
 #[derive(Clone, Debug, PartialEq, Eq, NoritoSerialize, NoritoDeserialize, norito::NoritoSchema)]

@@ -40,12 +40,11 @@ class AndroidKeystoreProbeV1Test {
         }
     }
 
-    @Test fun `the probe never generates or deletes`() {
+    @Test fun `the probe asks getKey exactly once`() {
         val keyStore = TestAndroidKeystoreV1()
         keyStore.getKeyFailure = KeyStoreException("binder")
         assertFailsWith<AndroidKeystoreUnavailableExceptionV1> { keyStore.probe("alias") }
-        assertTrue(keyStore.generated.isEmpty())
-        assertEquals(0, keyStore.deleteCalls)
+        assertEquals(1, keyStore.getKeyCalls)
     }
 
     @Test fun `client-android sources never decide existence through masking KeyStore calls`() {

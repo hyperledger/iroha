@@ -193,10 +193,10 @@ fn taira_validator_template_parses_once_runtime_secrets_are_bound() {
         .with_toml_source(TomlSource::inline(table.clone()))
         .read_and_complete::<UserConfig>()
         .unwrap_or_else(|error| panic!("{SAMPLE} must match the configuration schema: {error:?}"));
-    // The onboarding, faucet and KAGEMUSHA redemption signers read owner-only key files that
-    // exist only on a provisioned validator; parse the rest of the template without them.
+    // The onboarding and faucet signers read owner-only key files that exist only on a
+    // provisioned validator; parse the rest of the template without them.
     let torii = sub_table(&mut table, "torii");
-    for custody in ["account_onboarding", "faucet", "kagemusha_v1_commands"] {
+    for custody in ["account_onboarding", "faucet"] {
         torii
             .remove(custody)
             .unwrap_or_else(|| panic!("Taira template declares `torii.{custody}`"));

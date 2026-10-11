@@ -24,19 +24,12 @@ This document contains the help content for the `kagami` command-line program.
 * [`kagami context use`↴](#kagami-context-use)
 * [`kagami contract`↴](#kagami-contract)
 * [`kagami contract deploy`↴](#kagami-contract-deploy)
+* [`kagami contract view`↴](#kagami-contract-view)
+* [`kagami contract call`↴](#kagami-contract-call)
 * [`kagami package`↴](#kagami-package)
 * [`kagami package publish`↴](#kagami-package-publish)
 * [`kagami docker`↴](#kagami-docker)
 * [`kagami keys`↴](#kagami-keys)
-* [`kagami kagemusha`↴](#kagami-kagemusha)
-* [`kagami kagemusha prepare-mobile-bootstrap-v1`↴](#kagami-kagemusha-prepare-mobile-bootstrap-v1)
-* [`kagami kagemusha sign-mobile-bootstrap-approval-v1`↴](#kagami-kagemusha-sign-mobile-bootstrap-approval-v1)
-* [`kagami kagemusha assemble-mobile-bootstrap-v1`↴](#kagami-kagemusha-assemble-mobile-bootstrap-v1)
-* [`kagami kagemusha prepare-experimental-release-v1`↴](#kagami-kagemusha-prepare-experimental-release-v1)
-* [`kagami kagemusha authenticate-release-v1`↴](#kagami-kagemusha-authenticate-release-v1)
-* [`kagami kagemusha authenticate-experimental-release-v1`↴](#kagami-kagemusha-authenticate-experimental-release-v1)
-* [`kagami kagemusha sign-experimental-release-approval-v1`↴](#kagami-kagemusha-sign-experimental-release-approval-v1)
-* [`kagami kagemusha assemble-experimental-release-v1`↴](#kagami-kagemusha-assemble-experimental-release-v1)
 * [`kagami genesis`↴](#kagami-genesis)
 * [`kagami genesis sign`↴](#kagami-genesis-sign)
 * [`kagami genesis generate`↴](#kagami-genesis-generate)
@@ -54,6 +47,8 @@ This document contains the help content for the `kagami` command-line program.
 * [`kagami privacy-bootstrap render-taira-release-v1`↴](#kagami-privacy-bootstrap-render-taira-release-v1)
 * [`kagami verify`↴](#kagami-verify)
 * [`kagami advanced`↴](#kagami-advanced)
+* [`kagami advanced network-bootstrap`↴](#kagami-advanced-network-bootstrap)
+* [`kagami advanced network-bootstrap prepare`↴](#kagami-advanced-network-bootstrap-prepare)
 * [`kagami advanced client-configs`↴](#kagami-advanced-client-configs)
 * [`kagami advanced codec`↴](#kagami-advanced-codec)
 * [`kagami advanced codec list-types`↴](#kagami-advanced-codec-list-types)
@@ -98,7 +93,6 @@ Common tasks:
 * `package` — Publish native Musubi packages through an exact generated local environment
 * `docker` — Generate validator-only Docker Compose from a prepared bundle or explicit dev seed
 * `keys` — Generate cryptographic key pairs and optional validator Proofs-of-Possession
-* `kagemusha` — Authenticate one complete KAGEMUSHA V1 release and its deployment evidence
 * `genesis` — Commands related to genesis
 * `privacy-bootstrap` — Emit and validate fail-closed Taira exact-12 privacy bootstrap artifacts
 * `verify` — Verify a genesis manifest against a preset profile
@@ -369,6 +363,9 @@ Create, fund, register, and select four private validators without supplying con
 ###### **Options:**
 
 * `--network <NETWORK>` — Exact independently installed parent profile, such as taira
+* `--account-alias <ACCOUNT_ALIAS>` — Canonical owner label leased on the parent as LABEL@ALIAS; retained across retries
+
+  Default value: `admin`
 * `--name <NAME>` — Store-local context name (defaults to the dataspace alias)
 * `--timeout <TIMEOUT>` — Complete parent authentication, local startup, and attachment budget in seconds
 
@@ -482,6 +479,8 @@ Build and deploy native IVM contracts in one invocation
 ###### **Subcommands:**
 
 * `deploy` — Deploy source, bytecode, or a Musubi package; automatically start a default localnet if needed
+* `view` — Read a verified deployed view in the selected managed environment
+* `call` — Prepare, execute or resume a finite durable mutable call
 
 
 
@@ -507,6 +506,71 @@ Deploy source, bytecode, or a Musubi package; automatically start a default loca
 * `--locked` — Require an unchanged Musubi dependency lock
 * `--resume <RESUME>` — Recover this exact retained deployment without rebuilding or signing another plan
 * `--max-fee <MAX_FEE>` — Bound the aggregate quoted fees in their single fee asset before dispatch
+
+
+
+## `kagami contract view`
+
+Read a verified deployed view in the selected managed environment
+
+**Usage:** `kagami contract view [OPTIONS] --entrypoint <ENTRYPOINT> <ALIAS>`
+
+###### **Arguments:**
+
+* `<ALIAS>` — Exact deployed contract alias
+
+###### **Options:**
+
+* `--state <STATE>` — Private runtime store. By default each workspace has its own OS application-state directory
+* `--workspace <WORKSPACE>` — Workspace whose managed context is selected (defaults to the current directory)
+* `--json` — Emit one public JSON result; progress remains on stderr
+* `--context <CONTEXT>` — Existing managed environment; otherwise use the workspace selection
+* `--entrypoint <ENTRYPOINT>` — Read-only public entrypoint
+* `--args <ARGS>` — Named arguments validated against the retained deployed interface
+
+  Default value: `{}`
+* `--gas-limit <GAS_LIMIT>` — Positive view execution budget
+
+  Default value: `1500000`
+
+
+
+## `kagami contract call`
+
+Prepare, execute or resume a finite durable mutable call
+
+**Usage:** `kagami contract call [OPTIONS] [ALIAS]`
+
+###### **Arguments:**
+
+* `<ALIAS>` — Exact deployed alias for a fresh operation
+
+###### **Options:**
+
+* `--state <STATE>` — Private runtime store. By default each workspace has its own OS application-state directory
+* `--workspace <WORKSPACE>` — Workspace whose managed context is selected (defaults to the current directory)
+* `--json` — Emit one public JSON result; progress remains on stderr
+* `--context <CONTEXT>` — Existing managed environment; otherwise use the workspace selection
+* `--entrypoint <ENTRYPOINT>` — Mutable public selector, including an explicitly requested lifecycle hook
+* `--args <ARGS>` — Named arguments validated and encoded natively from the retained deployed interface
+
+  Default value: `{}`
+* `--max-fee <MAX_FEE>` — Positive aggregate cap across any exact self-grant and the call in the generated fee asset
+* `--gas-limit <GAS_LIMIT>` — Signature-bound mutable execution budget
+
+  Default value: `1500000`
+* `--timeout <TIMEOUT>` — Original signing interval, retained unchanged when the operation is resumed
+
+  Default value: `60`
+* `--prepare` — Persist the exact original authorization without submitting either stage
+* `--resume <RESUME>` — Recover this exact managed call without a new authorization or replacement transaction
+* `--readback <READBACK>` — Explicit view to read after Applied; its availability is reported separately
+* `--readback-args <READBACK_ARGS>` — Named arguments for the explicitly selected readback view
+
+  Default value: `{}`
+* `--readback-gas-limit <READBACK_GAS_LIMIT>` — Independent positive gas budget for the readback view
+
+  Default value: `1500000`
 
 
 
@@ -613,223 +677,8 @@ Generate cryptographic key pairs and optional validator Proofs-of-Possession
    This is for reproducible fixtures. Omit it for OS-random production keys.
 * `--out-dir <DIR>` — Write the key pair into a new owner-only custody directory.
 
-   The directory must not contain any existing entries. Files are written as `public.key` and `private.key`; `--pop` also writes `pop.hex`. The private key never passes through standard output.
+   The directory must be fresh. The complete key pair publishes atomically. Files are written as `public.key` and `private.key`; `--pop` also writes `pop.hex`. The private key never passes through standard output.
 * `--pop` — Also output a BLS Proof-of-Possession (PoP) for this key (BLS-normal only). Written as `pop.hex` in the custody directory
-
-
-
-## `kagami kagemusha`
-
-Authenticate one complete KAGEMUSHA V1 release and its deployment evidence
-
-**Usage:** `kagami kagemusha <COMMAND>`
-
-###### **Subcommands:**
-
-* `prepare-mobile-bootstrap-v1` — Prepare one mobile checkpoint from an authenticated Experimental release
-* `sign-mobile-bootstrap-approval-v1` — Sign one independently pinned mobile bootstrap checkpoint
-* `assemble-mobile-bootstrap-v1` — Authenticate and assemble distinct approvals into a mobile bootstrap package
-* `prepare-experimental-release-v1` — Prepare an unsigned testnet candidate from checked artifacts and typed evidence
-* `authenticate-release-v1` — Authenticate one complete KAGEMUSHA V1 release and its deployment evidence
-* `authenticate-experimental-release-v1` — Authenticate one signed proof-only testnet release and its complete artifact inventory
-* `sign-experimental-release-approval-v1` — Sign one experimental release approval with one owner-held authority key
-* `assemble-experimental-release-v1` — Assemble independently signed approvals into one testnet attestation
-
-
-
-## `kagami kagemusha prepare-mobile-bootstrap-v1`
-
-Prepare one mobile checkpoint from an authenticated Experimental release
-
-**Usage:** `kagami kagemusha prepare-mobile-bootstrap-v1 --manifest <PATH> --validation-receipt <PATH> --authority-policy <PATH> --attestation <PATH> --artifact-root <PATH> --expected-network-id <LOWER_HEX> --expected-release-id <LOWER_HEX> --expected-asset-identity-digest <LOWER_HEX> --expected-asset-incarnation <LOWER_HEX> --expected-asset-scale <DECIMAL> --expected-liability-pool-id <LOWER_HEX> --finality-checkpoint <PATH> --sequence <SEQUENCE> --issued-at-ms <ISSUED_AT_MS> --expires-at-ms <EXPIRES_AT_MS> --trusted-now-ms <TRUSTED_NOW_MS> --checkpoint-output <PATH>`
-
-###### **Options:**
-
-* `--manifest <PATH>` — Canonical Norito testnet-experimental release manifest
-* `--validation-receipt <PATH>` — Canonical Norito structurally evidenced experimental validation receipt
-* `--authority-policy <PATH>` — Independently trusted canonical Norito release-authority policy
-* `--attestation <PATH>` — Canonical Norito threshold attestation over the experimental release
-* `--artifact-root <PATH>` — Canonical absolute directory containing all signed artifacts
-* `--expected-network-id <LOWER_HEX>` — Independently pinned genesis-derived network identity as lowercase hex
-* `--expected-release-id <LOWER_HEX>` — Independently pinned release identifier as lowercase hex
-* `--expected-asset-identity-digest <LOWER_HEX>` — Independently pinned asset identity digest as lowercase hex
-* `--expected-asset-incarnation <LOWER_HEX>` — Independently pinned asset incarnation as lowercase hex
-* `--expected-asset-scale <DECIMAL>` — Independently pinned decimal asset scale
-* `--expected-liability-pool-id <LOWER_HEX>` — Independently pinned reserve-liability pool identifier as lowercase hex
-* `--finality-checkpoint <PATH>` — Independently authenticated complete native finality checkpoint
-* `--sequence <SEQUENCE>` — New monotonically increasing deployment checkpoint sequence; nonzero
-* `--issued-at-ms <ISSUED_AT_MS>` — Inclusive authority issuance time in Unix milliseconds
-* `--expires-at-ms <EXPIRES_AT_MS>` — Exclusive authority expiry time in Unix milliseconds
-* `--trusted-now-ms <TRUSTED_NOW_MS>` — Current trusted operator time; not read from the checkpoint or handset clock
-* `--checkpoint-output <PATH>` — New owner-only file for the unsigned canonical checkpoint
-
-
-
-## `kagami kagemusha sign-mobile-bootstrap-approval-v1`
-
-Sign one independently pinned mobile bootstrap checkpoint
-
-**Usage:** `kagami kagemusha sign-mobile-bootstrap-approval-v1 --checkpoint <PATH> --authority-policy <PATH> --expected-network-id <LOWER_HEX> --expected-release-id <LOWER_HEX> --expected-asset-identity-digest <LOWER_HEX> --expected-asset-incarnation <LOWER_HEX> --expected-asset-scale <DECIMAL> --expected-liability-pool-id <LOWER_HEX> --expected-release-attestation-digest <LOWER_HEX> --expected-finality-checkpoint <PATH> --expected-sequence <EXPECTED_SEQUENCE> --expected-issued-at-ms <EXPECTED_ISSUED_AT_MS> --expected-expires-at-ms <EXPECTED_EXPIRES_AT_MS> --trusted-now-ms <TRUSTED_NOW_MS> --signer-private-key <PATH> --approval-output <PATH>`
-
-###### **Options:**
-
-* `--checkpoint <PATH>` — Canonical unsigned checkpoint prepared from the authenticated release
-* `--authority-policy <PATH>` — Independently selected canonical release-authority policy
-* `--expected-network-id <LOWER_HEX>` — Independently pinned genesis-derived network identity as lowercase hex
-* `--expected-release-id <LOWER_HEX>` — Independently pinned release identifier as lowercase hex
-* `--expected-asset-identity-digest <LOWER_HEX>` — Independently pinned asset identity digest as lowercase hex
-* `--expected-asset-incarnation <LOWER_HEX>` — Independently pinned asset incarnation as lowercase hex
-* `--expected-asset-scale <DECIMAL>` — Independently pinned decimal asset scale
-* `--expected-liability-pool-id <LOWER_HEX>` — Independently pinned reserve-liability pool identifier as lowercase hex
-* `--expected-release-attestation-digest <LOWER_HEX>` — Independently authenticated exact release-attestation digest
-* `--expected-finality-checkpoint <PATH>` — Independently selected exact canonical native finality checkpoint
-* `--expected-sequence <EXPECTED_SEQUENCE>` — Exact reviewed deployment checkpoint sequence, not a downloaded sequence floor
-* `--expected-issued-at-ms <EXPECTED_ISSUED_AT_MS>` — Exact reviewed issuance time in Unix milliseconds
-* `--expected-expires-at-ms <EXPECTED_EXPIRES_AT_MS>` — Exact reviewed exclusive expiry in Unix milliseconds
-* `--trusted-now-ms <TRUSTED_NOW_MS>` — Current trusted operator time; never inferred from the downloaded checkpoint
-* `--signer-private-key <PATH>` — One owner-held mode-0600 Kagami private-key record
-* `--approval-output <PATH>` — New owner-only file for this authority's canonical partial approval
-
-
-
-## `kagami kagemusha assemble-mobile-bootstrap-v1`
-
-Authenticate and assemble distinct approvals into a mobile bootstrap package
-
-**Usage:** `kagami kagemusha assemble-mobile-bootstrap-v1 --checkpoint <PATH> --authority-policy <PATH> --expected-network-id <LOWER_HEX> --expected-release-id <LOWER_HEX> --expected-asset-identity-digest <LOWER_HEX> --expected-asset-incarnation <LOWER_HEX> --expected-asset-scale <DECIMAL> --expected-liability-pool-id <LOWER_HEX> --expected-release-attestation-digest <LOWER_HEX> --expected-finality-checkpoint <PATH> --expected-sequence <EXPECTED_SEQUENCE> --expected-issued-at-ms <EXPECTED_ISSUED_AT_MS> --expected-expires-at-ms <EXPECTED_EXPIRES_AT_MS> --trusted-now-ms <TRUSTED_NOW_MS> --approval <PATH> --package-output <PATH>`
-
-###### **Options:**
-
-* `--checkpoint <PATH>` — Canonical unsigned checkpoint prepared from the authenticated release
-* `--authority-policy <PATH>` — Independently selected canonical release-authority policy
-* `--expected-network-id <LOWER_HEX>` — Independently pinned genesis-derived network identity as lowercase hex
-* `--expected-release-id <LOWER_HEX>` — Independently pinned release identifier as lowercase hex
-* `--expected-asset-identity-digest <LOWER_HEX>` — Independently pinned asset identity digest as lowercase hex
-* `--expected-asset-incarnation <LOWER_HEX>` — Independently pinned asset incarnation as lowercase hex
-* `--expected-asset-scale <DECIMAL>` — Independently pinned decimal asset scale
-* `--expected-liability-pool-id <LOWER_HEX>` — Independently pinned reserve-liability pool identifier as lowercase hex
-* `--expected-release-attestation-digest <LOWER_HEX>` — Independently authenticated exact release-attestation digest
-* `--expected-finality-checkpoint <PATH>` — Independently selected exact canonical native finality checkpoint
-* `--expected-sequence <EXPECTED_SEQUENCE>` — Exact reviewed deployment checkpoint sequence, not a downloaded sequence floor
-* `--expected-issued-at-ms <EXPECTED_ISSUED_AT_MS>` — Exact reviewed issuance time in Unix milliseconds
-* `--expected-expires-at-ms <EXPECTED_EXPIRES_AT_MS>` — Exact reviewed exclusive expiry in Unix milliseconds
-* `--trusted-now-ms <TRUSTED_NOW_MS>` — Current trusted operator time; never inferred from the downloaded checkpoint
-* `--approval <PATH>` — Canonical partial approval; repeat for each distinct authority
-* `--package-output <PATH>` — New owner-only file for the complete authenticated canonical package
-
-
-
-## `kagami kagemusha prepare-experimental-release-v1`
-
-Prepare an unsigned testnet candidate from checked artifacts and typed evidence
-
-**Usage:** `kagami kagemusha prepare-experimental-release-v1 --validation-receipt <PATH> --artifact-inventory <PATH> --artifact-root <PATH> --evidence-root <PATH> --authority-policy <PATH> --authority-review-projection <PATH> --authority-review-projection-sha256 <LOWER_HEX> --network-id <NETWORK_ID> --asset-identity-digest <LOWER_HEX> --asset-incarnation <LOWER_HEX> --asset-scale <DECIMAL> --liability-pool-id <LOWER_HEX> --output-dir <DIR>`
-
-###### **Options:**
-
-* `--validation-receipt <PATH>` — Canonical Norito typed structural-evidence receipt from a trusted evidence producer
-* `--artifact-inventory <PATH>` — Typed JSON array of the complete ordered role-to-content-address bindings
-* `--artifact-root <PATH>` — Canonical absolute directory of all content-addressed proof artifacts
-* `--evidence-root <PATH>` — Canonical absolute directory of all SHA-256-addressed receipt evidence files
-* `--authority-policy <PATH>` — Independently trusted canonical Norito release-authority policy
-* `--authority-review-projection <PATH>` — Canonical projection from the separately trusted release-evidence verifier
-* `--authority-review-projection-sha256 <LOWER_HEX>` — Independently reviewed SHA-256 pin of that exact projection
-* `--network-id <NETWORK_ID>` — Exact checked genesis-derived network identity
-* `--asset-identity-digest <LOWER_HEX>` — Exact normalized asset identity digest
-* `--asset-incarnation <LOWER_HEX>` — Exact asset incarnation
-* `--asset-scale <DECIMAL>` — Decimal asset scale
-* `--liability-pool-id <LOWER_HEX>` — Exact reserve-liability pool identifier
-* `--output-dir <DIR>` — New owner-only directory for the canonical unsigned manifest and verified receipt
-
-
-
-## `kagami kagemusha authenticate-release-v1`
-
-Authenticate one complete KAGEMUSHA V1 release and its deployment evidence
-
-**Usage:** `kagami kagemusha authenticate-release-v1 --manifest <PATH> --validation-receipt <PATH> --authority-policy <PATH> --attestation <PATH> --recursive-profile <PATH> --artifact-root <PATH> --authority-review-projection <PATH> --authority-review-projection-sha256 <LOWER_HEX> --native-artifact-manifest <PATH> --native-artifact-manifest-sha256 <LOWER_HEX> --native-artifact <PATH>`
-
-###### **Options:**
-
-* `--manifest <PATH>` — Canonical Norito KAGEMUSHA V1 release manifest
-* `--validation-receipt <PATH>` — Canonical Norito KAGEMUSHA V1 internal-validation receipt
-* `--authority-policy <PATH>` — Canonical Norito locally trusted KAGEMUSHA V1 release-authority policy
-* `--attestation <PATH>` — Canonical Norito KAGEMUSHA V1 threshold attestation
-* `--recursive-profile <PATH>` — Canonical JSON recursive-verifier profile consumed by Core
-* `--artifact-root <PATH>` — Absolute directory containing the complete set of SHA-256-addressed release artifacts
-* `--authority-review-projection <PATH>` — Canonical output from the separately pinned authority-review verifier
-* `--authority-review-projection-sha256 <LOWER_HEX>` — SHA-256 pin for the exact authority-review projection bytes
-* `--native-artifact-manifest <PATH>` — Canonical ABI25 c-jni native-artifact evidence manifest
-* `--native-artifact-manifest-sha256 <LOWER_HEX>` — SHA-256 pin for the exact native-artifact manifest bytes
-* `--native-artifact <PATH>` — Exact c-jni library whose bytes must match the native-artifact manifest
-
-
-
-## `kagami kagemusha authenticate-experimental-release-v1`
-
-Authenticate one signed proof-only testnet release and its complete artifact inventory
-
-**Usage:** `kagami kagemusha authenticate-experimental-release-v1 --manifest <PATH> --validation-receipt <PATH> --authority-policy <PATH> --attestation <PATH> --artifact-root <PATH> --expected-network-id <LOWER_HEX> --expected-release-id <LOWER_HEX> --expected-asset-identity-digest <LOWER_HEX> --expected-asset-incarnation <LOWER_HEX> --expected-asset-scale <DECIMAL> --expected-liability-pool-id <LOWER_HEX>`
-
-###### **Options:**
-
-* `--manifest <PATH>` — Canonical Norito testnet-experimental release manifest
-* `--validation-receipt <PATH>` — Canonical Norito structurally evidenced experimental validation receipt
-* `--authority-policy <PATH>` — Independently trusted canonical Norito release-authority policy
-* `--attestation <PATH>` — Canonical Norito threshold attestation over the experimental release
-* `--artifact-root <PATH>` — Canonical absolute directory containing all signed artifacts
-* `--expected-network-id <LOWER_HEX>` — Independently pinned genesis-derived network identity as lowercase hex
-* `--expected-release-id <LOWER_HEX>` — Independently pinned release identifier as lowercase hex
-* `--expected-asset-identity-digest <LOWER_HEX>` — Independently pinned asset identity digest as lowercase hex
-* `--expected-asset-incarnation <LOWER_HEX>` — Independently pinned asset incarnation as lowercase hex
-* `--expected-asset-scale <DECIMAL>` — Independently pinned decimal asset scale
-* `--expected-liability-pool-id <LOWER_HEX>` — Independently pinned reserve-liability pool identifier as lowercase hex
-
-
-
-## `kagami kagemusha sign-experimental-release-approval-v1`
-
-Sign one experimental release approval with one owner-held authority key
-
-**Usage:** `kagami kagemusha sign-experimental-release-approval-v1 --manifest <PATH> --validation-receipt <PATH> --authority-policy <PATH> --artifact-root <PATH> --signer-private-key <PATH> --approval-output <PATH> --expected-network-id <LOWER_HEX> --expected-release-id <LOWER_HEX> --expected-asset-identity-digest <LOWER_HEX> --expected-asset-incarnation <LOWER_HEX> --expected-asset-scale <DECIMAL> --expected-liability-pool-id <LOWER_HEX>`
-
-###### **Options:**
-
-* `--manifest <PATH>` — Canonical Norito testnet-experimental release manifest
-* `--validation-receipt <PATH>` — Canonical Norito structurally evidenced experimental validation receipt
-* `--authority-policy <PATH>` — Independently trusted canonical Norito release-authority policy
-* `--artifact-root <PATH>` — Canonical absolute directory containing all signed artifacts
-* `--signer-private-key <PATH>` — One owner-held mode-0600 Kagami private-key record
-* `--approval-output <PATH>` — New owner-only file for this authority's canonical Norito approval
-* `--expected-network-id <LOWER_HEX>` — Independently pinned genesis-derived network identity as lowercase hex
-* `--expected-release-id <LOWER_HEX>` — Independently pinned release identifier as lowercase hex
-* `--expected-asset-identity-digest <LOWER_HEX>` — Independently pinned asset identity digest as lowercase hex
-* `--expected-asset-incarnation <LOWER_HEX>` — Independently pinned asset incarnation as lowercase hex
-* `--expected-asset-scale <DECIMAL>` — Independently pinned decimal asset scale
-* `--expected-liability-pool-id <LOWER_HEX>` — Independently pinned reserve-liability pool identifier as lowercase hex
-
-
-
-## `kagami kagemusha assemble-experimental-release-v1`
-
-Assemble independently signed approvals into one testnet attestation
-
-**Usage:** `kagami kagemusha assemble-experimental-release-v1 --manifest <PATH> --validation-receipt <PATH> --authority-policy <PATH> --artifact-root <PATH> --approval <PATH> --attestation-output <PATH> --expected-network-id <LOWER_HEX> --expected-release-id <LOWER_HEX> --expected-asset-identity-digest <LOWER_HEX> --expected-asset-incarnation <LOWER_HEX> --expected-asset-scale <DECIMAL> --expected-liability-pool-id <LOWER_HEX>`
-
-###### **Options:**
-
-* `--manifest <PATH>` — Canonical Norito testnet-experimental release manifest
-* `--validation-receipt <PATH>` — Canonical Norito structurally evidenced experimental validation receipt
-* `--authority-policy <PATH>` — Independently trusted canonical Norito release-authority policy
-* `--artifact-root <PATH>` — Canonical absolute directory containing all signed artifacts
-* `--approval <PATH>` — One canonical Norito approval; repeat for each independent authority
-* `--attestation-output <PATH>` — New owner-only file for the canonical threshold attestation
-* `--expected-network-id <LOWER_HEX>` — Independently pinned genesis-derived network identity as lowercase hex
-* `--expected-release-id <LOWER_HEX>` — Independently pinned release identifier as lowercase hex
-* `--expected-asset-identity-digest <LOWER_HEX>` — Independently pinned asset identity digest as lowercase hex
-* `--expected-asset-incarnation <LOWER_HEX>` — Independently pinned asset incarnation as lowercase hex
-* `--expected-asset-scale <DECIMAL>` — Independently pinned decimal asset scale
-* `--expected-liability-pool-id <LOWER_HEX>` — Independently pinned reserve-liability pool identifier as lowercase hex
 
 
 
@@ -1136,11 +985,59 @@ Advanced low-level helpers for codec conversion, schema generation, block inspec
 
 ###### **Subcommands:**
 
+* `network-bootstrap` — Prepare signed remote-network bootstrap and native installation authorities offline
 * `client-configs` — Generate per-client CLI configs from a base client.toml
 * `codec` — Commands related to Norito codec conversions
 * `kura` — Commands related to block inspection
 * `markdown-help` — Output CLI documentation in Markdown format
 * `schema` — Generate the schema used for code generation in Iroha SDKs
+
+
+
+## `kagami advanced network-bootstrap`
+
+Prepare signed remote-network bootstrap and native installation authorities offline
+
+**Usage:** `kagami advanced network-bootstrap <COMMAND>`
+
+###### **Subcommands:**
+
+* `prepare` — Verify pinned genesis/proofs and atomically prepare canonical public release artifacts
+
+
+
+## `kagami advanced network-bootstrap prepare`
+
+Verify pinned genesis/proofs and atomically prepare canonical public release artifacts
+
+**Usage:** `kagami advanced network-bootstrap prepare [OPTIONS] --genesis-manifest <GENESIS_MANIFEST> --expected-genesis-manifest-sha256 <EXPECTED_GENESIS_MANIFEST_SHA256> --signed-genesis <SIGNED_GENESIS> --genesis-public-key <GENESIS_PUBLIC_KEY> --expected-network-id <EXPECTED_NETWORK_ID> --proof-json <PROOF_JSON> --network-name <NETWORK_NAME> --serial <SERIAL> --generation <GENERATION> --issued-at-ms <ISSUED_AT_MS> --expires-at-ms <EXPIRES_AT_MS> --torii-root <TORII_ROOT> --peer <PEER> --checkpoint-url <CHECKPOINT_URL> --release-public-key <RELEASE_PUBLIC_KEY> --release-key-file <RELEASE_KEY_FILE> --output-dir <OUTPUT_DIR>`
+
+###### **Options:**
+
+* `--genesis-manifest <GENESIS_MANIFEST>` — Exact manifest semantically bound to the independently authenticated signed genesis
+* `--expected-genesis-manifest-sha256 <EXPECTED_GENESIS_MANIFEST_SHA256>` — Manifest SHA256 authenticated independently, for example by native public-inputs metadata
+* `--signed-genesis <SIGNED_GENESIS>` — Original canonical signed genesis, selected independently of peer responses
+* `--genesis-public-key <GENESIS_PUBLIC_KEY>` — Independently selected public key that must authenticate the complete genesis
+* `--expected-network-id <EXPECTED_NETWORK_ID>` — Independently selected exact genesis-derived network identity
+* `--proof-json <PROOF_JSON>` — Existing typed finality-proof JSON, repeated in contiguous height order from 1 through N
+* `--network-name <NETWORK_NAME>` — Exact installed network selection; no official label is inferred
+* `--serial <SERIAL>` — Official monotonic publication serial and resulting installation rollback floor
+* `--generation <GENERATION>` — Explicit monotonic reset generation for this signed genesis
+* `--issued-at-ms <ISSUED_AT_MS>` — Inclusive release validity start in Unix milliseconds
+* `--expires-at-ms <EXPIRES_AT_MS>` — Exclusive expiry; native policy caps validity at one day
+* `--torii-root <TORII_ROOT>` — Approved canonical HTTPS parent root; repeat for each selected root
+* `--peer <PEER>` — Exact BLS public key and approved root as PUBLIC_KEY=HTTPS_ROOT; repeat for every member
+* `--checkpoint-url <CHECKPOINT_URL>` — Independently selected canonical HTTPS location where checkpoint.nrt will be published
+* `--release-public-key <RELEASE_PUBLIC_KEY>` — Independently selected release public key; must match the native signing file
+* `--release-key-file <RELEASE_KEY_FILE>` — Absolute native owner-only canonical release signing-key file (mode 0400 or 0600)
+* `--faucet-root <FAUCET_ROOT>` — Optional approved testnet faucet root; all allowance fields must be supplied together
+* `--faucet-issuer <FAUCET_ISSUER>` — Independently authenticated single-key faucet issuer
+* `--faucet-asset <FAUCET_ASSET>` — Exact sole currency available for automatic fees and namespace rent
+* `--faucet-amount <FAUCET_AMOUNT>` — Positive allowance supplied by one testnet faucet claim
+* `--max-operation-fee <MAX_OPERATION_FEE>` — Finite maximum aggregate fees for one managed parent operation
+* `--max-namespace-rent <MAX_NAMESPACE_RENT>` — Finite maximum combined dataspace and owner-alias one-year namespace rent
+* `--build-registry-root <BUILD_REGISTRY_ROOT>` — Optional approved parent build-registry root; repeat for selected roots
+* `--output-dir <OUTPUT_DIR>` — Fresh directory beneath an existing safe owner-held parent; outputs publish together
 
 
 

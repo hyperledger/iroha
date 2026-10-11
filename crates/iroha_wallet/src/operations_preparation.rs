@@ -698,9 +698,14 @@ fn encode_payload(payload: &TransactionPayload) -> Result<Vec<u8>> {
     let _flags = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
     let length = norito::canonical_frame_len(payload)?;
     eyre::ensure!(length <= PAYLOAD_MAX, "payload exceeds its byte bound");
-    norito::core::reserve_decode_allocation(length)?;
-    norito::core::to_bytes_bounded(payload, length)
-        .map_err(|error| eyre!("bounded payload encoding: {error:?}"))
+    norito::core::to_bytes_bounded(payload, length).map_err(|error| match error {
+        norito::core::BoundedEncodeError::Serialization(error)
+            if error.decode_resource_error().is_some() =>
+        {
+            error.into()
+        }
+        error => eyre!("bounded payload encoding: {error:?}"),
+    })
 }
 fn bounded_hex(bytes: &[u8]) -> Result<String> {
     let length = bytes

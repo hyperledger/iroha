@@ -108,7 +108,7 @@ impl NetworkServicePlanV1 {
     }
     pub(super) fn validate_keys(
         &self,
-        directory: &iroha_fs::PrivateDirectory,
+        directory: &capture::CapturedDirectory,
         unique: &mut BTreeSet<iroha_crypto::PublicKey>,
     ) -> Result<()> {
         let mut signers = Vec::with_capacity(COUNCIL_KEYS.len());

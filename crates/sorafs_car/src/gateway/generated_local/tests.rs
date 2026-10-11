@@ -870,3 +870,53 @@ fn publication_client_bounds_an_unfinished_real_tls_handshake() {
     release.send(()).unwrap();
     worker.join().unwrap();
 }
+
+#[test]
+fn original_selection_charges_one_frame_and_its_independently_measured_decoded_graph() {
+    let identity = Identity::new(&host(), false);
+    let original = material(&identity, 8443);
+    let frame = norito::encode_canonical(&original).unwrap();
+    let budget = 2 * 1024 * 1024;
+    let limits =
+        norito::DecodeLimits::new(MATERIAL_MAX, MATERIAL_MAX, MATERIAL_MAX * 2, budget, 48);
+    let owned_bytes = norito::with_decode_limits_scope(limits, || {
+        // Selection owns both capability decodes as well as the retained material graph.
+        original.validate().unwrap();
+        let policy = RegisteredAccountReadV1::from_capabilities(&original.proposal.capabilities)
+            .unwrap()
+            .unwrap();
+        assert_eq!(policy.https_port, 8443);
+        let decoded: ProviderAdmissionGenesisMaterialV1 = norito::decode_canonical(&frame).unwrap();
+        assert_eq!(decoded, original);
+        let norito::Error::TotalAllocationExceeded { attempted, .. } =
+            norito::core::reserve_decode_allocation(budget + 1).unwrap_err()
+        else {
+            panic!("allocation usage probe must refuse without charging");
+        };
+        attempted as usize - budget - 1
+    });
+    let exact = frame.len() + owned_bytes;
+    let limits = norito::DecodeLimits::new(MATERIAL_MAX, MATERIAL_MAX, MATERIAL_MAX * 2, exact, 48);
+    norito::with_decode_limits_scope(limits, || {
+        let selected = GeneratedLocalProviderTransportV1::select(
+            network(),
+            "component",
+            provider(),
+            &owner(),
+            &original,
+        )
+        .unwrap();
+        assert_eq!(selected.provider_id(), provider());
+        assert!(
+            GeneratedLocalProviderTransportV1::select(
+                network(),
+                "component",
+                provider(),
+                &owner(),
+                &original,
+            )
+            .is_err(),
+            "selection cannot renew its inherited allocation allowance"
+        );
+    });
+}

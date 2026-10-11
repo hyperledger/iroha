@@ -142,6 +142,8 @@ impl UnsignedEnrollment {
         owner: &ManagedStreamTokenCustody,
         purpose: CustodyPurpose,
     ) -> Result<()> {
+        #[cfg(test)]
+        let _timing = crate::custody_timing::Span::enter(crate::custody_timing::Category::Unsigned);
         encode(self, MAX_BODY_BYTES)?;
         if self.checkpoint.is_empty() || self.checkpoint.len() > MAX_CHECKPOINT_BYTES {
             return Err(invalid("unsigned enrollment checkpoint exceeds bound"));

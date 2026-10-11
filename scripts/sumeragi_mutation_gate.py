@@ -731,6 +731,18 @@ CORE_MUTATIONS = [
 
     m("HC127", "Core Nexus snapshot: write retained runtime undo without its explicit present-value frame",
       ["state::tests::snapshot_runtime_requires_exact_retained_predecessor_and_roundtrips_both_cuts"]),
+    m("HC130", "execution retry: discard original completed decoded proposal and reenter canonical decoding",
+      ["sumeragi::executor::decoded_custody_tests::completed_decoded_retry_borrows_original_graph_without_canonical_reentry"]),
+    m("HC131", "execution custody: accept a distinct same-source same-pool prepared signature control",
+      ["sumeragi::executor::decoded_custody_tests::same_source_same_pool_distinct_prepared_signature_owner_is_refused_at_both_boundaries"]),
+
+    m("HC128", "local payload: publish canonical wire before original-pool empty signature preparation",
+      ["sumeragi::executor::local_signature_preparation_tests::original_local_payload_signature_refusal_keeps_job_and_exact_release_owner"]),
+
+    m("HC129", "native validation: retry after a consuming unwind lost its original graph",
+      ["sumeragi::executor::tests::consuming_validation_unwind_requires_recovery_after_original_owner_is_lost"]),
+    m("HC132", "native proposal: omit the required top-up seal outside an epoch boundary",
+      ["sumeragi::executor::attestation_policy_tests::native_top_up_proposal_requires_attestation_before_an_epoch_boundary"]),
 
 ]
 

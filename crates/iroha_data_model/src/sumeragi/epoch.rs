@@ -139,7 +139,6 @@ impl ValidatorEpochContextV1 {
     pub fn context_id(&self) -> Result<[u8; 32], String> {
         self.validate()?;
         Hash::new_from_writer(|out| {
-            use std::io::Write as _;
             out.write_all(EPOCH_DOMAIN)?;
             out.write_all(&[0])?;
             norito::core::write_canonical_to_writer(self, out).map_err(std::io::Error::other)

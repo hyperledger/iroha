@@ -54,7 +54,10 @@ class Armv7DiagnosticInspectionTest(unittest.TestCase):
             self.assertEqual(report["library"]["elf"]["allLoadsAligned16KiB"], alignment == 16384)
             self.assertEqual(report["jniExportCount"], 1)
             self.assertFalse(report["release_admitted"])
-            self.assertFalse(report["kagemusha_qualified"])
+            self.assertEqual(set(report), {
+                "schema", "artifact_scope", "abi", "target", "release_admitted",
+                "library", "symbolInspector", "nativeExports", "jniExportCount", "limits",
+            })
             self.assertEqual(report["artifact_scope"], "android-local-diagnostic")
             self.assertEqual(run.call_args.args[0], [str(self.inspector), "--dynamic",
                 "--defined-only", "--extern-only", "--format=just-symbols", str(self.library)])

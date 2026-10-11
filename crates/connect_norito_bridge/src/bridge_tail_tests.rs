@@ -234,3 +234,69 @@ mod da_proof_summary_tests {
         (manifest_bytes, payload)
     }
 }
+#[cfg(test)]
+mod manifest_boundary_tests {
+    /// Crate manifest whose dependency edges ship in every native SDK library.
+    const BRIDGE_MANIFEST: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"));
+
+    /// Returns every dependency name declared in any `*dependencies` table,
+    /// including target-specific tables and dotted `name.workspace = true` keys.
+    fn declared_dependency_names(manifest: &str) -> Vec<String> {
+        let mut in_dependency_table = false;
+        let mut names = Vec::new();
+        for line in manifest.lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                in_dependency_table = line.ends_with("dependencies]");
+                continue;
+            }
+            if !in_dependency_table || line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, _)) = line.split_once('=') {
+                let name = key.split('.').next().unwrap_or(key).trim();
+                names.push(name.trim_matches('"').to_owned());
+            }
+        }
+        names
+    }
+
+    #[test]
+    fn dependency_name_parser_reads_every_dependency_table_and_skips_other_keys() {
+        let manifest = r#"
+[package]
+name = "bridge"
+[dependencies]
+# comment = "ignored"
+alpha = { workspace = true }
+beta.workspace = true
+[dev-dependencies]
+gamma = "1"
+[features]
+delta = []
+[target.'cfg(unix)'.dependencies]
+"epsilon" = "0.1"
+"#;
+        assert_eq!(
+            declared_dependency_names(manifest),
+            ["alpha", "beta", "gamma", "epsilon"]
+        );
+    }
+
+    #[test]
+    fn native_bridge_links_owner_crates_without_the_rust_client_sdk() {
+        let names = declared_dependency_names(BRIDGE_MANIFEST);
+        for owner in ["iroha_data_model", "iroha_crypto", "norito", "jni"] {
+            assert!(
+                names.iter().any(|name| name == owner),
+                "bridge manifest parser lost owner dependency {owner}: {names:?}"
+            );
+        }
+        // The SDK FFI surface links data-model, crypto and proof owners directly;
+        // the Rust client SDK and its Torii route surface never ship in it.
+        assert!(
+            !names.iter().any(|name| name == "iroha"),
+            "connect_norito_bridge must not depend on the iroha client SDK: {names:?}"
+        );
+    }
+}

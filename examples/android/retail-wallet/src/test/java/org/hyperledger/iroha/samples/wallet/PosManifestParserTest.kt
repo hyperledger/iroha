@@ -28,11 +28,11 @@ class PosManifestParserTest {
             "sorauﾛ1PｺfMﾇﾘｾﾄoﾂﾊﾔH7ZdﾘhﾚmAｸdnｳu1ｱﾄ1ｺﾋuSﾑﾀﾇﾐuHEB5DP",
             manifest.operator
         )
-        assertEquals(1084, manifest.payloadBase64.length)
+        assertEquals(1056, manifest.payloadBase64.length)
         assertEquals(2, manifest.backendRoots.size)
         val admission = manifest.backendRoots.first()
         assertEquals("torii-admission", admission.label)
-        assertEquals("kagemusha_release_signer", admission.role)
+        assertEquals("release_signer", admission.role)
         assertEquals(
             "ed0120D75A980182B10AB7D54BFED3C964073A0EE172F3DAA62325AF021A68F707511A",
             admission.publicKey

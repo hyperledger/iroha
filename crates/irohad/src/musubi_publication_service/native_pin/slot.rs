@@ -625,8 +625,13 @@ pub(in crate::musubi_publication_service) fn encode_frame<T: norito::core::Norit
         length <= MAX_FRAME_BYTES,
         "native slot frame exceeds its bound"
     );
-    norito::core::reserve_decode_allocation(length)?;
-    encode_hex(&norito::core::to_bytes_bounded(value, length)?)
+    let bytes = norito::core::to_bytes_bounded(value, length)
+        .map_err(|error| match error {
+            norito::core::BoundedEncodeError::Serialization(error)
+                if error.decode_resource_error().is_some() => eyre::Report::from(error),
+            error => eyre::Report::from(error),
+        })?;
+    encode_hex(&bytes)
 }
 pub(in crate::musubi_publication_service) fn decode_frame<T>(text: &str) -> Result<T>
 where

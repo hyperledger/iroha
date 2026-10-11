@@ -35,7 +35,12 @@ use iroha_data_model::{
     },
 };
 use iroha_model_base::peer::PeerId;
-use std::{cmp::Reverse, collections::BTreeMap, num::NonZeroU64};
+use std::{
+    cmp::Reverse,
+    collections::BTreeMap,
+    num::NonZeroU64,
+    sync::{Arc, OnceLock},
+};
 
 /// Smallest committee: `f = 1`.
 pub const MIN_COMMITTEE_MEMBERS: usize = 4;
@@ -328,14 +333,24 @@ impl Budget {
 }
 
 /// An independently anchored certified prefix; fresh readiness requires a successful observation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct FinalityVerifier {
     checkpoint: SumeragiFinalityCheckpoint,
     /// Successors an observation verified before its budget ran out, awaiting a fresh quorum.
     /// The next observation continues from here. The durable runtime owner may explicitly
     /// retain them as a certificate-only checkpoint while still returning CatchingUp.
     pending: Option<SumeragiFinalityCheckpoint>,
+    /// Successful authentication of this exact immutable checkpoint's original tip only.
+    /// Clones share the derived capability until one publishes a different checkpoint.
+    verified_tip: Arc<OnceLock<VerifiedSumeragiBlock>>,
 }
+
+impl PartialEq for FinalityVerifier {
+    fn eq(&self, other: &Self) -> bool {
+        self.checkpoint == other.checkpoint && self.pending == other.pending
+    }
+}
+impl Eq for FinalityVerifier {}
 
 impl FinalityVerifier {
     /// Initialize from authenticated signed genesis and its result-only native frame.
@@ -373,6 +388,7 @@ impl FinalityVerifier {
         Ok(Self {
             checkpoint: verifier.export_checkpoint(genesis)?,
             pending: None,
+            verified_tip: Arc::new(OnceLock::new()),
         })
     }
 
@@ -385,6 +401,9 @@ impl FinalityVerifier {
         expected_network: NetworkId,
         expected_chain: &str,
     ) -> Result<Self, FinalityError> {
+        #[cfg(test)]
+        let _timing =
+            crate::custody_timing::Span::enter(crate::custody_timing::Category::CheckpointImport);
         SumeragiFinalityVerifier::from_trusted_checkpoint(
             &checkpoint,
             &expected_network,
@@ -394,6 +413,7 @@ impl FinalityVerifier {
         Ok(Self {
             checkpoint,
             pending: None,
+            verified_tip: Arc::new(OnceLock::new()),
         })
     }
 
@@ -407,7 +427,7 @@ impl FinalityVerifier {
         let Some(pending) = self.pending.take() else {
             return false;
         };
-        self.checkpoint = pending;
+        self.replace_checkpoint(pending);
         true
     }
     /// Authenticate the exact retained tip for execution-bound receipts and public record proofs.
@@ -417,15 +437,32 @@ impl FinalityVerifier {
     /// # Errors
     /// The retained native checkpoint or its certified execution decision is inconsistent.
     pub fn verified_tip(&self) -> Result<VerifiedSumeragiBlock, FinalityError> {
-        Ok(self
+        #[cfg(test)]
+        let _timing =
+            crate::custody_timing::Span::enter(crate::custody_timing::Category::VerifiedTip);
+        if let Some(verified) = self.verified_tip.get() {
+            return Ok(verified.clone());
+        }
+        let verified = self
             .native()?
-            .verify_retained_decision(self.checkpoint.tip())?)
+            .verify_retained_decision(self.checkpoint.tip())?;
+        // Racing immutable callers may both verify; only successful canonical results are kept.
+        let _ = self.verified_tip.set(verified.clone());
+        Ok(verified)
+    }
+    /// Replace the checkpoint and detach only this owner's derived tip capability.
+    fn replace_checkpoint(&mut self, checkpoint: SumeragiFinalityCheckpoint) {
+        self.checkpoint = checkpoint;
+        self.verified_tip = Arc::new(OnceLock::new());
     }
     /// Size of the exact committee that certified the tip.
     pub fn committee_size(&self) -> CommitteeSize {
         CommitteeSize(self.checkpoint.tip().committee.len())
     }
     fn native(&self) -> Result<SumeragiFinalityVerifier, FinalityError> {
+        #[cfg(test)]
+        let _timing =
+            crate::custody_timing::Span::enter(crate::custody_timing::Category::NativeVerifier);
         Ok(SumeragiFinalityVerifier::from_trusted_checkpoint(
             &self.checkpoint,
             &self.checkpoint.network_id(),
@@ -491,7 +528,7 @@ impl FinalityVerifier {
         budget.charge(tip)?;
         CommitteeSize::new(tip.committee.len())?;
         native.verify(tip)?;
-        self.checkpoint = native.export_checkpoint(tip)?;
+        self.replace_checkpoint(native.export_checkpoint(tip)?);
         self.pending = None;
         Ok(fetched)
     }
@@ -532,7 +569,7 @@ impl FinalityVerifier {
             Err(FinalityError::ResourceLimit(_)) if prefix.height() > current => {}
             Err(error) => return Err(error),
         }
-        self.checkpoint = prefix.checkpoint()?;
+        self.replace_checkpoint(prefix.checkpoint()?);
         self.pending = None;
         Ok(self.checkpoint.height())
     }
@@ -683,7 +720,7 @@ impl FinalityVerifier {
         let verified = prefix.height();
         let report = prefix.report(&mut reads, &mut unverified)?;
         if report.verified() >= report.required {
-            self.checkpoint = prefix.checkpoint()?;
+            self.replace_checkpoint(prefix.checkpoint()?);
             self.pending = None;
             return Ok(report);
         }

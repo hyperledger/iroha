@@ -156,6 +156,13 @@ pub enum PreparedDecodeError<E> {
     Scope(PreparedDecodeScopeError),
 }
 
+/// The real ordinary owning entry whose record bounds this prepared caller preserves.
+#[derive(Clone, Copy)]
+enum PreparedRecordRoot {
+    CanonicalField,
+    ArchiveView,
+}
+
 impl PreparedDecodeWorkspace {
     /// Fill one prepared destination using the sole derived field walk and
     /// authenticate its complete original canonical frame by streaming comparison.
@@ -183,22 +190,122 @@ impl PreparedDecodeWorkspace {
         T: NoritoSerialize + DecodeRecordFields<D>,
         D: PreparedRecordDestination<T>,
     {
+        self.decode_canonical_into_with_root::<T, D>(
+            bytes,
+            limits,
+            destination,
+            PreparedRecordRoot::CanonicalField,
+        )
+    }
+
+    /// Fill a canonical frame through its original archive-view record boundary.
+    ///
+    /// This is the prepared counterpart of [`ArchiveView::decode`] for a derived
+    /// positional record with slice decoding. Both use payload-derived protocol
+    /// ceilings and the same field walk, without treating the whole record as a
+    /// canonical child field or adding a record depth before its first field.
+    /// The field prefixes, leaf depth checks and inherited ceilings still apply.
+    /// Header/schema/padding/checksum validation precedes the record scope as in
+    /// the archive view. Exact canonical frame comparison follows complete filling.
+    /// No archived backing, alignment scratch or ordinary owned fallback is made.
+    /// The separate canonical-field entry retains its original root checks.
+    ///
+    /// # Errors
+    /// Preserves original byte/resource or destination causes and resets validity
+    /// on failure while retaining the original controls and destination storage.
+    pub fn decode_canonical_archive_into<T, D>(
+        &mut self,
+        bytes: &[u8],
+        limits: DecodeLimits,
+        destination: &mut D,
+    ) -> Result<(), PreparedDecodeError<D::Error>>
+    where
+        T: NoritoSerialize + DecodeRecordFields<D>,
+        for<'de> T: NoritoDeserialize<'de> + DecodeFromSlice<'de>,
+        D: PreparedRecordDestination<T>,
+    {
+        self.decode_canonical_into_with_root::<T, D>(
+            bytes,
+            limits,
+            destination,
+            PreparedRecordRoot::ArchiveView,
+        )
+    }
+
+    fn decode_canonical_into_with_root<T, D>(
+        &mut self,
+        bytes: &[u8],
+        limits: DecodeLimits,
+        destination: &mut D,
+        root: PreparedRecordRoot,
+    ) -> Result<(), PreparedDecodeError<D::Error>>
+    where
+        T: NoritoSerialize + DecodeRecordFields<D>,
+        D: PreparedRecordDestination<T>,
+    {
         destination.reset();
         let result = decode_attempt::observe(|| {
             let header = crate::checked_canonical_header(bytes)
                 .map_err(|error| PreparedDecodeError::Codec(decode_attempt::capture(error)))?;
-            let attempt =
-                self.with_limits(crate::canonical_decode_limits(bytes.len()), limits, || {
+            // ArchiveView authenticates its complete frame and type before entering
+            // the payload-derived scope. Preserve that ordering without constructing
+            // an archived payload or running a second decoder.
+            let archive = match root {
+                PreparedRecordRoot::CanonicalField => None,
+                PreparedRecordRoot::ArchiveView => {
+                    let view = from_bytes_view(bytes).map_err(|error| {
+                        PreparedDecodeError::Codec(decode_attempt::capture(error))
+                    })?;
+                    if view.schema() != crate::schema::identity::frame_hash::<T>() {
+                        return Err(PreparedDecodeError::Codec(decode_attempt::capture(
+                            Error::SchemaMismatch,
+                        )));
+                    }
+                    if view.padding_len != payload_alignment_padding_for::<T>() {
+                        return Err(PreparedDecodeError::Codec(decode_attempt::capture(
+                            Error::LengthMismatch,
+                        )));
+                    }
+                    Some(view)
+                }
+            };
+            let derived_length = archive
+                .as_ref()
+                .map_or(bytes.len(), |view| view.as_bytes().len());
+            let attempt = self.with_limits(
+                crate::canonical_decode_limits(derived_length),
+                limits,
+                || {
                     let _canonical_flags = DecodeFlagsGuard::enter(default_encode_flags());
                     let _outer_context = PayloadCtxGuard::enter(bytes);
-                    let payload = crate::checked_uncompressed_payload::<T>(bytes, &header)?;
+                    let payload = match &archive {
+                        Some(view) => view.as_bytes(),
+                        None => crate::checked_uncompressed_payload::<T>(bytes, &header)?,
+                    };
                     let _flags = DecodeFlagsGuard::enter(header.flags);
-                    check_decode_field_length(
-                        u64::try_from(payload.len()).map_err(|_| Error::LengthMismatch)?,
-                    )?;
-                    let _depth = DecodeDepthGuard::enter()?;
-                    let _context = PayloadCtxGuard::enter(payload);
-                    let _boundary = FieldDecodeBoundaryGuard::enter(FieldDecodeBoundary::Canonical);
+                    let _depth = match root {
+                        PreparedRecordRoot::CanonicalField => {
+                            check_decode_field_length(
+                                u64::try_from(payload.len()).map_err(|_| Error::LengthMismatch)?,
+                            )?;
+                            Some(DecodeDepthGuard::enter()?)
+                        }
+                        PreparedRecordRoot::ArchiveView => None,
+                    };
+                    let _context = match root {
+                        PreparedRecordRoot::CanonicalField => PayloadCtxGuard::enter(payload),
+                        PreparedRecordRoot::ArchiveView => {
+                            PayloadCtxGuard::enter_with_schema_and_flags(
+                                payload,
+                                header.schema,
+                                header.flags,
+                            )
+                        }
+                    };
+                    let _boundary = FieldDecodeBoundaryGuard::enter(match root {
+                        PreparedRecordRoot::CanonicalField => FieldDecodeBoundary::Canonical,
+                        PreparedRecordRoot::ArchiveView => FieldDecodeBoundary::Prefix,
+                    });
                     let (_, used) = T::decode_fields(payload, destination)?;
                     validate_decode_consumption(payload, used)?;
                     let mut exact = ExactSliceWriter::new(bytes);
@@ -215,7 +322,8 @@ impl PreparedDecodeWorkspace {
                         return Err(DecodeIntoError::Codec(Error::NonCanonicalEncoding));
                     }
                     Ok(())
-                });
+                },
+            );
             match attempt {
                 Err(error) => Err(PreparedDecodeError::Scope(error)),
                 Ok(Err(DecodeIntoError::Destination(error))) => {

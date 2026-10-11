@@ -684,14 +684,11 @@ fn mk_governance_harness(with_permissions: bool) -> GovHarness {
     }
 }
 fn mk_manifest_provenance(
+    signing: &crate::routing::manifest_signing_test_support::ManifestSigningFixture,
     keypair: &KeyPair,
     code_hash: [u8; 32],
     abi_hash: [u8; 32],
 ) -> ManifestProvenance {
-    let owner = crate::history_producer::HistoryProducerOwner::for_test();
-    let max_frame_bytes =
-        usize::try_from(iroha_config::parameters::defaults::transaction::ivm_bytecode_size().get())
-            .expect("configured fixture manifest frame bound fits usize");
     let manifest = ContractManifest {
         seiyaku_name: None,
         code_hash: Some(iroha_crypto::Hash::prehashed(code_hash)),
@@ -706,8 +703,8 @@ fn mk_manifest_provenance(
         error_types: None,
         provenance: None,
     }
-    .try_signed(owner.allocation_context(), max_frame_bytes, keypair)
-    .expect("sign bounded governance manifest fixture");
+    .try_signed(signing.context(), signing.max_frame_bytes(), keypair)
+    .expect("funded canonical manifest provenance");
     manifest
         .provenance
         .expect("signed manifest should carry provenance")
@@ -739,24 +736,14 @@ seiyaku GovernedReadFixture {
         manifest.same_signed_content(&verified.manifest),
         "compiler and independently verified artifact must expose exactly the same signed content",
     );
-    let owner = crate::history_producer::HistoryProducerOwner::for_test();
-    let max_frame_bytes = usize::try_from(
-        harness
-            .state
-            .world_view()
-            .parameters()
-            .transaction
-            .ivm_bytecode_size
-            .get(),
-    )
-    .expect("configured fixture manifest frame bound fits usize");
+    let signing = crate::routing::manifest_signing_test_support::ManifestSigningFixture::new(1);
     let signed_manifest = manifest
         .try_signed(
-            owner.allocation_context(),
-            max_frame_bytes,
+            signing.context(),
+            signing.max_frame_bytes(),
             &harness.authority_keypair,
         )
-        .expect("sign bounded active governance manifest fixture");
+        .expect("funded canonical governed fixture manifest");
     let contract_address = iroha_data_model::smart_contract::ContractAddress::derive(
         &"hash:0000000000000000000000000000000000000000000000000000000000000001#C50E"
             .parse()
@@ -1223,7 +1210,8 @@ async fn propose_deploy_builds_instruction_skeleton() {
     let provenance_key =
         KeyPair::try_from_seed(b"proposal-id-provenance".to_vec(), Algorithm::Ed25519)
             .expect("derive proposal provenance fixture key");
-    let provenance = mk_manifest_provenance(&provenance_key, [0x11; 32], canonical_abi);
+    let signing = crate::routing::manifest_signing_test_support::ManifestSigningFixture::new(1);
+    let provenance = mk_manifest_provenance(&signing, &provenance_key, [0x11; 32], canonical_abi);
     let dto = DeployContractProposalDraftRequestV1 {
         proposal_operator: ALICE_ID.clone(),
         contract_address: Some(sample_contract_address()),
@@ -1439,7 +1427,8 @@ fn governance_nested_request_types_reject_unknown_fields() {
     let keypair =
         KeyPair::try_from_seed(b"closed-manifest-provenance".to_vec(), Algorithm::Ed25519)
             .expect("derive manifest provenance fixture key");
-    let provenance = mk_manifest_provenance(&keypair, [0x11; 32], [0x22; 32]);
+    let signing = crate::routing::manifest_signing_test_support::ManifestSigningFixture::new(1);
+    let provenance = mk_manifest_provenance(&signing, &keypair, [0x11; 32], [0x22; 32]);
     let canonical =
         norito::json::to_json(&provenance).expect("encode canonical manifest provenance");
     let body = canonical
@@ -2419,6 +2408,204 @@ async fn gov_get_tally_rejects_accumulator_overflow() {
         .to_string()
     );
 }
+fn signed_governed_manifest_for_verification(
+    signing: &crate::routing::manifest_signing_test_support::ManifestSigningFixture,
+) -> ContractManifest {
+    let key = KeyPair::try_from_seed(vec![75; 32], Algorithm::Ed25519).unwrap();
+    ContractManifest {
+        seiyaku_name: Some("GovernedVerificationFixture".into()),
+        code_hash: Some(iroha_crypto::Hash::new(b"governed fixture code")),
+        abi_hash: Some(iroha_crypto::Hash::new(b"governed fixture ABI")),
+        compiler_fingerprint: None,
+        features_bitmap: None,
+        access_set_hints: None,
+        entrypoints: None,
+        states: None,
+        provenance: None,
+        error_types: None,
+        error_messages: None,
+        kotoba: None,
+    }
+    .try_signed(signing.context(), signing.max_frame_bytes(), &key)
+    .expect("funded canonical governed manifest")
+}
+
+#[test]
+fn governed_manifest_verification_authenticates_exact_content_and_refunds_its_frame() {
+    use iroha_core::execution_attempt::ExecutionAttemptError;
+    let signing = crate::routing::manifest_signing_test_support::ManifestSigningFixture::new(1);
+    let mut manifest = signed_governed_manifest_for_verification(&signing);
+    let (state, _, _) = mk_basic_context();
+    let budget = state.ivm_execution_budget();
+    let baseline = budget.reserved_bytes();
+    let frame_bytes = signing
+        .context()
+        .with(|| norito::canonical_frame_len(&manifest.signature_payload()))
+        .unwrap();
+    verify_governed_contract_manifest_signature(&manifest, &budget, budget.limit_bytes()).unwrap();
+    assert_eq!(budget.reserved_bytes(), baseline);
+    assert!(
+        budget.peak_reserved_bytes()
+            >= baseline
+                + norito::core::DecodeBudgetContext::allocation_layout().size()
+                + frame_bytes
+    );
+
+    manifest.features_bitmap = Some(manifest.features_bitmap.unwrap_or(0) ^ 1);
+    assert!(matches!(
+        verify_governed_contract_manifest_signature(&manifest, &budget, budget.limit_bytes()),
+        Err(ExecutionAttemptError::Rejected(message))
+            if message == "active contract manifest provenance is invalid"
+    ));
+    assert_eq!(budget.reserved_bytes(), baseline);
+    manifest.provenance = None;
+    assert!(matches!(
+        verify_governed_contract_manifest_signature(&manifest, &budget, budget.limit_bytes()),
+        Err(ExecutionAttemptError::Rejected(message))
+            if message == "active contract manifest has no signed provenance"
+    ));
+    assert_eq!(budget.reserved_bytes(), baseline);
+}
+
+#[test]
+fn governed_manifest_verification_preserves_counter_and_one_short_frame_capacity() {
+    use iroha_allocation::{AllocationRefusal, release::ReleaseRegistration};
+    use iroha_core::execution_attempt::ExecutionAttemptError;
+    use std::{
+        future::Future as _,
+        pin::pin,
+        task::{Context, Poll, Waker},
+    };
+
+    let signing = crate::routing::manifest_signing_test_support::ManifestSigningFixture::new(1);
+    let manifest = signed_governed_manifest_for_verification(&signing);
+    let frame_bytes = signing
+        .context()
+        .with(|| norito::canonical_frame_len(&manifest.signature_payload()))
+        .unwrap();
+    let counter_bytes = norito::core::DecodeBudgetContext::allocation_layout().size();
+    for available in [0, counter_bytes + frame_bytes - 1] {
+        let (state, _, _) = mk_basic_context();
+        let budget = state.ivm_execution_budget();
+        let mut waiter_grant = budget
+            .try_reserve(ReleaseRegistration::allocation_layout())
+            .unwrap();
+        let mut registration = ReleaseRegistration::from_reservation(&mut waiter_grant).unwrap();
+        assert!(registration.belongs_to(&budget));
+        let baseline = budget.reserved_bytes();
+        let limit = budget.limit_bytes();
+        let occupied = budget
+            .try_reserve_bytes(limit - baseline - available)
+            .unwrap();
+        let error =
+            verify_governed_contract_manifest_signature(&manifest, &budget, budget.limit_bytes())
+                .expect_err("the original State pool must refuse this attempt");
+        let ExecutionAttemptError::Deferred(retained) = error else {
+            panic!("local capacity must not become an invalid manifest verdict")
+        };
+        let Some(AllocationRefusal::Capacity {
+            requested_bytes,
+            reserved_bytes,
+            limit_bytes,
+            release,
+        }) = retained.allocation_refusal()
+        else {
+            panic!("the original State allocation refusal must survive")
+        };
+        let admitted_counter = if available == 0 { 0 } else { counter_bytes };
+        assert_eq!(
+            *requested_bytes,
+            if available == 0 {
+                counter_bytes
+            } else {
+                frame_bytes
+            }
+        );
+        assert_eq!(
+            *reserved_bytes,
+            baseline + occupied.remaining_bytes() + admitted_counter
+        );
+        assert_eq!(*limit_bytes, limit);
+        assert_eq!(
+            budget.reserved_bytes(),
+            baseline + occupied.remaining_bytes()
+        );
+        {
+            let mut wait = pin!(release.clone().wait_for_release(&mut registration));
+            assert_eq!(
+                wait.as_mut().poll(&mut Context::from_waker(Waker::noop())),
+                if available == 0 {
+                    Poll::Pending
+                } else {
+                    Poll::Ready(())
+                },
+                "a refused frame has already physically retired its original counter",
+            );
+            drop(occupied);
+            assert!(
+                wait.as_mut()
+                    .poll(&mut Context::from_waker(Waker::noop()))
+                    .is_ready()
+            );
+        }
+        assert_eq!(budget.reserved_bytes(), baseline);
+        let exact = budget
+            .try_reserve_bytes(limit - baseline - counter_bytes - frame_bytes)
+            .unwrap();
+        verify_governed_contract_manifest_signature(&manifest, &budget, budget.limit_bytes())
+            .expect("exact original counter and frame capacity admits the same signature");
+        assert_eq!(budget.reserved_bytes(), baseline + exact.remaining_bytes());
+        drop(exact);
+        assert_eq!(budget.reserved_bytes(), baseline);
+    }
+}
+
+#[test]
+fn governed_manifest_verification_keeps_an_enclosing_codec_refusal_local() {
+    use iroha_core::execution_attempt::ExecutionAttemptError;
+    use norito::core::DecodeBudgetContext;
+
+    let signing = crate::routing::manifest_signing_test_support::ManifestSigningFixture::new(1);
+    let manifest = signed_governed_manifest_for_verification(&signing);
+    let (state, _, _) = mk_basic_context();
+    let budget = state.ivm_execution_budget();
+    let baseline = budget.reserved_bytes();
+    let outer_pool =
+        iroha_allocation::AllocationBudget::new(DecodeBudgetContext::allocation_layout().size());
+    let outer = DecodeBudgetContext::try_new_owned(
+        norito::DecodeLimits::new(
+            100_000,
+            signing.max_frame_bytes(),
+            100_000,
+            0,
+            norito::core::MAX_VALUE_NESTING_DEPTH,
+        ),
+        &outer_pool,
+    )
+    .unwrap();
+    let result = outer.with(|| {
+        verify_governed_contract_manifest_signature(&manifest, &budget, budget.limit_bytes())
+    });
+    let Err(ExecutionAttemptError::Deferred(retained)) = result else {
+        panic!("an original enclosing allocation ceiling is a local refusal")
+    };
+    assert_eq!(
+        retained.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    assert!(
+        retained.allocation_refusal().is_none(),
+        "codec ceilings create no pool release owner"
+    );
+    assert_eq!(budget.reserved_bytes(), baseline);
+    assert_eq!(outer.consumed_allocated_bytes(), 0);
+    verify_governed_contract_manifest_signature(&manifest, &budget, budget.limit_bytes())
+        .expect("the same signed content verifies after the enclosing caller scope retires");
+    assert_eq!(budget.reserved_bytes(), baseline);
+    drop(outer);
+    assert_eq!(outer_pool.reserved_bytes(), 0);
+}
+
 #[test]
 fn governed_contract_entrypoint_names_are_closed_ascii_identifiers() {
     for name in ["a", "balance", "transfer_2"] {
@@ -2779,8 +2966,13 @@ async fn propose_deploy_rejected_without_permission() {
     let harness = mk_governance_harness(false);
     let code_hash_bytes = [0x22u8; 32];
     let abi_hash_bytes = ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1);
-    let manifest_provenance =
-        mk_manifest_provenance(&harness.authority_keypair, code_hash_bytes, abi_hash_bytes);
+    let signing = crate::routing::manifest_signing_test_support::ManifestSigningFixture::new(1);
+    let manifest_provenance = mk_manifest_provenance(
+        &signing,
+        &harness.authority_keypair,
+        code_hash_bytes,
+        abi_hash_bytes,
+    );
     let propose = DeployContractProposalDraftRequestV1 {
         proposal_operator: harness.authority.clone(),
         contract_address: Some(sample_contract_address()),

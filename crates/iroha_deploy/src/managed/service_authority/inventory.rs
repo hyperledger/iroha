@@ -43,7 +43,6 @@ impl Branch {
 /// profile, directory name, or absence observation becomes signing or native state evidence.
 pub(in crate::managed) struct ServiceChildInventory<'a> {
     parent: &'a ServiceAuthority,
-    generation: PrivateDirectory,
     branches: Vec<Branch>,
     network: usize,
     providers: [Option<usize>; 3],
@@ -71,12 +70,10 @@ impl<'a> ServiceChildInventory<'a> {
         {
             return Err(invalid("service inventory selected another parent purpose"));
         }
-        // The original parent retains its entire native ancestry while this handle is opened.
-        // Revalidation on both sides binds the newly opened generation to that original path.
+        // Retain the exact original runtime and all native ancestors already held by this owner.
         parent.validate_operation_custody()?;
-        let generation = PrivateDirectory::open_exact(path)?;
+        let runtime = Branch::capture(parent.profile.runtime().retain()?)?;
         parent.validate_operation_custody()?;
-        let runtime = Branch::capture(generation.open_child("runtime")?)?;
         let operations = Branch::capture(runtime.directory.open_child("service-operations")?)?;
         let network = Branch::capture(operations.directory.open_child("network")?)?;
         let provider_root = if operations.names.iter().any(|name| name == "providers") {
@@ -105,7 +102,6 @@ impl<'a> ServiceChildInventory<'a> {
         }
         let value = Self {
             parent,
-            generation,
             branches,
             network: 2,
             providers,
@@ -117,7 +113,6 @@ impl<'a> ServiceChildInventory<'a> {
 
     fn revalidate(&self) -> Result<()> {
         self.parent.validate_operation_custody()?;
-        self.generation.revalidate()?;
         for branch in &self.branches {
             branch.revalidate()?;
         }

@@ -359,3 +359,19 @@ fn held_exposed_slot_revalidates_exact_signature_and_submission_bytes() {
         assert_eq!(slot.signed().unwrap().encode_wire_v1().unwrap(), original);
     }
 }
+
+#[test]
+fn slot_frame_charges_one_raw_frame_and_its_distinct_hex_destination() {
+    let value = vec![0x37_u8; 64];
+    let canonical = norito::encode_canonical(&value).unwrap();
+    let expected = hex::encode(&canonical);
+    let length = canonical.len();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, length * 3, 128);
+    norito::with_decode_limits_scope(limits, || {
+        assert_eq!(encode_frame(&value).unwrap(), expected);
+        let error = encode_frame(&value).unwrap_err();
+        assert!(matches!(error.downcast_ref::<norito::Error>(),
+            Some(norito::Error::TotalAllocationExceeded { attempted, limit })
+                if *attempted == (length * 4) as u64 && *limit == (length * 3) as u64));
+    });
+}

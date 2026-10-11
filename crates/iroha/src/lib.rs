@@ -13,8 +13,6 @@ mod error;
 pub mod http;
 mod http_default;
 pub mod nexus_app;
-pub mod participant_enrollment_dispatch;
-pub mod participant_enrollment_request;
 pub mod privacy_issuance;
 pub mod query;
 pub mod secrecy;
@@ -23,6 +21,7 @@ pub mod sm;
 pub mod sns;
 pub mod stream;
 pub mod subscriptions;
+pub mod workflow;
 pub use error::{
     ApiError, ApiErrorDetails, Error, Result, StatusFailureReason, TransactionPreparationError,
     TransactionSigningError, TransportErrorKind,

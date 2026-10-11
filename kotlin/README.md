@@ -2,25 +2,6 @@
 
 The canonical JVM/Android SDK for Kotlin and Java applications using Iroha 3.
 
-Android KAGEMUSHA uses an app-owned, persistent, nonexportable P-256 approval key
-in Android Keystore, backed by TEE or StrongBox. Prefer StrongBox when available;
-reject software-only approval keys. Wallet code runs in the app/native runtime.
-Embedded applets, OMAPI/eSE monetary services, OEM support or provisioning, and
-device-hardware installation are excluded Android paths. Retained OEM/device
-service prototypes are unsupported for Android; remaining prototype-only
-admission is an ordinary-provider integration defect to fix.
-
-The P-256 approval key is separate from the Ed25519 wallet account signatory S.
-Preserve the existing account identity, encrypted key records and activation/
-recovery data. Trusted platform storage may admit the existing S key to the
-private Native account owner; Native-only key generation, a new vault or account
-key rotation is not required. Authentic app/key attestation, separately verified
-Play Integrity, exact owner/key/operation binding, Native financial proofs,
-durable state/time/replay/recovery and accepted signed release authority remain
-mandatory. An ordinary approval key proves no monetary counter, nonforking
-journal or trusted hardware clock, and this source guidance grants no device
-qualification.
-
 Java-source runtime consumer tests live in `core-jvm/src/test/java` and exercise
 this implementation directly. Both Kotlin and Java compilation enforce JDK 8
 APIs using the JDK 21 toolchain. Run the Norito consumer suite with:
@@ -39,23 +20,6 @@ I105 strings without surrounding whitespace. For host tests, set
 `IROHA_NATIVE_LIBRARY_PATH` to the absolute directory containing the freshly
 built bridge. Android packages the bridge through the generated native artifact
 pipeline described in `CLAUDE.md`.
-
-Android Native builds require two canonical absolute public originals outside
-source and Cargo target directories:
-
-- `-PirohaHardwareBootstrapCompiledBinding=` selects `hardware-compiled-binding.norito`
-  from the maintained Native hardware preparation helper.
-- `-PirohaOrdinaryContextCompiledBinding=` selects `common-sdk-compiled-root.bin`.
-  The sole source/policy producer in `png2-deploy` derives its 76 bytes from the
-  independently admitted SDK signer role, actual Iroha source inventory and header ABI.
-
-The recipe rechecks both originals before and after ABI builds and stripping,
-holds their descriptors across the hermetic Cargo child, and retains complete
-bytes plus SHA256/size in provenance. Actual artifact admission matches the
-ordinary original to the independently admitted role/source/ABI. Managed unit
-compilation does not load these Native inputs. Neither input grants account,
-financial or device authority; Native startup still requires the installed
-package, genuine signed context and selected hardware release.
 
 `ValidatorStakingNoritoV1` decodes first-release authority generations, epoch
 authorizations, signed all-edge beacon DKG records, committee transitions,
@@ -258,9 +222,9 @@ Not published to Maven Central yet. Build locally and consume via `mavenLocal()`
 
 | Artifact | Type | Description |
 |----------|------|-------------|
-| `org.hyperledger.iroha.sdk:core-jvm` | JAR | Pure Kotlin/JVM models, codecs, cryptography, clients, and KAGEMUSHA V1 wire support |
-| `org.hyperledger.iroha.sdk:client-android` | AAR | Android keystore, device telemetry, IrohaKeyManager, shared JNI bridge for ML-DSA-65 / KAGEMUSHA flows |
-| `org.hyperledger.iroha.sdk:kagemusha-wallet-android` | AAR | KAGEMUSHA wallet integration built on `client-android`; use this artifact for Android KAGEMUSHA |
+| `org.hyperledger.iroha.sdk:core-jvm` | JAR | Pure Kotlin/JVM models, codecs, cryptography, clients and peer carriers |
+| `org.hyperledger.iroha.sdk:client-android` | AAR | Android keystore, device telemetry, IrohaKeyManager, shared JNI bridge for ML-DSA-65 signing |
+| `org.hyperledger.iroha.sdk:kagemusha-wallet-android` | AAR | KAGEMUSHA wallet Android platform handle (payment-key Keystore adapter and custody backup rules) built on `client-android` |
 
 ### Consumer usage
 
@@ -273,45 +237,12 @@ repositories {
 // Pure JVM — business logic modules, JUnit tests, server-side
 implementation("org.hyperledger.iroha.sdk:core-jvm:0.1.0")
 
-// Android wallet without KAGEMUSHA payments
+// Android client
 implementation("org.hyperledger.iroha.sdk:client-android:0.1.0")
 
-// Android wallet with KAGEMUSHA payments
+// Android KAGEMUSHA wallet platform handle
 implementation("org.hyperledger.iroha.sdk:kagemusha-wallet-android:0.1.0")
 ```
-
-`KagemushaWalletV1` is the Android-free aggregate-balance orchestrator. Android
-monetary integration requires the ordinary Native/Core/State/Guard provider to
-authenticate financial proofs, rollback-resistant state, durable inbox/outbox,
-trusted-time admission and atomic recovery. A hardware-backed P-256 app approval
-key supplies operation-bound approval; it cannot attest those monetary guarantees. Incoming
-payments are acknowledged only after durable staging; duplicate delivery returns the provider's
-same durable ACK. Sends and redemptions require the native provider to fold the staged credits
-needed to cover the amount; unrelated backlog must not delay an already-covered spend.
-`foldPendingCredit()` folds exactly one authenticated mint or peer credit, while
-`drainPendingCredits()` repeatedly folds a stable snapshot without a cumulative count limit.
-The drain releases the lane after each credit for queued foreground work. Concurrent epoch rotation interrupts the drain; start a new
-pass for the new epoch's watermark. Continuous background scheduling remains an integration
-requirement. Android uses the ordinary app-owned TEE/StrongBox approval-key path;
-StrongBox is preferred and software-only approval custody is refused. The
-retained `KagemushaAndroidWalletV1.openProduction(...)` OEM adapter and SDK-to-OEM
-operation-16 path are unsupported Android prototypes. Applets, OMAPI/eSE,
-OEM support/provisioning and device-hardware installation are excluded. Missing
-ordinary-provider integration remains an implementation blocker, not a hardware
-inability of stock KeyMint or StrongBox devices.
-Staging advances native inbox bookkeeping, not the monetary-state journal. Core's typed mint
-reservation/inbox implementation and ordinary-provider integration remain under
-validation. A completed MintFold is a separate proved transition, not a staging result.
-Managed KAGEMUSHA X25519 types enforce only the canonical 32-byte nonzero wire shape. They do
-not perform scalar multiplication or low-order probing; the shared native core authenticates
-canonical X25519 elements during object and complete three-message exchange validation before monetary use.
-The retained hardware-provider epoch-rotation behavior below is unsupported
-Android prototype history and is not an account-key rotation prerequisite.
-Logical sequence and durable journal revision are per hardware epoch. Authenticated rotation carries
-the full balance and replay root into the exact successor epoch, replaces the device-policy binding,
-and resets both counters to zero. `rotateHardwareEpoch()` does not first drain the inbox, so it
-remains callable with saturated counters and pending receipts. The native provider must arrange
-rollover before counter exhaustion; the managed wallet does not schedule automatic rotation.
 
 ### Wallet custody backup obligations
 
@@ -338,11 +269,8 @@ generating under an occupied alias replaces its key (keystore2 `rebind_alias`;
 keystore1 deletes the alias first). `client-android` therefore decides existence
 only through `KeyStore.getKey(alias, null)`: a key is present, null is absent and
 any throw stops the call. Only keystore2 (API 31+) makes that null definitive, so
-`KagemushaAndroidHardwareAppKeyStoreV1` (issue, recovery and signing), the KeyMint
-and Pixel 6 one-use diagnostics, and `SystemAndroidKeystoreBackend` refuse below
-API 31. There `KagemushaAndroidHardwareAppKeyStoreV1.isPlatformApiAvailable()` is
-false and `KeystoreKeyProvider.maybeCreate` returns null, so
-`IrohaKeyManager.withDefaultProviders` keeps only its software provider. On API 31+
+`SystemAndroidKeystoreBackend` refuses below API 31. There `KeystoreKeyProvider.maybeCreate`
+returns null, so `IrohaKeyManager.withDefaultProviders` keeps only its software provider. On API 31+
 `IrohaKeyManager.generateOrLoad` stops instead of generating when the Keystore cannot
 answer. No key is deleted or regenerated in response to a Keystore error.
 
@@ -411,20 +339,13 @@ required, absolute `IROHA_NATIVE_LIBRARY_PATH` directory. Missing libraries
 fail before execution; a missing native capability fails the test. Its results
 are never reused from Gradle's test cache. This host JNI task does not qualify
 Android native artifacts, StrongBox, or physical devices.
-It covers the software key manager, explicit chain-context codecs, and
-coordinator adapter fixtures that require the canonical Rust address validator.
-The adapter's scripted endpoints remain mapping controls, not native coordinator
-or hardware qualification.
+It covers the software key manager, explicit chain-context codecs, and shared
+SoraFS reference validators through the current canonical Kotlin/native API.
 
-The separate `:kagemusha-wallet-android:testDebugHostNative` task uses the wallet's
-main JNI implementation and the same explicit canonical host-library directory.
-It checks ABI 25, signer contract 7, actual initial startup phase 1 and selection
-revocation phase 5 against an absent independently registered Native root.
-Missing symbols or libraries fail; phase 6 is not exercised after phase 1 refuses.
-A later Core-open assertion checks the managed startup fence. The task excludes
-scripted client test JNI classes, disables result reuse, and is excluded from
-ordinary managed tests through its `host-native` tag. It creates no account,
-release, monetary or hardware authority and grants no device qualification.
+The wallet module currently declares managed platform, payment-key and backup-rule
+unit tests. They check the private platform-upcall descriptors and direct adapter
+behavior. The Rust `KagemushaWalletPlatformV1` JNI adapter and native provider-open
+call remain TODO, so the module has no host-JNI test task or native execution claim.
 
 ### Java transaction metadata
 
@@ -627,226 +548,20 @@ when supplied, fatal UTF-8 and closed fields and tags.
 its committed `daLayout` RS16 geometry, including the encoding and resource bounds.
 Lane observations do not confer finality.
 
-### KAGEMUSHA peer transports
+### KAGEMUSHA wallet peer transports
 
-`KagemushaNoritoV1` is the canonical KAGEMUSHA wire codec. Kotlin/JVM and Android
-encode the same three-message payment exchange—direct request, post-commit proof-bearing
-payment, and durable acknowledgement. Each request binds one exact amount and a fresh
-recipient encryption key; distinct valid payments against a reusable request are accepted.
-Mint authorization, mint credit, and redemption vouchers are separately framed;
-`kgm1:` is the sole text transport. Exposed credits cannot be cancelled. The QR, NFC, and Nearby
-carriers (`IrohaPeer*`) move KAGEMUSHA wallet V1 envelope frames instead
+`KagemushaWalletWireV1` carries the KAGEMUSHA wallet V1 bounds, domain-separated
+digest roles, envelope header validation and strict `kgm1:` text, matching the
+Rust owner `iroha_data_model::kagemusha::kagemusha_wallet_v1`.
+`KagemushaP256Codec` is the P-256 device-key boundary: uncompressed SEC1 public
+keys and fixed-width low-S `r || s` signatures. The QR, NFC, and Nearby carriers
+(`IrohaPeer*`) move KAGEMUSHA wallet V1 envelope frames
 (`../specs/kagemusha_wallet_wire_v1.md` §6) and test against
-`../fixtures/kagemusha/wallet_v1_vectors.json`. Public wire
-size and verification work are independent of balance history; no hop, input,
-origin, ancestry, fan-in, or proof-depth limit is encoded.
-
-Before requesting, sending, minting, or redeeming offline value, the app must durably
-save a fresh nonzero 32-byte operation identity and its exact action parameters, then
-pass that identity to the corresponding reservation and execution calls. An identical
-retry retains the same identity; a lost native return must never cause the app to
-allocate a replacement. The authenticated provider rejects a substituted reservation
-identity before executing a device operation. Payment and redemption reservations
-carry the canonical tagged `iroha.kagemusha.device.v1.sender-public-inputs` Norito
-archive, shared with the native outgoing-operation index.
-
-Authenticated provider construction requires an app-owned `KagemushaOperationIntentStoreV1`
-and an explicit current onboarding-approval callback. The store must synchronously retain
-immutable account/runtime scope, operation identity, exact typed command, and creation
-qualification before dispatch; after Core accepts the response it retains the exact reply,
-original authenticator, and reply qualification. Its shared reentrant lock and durable storage
-must exclude multiple owners across providers and processes. There is no in-memory default.
-The SDK resumes unfinished bootstrap and rotation commands before another transition.
-Rotation retries use their retained original response key, while fresh qualification and state
-reads use the current epoch. Coordinator method 11 begins each transient native observation
-for operations 1, 13, 18, and 21; those reads never enter the operation intent store or durable
-reservation method. Native recreation requires a fresh challenge, and each new challenge
-invalidates its predecessor. Historical read replies are never treated as current state.
-Bootstrap admission is checked again immediately before
-dispatch, including a retry when fresh authenticated state remains uninitialized.
-
-Apps call `acknowledgeDurableResult(operationId, canonicalResult)` only after syncing and
-reopening the exact request, payment, acknowledgement, or redemption transcript. Receiver ACK
-completion uses its credit identity. Internal transitions are acknowledged after a fresh
-authenticated snapshot proves the accepted aggregate installed; its exact command, challenge,
-reply, authenticator, and qualification are retained as immutable evidence on that mutation
-before acknowledgement. Sender installation retains the same evidence on its operation-10
-record. Such evidence never restores a read challenge.
-Acknowledgement retains immutable history; errors, sign-out, and lost approval must not delete
-uncertain obligations. Acknowledged history is not charged against a lifetime operation limit.
-
-`KagemushaCoreCoordinatorBridgeV1.open(storagePath)` in `client-android` provides
-the strict schema-2 JNI transport, backed by the pure `core-jvm` frame codec.
-It checks the complete ABI-25 inventory and rejects substituted response bindings;
-missing JNI or an absent qualified native coordinator fails closed.
-Any failure after dispatch revokes the process-local handle before another JNI
-call. Uncertain monetary state remains the qualified backend's responsibility.
-Incoming staging uses native method 17 to select original reserve-mint, staged-mint or
-staged-peer material; the managed caller supplies only the kind and credit identity.
-Method 15 durably retains the native fold intent and its genuine original paired proof,
-then returns the bounded public hardware work. The authenticated provider requires an
-explicit `KagemushaIncomingFoldEvidenceProviderV1` before preparation or device work.
-That source rechecks its original physical custody before and after obtaining the exact
-State Guard and distinct device root-selection signature. Method 16 receives the held
-proof unchanged and independently verifies those originals before publishing funds.
-Exact retries recover the same history identity, proof and physical evidence; host
-operation storage, generic device operation 17 and Core/software signatures cannot
-substitute. A fresh authenticated wallet observation follows native completion.
-The current closed schema-2 inventory contains all 21 coordinator methods.
-Method 18 reads the installed native release ID, hardware-policy digest and provider
-policy registry root from the original selected Core owner under its observation
-lease. The policy digest remains bound to qualification signatures; aggregate state
-is checked against the separately authenticated provider root.
-`KagemushaNativeCoreCoordinatorAdapterV1.open(storagePath)` implements the typed
-wallet coordinator over that transport. Its pure `KagemushaCoreCoordinatorArchiveV1`
-codec handles bounded canonical preparation, candidate, recovery, and redemption
-receipt projections. The adapter checks public-input digests, operation identities,
-qualified creation context, retained recovery scope, and installed aggregate scope.
-`KagemushaAndroidOrdinaryEnrollmentV1` composes the same adapter's Native C21
-reservation, authenticated signed preparation, persistent generated hardware
-P-256 key, raw admission, E20 possession, governed Play Integrity request and
-credential admission. Native C20 phases 9–14 then retain the FI challenge,
-wallet invocation and exact original wallet signature before the protected FI
-finish request. The product constructor requires one opaque same-coordinator
-current Native wallet selection: activated protected HTTP signatory S matches
-selected S, and reserved wallet W matches selected W. Genuine W is distinct and
-contains exactly one S member, weight 1 and threshold 1. Native C20 phase 10
-supplies the retained account signature from its actual held member key; the
-superseded public managed-wallet-signer constructor is removed. Hardware P-256
-app approval and protected HTTP request custody remain separate.
-The Android HTTP store retains required stable W plus original S/device/runtime/
-request key/ID/kind/body/reply, checking that same private selection before commit,
-HTTP retries and cached exposure. A session handle is not persisted authority;
-missing or changed W refuses without rewriting, migrating or clearing old records.
-The app serializes one original Bootstrap publication/retirement handoff and marks
-completion only after the callback and owner checks return. Current-FI retries skip
-that completed Bootstrap and retain their original request/signature/body.
-All eight ordinary backend enrollment/Integrity routes now have the certified
-customer W/S join applied in source: the genuine current World must authenticate
-both exact account rows while HTTP/device recovery/CAS retain S. Backend
-library compilation and three focused cases passed on the original cut; its HTTP
-executable failed with eight errors before tests. Subsequent signed-policy joins
-were reviewed and the exact evidence-byte borrow repair is applied. A fresh
-preparation stopped before compilation on two changed Native test files. Current
-HTTP cases and genuine installed issuer/runtime validation remain pending.
-Genuine installed signed inputs and shipping Native account construction remain pending. Selected managed checks passed 58 SDK, 20 Core and
-7 app cases per variant across retained source cuts; these checks grant no Root,
-hardware, monetary, release or roster qualification.
-Explicit retries reuse the same complete Google and wallet originals; a retained
-wallet invocation without a signature requires Native recovery. The explicit
-Google invalid-provider error permits a new warmup only on the next user action.
-`beginOrResumeBootstrapApproval()` first completes that same FI ceremony, then
-uses the separate method-19 phase-8 Bootstrap capability bound to the original C, enrolled
-alias/key and retained FI credential. Its selector is SHA-256 of ASCII
-`iroha:kagemusha:v1:ordinary-bootstrap-operation-id` followed by a NUL byte and
-the complete original FI certificate bytes. Native independently checks that
-selector before preparing the zero-index S and exact W. The platform signs only
-after the Native durable fence; retries consume retained DER or recover the exact
-original receipt without signing again. Generic monetary approval still rejects
-Bootstrap. Returned enrollment and approval originals grant no money permission;
-genuine State/Guard publication and the ordinary Native monetary owner remain
-separate requirements.
-`beginOrResumeInitialStatePublication()` then uses that same captured Bootstrap
-ticket with method-19 phase 9. Native selects the authenticated initial-proof
-profile and artifact resolver from its already installed source. Before any
-Guard or State proof work, the original logical journal fsyncs an initial
-publication intent bound to the same ticket, FI, credential and complete signed
-Bootstrap approval. Its single-use Native permit checks the exact owned journal
-prefix. Cold replay retains the intent without creating another permit. A cold
-captured approval without an intent may resume its first publication; a surviving
-intent selects only exact original publication recovery. A missing or damaged
-publication after that intent freezes, with no fresh-proof fallback. Recovery
-across every interruption cut remains unfinished.
-The request carries only the phase and original ticket; no host proof, verifier,
-profile or resolver can be admitted through the frame. Phase 10 only recovers and
-rechecks an existing publication and never generates another proof or signature.
-Both phases return the ticket, enrollment ID and SHA-256 digests of the complete
-canonical publication, FI certificate, app credential, signed Bootstrap approval,
-initial State, paired State proof and paired ordinary Guard. The managed holder
-binds these to its original FI completion, app credential and ticket, and requires
-every retained commitment to remain unchanged on recovery. A lost Native return
-freezes the old holder; only actual Native original recovery in a fresh holder can
-continue. `KagemushaOrdinaryInitialStatePublicationOriginalsV1` is detached
-acknowledgement data with defensive copies and no monetary capability. Missing
-authentic proof material remains unavailable, and ordinary monetary operations
-still require their separate verified Native provider.
-`KagemushaOrdinaryCashApprovalProjectionV1` checks copied public W325/S460 originals
-through separate preparation and terminal entry points. Preparation requires signed
-purpose 2 and zero candidate/body commitments; terminal requires signed purpose 1
-and both commitments exactly for send/redemption. Both require exact-next unsigned
-128-bit logical indices and SHA-256 of the complete original S460 bytes, including
-its existing domain and length once. Retained ordinary public bindings must match
-the full S and original operation/account/authority/key/credential/Guard fields;
-S's credential ID must equal W's enrollment digest. These projections authenticate
-no issuer, platform signature, current lease, State/Guard proof or monetary owner.
-The ordinary cash method-19 producer and current-money holder remain separate work;
-the projection does not reuse the Bootstrap capability or OEM enrollment.
-`KagemushaOrdinaryTransitionStatementProjectionV1` accepts the existing full model
-digest preimage: BE64(40), its NUL-terminated transition domain, BE64(1089), and
-the 1089-byte body with little-endian integers. It hashes all 1145 original bytes
-once, matches S's transition digest and operation, and correlates common release,
-network/lane/profile/policy scope. It provides no alternate encoder or reconstruction
-from the recursive State's 93 public cells; Native must supply the complete retained
-model original and authenticate both State/Guard parities and current custody.
-The product supplies protected HTTP and wallet signing after the trusted Native
-account/release source is installed. Trusted platform intake can supply the actual
-existing Ed25519 S key to that private Native owner while preserving account
-identity, encrypted records and activation/recovery data. Native-only RNG, a new
-vault and account-key rotation are not prerequisites. Public-key DTOs,
-caller-supplied private-key frames and managed signing callbacks do not establish
-Native custody. Genuine app/key attestation, separate Play Integrity verification,
-operation binding, Native financial/state/time/replay/recovery proofs and the exact
-accepted signed release remain required.
-
-The following OEM method-12/device-service details are retained unsupported
-Android prototype history. They are not an ordinary Android enrollment,
-recovery, release or device qualification path; applets, OMAPI/eSE, OEM support/
-provisioning and device-hardware installation are excluded. Any active
-prototype-only admission must be replaced with the ordinary app-key provider.
-The retained adapter exposes `initialEnrollment()` for its bounded OEM method-12 ceremony.
-It retains one phase-1 selection only in the original process. Phase-7 rechecks
-that exact selection, and phase-4 reads its original possession proof, while the
-same native owner remains live. A failed dispatch or response publication revokes
-that owner and prevents readback or cancellation retries. Successful cancellation
-retries retain the original ticket. Closing the native owner revokes cached enrollment phases before
-another account can use them. These typed frames do not install a qualified backend.
-For a completed owner selected by the independently installed native provisioner,
-`recoveredEnrollment()` uses method-12 phases 9–11. It retains the exact canonical
-account challenge and native 32-byte signing message, checks the device request
-nonce and exact canonical operation-1 read command, and submits the original Ed25519 account signature and complete signed
-device response. Exact retries preserve the original deadline and proof. Native
-Core authenticates its retained checkpoint, journal, hardware and owner before
-granting only an observation lease; application caches never restore that authority.
-Recovery rejection never falls back to initial enrollment. Closing the adapter
-revokes both initial and recovered scopes.
-Device-reply admission retains the original 64-byte response authenticator so
-native Core independently verifies the exact response transcript.
-The sole JNI verifier is `nativeVerifyCommandResponseV1`: its response signature
-binds the exact canonical command body digest as well as the response header and
-payload digest, hardware policy, and qualification report. The Android bridge
-captures the dispatched command and request identity before execution and passes
-those detached bytes to verification; no old verifier symbol or overload remains.
-Those prototype projections remain selectors; they supply no Android monetary
-or device admission. The ordinary Native/Core/State/Guard provider must
-authenticate journal/replay state, release, Core authorization and actual recursive
-proofs independently of app-key signing. Completing that provider is unfinished
-software integration; OEM or applet installation is not a prerequisite. Software-only
-P-256 approval keys remain rejected. See [the retained device-bridge source contract](../specs/kagemusha_device_bridge_v1.md).
-
-Online reserve top-ups use the same payer authority as the debit. Build one
-`TopUpKagemushaV1Instruction` from the proof-bearing request, put that sole
-instruction in a transaction, and sign it with `TransactionBuilder`.
-Send the resulting `SignedTransaction` and the request's exact
-nonzero 32-byte `operationId` through
-`KagemushaToriiClientV1.submitTopUp(...)`. The client posts the canonical
-versioned signed-transaction bytes unchanged to `/v1/kagemusha/top-up` and
-uses the lowercase operation ID as `Idempotency-Key`; there is no unsigned or
-request-only top-up overload. The embedded request ceiling is 16 KiB so both
-maximum-size recursive proof parities remain usable.
-`KagemushaToriiClientV1.getOperation(...)` returns `null` only for an exact
-Torii `kagemusha_operation_not_found` 404 whose JSON body and
-`X-Iroha-Reject-Code` header agree. Other 404 responses fail; an absent
-operation permits only byte-identical retry of the retained signed transaction.
+`../fixtures/kagemusha/wallet_v1_vectors.json`. Envelope inspection is a
+structural transport check: the carried message is not decoded or verified and
+grants no monetary authority. Public wire size and verification work are
+independent of balance history; no hop, input, origin, ancestry, fan-in, or
+proof-depth limit is encoded.
 
 ### Petal Stream optical transport
 
@@ -1135,7 +850,7 @@ the generated native bridge task.
 
 ### Step 2: Build native libraries (for `client-android`)
 
-The `libconnect_norito_bridge.so` files are **not tracked in git** — they are built from the Rust crate at `crates/connect_norito_bridge` in the same iroha repository. The Gradle task now lives on `client-android`, which owns the shared native bridge used for ML-DSA-65 signing and KAGEMUSHA V1 device lifecycle operations. It defaults to `../..` as the iroha root (override via `iroha.dir` in `local.properties` if needed).
+The `libconnect_norito_bridge.so` files are **not tracked in git** — they are built from the Rust crate at `crates/connect_norito_bridge` in the same iroha repository. The Gradle task now lives on `client-android`, which owns the shared native bridge used for ML-DSA-65 signing. It defaults to `../..` as the iroha root (override via `iroha.dir` in `local.properties` if needed).
 
 **One-time setup:**
 
@@ -1218,7 +933,7 @@ An unchanged raw build is reusable only while its saved source seal still
 matches the live checkout; packaging re-runs stripping, provenance generation
 and the final seal check.
 
-Every native build includes KAGEMUSHA and privacy support. The fixed
+Every native build includes privacy support. The fixed
 `privacy-production-enabled` Cargo feature records the sole build recipe; it is
 an empty provenance marker and grants no provider, proving, hardware or release
 qualification. The `privacyProductionEnabled` property has been removed.

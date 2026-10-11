@@ -158,10 +158,7 @@ pub(super) fn explicit(
         None => Terms::new(utc, options)?,
     };
     attempts::initial(
-        directory,
-        Purpose::ReservePolicy,
-        original.digest()?,
-        &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+        history,
         terms,
         Observation::ordinary(),
         options.deadline,

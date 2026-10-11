@@ -613,9 +613,9 @@ authorities and private keys are not accepted in these files.
 
 Register a verifying-key DTO produced by the circuit's canonical tooling:
 
-The optional `namespace` field defaults to `core` when omitted or `null`. Set it
-to `kagemusha_v1` for KAGEMUSHA V1 verifier records. Explicit namespace values
-must be non-empty and must not contain leading or trailing whitespace.
+The optional `namespace` field defaults to `core` when omitted or `null`. Explicit
+namespace values must be non-empty and must not contain leading or trailing
+whitespace.
 
 ```bash
 iroha app zk vk register --json vk_register.json
@@ -675,10 +675,9 @@ iroha app zk attachments cleanup --content-type application/json --before-ms 172
 
 ### Confidential asset ingress
 
-The first-release CLI intentionally has no generic `zk shield` command. KAGEMUSHA V1
-top-ups use the payer-signed, proof-bound `/v1/kagemusha/top-up` operation and its pooled
-reserve; peer payments never mutate that reserve. The generic confidential-asset verifier
-settings do not authorize callers to inject opaque KAGEMUSHA commitments.
+The first-release CLI intentionally has no generic `zk shield` command. The generic
+confidential-asset verifier settings do not authorize callers to inject opaque
+commitments.
 
 Encrypted memo envelopes remain available as a local wallet utility:
 
@@ -704,9 +703,8 @@ iroha app zk register-asset --asset <base58-asset-definition-id> \
 
 Register and inspect the referenced verifying keys with `iroha app zk vk register`,
 `iroha app zk vk update`, and `iroha app zk vk get`. The first-release confidential-asset
-model rejects `vk_shield`; KAGEMUSHA V1 top-up and redemption instead use the authenticated
-release artifact set and the generic KAGEMUSHA routes. No asset-bound private-transfer
-verifier or generic transfer/withdrawal ISI exists.
+model rejects `vk_shield`. No asset-bound private-transfer verifier or generic
+transfer/withdrawal ISI exists.
 
 ### ZK verify batch
 

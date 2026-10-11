@@ -85,29 +85,6 @@ def test_model_json_feature_cannot_return_as_an_empty_alias() -> None:
     )
 
 
-def test_mandatory_native_dependency_rejects_removal_optional_or_test_profiles() -> None:
-    document = _guarded_document("iroha")
-    assert _guarded_errors("iroha", document) == []
-    assert document["dependencies"]["iroha_core_zk"]["features"] == []
-    for mutation in ("remove", "optional", "retired-proof-selector", "test-utils", "harness", "default-features", "nonworkspace"):
-        changed = copy.deepcopy(document)
-        dependency = changed["dependencies"]["iroha_core_zk"]
-        if mutation == "remove":
-            del changed["dependencies"]["iroha_core_zk"]
-        elif mutation == "optional":
-            dependency["optional"] = True
-        elif mutation == "retired-proof-selector":
-            dependency["features"] = ["proofs-halo2"]
-        elif mutation in ("test-utils", "harness"):
-            dependency["features"].append("test-utils" if mutation == "test-utils" else "kagemusha-real-proof-harness")
-        elif mutation == "default-features":
-            dependency["default-features"] = True
-        else:
-            dependency["workspace"] = False
-        assert changed != document
-        assert any("mandatory Native dependency" in error for error in _guarded_errors("iroha", changed)), mutation
-
-
 def test_retired_kagemusha_switches_cannot_return_as_empty_aliases() -> None:
     for package, retired in (("iroha", "kagemusha-ordinary-native"), ("iroha_core_zk", "kagemusha-production-prover")):
         document = _guarded_document(package)
@@ -117,85 +94,24 @@ def test_retired_kagemusha_switches_cannot_return_as_empty_aliases() -> None:
         assert any(f"Cargo feature `{retired}` is unclassified" in error for error in _guarded_errors(package, changed))
 
 
-def _assert_unconditional_ordinary_native_declarations(source: str) -> None:
-    """Read the SDK declarations with their attached attributes and enclosing scope."""
-
-    quoted = r'"(?:\\.|[^"\\])*"'
-    code = re.sub(
-        rf'{quoted}|//[^\n]*|/\*.*?\*/',
-        lambda match: match.group() if match.group().startswith('"') else "",
-        source,
-        flags=re.S,
-    )
-    for declaration in ("mod ordinary_native;", "pub use ordinary_native::{"):
-        matches = list(re.finditer(rf"(?m)^{re.escape(declaration)}", code))
-        assert len(matches) == 1, f"one top-level {declaration} declaration required"
-        prefix = code[:matches[0].start()]
-        structural_prefix = re.sub(quoted, '""', prefix)
-        assert structural_prefix.count("{") == structural_prefix.count("}"), (
-            f"{declaration} must be unconditional at module scope"
-        )
-        attributes = re.search(r"(?:\s*#\s*\[[^\]]*\])*\s*$", structural_prefix)
-        assert attributes is not None
-        assert not re.search(r"#\s*\[\s*cfg(?:_attr)?\b", attributes.group()), (
-            f"{declaration} must be unconditional, without a cfg attribute"
-        )
-        assert not re.search(r"(?m)^[ \t]*#\s*!\s*\[\s*cfg(?:_attr)?\b", structural_prefix), (
-            f"{declaration} must be unconditional, without a file cfg attribute"
-        )
-
-
-def test_production_and_native_exports_have_no_platform_or_feature_opt_out() -> None:
+def test_production_exports_have_no_feature_opt_out() -> None:
     core = ROOT / "crates/iroha_core_zk/src"
     for source in core.rglob("*.rs"):
         assert 'feature = "kagemusha-production-prover"' not in source.read_text(), source
-    client = (ROOT / "crates/iroha/src/client.rs").read_text()
-    _assert_unconditional_ordinary_native_declarations(client)
-    assert 'feature = "kagemusha-ordinary-native"' not in client
     core_entry = (core / "lib.rs").read_text()
     assert 'pub mod kagemusha_v1_recursion;' in core_entry
     assert 'pub mod kagemusha_v1_state;' in core_entry
 
 
-def test_native_declaration_reader_accepts_unrelated_cfg_and_documentation() -> None:
-    source = '''#[cfg(unix)]
-mod other_platform_module;
-/// The portable native owner.
-#[doc = "Native [custody]"]
-mod ordinary_native;
-// Its public portable API.
-pub use ordinary_native::{NativeOwner};
-'''
-    _assert_unconditional_ordinary_native_declarations(source)
-
-
-@pytest.mark.parametrize("declaration", ["mod ordinary_native;", "pub use ordinary_native::{"])
-@pytest.mark.parametrize("gate", [
-    '#[cfg(unix)]',
-    '#[cfg(feature = "kagemusha-ordinary-native")]',
-    '#[cfg(any(\n    unix,\n    feature = "native-only",\n))]',
-    '#[cfg_attr(unix, cfg(feature = "native-only"))]',
-])
-@pytest.mark.parametrize("documentation", ["", '#[doc = "Native [custody]"]\n'])
-def test_native_declarations_reject_platform_and_feature_gates(
-    declaration: str, gate: str, documentation: str,
-) -> None:
-    source = 'mod ordinary_native;\npub use ordinary_native::{NativeOwner};\n'
-    changed = source.replace(declaration, f"{gate}\n{documentation}// Retained custody declarations.\n{declaration}")
-    with pytest.raises(AssertionError, match="must be unconditional"):
-        _assert_unconditional_ordinary_native_declarations(changed)
-
-
-@pytest.mark.parametrize("wrapper", ["file", "indented-file", "module"])
-def test_native_declarations_reject_enclosing_platform_gates(wrapper: str) -> None:
-    source = 'mod ordinary_native;\npub use ordinary_native::{NativeOwner};\n'
-    if wrapper == "module":
-        changed = f'#[cfg(unix)]\nmod hidden {{\n{source}}}\n'
-    else:
-        indentation = "  " if wrapper == "indented-file" else ""
-        changed = f'{indentation}#![cfg(unix)]\n{source}'
-    with pytest.raises(AssertionError, match="must be unconditional"):
-        _assert_unconditional_ordinary_native_declarations(changed)
+def test_client_has_no_ordinary_native_surface() -> None:
+    client = (ROOT / "crates/iroha/src/client.rs").read_text()
+    assert "mod ordinary_native;" not in client
+    assert "pub use ordinary_native::" not in client
+    document = _guarded_document("iroha")
+    assert _guarded_errors("iroha", document) == []
+    assert "iroha_core_zk" not in document["dependencies"]
+    assert "dev-tools" not in document["features"]
+    assert "bin" not in document
 
 
 def test_core_backends_reject_optional_owners_and_missing_circuit_params() -> None:
@@ -232,31 +148,6 @@ def test_core_backend_switches_cannot_return_or_remove_no_default_symbols() -> N
     state = (core / "kagemusha_v1_state/mod.rs").read_text()
     assert 'KagemushaNativeOrdinaryBootstrapOwnerV1' in state
     assert 'KagemushaNativeOrdinaryCashOwnerV1' in state
-
-
-def test_ordinary_native_inventory_tool_is_explicit_and_keeps_required_custody() -> None:
-    """Shipping custody consumers do not enable the release assembly executable."""
-
-    document = _guarded_document("iroha")
-    assert _guarded_errors("iroha", document) == []
-    assert document["features"]["dev-tools"] == []
-    assert "dev-tools" in FEATURE_HYGIENE.EXPLICIT_OPT_IN_FEATURES["iroha"]
-    assert "dev-tools" not in FEATURE_HYGIENE.CONTEXTUAL_SHIPPING_FEATURES["iroha"]
-    assert "dev-tools" not in FEATURE_HYGIENE.local_default_feature_closure(
-        FEATURE_HYGIENE.cargo_visible_features(document)
-    )
-    target = next(
-        row for row in document["bin"]
-        if row["name"] == "iroha_ordinary_native_inventory_assemble"
-    )
-    assert target["required-features"] == ["dev-tools"]
-    for forwarders in (["iroha_core_zk/test-utils"], ["iroha_core_zk/kagemusha-real-proof-harness"]):
-        changed = copy.deepcopy(document)
-        changed["features"]["dev-tools"] = forwarders
-        assert any("feature `dev-tools` must be" in error for error in _guarded_errors("iroha", changed))
-    changed = copy.deepcopy(document)
-    changed["features"]["default"].append("dev-tools")
-    assert any("explicit opt-in feature `dev-tools` is reachable" in error for error in _guarded_errors("iroha", changed))
 
 
 def test_stark_owns_optional_fastpq_dependency_and_rejects_mutations() -> None:

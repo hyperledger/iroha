@@ -70,7 +70,7 @@ default-filter = '''
         & test(/^(beacon_bootstrap|configured_genesis_tests|runtime_provider_broker|snapshot_restore_policy|startup_[a-z_]+|taira_runtime_signer|tests)::/))
     | (package(iroha_cli_lib) & kind(lib)
         & test(/^(address|client_config|operator_key|soracloud|taira[a-z_]*|tests)::/))
-    | (package(iroha_kagami) & kind(bin) & test(/^(genesis::generate::consensus_manifest_tests|genesis::sign|kagemusha|kura|localnet|verify)::/))
+    | (package(iroha_kagami) & kind(bin) & test(/^(genesis::generate::consensus_manifest_tests|genesis::sign|kura|localnet|verify|tests)::/))
     | (package(iroha_test_network) & kind(lib) & test(/^(config|disposable_runtime_provider_broker|tests)::/))
     | (package(iroha_test_network) & kind(test) & not test(/four_peer/))
 '''

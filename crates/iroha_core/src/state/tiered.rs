@@ -1952,16 +1952,6 @@ impl TieredStateBackend {
             world.global_beacon_pulses
         );
         collect_map!(
-            TieredSegment::KagemushaReservePools,
-            KagemushaReservePool,
-            world.kagemusha_reserve_pools
-        );
-        collect_map!(
-            TieredSegment::KagemushaReserveOperations,
-            KagemushaReserveOperation,
-            world.kagemusha_reserve_operations
-        );
-        collect_map!(
             TieredSegment::KagemushaMintCreditOperations,
             KagemushaMintCreditOperation,
             world.kagemusha_mint_credit_operations
@@ -2489,12 +2479,7 @@ mod measured_bytes_impls {
             },
             state::{PrivateSettlementPoolGovernanceProjectionV1, PrivateSettlementPoolStateV1},
         },
-        smartcontracts::{
-            code::ContractSubjectBinding,
-            isi::kagemusha::kagemusha_v1_reserve::{
-                KagemushaReserveOperationRecordV1, KagemushaReservePoolV1,
-            },
-        },
+        smartcontracts::code::ContractSubjectBinding,
         state::{
             AssetDefinitionAliasBindingRecord, ConfidentialTreeProfile, ContractAliasBindingRecord,
             ElectionState, FrontierCheckpoint, GovernanceLockCustody, GovernanceLockRecord,
@@ -2677,8 +2662,6 @@ mod measured_bytes_impls {
         PrivateSettlementStagedLockRecordV1,
         PrivateSettlementReceiptV1,
         PrivateSettlementAbortReceiptV1,
-        KagemushaReservePoolV1,
-        KagemushaReserveOperationRecordV1,
     );
     impl<T: MeasuredBytes, const N: usize> MeasuredBytes for [T; N] {
         fn measured_bytes(&self) -> usize {
@@ -4000,8 +3983,6 @@ enum TieredSegment {
     GlobalBeaconActiveSession,
     GlobalBeaconLatestPulse,
     GlobalBeaconPulses,
-    KagemushaReservePools,
-    KagemushaReserveOperations,
     KagemushaMintCreditOperations,
     KagemushaIssuanceOperations,
     KagemushaRedemptionIdOperations,
@@ -4083,8 +4064,6 @@ macro_rules! tiered_segment_table {
             GlobalBeaconActiveSession, GlobalBeaconActiveSession, "global_beacon_active_session", global_beacon_active_session;
             GlobalBeaconLatestPulse, GlobalBeaconLatestPulse, "global_beacon_latest_pulse", global_beacon_latest_pulse;
             GlobalBeaconPulses, GlobalBeaconPulse, "global_beacon_pulses", global_beacon_pulses;
-            KagemushaReservePools, KagemushaReservePool, "kagemusha_reserve_pools", kagemusha_reserve_pools;
-            KagemushaReserveOperations, KagemushaReserveOperation, "kagemusha_reserve_operations", kagemusha_reserve_operations;
             KagemushaMintCreditOperations, KagemushaMintCreditOperation, "kagemusha_mint_credit_operations", kagemusha_mint_credit_operations;
             KagemushaIssuanceOperations, KagemushaIssuanceOperation, "kagemusha_issuance_operations", kagemusha_issuance_operations;
             KagemushaRedemptionIdOperations, KagemushaRedemptionIdOperation, "kagemusha_redemption_id_operations", kagemusha_redemption_id_operations;
@@ -4341,8 +4320,6 @@ pub(crate) enum TieredKeyHandle {
     GlobalBeaconActiveSession(u64),
     GlobalBeaconLatestPulse(u64),
     GlobalBeaconPulse([u8; 32]),
-    KagemushaReservePool([u8; 32]),
-    KagemushaReserveOperation([u8; 32]),
     KagemushaMintCreditOperation([u8; 32]),
     KagemushaIssuanceOperation([u8; 32]),
     KagemushaRedemptionIdOperation([u8; 32]),
@@ -4443,9 +4420,7 @@ impl TieredKeyHandle {
             }
             TieredKeyHandle::GlobalBeaconLatestPulse(key) => Ok(norito::codec::Encode::encode(key)),
             TieredKeyHandle::GlobalBeaconPulse(key) => Ok(norito::codec::Encode::encode(key)),
-            TieredKeyHandle::KagemushaReservePool(key) => Ok(norito::codec::Encode::encode(key)),
-            TieredKeyHandle::KagemushaReserveOperation(key)
-            | TieredKeyHandle::KagemushaMintCreditOperation(key)
+            TieredKeyHandle::KagemushaMintCreditOperation(key)
             | TieredKeyHandle::KagemushaIssuanceOperation(key)
             | TieredKeyHandle::KagemushaRedemptionIdOperation(key)
             | TieredKeyHandle::KagemushaTerminalNullifierOperation(key) => {
@@ -4671,16 +4646,6 @@ impl fmt::Display for TieredKeyHandle {
             }
             TieredKeyHandle::GlobalBeaconPulse(id) => {
                 write!(f, "global_beacon_pulse:{}", id.encode_hex::<String>())
-            }
-            TieredKeyHandle::KagemushaReservePool(id) => {
-                write!(f, "kagemusha_reserve_pool:{}", id.encode_hex::<String>())
-            }
-            TieredKeyHandle::KagemushaReserveOperation(id) => {
-                write!(
-                    f,
-                    "kagemusha_reserve_operation:{}",
-                    id.encode_hex::<String>()
-                )
             }
             TieredKeyHandle::KagemushaMintCreditOperation(id) => write!(
                 f,

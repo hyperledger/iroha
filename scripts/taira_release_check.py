@@ -1295,7 +1295,7 @@ KAGAMI_STAGES = (("native Kagami bootstrap signing and key custody", (
 
 
 KAGAMI_STAGES += (("retired epoch key derivation commands are rejected", (
-    'kagemusha::tests::parser_rejects_epoch_key_derivation_commands',
+    'tests::parser_rejects_retired_kagemusha_commands',
 )),)
 
 KAGAMI_STAGES += (("signed genesis identity publication and custody", (
@@ -1790,7 +1790,6 @@ CORE_STATE_VIEW_CONSUMER_STAGES = (("original State reader refusals through auth
     'sumeragi::executor::validation_refusal_tests::prepared_certificate_busy_retries_same_execution_after_original_reader_release',
     'publication_rwlock::tests::admitted_reader_control_preserves_original_refusal_and_outlives_its_lock',
     'publication_lock::admitted_control_tests::original_fence_control_is_fallible_and_retained_by_its_release_observation',
-    'state::deserialize::kagemusha_registry_persistence_tests::runtime_reload_world_reader_notifications_follow_commit_fence_release',
 )), )
 CORE_STAGES += CORE_STATE_VIEW_CONSUMER_STAGES
 CORE_STARTUP_STAGES += CORE_STATE_VIEW_CONSUMER_STAGES

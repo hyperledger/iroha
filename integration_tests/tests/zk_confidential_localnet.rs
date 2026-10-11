@@ -1,12 +1,8 @@
 //! First-release confidential-ingress surface regression.
 //!
-//! The first release admits offline reserve movement only through Kagemusha
-//! V1. Retired generic and escrow-specific confidential wires must never
-//! re-enter the registry.
-use iroha_data_model::{
-    instruction_registry,
-    isi::kagemusha_v1::{RedeemKagemushaV1, TopUpKagemushaV1},
-};
+//! Retired generic and escrow-specific confidential wires must never re-enter
+//! the registry.
+use iroha_data_model::instruction_registry;
 #[test]
 fn confidential_surface_excludes_retired_wires() {
     let retired = [
@@ -60,16 +56,5 @@ fn confidential_surface_excludes_retired_wires() {
     for retired in &retired {
         assert!(!registry.contains(retired));
         assert!(registry.decode(retired, &[]).is_none());
-    }
-    for specialized in [
-        std::any::type_name::<TopUpKagemushaV1>(),
-        std::any::type_name::<RedeemKagemushaV1>(),
-    ] {
-        let wire_id = registry
-            .wire_id(specialized)
-            .expect("specialized instruction has an explicit V1 wire identifier");
-        assert_ne!(wire_id, specialized);
-        assert!(registry.contains(wire_id));
-        assert!(!registry.contains(specialized));
     }
 }

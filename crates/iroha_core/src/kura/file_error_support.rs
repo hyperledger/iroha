@@ -399,16 +399,6 @@ pub enum Error {
         subsystem: &'static str,
     },
 
-    /// Invalid or conflicting Kagemusha V1 mint outbox entry: {0}
-    KagemushaMintOutbox(String),
-    /// Encoded Kagemusha V1 mint outbox entry is {actual} bytes; hard maximum is {max}
-    KagemushaMintOutboxTooLarge {
-        /// Encoded outbox entry size.
-        actual: usize,
-        /// Hard persistence/read limit.
-        max: usize,
-    },
-
     /// Retired first-release-incompatible Kura artifact remains at `{path:?}`
     RetiredKuraArtifact {
         /// Exact retired artifact that must be removed by the operator.

@@ -16,8 +16,6 @@ pub mod game;
 /// Authorization, signature and error-mapping helpers shared by ISI modules.
 pub(crate) mod helpers;
 pub mod identifier;
-/// Kagemusha reserve settlement instruction handlers.
-pub mod kagemusha;
 pub mod kaigi;
 /// Ministry agenda submission handlers.
 pub mod ministry;
@@ -423,9 +421,6 @@ define_instruction_handlers! {
     dispatch_instruction::<iroha_data_model::isi::ram_lfe::ActivateRamLfeProgramPolicy>,
     dispatch_instruction::<iroha_data_model::isi::ram_lfe::DeactivateRamLfeProgramPolicy>,
     dispatch_instruction::<iroha_data_model::isi::SetAssetDefinitionAlias>,
-    dispatch_instruction::<iroha_data_model::isi::TopUpKagemushaV1>,
-    dispatch_instruction::<iroha_data_model::isi::TopUpKagemushaOrdinaryV1>,
-    dispatch_instruction::<iroha_data_model::isi::RedeemKagemushaV1>,
     dispatch_instruction::<iroha_data_model::isi::social::ClaimTwitterFollowReward>,
     dispatch_instruction::<iroha_data_model::isi::social::SendToTwitter>,
     dispatch_instruction::<iroha_data_model::isi::social::CancelTwitterEscrow>,
@@ -1785,8 +1780,7 @@ mod tests {
     }
     #[test]
     async fn register_contract_manifest_is_queryable_with_runtime_authority() -> Result<()> {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             isi::smart_contract_code, permission, prelude as dm, query::smart_contract::prelude,
         };
@@ -1808,7 +1802,13 @@ mod tests {
             code,
         }
         .execute(&alice, &mut stx)?;
-        let manifest = manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &ALICE_KEYPAIR).expect("sign bounded fixture manifest");
+        let manifest = manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &ALICE_KEYPAIR,
+            )
+            .expect("sign bounded fixture manifest");
         {
             let scoped_manifest = manifest.clone();
             smart_contract_code::RegisterSmartContractCode {
@@ -1890,8 +1890,7 @@ mod tests {
     }
     #[test]
     async fn register_contract_manifest_rejects_wrong_signer() -> Result<()> {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_crypto::Hash;
         use iroha_data_model::{isi::smart_contract_code, permission, prelude as dm};
         let kura = Kura::blank_kura_for_testing();
@@ -1905,7 +1904,13 @@ mod tests {
         let h = Hash::new(b"dummy_code");
         let (_, mut manifest) = minimal_contract_artifact();
         manifest.code_hash = Some(h);
-        let manifest = manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &checked_keypair()).expect("sign bounded fixture manifest");
+        let manifest = manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &checked_keypair(),
+            )
+            .expect("sign bounded fixture manifest");
         let token =
             iroha_executor_data_model::permission::smart_contract::CanManageSmartContractCode;
         let perm: permission::Permission = token.into();

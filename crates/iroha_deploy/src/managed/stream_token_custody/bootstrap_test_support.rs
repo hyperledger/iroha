@@ -32,7 +32,8 @@ impl ManagedStreamTokenCustody {
         utc: u64,
         options: &BoundedTransactionOptions,
     ) -> BodyHistory {
-        // TODO: Remove static phase diagnostics after the ordinary-stack failure is localized.
+        // TODO: Remove this timing scope and static phases after native interval cost is localized.
+        let _timing = crate::custody_timing::Scope::enter();
         eprintln!("custody-body phase: helper-enter");
         let terms = Terms::new(utc, options).unwrap();
         let turn = SigningTurn::Explicit(&terms);

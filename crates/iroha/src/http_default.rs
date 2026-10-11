@@ -943,7 +943,7 @@ mod tests {
     }
 
     #[test]
-    fn kagemusha_loopback_transport_ignores_proxy_environment() {
+    fn loopback_transport_ignores_proxy_environment() {
         fn serve_once(listener: &TcpListener, status: &str) -> bool {
             listener
                 .set_nonblocking(true)
@@ -1009,7 +1009,7 @@ mod tests {
         let child = std::process::Command::new(std::env::current_exe().expect("test executable"))
             .args([
                 "--exact",
-                "http_default::tests::kagemusha_loopback_transport_ignores_proxy_environment",
+                "http_default::tests::loopback_transport_ignores_proxy_environment",
                 "--nocapture",
             ])
             .env(CHILD, "1")

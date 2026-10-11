@@ -78,9 +78,9 @@ fn response_error(error: crate::utils::BoundedResponseEncodeError) -> Error {
     }
 }
 
-// Copy a borrowed World graph only through a counted, prepaid canonical buffer and the
-// caller's unchanged cumulative decoder. The buffer and decoded graph may overlap; both
-// are charged before allocation. Refusal leaves the original immutable row untouched.
+// Copy a borrowed World graph through a counted canonical buffer and the caller's
+// unchanged cumulative decoder. The encoder charges its physical frame once; the decoded
+// graph is charged separately before allocation. Refusal preserves the original row.
 fn admitted_copy<T>(value: &T, max_frame_bytes: usize) -> Result<T, Error>
 where
     T: norito::NoritoSerialize + for<'de> norito::NoritoDeserialize<'de>,
@@ -89,7 +89,6 @@ where
     if length > max_frame_bytes {
         return Err(capacity());
     }
-    norito::core::reserve_decode_allocation(length).map_err(codec_error)?;
     let _flags = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
     let bytes = norito::core::to_bytes_bounded(value, length).map_err(|error| match error {
         norito::core::BoundedEncodeError::Serialization(error) => codec_error(error),
@@ -672,5 +671,30 @@ mod tests {
             load(&view, None, limits).is_ok(),
             "capacity refusal must preserve canonical storage for retry"
         );
+    }
+    #[test]
+    fn committee_copy_charges_one_frame_and_its_independently_measured_decoded_graph() {
+        let source = vec![0x37_u8; 64];
+        let frame = norito::encode_canonical(&source).unwrap();
+        let budget = 65536;
+        let limits = norito::DecodeLimits::new(65536, 65536, 65536, budget, 128);
+        let decoded_bytes = norito::with_decode_limits_scope(limits, || {
+            assert_eq!(norito::decode_canonical::<Vec<u8>>(&frame).unwrap(), source);
+            let norito::Error::TotalAllocationExceeded { attempted, .. } =
+                norito::core::reserve_decode_allocation(budget + 1).unwrap_err()
+            else {
+                panic!("allocation usage probe must refuse without charging");
+            };
+            attempted as usize - budget - 1
+        });
+        let exact = frame.len() + decoded_bytes;
+        let limits = norito::DecodeLimits::new(65536, 65536, 65536, exact, 128);
+        norito::with_decode_limits_scope(limits, || {
+            assert_eq!(admitted_copy(&source, frame.len()).unwrap(), source);
+            assert!(
+                admitted_copy(&source, frame.len()).is_err(),
+                "committee copy cannot renew its inherited allowance"
+            );
+        });
     }
 }

@@ -137,23 +137,6 @@ def validate_server_template(path: pathlib.Path) -> str:
             streaming, "identity_private_key_file", f"{path}.streaming"
         ),
     ]
-    torii = table.get("torii")
-    if isinstance(torii, Mapping):
-        kagemusha_v1_commands = torii.get("kagemusha_v1_commands")
-        if isinstance(kagemusha_v1_commands, Mapping) and kagemusha_v1_commands.get(
-            "enabled", True
-        ):
-            if "redemption_private_key" in kagemusha_v1_commands:
-                raise ProvisioningTemplateError(
-                    f"{path} embeds forbidden runtime secret field `torii.kagemusha_v1_commands.redemption_private_key`"
-                )
-            secret_paths.append(
-                _require_secret_file(
-                    kagemusha_v1_commands,
-                    "redemption_private_key_file",
-                    f"{path}.torii.kagemusha_v1_commands",
-                )
-            )
     if len(set(secret_paths)) != len(secret_paths):
         raise ProvisioningTemplateError(
             f"{path} must use distinct files for every configured runtime signing key"

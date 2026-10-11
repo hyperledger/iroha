@@ -1055,7 +1055,7 @@ fn explicit_reserved_recovery_reuses_original_signing_cap_under_a_later_io_budge
     assert!(history.last().is_none());
     let later = fixture.deadline + Duration::from_secs(60);
     let options = fixture.terms.options(later);
-    let retained = history.retained_terms().unwrap();
+    let retained = history.retained_terms().unwrap().clone();
     retained
         .matches(fixture.terms.requested_deadline_unix_ms, &options)
         .unwrap();
@@ -1065,14 +1065,11 @@ fn explicit_reserved_recovery_reuses_original_signing_cap_under_a_later_io_budge
             .signing_deadline_unix_ms
             > retained.signing_deadline_unix_ms
     );
-    let original = encode(retained, MAX_RECORD_BYTES).unwrap();
+    let original = encode(&retained, MAX_RECORD_BYTES).unwrap();
     let mut peers = UnavailablePeers::start(&fixture.prepared);
     initial(
-        &fixture.operation,
-        Purpose::ReservePolicy,
-        fixture.semantic,
-        &HistoryScope::FixedBody,
-        retained.clone(),
+        history,
+        retained,
         Observation::ordinary(),
         later,
         |attempt| fixture.inspect(attempt),
@@ -1540,4 +1537,224 @@ fn retained_reparse_admits_canonical_append_and_refuses_changed_original_custody
         std::fs::read(attempt.wallet_path().join("preparation.json")).unwrap(),
         request
     );
+}
+
+#[test]
+fn explicit_owned_history_rechecks_original_and_namespace_before_any_wallet_effect() {
+    let _resources = crate::managed::native_test_guard();
+    let fixture = Fixture::new();
+    let original = fixture
+        .operation
+        .read("original.nrt", MAX_RECORD_BYTES)
+        .unwrap();
+    for mutation in 0..4 {
+        let history = fixture.history().unwrap();
+        match mutation {
+            0 => {
+                let mut changed = original.to_vec();
+                changed[0] ^= 1;
+                fixture
+                    .operation
+                    .write_atomic("original.nrt", &changed, PublishMode::Replace)
+                    .unwrap();
+            }
+            1 => std::fs::remove_file(fixture.operation.path().join("original.nrt")).unwrap(),
+            2 => fixture
+                .operation
+                .write_atomic("foreign.nrt", b"unknown", PublishMode::CreateNew)
+                .unwrap(),
+            _ => fixture
+                .history()
+                .unwrap()
+                .reserve_pending(&fixture.operation, Origin::Explicit, fixture.terms.clone())
+                .unwrap(),
+        }
+        let before = fixture.operation.entries(6).unwrap();
+        let dispatch = read_optional(&fixture.operation, "dispatch.nrt", MAX_RECORD_BYTES).unwrap();
+        let inspected = std::cell::Cell::new(false);
+        let retained = std::cell::Cell::new(false);
+        assert!(
+            initial(
+                history,
+                fixture.terms.clone(),
+                Observation::ordinary(),
+                fixture.deadline,
+                |_| {
+                    inspected.set(true);
+                    Err(invalid("unexpected wallet inspection"))
+                },
+                |_, _, _| {
+                    retained.set(true);
+                    Err(invalid("unexpected wallet retention"))
+                },
+            )
+            .is_err(),
+            "mutation {mutation}"
+        );
+        assert!(!inspected.get(), "mutation {mutation}");
+        assert!(!retained.get(), "mutation {mutation}");
+        assert_eq!(fixture.operation.entries(6).unwrap(), before);
+        assert_eq!(
+            read_optional(&fixture.operation, "dispatch.nrt", MAX_RECORD_BYTES).unwrap(),
+            dispatch
+        );
+        assert!(!fixture.operation.path().join("attempts").exists());
+        match mutation {
+            0 => fixture
+                .operation
+                .write_atomic("original.nrt", &original, PublishMode::Replace)
+                .unwrap(),
+            1 => fixture
+                .operation
+                .write_atomic("original.nrt", &original, PublishMode::CreateNew)
+                .unwrap(),
+            2 => std::fs::remove_file(fixture.operation.path().join("foreign.nrt")).unwrap(),
+            _ => std::fs::remove_file(fixture.operation.path().join("dispatch.nrt")).unwrap(),
+        }
+        assert!(fixture.history().unwrap().last().is_none());
+    }
+    #[cfg(unix)]
+    {
+        let history = fixture.history().unwrap();
+        let path = fixture.operation.path().to_path_buf();
+        let displaced = fixture.authority.directory.path().join("held-set");
+        std::fs::rename(&path, &displaced).unwrap();
+        let replacement = PrivateDirectory::open_or_create(&path).unwrap();
+        replacement
+            .write_atomic("original.nrt", &original, PublishMode::CreateNew)
+            .unwrap();
+        let inspected = std::cell::Cell::new(false);
+        let retained = std::cell::Cell::new(false);
+        assert!(
+            initial(
+                history,
+                fixture.terms.clone(),
+                Observation::ordinary(),
+                fixture.deadline,
+                |_| {
+                    inspected.set(true);
+                    Err(invalid("unexpected replaced-directory inspection"))
+                },
+                |_, _, _| {
+                    retained.set(true);
+                    Err(invalid("unexpected replaced-directory retention"))
+                },
+            )
+            .is_err()
+        );
+        assert!(!inspected.get());
+        assert!(!retained.get());
+        assert_eq!(
+            replacement.read("original.nrt", MAX_RECORD_BYTES).unwrap(),
+            original
+        );
+        assert!(!path.join("dispatch.nrt").exists());
+        assert!(!path.join("attempts").exists());
+        assert!(!displaced.join("dispatch.nrt").exists());
+        assert!(!displaced.join("attempts").exists());
+        drop(replacement);
+        std::fs::remove_dir_all(&path).unwrap();
+        std::fs::rename(&displaced, &path).unwrap();
+        assert!(fixture.history().unwrap().last().is_none());
+    }
+}
+
+#[test]
+fn explicit_owned_history_keeps_genuine_request_and_refuses_inspection_callback_mutation() {
+    let _resources = crate::managed::native_test_guard();
+    let fixture = Fixture::new();
+    let mut peers = UnavailablePeers::start(&fixture.prepared);
+    let retained = std::cell::Cell::new(0);
+    initial(
+        fixture.history().unwrap(),
+        fixture.terms.clone(),
+        Observation::ordinary(),
+        fixture.deadline,
+        |attempt| fixture.inspect(attempt),
+        |attempt, _, _| {
+            retained.set(retained.get() + 1);
+            Ok(fixture.retain(attempt))
+        },
+    )
+    .unwrap();
+    assert_eq!(retained.get(), 1);
+    let history = fixture.history().unwrap();
+    let selected = history.selected().unwrap().unwrap();
+    assert!(selected.terms() == &fixture.terms);
+    assert_eq!(history.reserved_attempt_count(), 1);
+    assert_eq!(
+        fixture.inspect(selected).unwrap().phase(),
+        NativePreparationPhase::RequestOnly
+    );
+    let request = std::fs::read(selected.wallet_path().join("preparation.json")).unwrap();
+    let wallet_path = selected.wallet_path();
+    let dispatch = fixture
+        .operation
+        .read("dispatch.nrt", MAX_RECORD_BYTES)
+        .unwrap();
+    initial(
+        history,
+        fixture.terms.clone(),
+        Observation::ordinary(),
+        fixture.deadline,
+        |attempt| fixture.inspect(attempt),
+        |_, _, _| {
+            retained.set(retained.get() + 1);
+            Err(invalid("committed request must be reused"))
+        },
+    )
+    .unwrap();
+    assert_eq!(retained.get(), 1);
+    let history = fixture.history().unwrap();
+    let original = fixture
+        .operation
+        .read("original.nrt", MAX_RECORD_BYTES)
+        .unwrap();
+    let inspected = std::cell::Cell::new(false);
+    assert!(
+        initial(
+            history,
+            fixture.terms.clone(),
+            Observation::ordinary(),
+            fixture.deadline,
+            |attempt| {
+                let preparation = fixture.inspect(attempt)?;
+                let mut changed = original.to_vec();
+                changed[0] ^= 1;
+                fixture
+                    .operation
+                    .write_atomic("original.nrt", &changed, PublishMode::Replace)
+                    .unwrap();
+                inspected.set(true);
+                Ok(preparation)
+            },
+            |_, _, _| {
+                retained.set(retained.get() + 1);
+                Err(invalid("changed original cannot retain a wallet"))
+            },
+        )
+        .is_err()
+    );
+    assert!(inspected.get());
+    assert_eq!(retained.get(), 1);
+    assert_eq!(
+        fixture
+            .operation
+            .read("dispatch.nrt", MAX_RECORD_BYTES)
+            .unwrap(),
+        dispatch
+    );
+    assert_eq!(
+        std::fs::read(wallet_path.join("preparation.json")).unwrap(),
+        request
+    );
+    assert!(!wallet_path.join("payload.json").exists());
+    assert!(!wallet_path.join("operation.json").exists());
+    fixture
+        .operation
+        .write_atomic("original.nrt", &original, PublishMode::Replace)
+        .unwrap();
+    assert_eq!(fixture.history().unwrap().reserved_attempt_count(), 1);
+    assert!(peers.requests.lock().unwrap().is_empty());
+    peers.finish();
 }

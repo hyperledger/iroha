@@ -25,6 +25,7 @@ use iroha_config_base::{
     ParameterOrigin, ReadConfig, WithOrigin,
     attach::ConfigValueAndOrigin,
     env::FromEnvStr,
+    file_source::{ConfigFileAccess, ConfigFileRequest, ConfigFileSource, read_checked},
     read::{ConfigReader, FinalWrap, ReadConfig as ReadConfigTrait},
     util::{Bytes, DurationMs, Emitter, EmitterResultExt},
 };
@@ -47,12 +48,14 @@ use iroha_data_model::{
 use iroha_model_base::domain::DomainId;
 use iroha_primitives::numeric::Numeric;
 use nonzero_ext::nonzero;
+#[cfg(test)]
+use std::fs;
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet},
     convert::{Infallible, TryFrom, TryInto},
     fmt::Debug,
-    fs::{self, File},
+    fs::File,
     io::{self, Read},
     net::IpAddr,
     num::{NonZeroU8, NonZeroU16, NonZeroU32, NonZeroU64, NonZeroUsize},
@@ -76,6 +79,53 @@ const MAX_TELEMETRY_SIGNING_KEY_ID_LENGTH: usize = 128;
 const MAX_TELEGRAM_CREDENTIAL_LENGTH: usize = 256;
 const MAX_PRIVATE_KEY_FILE_BYTES: u64 = 4 * 1024;
 const MAX_PUBLIC_IDENTITY_FILE_BYTES: u64 = 512;
+
+enum ConfigFiles<'a> {
+    Native,
+    Supplied(&'a dyn ConfigFileSource),
+}
+impl ConfigFileSource for ConfigFiles<'_> {
+    fn read(
+        &self,
+        path: &Path,
+        request: ConfigFileRequest,
+    ) -> io::Result<zeroize::Zeroizing<Vec<u8>>> {
+        if let Self::Supplied(source) = self {
+            return source.read(path, request);
+        }
+        let file = File::open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "configuration input is not a regular file",
+            ));
+        }
+        #[cfg(unix)]
+        if request.access == ConfigFileAccess::Private {
+            use std::os::unix::fs::PermissionsExt as _;
+            if metadata.permissions().mode() & 0o077 != 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "private configuration input must not be accessible to group or other users",
+                ));
+            }
+        }
+        let maximum = u64::try_from(request.maximum)
+            .ok()
+            .and_then(|maximum| maximum.checked_add(1))
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "configuration byte bound overflows",
+                )
+            })?;
+        let mut bytes = zeroize::Zeroizing::new(Vec::new());
+        file.take(maximum).read_to_end(&mut bytes)?;
+        Ok(bytes)
+    }
+}
+
 fn normalize_jdg_signature_schemes(raw: Vec<String>) -> BTreeSet<JdgSignatureScheme> {
     let mut schemes = BTreeSet::new();
     let mut invalid = Vec::new();
@@ -195,6 +245,7 @@ fn resolve_private_key_source(
     file_field: &'static str,
     error: ParseError,
     emitter: &mut Emitter<ParseError>,
+    files: &ConfigFiles<'_>,
 ) -> Option<(PrivateKey, ParameterOrigin)> {
     let file = match (inline, file) {
         (Some(_), Some(_)) => {
@@ -216,7 +267,7 @@ fn resolve_private_key_source(
             return None;
         }
     };
-    match read_private_key_file(file, file_field) {
+    match read_private_key_file(file, file_field, files) {
         Ok(private_key) => Some(private_key),
         Err(message) => {
             emitter.emit(Report::new(error).attach(message));
@@ -232,51 +283,24 @@ fn resolve_private_key_source(
 fn read_private_key_file(
     file: WithOrigin<PathBuf>,
     file_field: &'static str,
+    files: &ConfigFiles<'_>,
 ) -> core::result::Result<(PrivateKey, ParameterOrigin), String> {
     let path = file.resolve_relative_path();
     let (_, origin) = file.into_tuple();
     if path.as_os_str().is_empty() {
         return Err(format!("{file_field} must not be empty"));
     }
-    let opened = File::open(&path)
-        .map_err(|err| format!("failed to open {file_field} `{}`: {err}", path.display()))?;
-    let metadata = opened
-        .metadata()
-        .map_err(|err| format!("failed to inspect {file_field} `{}`: {err}", path.display()))?;
-    if !metadata.is_file() {
-        return Err(format!(
-            "{file_field} `{}` must reference a regular file",
-            path.display()
-        ));
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        let mode = metadata.permissions().mode();
-        if mode & 0o077 != 0 {
-            return Err(format!(
-                "{file_field} `{}` must not be readable or writable by group/other users (mode {:04o})",
-                path.display(),
-                mode & 0o777
-            ));
-        }
-    }
-    let mut encoded = zeroize::Zeroizing::new(String::new());
-    opened
-        .take(MAX_PRIVATE_KEY_FILE_BYTES + 1)
-        .read_to_string(&mut encoded)
-        .map_err(|err| {
-            format!(
-                "failed to read {file_field} `{}` as UTF-8: {err}",
-                path.display()
-            )
-        })?;
-    if encoded.len() as u64 > MAX_PRIVATE_KEY_FILE_BYTES {
-        return Err(format!(
-            "{file_field} `{}` exceeds the {MAX_PRIVATE_KEY_FILE_BYTES}-byte limit",
-            path.display()
-        ));
-    }
+    let bytes = read_checked(
+        files,
+        &path,
+        ConfigFileRequest {
+            access: ConfigFileAccess::Private,
+            maximum: MAX_PRIVATE_KEY_FILE_BYTES as usize,
+        },
+    )
+    .map_err(|error| format!("failed to read {file_field} `{}`: {error}", path.display()))?;
+    let encoded = std::str::from_utf8(&bytes)
+        .map_err(|_| format!("{file_field} `{}` must contain UTF-8", path.display()))?;
     let encoded = encoded
         .strip_suffix("\r\n")
         .or_else(|| encoded.strip_suffix('\n'))
@@ -303,6 +327,7 @@ fn resolve_genesis_identity_source(
     file_field: &'static str,
     error: ParseError,
     emitter: &mut Emitter<ParseError>,
+    files: &ConfigFiles<'_>,
 ) -> Option<HashOf<BlockHeader>> {
     let file = match (inline, file) {
         (Some(_), Some(_)) => {
@@ -320,7 +345,7 @@ fn resolve_genesis_identity_source(
             return None;
         }
     };
-    match read_network_identity_file(file, file_field) {
+    match read_network_identity_file(file, file_field, files) {
         Ok((identity, _)) => Some(identity.into_genesis_hash()),
         Err(message) => {
             emitter.emit(Report::new(error).attach(message));
@@ -331,39 +356,24 @@ fn resolve_genesis_identity_source(
 fn read_network_identity_file(
     file: WithOrigin<PathBuf>,
     file_field: &'static str,
+    files: &ConfigFiles<'_>,
 ) -> core::result::Result<(NetworkId, ParameterOrigin), String> {
     let path = file.resolve_relative_path();
     let (_, origin) = file.into_tuple();
     if path.as_os_str().is_empty() {
         return Err(format!("{file_field} must not be empty"));
     }
-    let opened = File::open(&path)
-        .map_err(|err| format!("failed to open {file_field} `{}`: {err}", path.display()))?;
-    let metadata = opened
-        .metadata()
-        .map_err(|err| format!("failed to inspect {file_field} `{}`: {err}", path.display()))?;
-    if !metadata.is_file() {
-        return Err(format!(
-            "{file_field} `{}` must reference a regular file",
-            path.display()
-        ));
-    }
-    let mut encoded = String::new();
-    opened
-        .take(MAX_PUBLIC_IDENTITY_FILE_BYTES + 1)
-        .read_to_string(&mut encoded)
-        .map_err(|err| {
-            format!(
-                "failed to read {file_field} `{}` as UTF-8: {err}",
-                path.display()
-            )
-        })?;
-    if encoded.len() as u64 > MAX_PUBLIC_IDENTITY_FILE_BYTES {
-        return Err(format!(
-            "{file_field} `{}` exceeds the {MAX_PUBLIC_IDENTITY_FILE_BYTES}-byte limit",
-            path.display()
-        ));
-    }
+    let bytes = read_checked(
+        files,
+        &path,
+        ConfigFileRequest {
+            access: ConfigFileAccess::Public,
+            maximum: MAX_PUBLIC_IDENTITY_FILE_BYTES as usize,
+        },
+    )
+    .map_err(|error| format!("failed to read {file_field} `{}`: {error}", path.display()))?;
+    let encoded = std::str::from_utf8(&bytes)
+        .map_err(|_| format!("{file_field} `{}` must contain UTF-8", path.display()))?;
     let Some(identity_text) = encoded.strip_suffix('\n') else {
         return Err(format!(
             "{file_field} `{}` must contain exactly one LF-terminated canonical public identity",
@@ -445,7 +455,7 @@ use iroha_primitives::{
 };
 use norito::{
     json::{self, JsonDeserialize, JsonSerialize, Map, Value},
-    streaming::{BUNDLED_RANS_GPU_BUILD_AVAILABLE, EntropyMode, load_bundle_tables_from_toml},
+    streaming::{BUNDLED_RANS_GPU_BUILD_AVAILABLE, EntropyMode},
 };
 use soranet_pq::{MlKemSuite, SuiteParseError};
 use url::Url;
@@ -1218,6 +1228,22 @@ impl Root {
     /// Convert this user configuration into the runtime representation.
     #[allow(clippy::too_many_lines)]
     pub fn parse(self) -> Result<actual::Root, ParseError> {
+        self.parse_with_files(&ConfigFiles::Native)
+    }
+    /// Parse canonical node configuration using one explicit source for referenced file bytes.
+    ///
+    /// Source errors are final. All ordinary record, schema and semantic checks remain active;
+    /// the parser never falls back to a filesystem read when this source refuses an input.
+    ///
+    /// # Errors
+    /// Returns all configuration errors, including invalid or oversized referenced file records.
+    pub fn parse_with_file_source(
+        self,
+        files: &dyn ConfigFileSource,
+    ) -> Result<actual::Root, ParseError> {
+        self.parse_with_files(&ConfigFiles::Supplied(files))
+    }
+    fn parse_with_files(self, files: &ConfigFiles<'_>) -> Result<actual::Root, ParseError> {
         let mut emitter = Emitter::new();
         let _account_address_scope =
             AccountAddressParseScope::enter(*self.chain_discriminant.value());
@@ -1228,6 +1254,7 @@ impl Root {
             "private_key_file",
             ParseError::BadKeyPair,
             &mut emitter,
+            files,
         );
         let (public_key, public_key_origin) = self.public_key.into_tuple();
         let peer_public_key = public_key.clone();
@@ -1256,6 +1283,7 @@ impl Root {
             "soranet_transport_private_key_file",
             ParseError::InvalidSoranetTransportIdentity,
             &mut emitter,
+            files,
         );
         let soranet_transport_private_key_origin = soranet_transport_private_key
             .as_ref()
@@ -1309,7 +1337,8 @@ impl Root {
             }
             emitter.emit(report);
         }
-        let (network, block_sync, transaction_gossiper) = self.network.parse(&mut emitter);
+        let (network, block_sync, transaction_gossiper) =
+            self.network.parse_with_file_source(files, &mut emitter);
         let runtime_provider_broker = self
             .runtime_provider_broker
             .parse()
@@ -1326,7 +1355,7 @@ impl Root {
             Self::validate_trusted_peer_pops(&trusted, &mut emitter);
             trusted
         });
-        let genesis = self.genesis.parse(&mut emitter);
+        let genesis = self.genesis.parse_with_file_source(files, &mut emitter);
         let data_dir = Self::parse_data_dir(self.data_dir, &mut emitter);
         let kura = self.kura.parse(&mut emitter);
         let sccp = self.sccp.parse(&kura.store_dir, &mut emitter);
@@ -1336,7 +1365,9 @@ impl Root {
         Self::derive_default_snapshot_store_dir(&mut snapshot, &kura);
         let dev_telemetry = self.dev_telemetry;
         let parsed_sorafs = self.sorafs.parse(&mut emitter);
-        let (torii, live_query_store) = self.torii.parse(&mut emitter, parsed_sorafs);
+        let (torii, live_query_store) =
+            self.torii
+                .parse_with_file_source(files, &mut emitter, parsed_sorafs);
         let soracloud_runtime = self.soracloud_runtime.parse(&mut emitter);
         let musubi_publication = self.musubi_publication.parse(&mut emitter);
         let telemetry = self.telemetry.map(actual::Telemetry::from);
@@ -1415,7 +1446,8 @@ impl Root {
         let nexus = self.nexus.parse(&mut emitter);
         let confidential = self.confidential.parse();
         let streaming = if let Some(ref key_pair) = key_pair {
-            self.streaming.parse(key_pair, &mut emitter)
+            self.streaming
+                .parse_with_file_source(files, key_pair, &mut emitter)
         } else {
             None
         };
@@ -5082,13 +5114,20 @@ impl ReadConfigTrait for StreamingCodec {
 impl StreamingCodec {
     /// Convert the user configuration into the runtime codec toggles, emitting diagnostics for invalid combinations.
     pub fn parse(self, emitter: &mut Emitter<ParseError>) -> Option<actual::StreamingCodec> {
+        self.parse_with_file_source(&ConfigFiles::Native, emitter)
+    }
+    fn parse_with_file_source(
+        self,
+        files: &ConfigFiles<'_>,
+        emitter: &mut Emitter<ParseError>,
+    ) -> Option<actual::StreamingCodec> {
         let cabac_mode = Self::resolve_cabac_mode(self.cabac_mode, emitter)?;
         let trellis_blocks = Self::validate_trellis_blocks(self.trellis_blocks, emitter)?;
         let (rans_tables_path, rans_tables_origin) =
-            Self::validate_rans_tables_path(self.rans_tables_path, emitter)?;
+            Self::validate_rans_tables_path(self.rans_tables_path, emitter, files)?;
         let entropy_mode = Self::parse_entropy_mode(self.entropy_mode, emitter)?;
         let tables_max_width =
-            Self::bundle_tables_max_width(&rans_tables_path, rans_tables_origin, emitter)?;
+            Self::bundle_tables_max_width(&rans_tables_path, rans_tables_origin, emitter, files)?;
         let bundle_width = Self::validate_bundle_width(
             self.bundle_width,
             entropy_mode,
@@ -5160,7 +5199,13 @@ impl StreamingCodec {
     fn validate_rans_tables_path(
         rans_tables_path: WithOrigin<PathBuf>,
         emitter: &mut Emitter<ParseError>,
+        files: &ConfigFiles<'_>,
     ) -> Option<(PathBuf, ParameterOrigin)> {
+        if matches!(files, ConfigFiles::Supplied(_)) {
+            let path = rans_tables_path.resolve_relative_path();
+            let (_, origin) = rans_tables_path.into_tuple();
+            return Some((path, origin));
+        }
         let (path, origin) = rans_tables_path.into_tuple();
         let resolved = if Path::new(&path).is_file() {
             Some(path.clone())
@@ -5192,8 +5237,32 @@ impl StreamingCodec {
         rans_tables_path: &Path,
         origin: ParameterOrigin,
         emitter: &mut Emitter<ParseError>,
+        files: &ConfigFiles<'_>,
     ) -> Option<u8> {
-        match load_bundle_tables_from_toml(rans_tables_path) {
+        let tables = match files {
+            // Ordinary node configuration keeps its established path and file-loading behavior.
+            ConfigFiles::Native => {
+                norito::streaming::load_bundle_tables_from_toml(rans_tables_path)
+            }
+            ConfigFiles::Supplied(_) => read_checked(
+                files,
+                rans_tables_path,
+                ConfigFileRequest {
+                    access: ConfigFileAccess::Public,
+                    maximum: 64 * 1024,
+                },
+            )
+            .map_err(norito::streaming::BundleTableError::from)
+            .and_then(|bytes| {
+                let text = std::str::from_utf8(&bytes).map_err(|_| {
+                    norito::streaming::BundleTableError::InvalidStructure(
+                        "table file must contain UTF-8",
+                    )
+                })?;
+                norito::streaming::parse_bundle_tables_from_toml(text)
+            }),
+        };
+        match tables {
             Ok(tables) => Some(tables.max_width()),
             Err(source) => {
                 emitter.emit(
@@ -5644,7 +5713,11 @@ pub struct Genesis {
     pub expected_hash_file: Option<WithOrigin<PathBuf>>,
 }
 impl Genesis {
-    fn parse(self, emitter: &mut Emitter<ParseError>) -> Option<actual::Genesis> {
+    fn parse_with_file_source(
+        self,
+        files: &ConfigFiles<'_>,
+        emitter: &mut Emitter<ParseError>,
+    ) -> Option<actual::Genesis> {
         let expected_hash = resolve_genesis_identity_source(
             self.expected_hash,
             self.expected_hash_file,
@@ -5652,6 +5725,7 @@ impl Genesis {
             "genesis.expected_hash_file",
             ParseError::InvalidGenesisConfig,
             emitter,
+            files,
         )?;
         Some(actual::Genesis {
             public_key: self.public_key.into_value(),
@@ -7046,7 +7120,11 @@ impl Default for SoranetVpn {
     }
 }
 impl SoranetVpn {
+    #[cfg(test)]
     fn parse(self) -> actual::SoranetVpn {
+        self.parse_with_file_source(&ConfigFiles::Native)
+    }
+    fn parse_with_file_source(self, files: &ConfigFiles<'_>) -> actual::SoranetVpn {
         let Self {
             enabled,
             cell_size_bytes,
@@ -7109,7 +7187,7 @@ impl SoranetVpn {
             ),
             (Some(private_key), None) => Some(private_key),
             (None, Some(file)) => Some(
-                read_private_key_file(file, "network.soranet_vpn.operator_private_key_file")
+                read_private_key_file(file, "network.soranet_vpn.operator_private_key_file", files)
                     .unwrap_or_else(|error| {
                         panic!("invalid VPN operator private-key file: {error}")
                     })
@@ -7789,9 +7867,9 @@ pub struct Network {
     pub quic_max_idle_timeout_ms: Option<DurationMs>,
 }
 impl Network {
-    #[allow(clippy::too_many_lines)]
-    fn parse(
+    fn parse_with_file_source(
         self,
+        files: &ConfigFiles<'_>,
         emitter: &mut Emitter<ParseError>,
     ) -> (
         actual::Network,
@@ -7971,7 +8049,7 @@ impl Network {
             };
         let soranet_handshake = soranet_handshake.parse(emitter);
         let soranet_privacy = user_soranet_privacy.parse(emitter);
-        let soranet_vpn = soranet_vpn.parse();
+        let soranet_vpn = soranet_vpn.parse_with_file_source(files);
         let lane_profile = actual::LaneProfile::parse_label(&lane_profile).unwrap_or_else(|| {
             emitter.emit(
                 Report::new(ParseError::InvalidNetworkConfig).attach(format!(
@@ -8183,40 +8261,12 @@ impl Queue {
         }
     }
 }
-/// Confidential asset and verifier configuration.
 /// User-level configuration container for `Settlement`.
-#[derive(Debug, ReadConfig, Clone, Default)]
+#[derive(Debug, ReadConfig, Clone, Copy, Default)]
 pub struct Settlement {
-    /// KAGEMUSHA V1 runtime-state configuration.
-    #[config(nested)]
-    pub kagemusha: Kagemusha,
     /// Router configuration (shadow price, buffers).
     #[config(nested)]
     pub router: Router,
-}
-/// User-level KAGEMUSHA V1 proof-release configuration.
-///
-/// The six paths are all-or-none. Their contents do not become monetary authority merely by
-/// being configured: startup threshold-authenticates the release and rechecks every artifact's
-/// content address and compiled protocol identity.
-#[derive(Debug, ReadConfig, Clone, Default)]
-pub struct Kagemusha {
-    /// Permit a signed TestnetExperiment proof release on this explicitly configured node.
-    /// Production releases do not need this permission.
-    #[config(default = "false")]
-    pub allow_testnet_experimental_release: bool,
-    /// Canonical Norito release manifest.
-    pub release_manifest_path: Option<PathBuf>,
-    /// Canonical Norito internal qualification receipt.
-    pub validation_receipt_path: Option<PathBuf>,
-    /// Canonical Norito locally trusted release-authority policy.
-    pub authority_policy_path: Option<PathBuf>,
-    /// Canonical Norito threshold-signed release attestation.
-    pub release_attestation_path: Option<PathBuf>,
-    /// Canonical JSON recursive circuit profile signed through its digest.
-    pub recursive_profile_path: Option<PathBuf>,
-    /// Directory containing files named only by lowercase SHA-256 artifact address.
-    pub artifact_directory: Option<PathBuf>,
 }
 /// User-level configuration for the settlement router.
 #[derive(Debug, ReadConfig, Clone, Copy)]
@@ -8282,55 +8332,7 @@ impl Settlement {
     /// Convert this user configuration into the runtime representation.
     pub fn parse(self, emitter: &mut Emitter<ParseError>) -> actual::Settlement {
         actual::Settlement {
-            kagemusha: self.kagemusha.parse(emitter),
             router: self.router.parse(emitter),
-        }
-    }
-}
-impl Kagemusha {
-    /// Validate the all-or-none release file set and construct runtime configuration.
-    pub fn parse(self, emitter: &mut Emitter<ParseError>) -> actual::Kagemusha {
-        let paths = [
-            self.release_manifest_path.is_some(),
-            self.validation_receipt_path.is_some(),
-            self.authority_policy_path.is_some(),
-            self.release_attestation_path.is_some(),
-            self.recursive_profile_path.is_some(),
-            self.artifact_directory.is_some(),
-        ];
-        let proof_release = if paths.iter().all(|present| !present) {
-            None
-        } else if paths.iter().all(|present| *present) {
-            Some(actual::KagemushaV1ProofReleaseFiles {
-                manifest: self
-                    .release_manifest_path
-                    .expect("all release paths were checked present"),
-                validation_receipt: self
-                    .validation_receipt_path
-                    .expect("all release paths were checked present"),
-                authority_policy: self
-                    .authority_policy_path
-                    .expect("all release paths were checked present"),
-                attestation: self
-                    .release_attestation_path
-                    .expect("all release paths were checked present"),
-                recursive_profile: self
-                    .recursive_profile_path
-                    .expect("all release paths were checked present"),
-                artifact_directory: self
-                    .artifact_directory
-                    .expect("all release paths were checked present"),
-            })
-        } else {
-            emitter.emit(Report::new(ParseError::InvalidSettlementConfig).attach(
-                "settlement.kagemusha proof-release paths must be configured all together",
-            ));
-            None
-        };
-        actual::Kagemusha {
-            reserve_accounts: BTreeMap::new(),
-            proof_release,
-            allow_testnet_experimental_release: self.allow_testnet_experimental_release,
         }
     }
 }
@@ -8509,9 +8511,17 @@ impl Streaming {
         identity: &KeyPair,
         emitter: &mut Emitter<ParseError>,
     ) -> Option<actual::Streaming> {
+        self.parse_with_file_source(&ConfigFiles::Native, identity, emitter)
+    }
+    fn parse_with_file_source(
+        self,
+        files: &ConfigFiles<'_>,
+        identity: &KeyPair,
+        emitter: &mut Emitter<ParseError>,
+    ) -> Option<actual::Streaming> {
         let sync_overrides = self.sync.clone().map(WithOrigin::into_tuple);
         let codec_overrides = self.codec.clone().map(WithOrigin::into_tuple);
-        let streaming_identity = self.resolve_identity(identity, emitter)?;
+        let streaming_identity = self.resolve_identity(identity, emitter, files)?;
         let mut key_material = Self::init_key_material(streaming_identity, emitter)?;
         let kem_suite = self.resolve_kyber_suite(emitter)?;
         key_material.set_kem_suite(kem_suite);
@@ -8540,7 +8550,7 @@ impl Streaming {
                 None => actual::StreamingSync::from_defaults(),
             },
             codec: match codec_overrides {
-                Some((codec_cfg, _origin)) => codec_cfg.parse(emitter)?,
+                Some((codec_cfg, _origin)) => codec_cfg.parse_with_file_source(files, emitter)?,
                 None => actual::StreamingCodec::from_defaults(),
             },
         })
@@ -8549,6 +8559,7 @@ impl Streaming {
         &self,
         identity: &KeyPair,
         emitter: &mut Emitter<ParseError>,
+        files: &ConfigFiles<'_>,
     ) -> Option<KeyPair> {
         let private_configured =
             self.identity_private_key.is_some() || self.identity_private_key_file.is_some();
@@ -8560,6 +8571,7 @@ impl Streaming {
                 "streaming.identity_private_key_file",
                 ParseError::InvalidStreamingConfig,
                 emitter,
+                files,
             )
         });
         let private_key = private_key.flatten();
@@ -14139,13 +14151,9 @@ pub struct Torii {
     #[config(default = "defaults::torii::PROOF_MAX_BODY_BYTES")]
     pub proof_max_body_bytes: Bytes,
     /// Maximum proof-bearing request bodies buffered concurrently before handler admission.
-    ///
-    /// This aggregate gate also covers KAGEMUSHA V1 top-up/redemption command bodies.
     #[config(default = "defaults::torii::PROOF_BODY_MAX_INFLIGHT")]
     pub proof_body_max_inflight: NonZeroUsize,
     /// Absolute deadline for reading one admitted proof-bearing request body (milliseconds).
-    ///
-    /// This deadline also applies to KAGEMUSHA V1 top-up/redemption command bodies.
     #[config(
         default = "DurationMs(std::time::Duration::from_millis(defaults::torii::PROOF_BODY_READ_TIMEOUT_MS))"
     )]
@@ -14408,9 +14416,6 @@ pub struct Torii {
     pub account_onboarding: Option<AccountOnboarding>,
     /// Optional faucet configuration for app API endpoints.
     pub faucet: Option<ToriiFaucet>,
-    /// Optional KAGEMUSHA V1 command capacity and redemption authority customization.
-    /// Command admission remains active with bounded defaults when absent.
-    pub kagemusha_v1_commands: Option<ToriiKagemushaV1Commands>,
     /// Optional RAM-LFE runtime configuration for app API endpoints.
     pub ram_lfe: Option<ToriiRamLfe>,
     /// Optional transaction-history visibility/auth configuration for direct wallet reads.
@@ -14459,10 +14464,6 @@ impl core::fmt::Debug for Torii {
                 &RedactedConfigSecret::present(self.account_onboarding.is_some()),
             )
             .field("faucet_configured", &self.faucet.is_some())
-            .field(
-                "kagemusha_v1_commands",
-                &RedactedConfigSecret::present(self.kagemusha_v1_commands.is_some()),
-            )
             .field(
                 "ram_lfe_program_count",
                 &self
@@ -15257,8 +15258,9 @@ impl Torii {
             }
         }
     }
-    fn parse(
+    fn parse_with_file_source(
         self,
+        files: &ConfigFiles<'_>,
         emitter: &mut Emitter<ParseError>,
         parsed_sorafs: ParsedSorafs,
     ) -> (actual::Torii, actual::LiveQueryStore) {
@@ -15699,11 +15701,10 @@ impl Torii {
             push,
             account_onboarding: self
                 .account_onboarding
-                .and_then(|config| config.parse(emitter)),
-            faucet: self.faucet.and_then(|config| config.parse(emitter)),
-            kagemusha_v1_commands: self
-                .kagemusha_v1_commands
-                .and_then(|config| config.parse(emitter)),
+                .and_then(|config| config.parse_with_file_source(files, emitter)),
+            faucet: self
+                .faucet
+                .and_then(|config| config.parse_with_file_source(files, emitter)),
             ram_lfe: self.ram_lfe.and_then(|config| config.parse(emitter)),
             tx_history: self.tx_history.map(|config| config.parse(emitter)),
             recipient_lookup: self
@@ -17769,7 +17770,11 @@ impl AccountOnboarding {
         }
         Some(parsed)
     }
-    fn load_private_key(path: &Path, emitter: &mut Emitter<ParseError>) -> Option<PrivateKey> {
+    fn load_private_key(
+        path: &Path,
+        emitter: &mut Emitter<ParseError>,
+        files: &ConfigFiles<'_>,
+    ) -> Option<PrivateKey> {
         if path.as_os_str().is_empty() {
             emit_torii_config_error(
                 emitter,
@@ -17777,15 +17782,32 @@ impl AccountOnboarding {
             );
             return None;
         }
-        let encoded = match fs::read_to_string(path) {
-            Ok(encoded) => zeroize::Zeroizing::new(encoded),
-            Err(err) => {
+        let bytes = match read_checked(
+            files,
+            path,
+            ConfigFileRequest {
+                access: ConfigFileAccess::Private,
+                maximum: MAX_PRIVATE_KEY_FILE_BYTES as usize,
+            },
+        ) {
+            Ok(bytes) => bytes,
+            Err(error) => {
                 emit_torii_config_error(
                     emitter,
                     format!(
-                        "failed to read torii.account_onboarding.private_key_file `{}`: {err}",
+                        "failed to read torii.account_onboarding.private_key_file `{}`: {error}",
                         path.display()
                     ),
+                );
+                return None;
+            }
+        };
+        let encoded = match std::str::from_utf8(&bytes) {
+            Ok(encoded) => encoded,
+            Err(_) => {
+                emit_torii_config_error(
+                    emitter,
+                    "torii.account_onboarding.private_key_file must contain UTF-8",
                 );
                 return None;
             }
@@ -18056,7 +18078,6 @@ impl AccountOnboarding {
             "DpnUser",
             "CanManagePeers",
             "CanResolveEscrowDispute",
-            "CanManageKagemushaReserve",
             "CanSetParameters",
             "CanSetHijiriParameters",
             "CanProposeSccpRouteGovernance",
@@ -18277,7 +18298,11 @@ impl AccountOnboarding {
             _ => None,
         }
     }
-    fn parse(self, emitter: &mut Emitter<ParseError>) -> Option<actual::AccountOnboarding> {
+    fn parse_with_file_source(
+        self,
+        files: &ConfigFiles<'_>,
+        emitter: &mut Emitter<ParseError>,
+    ) -> Option<actual::AccountOnboarding> {
         let secret_free_schema = if self.private_key.is_some() {
             emit_torii_config_error(
                 emitter,
@@ -18288,7 +18313,7 @@ impl AccountOnboarding {
             Some(())
         };
         let authority = Self::parse_authority(&self.authority, emitter);
-        let private_key = Self::load_private_key(&self.private_key_file, emitter);
+        let private_key = Self::load_private_key(&self.private_key_file, emitter, files);
         let signer = Self::parse_signer(authority.as_ref(), private_key, emitter);
         let lease_term_years = NonZeroU8::new(self.lease_term_years);
         if lease_term_years.is_none() {
@@ -18409,20 +18434,41 @@ impl ToriiFaucet {
         }
         Some(parsed)
     }
-    fn load_private_key(path: &Path, emitter: &mut Emitter<ParseError>) -> Option<PrivateKey> {
+    fn load_private_key(
+        path: &Path,
+        emitter: &mut Emitter<ParseError>,
+        files: &ConfigFiles<'_>,
+    ) -> Option<PrivateKey> {
         if path.as_os_str().is_empty() {
             emit_torii_config_error(emitter, "torii.faucet.private_key_file must not be empty");
             return None;
         }
-        let encoded = match fs::read_to_string(path) {
-            Ok(encoded) => zeroize::Zeroizing::new(encoded),
-            Err(err) => {
+        let bytes = match read_checked(
+            files,
+            path,
+            ConfigFileRequest {
+                access: ConfigFileAccess::Private,
+                maximum: MAX_PRIVATE_KEY_FILE_BYTES as usize,
+            },
+        ) {
+            Ok(bytes) => bytes,
+            Err(error) => {
                 emit_torii_config_error(
                     emitter,
                     format!(
-                        "failed to read torii.faucet.private_key_file `{}`: {err}",
+                        "failed to read torii.faucet.private_key_file `{}`: {error}",
                         path.display()
                     ),
+                );
+                return None;
+            }
+        };
+        let encoded = match std::str::from_utf8(&bytes) {
+            Ok(encoded) => encoded,
+            Err(_) => {
+                emit_torii_config_error(
+                    emitter,
+                    "torii.faucet.private_key_file must contain UTF-8",
                 );
                 return None;
             }
@@ -18472,12 +18518,20 @@ impl ToriiFaucet {
             }
         }
     }
+    #[cfg(test)]
     fn parse(self, emitter: &mut Emitter<ParseError>) -> Option<actual::ToriiFaucet> {
+        self.parse_with_file_source(&ConfigFiles::Native, emitter)
+    }
+    fn parse_with_file_source(
+        self,
+        files: &ConfigFiles<'_>,
+        emitter: &mut Emitter<ParseError>,
+    ) -> Option<actual::ToriiFaucet> {
         if !self.enabled {
             return None;
         }
         let authority = Self::parse_authority(&self.authority, emitter);
-        let private_key = Self::load_private_key(&self.private_key_file, emitter);
+        let private_key = Self::load_private_key(&self.private_key_file, emitter, files);
         let signer = Self::parse_signer(authority.as_ref(), private_key, emitter);
         let asset_definition_id =
             match validate_asset_definition_selector_literal(&self.asset_definition_id) {
@@ -18573,241 +18627,9 @@ impl ToriiFaucet {
         }
     }
 }
-/// KAGEMUSHA V1 command-admission configuration for app-facing KAGEMUSHA V1 routes.
-///
-/// The whole table customizes mandatory command admission. Absence uses bounded defaults;
-/// when present, every capacity field is required.
-/// The redemption signer fields are an optional all-or-none group; payer-signed top-ups do not
-/// require Torii to hold an issuer key.
-#[derive(Debug, Clone, norito::JsonDeserialize)]
-#[norito(deny_unknown_fields)]
-pub struct ToriiKagemushaV1Commands {
-    /// Optional public binding of the redemption issuer: the canonical single-signature account
-    /// the redemption private key must sign for.
-    ///
-    /// It belongs to the redemption group and requires a redemption key. A compiled-profile node
-    /// file sets it to bind the profile's KAGEMUSHA V1 commands template; the key then comes from
-    /// `<data_dir>/secrets/authority/kagemusha_redemption.key`.
-    pub redemption_authority: Option<String>,
-    /// Optional private key for the account submitting redemption instructions.
-    pub redemption_private_key: Option<PrivateKey>,
-    /// Optional owner-held file containing the KAGEMUSHA V1 redemption issuer's private key.
-    pub redemption_private_key_file: Option<WithOrigin<PathBuf>>,
-    /// Minimum live XOR balance required for the self-funded redemption authority.
-    ///
-    /// This is required and must be positive when a redemption key is configured, and must be
-    /// absent when no redemption issuer is configured.
-    pub redemption_minimum_xor_balance: Option<Quantity>,
-    /// Maximum number of admitted and in-flight operations retained in memory.
-    pub operation_registry_max_entries: usize,
-    /// Maximum canonical bytes reserved by admitted and in-flight operations.
-    pub operation_registry_max_bytes: usize,
-}
-impl ToriiKagemushaV1Commands {
-    /// Parse `redemption_authority` as a canonical single-signature account literal.
-    fn parse_redemption_authority(
-        raw: &str,
-        emitter: &mut Emitter<ParseError>,
-    ) -> Option<AccountId> {
-        let parsed = match AccountId::parse_encoded(raw) {
-            Ok(account_id) => account_id,
-            Err(err) => {
-                emit_torii_config_error(
-                    emitter,
-                    format!(
-                        "torii.kagemusha_v1_commands.redemption_authority must be a canonical domainless AccountId: {err}"
-                    ),
-                );
-                return None;
-            }
-        };
-        if raw != parsed.to_string() {
-            emit_torii_config_error(
-                emitter,
-                format!(
-                    "torii.kagemusha_v1_commands.redemption_authority must use canonical form `{parsed}`"
-                ),
-            );
-            return None;
-        }
-        if parsed.try_signatory().is_none() {
-            emit_torii_config_error(
-                emitter,
-                "torii.kagemusha_v1_commands.redemption_authority must be a single-signature AccountId",
-            );
-            return None;
-        }
-        Some(parsed)
-    }
-    fn parse(self, emitter: &mut Emitter<ParseError>) -> Option<actual::ToriiKagemushaV1Commands> {
-        let Self {
-            redemption_authority,
-            redemption_private_key,
-            redemption_private_key_file,
-            redemption_minimum_xor_balance,
-            operation_registry_max_entries,
-            operation_registry_max_bytes,
-        } = self;
-        let redemption_authority = match redemption_authority {
-            Some(raw) => Some(Self::parse_redemption_authority(&raw, emitter)?),
-            None => None,
-        };
-        let redemption_private_key = match (redemption_private_key, redemption_private_key_file) {
-            (Some(_), Some(_)) => {
-                emit_torii_config_error(
-                    emitter,
-                    "torii.kagemusha_v1_commands.redemption_private_key and torii.kagemusha_v1_commands.redemption_private_key_file are mutually exclusive",
-                );
-                return None;
-            }
-            (Some(redemption_private_key), None) => Some(redemption_private_key),
-            (None, Some(file)) => {
-                match read_private_key_file(
-                    file,
-                    "torii.kagemusha_v1_commands.redemption_private_key_file",
-                ) {
-                    Ok((redemption_private_key, _)) => Some(redemption_private_key),
-                    Err(error) => {
-                        emit_torii_config_error(emitter, error);
-                        return None;
-                    }
-                }
-            }
-            (None, None) => None,
-        };
-        let key_pair = match redemption_private_key.map(|redemption_private_key| {
-            let key_pair = match KeyPair::from_private_key(redemption_private_key) {
-                Ok(key_pair) => key_pair,
-                Err(error) => {
-                    emit_torii_config_error(
-                        emitter,
-                        format!(
-                            "invalid torii.kagemusha_v1_commands.redemption_private_key: {error}"
-                        ),
-                    );
-                    return Err(());
-                }
-            };
-            match key_pair.public_key().try_algorithm() {
-                Ok(Algorithm::Ed25519 | Algorithm::Secp256k1) => Ok(key_pair),
-                Ok(_) => {
-                    emit_torii_config_error(
-                        emitter,
-                        "torii.kagemusha_v1_commands.redemption_private_key must use ed25519 or secp256k1",
-                    );
-                    Err(())
-                }
-                Err(error) => {
-                    emit_torii_config_error(
-                        emitter,
-                        format!(
-                            "invalid public key derived from torii.kagemusha_v1_commands.redemption_private_key: {error}"
-                        ),
-                    );
-                    Err(())
-                }
-            }
-        }) {
-            Some(Ok(key_pair)) => Some(key_pair),
-            Some(Err(())) => return None,
-            None => None,
-        };
-        match (&redemption_authority, &key_pair) {
-            (Some(_), None) => {
-                emit_torii_config_error(
-                    emitter,
-                    "torii.kagemusha_v1_commands.redemption_authority requires a redemption private key",
-                );
-                return None;
-            }
-            (Some(authority), Some(key_pair))
-                if authority.try_signatory() != Some(key_pair.public_key()) =>
-            {
-                emit_torii_config_error(
-                    emitter,
-                    "the KAGEMUSHA V1 redemption private key does not sign for torii.kagemusha_v1_commands.redemption_authority",
-                );
-                return None;
-            }
-            _ => {}
-        }
-        let redemption_issuer = match (key_pair, redemption_minimum_xor_balance) {
-            (Some(key_pair), Some(redemption_minimum_xor_balance))
-                if !redemption_minimum_xor_balance.is_zero() =>
-            {
-                Some(actual::ToriiKagemushaV1RedemptionIssuer {
-                    authority: AccountId::new(key_pair.public_key().clone()),
-                    key_pair,
-                    minimum_xor_balance: redemption_minimum_xor_balance,
-                })
-            }
-            (Some(_), Some(_)) => {
-                emit_torii_config_error(
-                    emitter,
-                    "torii.kagemusha_v1_commands.redemption_minimum_xor_balance must be greater than zero",
-                );
-                return None;
-            }
-            (Some(_), None) => {
-                emit_torii_config_error(
-                    emitter,
-                    "torii.kagemusha_v1_commands.redemption_minimum_xor_balance is required when a redemption private key is configured",
-                );
-                return None;
-            }
-            (None, Some(_)) => {
-                emit_torii_config_error(
-                    emitter,
-                    "torii.kagemusha_v1_commands.redemption_minimum_xor_balance requires a redemption private key",
-                );
-                return None;
-            }
-            (None, None) => None,
-        };
-        let operation_registry_max_entries = NonZeroUsize::new(operation_registry_max_entries);
-        if operation_registry_max_entries.is_none() {
-            emit_torii_config_error(
-                emitter,
-                "torii.kagemusha_v1_commands.operation_registry_max_entries must be greater than zero",
-            );
-        }
-        let operation_registry_max_bytes = NonZeroUsize::new(operation_registry_max_bytes);
-        if operation_registry_max_bytes.is_none() {
-            emit_torii_config_error(
-                emitter,
-                "torii.kagemusha_v1_commands.operation_registry_max_bytes must be greater than zero",
-            );
-        } else if operation_registry_max_bytes.is_some_and(|limit| {
-            limit.get()
-                < defaults::torii::kagemusha_v1_commands::OPERATION_REGISTRY_ACCOUNTED_BYTES_PER_ENTRY
-        }) {
-            emit_torii_config_error(
-                emitter,
-                format!(
-                    "torii.kagemusha_v1_commands.operation_registry_max_bytes must be at least {}",
-                    defaults::torii::kagemusha_v1_commands::OPERATION_REGISTRY_ACCOUNTED_BYTES_PER_ENTRY
-                ),
-            );
-            return None;
-        }
-        let (Some(operation_registry_max_entries), Some(operation_registry_max_bytes)) =
-            (operation_registry_max_entries, operation_registry_max_bytes)
-        else {
-            return None;
-        };
-        Some(actual::ToriiKagemushaV1Commands {
-            redemption_issuer,
-            operation_registry_max_entries,
-            operation_registry_max_bytes,
-        })
-    }
-}
 #[cfg(test)]
 #[path = "user/torii_faucet_tests.rs"]
 mod torii_faucet_tests;
-#[cfg(test)]
-#[path = "user/torii_kagemusha_v1_commands_tests.rs"]
-mod torii_kagemusha_v1_commands_tests;
 /// RAM-LFE runtime configuration.
 #[derive(Debug, ReadConfig, Clone, norito::JsonDeserialize)]
 #[norito(deny_unknown_fields)]
@@ -34458,9 +34280,6 @@ mod configuration_regression_tests {
 }
 include!("user_validation_tests.rs");
 #[cfg(test)]
-#[path = "user/kagemusha_v1_settlement_tests.rs"]
-mod kagemusha_v1_settlement_tests;
-#[cfg(test)]
 #[path = "user/settlement_router_tests.rs"]
 mod settlement_router_tests;
 
@@ -34479,3 +34298,7 @@ mod native_fee_mode_tests {
         assert!(emitter.into_result().is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "user/config_file_source_tests.rs"]
+mod config_file_source_tests;

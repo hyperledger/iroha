@@ -244,7 +244,6 @@ EXPECTED_FEATURES: dict[str, dict[str, tuple[str, ...]]] = {
  "bridge": (),
  "offline-visual-codecs": ("dep:image",)},
     "iroha": {
-        "dev-tools": (),
         "default": ("tls-rustls-native-roots", "gost", "sm"),
         "gost": ("iroha_crypto/gost", "iroha_data_model/gost"),
         "sm": ("iroha_crypto/sm", "iroha_data_model/sm"),
@@ -502,7 +501,6 @@ EXPLICIT_OPT_IN_FEATURES: dict[str, tuple[str, ...]] = {
  "zk-stark"),
     "iroha_cli_lib": ("cli_integration_harness",),
     "iroha": (
-        "dev-tools",
         "test-fixtures",
         "test-network-private-settlement-evidence",
         "tls-native",
@@ -873,20 +871,6 @@ def _check_mandatory_core_backends(document: dict[str, Any], manifest_path: Path
     return errors
 
 
-def _check_mandatory_native_dependency(document: dict[str, Any], manifest_path: Path) -> list[str]:
-    """Require ordinary Native custody in every client build, including no defaults."""
-
-    dependencies = document.get("dependencies", {})
-    specification = dependencies.get("iroha_core_zk") if isinstance(dependencies, dict) else None
-    if not isinstance(specification, dict) or specification.get("optional", False) is not False:
-        return [f"{manifest_path}: mandatory Native dependency `iroha_core_zk` must be a non-optional normal dependency"]
-    if (specification.get("workspace") is not True
-            or specification.get("default-features") is not False
-            or specification.get("features", []) != []):
-        return [f"{manifest_path}: mandatory Native dependency `iroha_core_zk` must retain the unconditional Core owner without optional test defaults or feature selectors"]
-    return []
-
-
 def _check_mandatory_daemon_cuda(document: dict[str, Any], manifest_path: Path) -> list[str]:
     """Keep daemon CUDA on the single mandatory Linux/Windows dependency row."""
     scope = 'cfg(any(target_os = "linux", target_os = "windows"))'
@@ -911,8 +895,6 @@ def _check_expected_features(
     errors: list[str] = []
     if package_name == "irohad_lib":
         errors.extend(_check_mandatory_daemon_cuda(document, manifest_path))
-    if package_name == "iroha":
-        errors.extend(_check_mandatory_native_dependency(document, manifest_path))
     if package_name == "iroha_data_model":
         errors.extend(_check_mandatory_model_json_dependencies(document, manifest_path))
     if package_name == "iroha_cli_lib":

@@ -113,7 +113,7 @@ fn with_effect_credit<T>(
     let demand = quantity_ordinary_allocation_bytes(
         &fixture.statement.effects,
         proving(),
-        effect_support::fixture::limits(policy()),
+        &effect_support::fixture::limits(policy()),
     )
     .unwrap();
     let budget = AllocationBudget::new(demand);
@@ -176,7 +176,7 @@ impl<'a> TestArtifact<'a> {
                     &SourceExecutionEffectStatement::from_owned(&effect.statement),
                     effect.expected(),
                     proving(),
-                    effect_support::fixture::limits(*limits),
+                    &effect_support::fixture::limits(*limits),
                 )
                 .map(|_| ())
             }
@@ -201,7 +201,7 @@ impl<'a> TestArtifact<'a> {
                 &SourceExecutionEffectStatement::from_owned(&effect.statement),
                 &effect.source,
                 &frame,
-                effect_support::fixture::limits(*limits),
+                &effect_support::fixture::limits(*limits),
             ),
         }
     }
@@ -1236,7 +1236,7 @@ fn assert_captured_raw_bundle(
             let limits = effect_support::fixture::limits(policy());
             norito::core::with_decode_limits_measured(policy().total_decode, || {
                 effect_bundle::verify(
-                    EffectVerificationInputs {
+                    &EffectVerificationInputs {
                         statement: &SourceExecutionEffectStatement::from_owned(
                             &captured.effect.statement,
                         ),
@@ -1428,7 +1428,7 @@ fn assert_captured_changed_statements_rejected(captured: &CapturedArtifact<'_>) 
                 &SourceExecutionEffectStatement::from_owned(&changed.statement),
                 &changed.source,
                 &captured.frame,
-                effect_support::fixture::limits(policy()),
+                &effect_support::fixture::limits(policy()),
             )
             .unwrap();
             // Independently recomputed complete source/effect/statement expectations
@@ -1694,7 +1694,7 @@ fn original_tree_pool_identity_precedes_producer_admission_and_preparation() {
             &SourceExecutionEffectStatement::from_owned(&effect.statement),
             effect.expected(),
             proving(),
-            effect_support::fixture::limits(policy()),
+            &effect_support::fixture::limits(policy()),
             &budget,
             &mut foreign,
         ),
@@ -1796,7 +1796,7 @@ fn complete_effect_statement_caps_and_original_headers_use_actual_preflight() {
     limits.public_statement.max_rows = 4;
     limits.public_statement.max_public_bytes = norito::canonical_frame_len(&view).unwrap();
     assert_eq!(
-        execution_effect::preflight_for_test(&view, effect.expected(), proving(), limits).unwrap(),
+        execution_effect::preflight_for_test(&view, effect.expected(), proving(), &limits).unwrap(),
         2
     );
     for (field, actual, name) in [
@@ -1815,7 +1815,7 @@ fn complete_effect_statement_caps_and_original_headers_use_actual_preflight() {
             _ => short.public_statement.max_public_bytes = actual - 1,
         }
         assert_limit(
-            &execution_effect::preflight_for_test(&view, effect.expected(), proving(), short),
+            &execution_effect::preflight_for_test(&view, effect.expected(), proving(), &short),
             name,
             actual,
             actual - 1,
@@ -1834,7 +1834,7 @@ fn complete_effect_statement_caps_and_original_headers_use_actual_preflight() {
                 &SourceExecutionEffectStatement::from_owned(&changed),
                 effect.expected(),
                 proving(),
-                limits
+                &limits
             ),
             Err(Error::PublicIoMismatch {
                 field: "compact_public_statement_digest"
@@ -1848,7 +1848,7 @@ fn complete_effect_statement_caps_and_original_headers_use_actual_preflight() {
             &SourceExecutionEffectStatement::from_owned(&empty),
             effect.expected(),
             proving(),
-            limits
+            &limits
         ),
         Err(Error::TransferInvariant { .. })
     ));

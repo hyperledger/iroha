@@ -301,10 +301,128 @@ fn proof_box_codec_ceiling_accepts_the_limit_and_rejects_one_over() {
     assert!(largest as u64 > X509_PROOF_CEILING_BYTES);
 }
 
-/// The signed-transaction attachment list is bounded in count and in its complete canonical
-/// frame, both inclusive. The frame bound (8 MiB) is below the zk-X509 proof ceiling, so a
-/// ceiling-sized proof is refused as an attachment today: the open relation
-/// `attachment_list_frame_holds_a_ceiling_proof` of the contract (owner I.1).
+/// A signed transaction carries proofs as signed attachment occurrences. One occurrence holds
+/// exactly the zk-X509 proof ceiling, the complete attachment frame is bounded by that ceiling
+/// plus a 64 KiB allowance, and the complete signed transaction with a ceiling-sized proof is
+/// within the transaction cap: relation `attachment_list_frame_holds_a_ceiling_proof` of the
+/// contract. Count and bytes are independent bounds, all inclusive.
+#[test]
+fn signed_attachment_bounds_accept_the_limit_and_reject_one_over() {
+    use iroha_data_model::transaction::{
+        SignedAttachmentErrorV1, SignedAttachmentPlanV1, SignedAttachmentsV1,
+        signed_attachments::{
+            ActionAuthorityBindingV1, ActionInvocationBindingV1, ActionOperationV1,
+            ActionPublicInputsDigestV1, ActionRoleV1, AttachmentKindV1, AttachmentRoleV1,
+            OrderedIntentDigestV1, PlannedActionV1, PlannedAttachmentV1,
+            SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1, SIGNED_ATTACHMENTS_MAX_ACTIONS_V1,
+            SIGNED_ATTACHMENTS_MAX_CANONICAL_FRAME_BYTES_V1, SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1,
+        },
+    };
+    assert_eq!(
+        SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1 as u64,
+        X509_PROOF_CEILING_BYTES
+    );
+    assert_eq!(
+        SIGNED_ATTACHMENTS_MAX_CANONICAL_FRAME_BYTES_V1 as u64,
+        X509_PROOF_CEILING_BYTES + 64 * 1024
+    );
+    assert!(SIGNED_ATTACHMENTS_MAX_CANONICAL_FRAME_BYTES_V1 as u64 <= TRANSACTION_CAP_BYTES);
+    assert_eq!(SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1, 16);
+    assert_eq!(SIGNED_ATTACHMENTS_MAX_ACTIONS_V1, 16);
+
+    let contract_subject = iroha_data_model::account::AccountId::new(
+        iroha_crypto::KeyPair::from_seed(vec![0x41; 32], iroha_crypto::Algorithm::Ed25519)
+            .public_key()
+            .clone(),
+    );
+    // One native action issued by a contract, with the given proof occurrences.
+    let with_proofs = |proofs: Vec<Vec<u8>>| -> SignedAttachmentsV1 {
+        let mut plan = SignedAttachmentPlanV1::new();
+        plan.push_action(PlannedActionV1 {
+            operation: ActionOperationV1::NativeInstruction("iroha.privacy.submit_proof.v1".into()),
+            role: ActionRoleV1::ProofEffect,
+            authority: ActionAuthorityBindingV1::ContractSubject(contract_subject.clone()),
+            invocation: ActionInvocationBindingV1::Contract {
+                root_index: 0,
+                call_path: Vec::new(),
+            },
+            public_inputs_digest: ActionPublicInputsDigestV1::new([0x5a; 32]),
+            attachments: proofs
+                .into_iter()
+                .map(|bytes| PlannedAttachmentV1 {
+                    kind: AttachmentKindV1::Proof,
+                    role: AttachmentRoleV1::ActionProof,
+                    bytes,
+                })
+                .collect(),
+        });
+        let mut declared = plan.declare();
+        declared
+            .bind_statements_v1(OrderedIntentDigestV1::new([0x11; 32]))
+            .expect("bound statements");
+        declared
+    };
+
+    // A ceiling-sized proof is one occurrence; one byte more is not.
+    let ceiling = usize::try_from(X509_PROOF_CEILING_BYTES).unwrap();
+    let at_ceiling = with_proofs(vec![vec![0x5a; ceiling]]);
+    at_ceiling
+        .validate_v1()
+        .expect("a ceiling-sized proof is carriable");
+    let frame = norito::encode_canonical(&at_ceiling).expect("canonical frame");
+    assert!(frame.len() <= SIGNED_ATTACHMENTS_MAX_CANONICAL_FRAME_BYTES_V1);
+    assert!((frame.len() as u64) < TRANSACTION_CAP_BYTES);
+    assert_eq!(
+        norito::decode_canonical::<SignedAttachmentsV1>(&frame).expect("the bound itself decodes"),
+        at_ceiling
+    );
+    let over = with_proofs(vec![vec![0x5a; ceiling + 1]]);
+    assert_eq!(
+        over.validate_v1(),
+        Err(SignedAttachmentErrorV1::OccurrenceTooLarge {
+            index: 0,
+            actual: ceiling + 1,
+            maximum: ceiling,
+        })
+    );
+    assert!(
+        norito::decode_canonical::<SignedAttachmentsV1>(
+            &norito::encode_canonical(&over).expect("canonical frame")
+        )
+        .is_err()
+    );
+
+    // Count: sixteen occurrences are carried, seventeen are not.
+    let distinct = |count: usize| {
+        (0..count)
+            .map(|slot| vec![slot as u8, 1, 2])
+            .collect::<Vec<_>>()
+    };
+    with_proofs(distinct(SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1))
+        .validate_v1()
+        .expect("sixteen occurrences");
+    assert_eq!(
+        with_proofs(distinct(SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1 + 1)).validate_v1(),
+        Err(SignedAttachmentErrorV1::TooManyOccurrences {
+            actual: SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1 + 1,
+            maximum: SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1,
+        })
+    );
+
+    // Bytes are bounded independently of the count: two occurrences that
+    // together exceed the frame bound are refused although each is admissible.
+    let two = with_proofs(vec![vec![0x5a; ceiling], vec![0xa5; ceiling]]);
+    assert!(matches!(
+        two.validate_v1(),
+        Err(SignedAttachmentErrorV1::FrameTooLarge { actual, maximum })
+            if actual > maximum && maximum == SIGNED_ATTACHMENTS_MAX_CANONICAL_FRAME_BYTES_V1
+    ));
+}
+
+/// The bounded proof attachment list is the body format of Torii's non-consensus prover API
+/// and a staging container of SDK builders; it is not a signed-transaction field. It is bounded
+/// in count and in its complete canonical frame, both inclusive, and stays below the zk-X509
+/// proof ceiling, which travels as a signed attachment occurrence instead.
 #[test]
 fn attachment_list_bounds_accept_the_limit_and_reject_one_over() {
     assert_eq!(PROOF_ATTACHMENT_LIST_MAX_ATTACHMENTS_V1, 16);

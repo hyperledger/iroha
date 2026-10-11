@@ -1,6 +1,4 @@
 import java.net.URI
-import java.nio.file.Files
-import java.nio.file.LinkOption
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -30,9 +28,6 @@ android {
     sourceSets {
         getByName("test") {
             kotlin.srcDir(rootProject.file("test-support/src"))
-        }
-        getByName("androidTest") {
-            assets.srcDir("../../fixtures/offline")
         }
     }
 
@@ -109,9 +104,7 @@ dependencies {
 }
 
 tasks.withType<Test>().configureEach {
-    useJUnitPlatform {
-        if (name != "testDebugHostNative") excludeTags("host-native")
-    }
+    useJUnitPlatform()
     // The wallet custody backup test asserts the processed library manifest, not only its source.
     if (name == "testDebugUnitTest") {
         dependsOn("processDebugManifest")
@@ -121,43 +114,6 @@ tasks.withType<Test>().configureEach {
                 "intermediates/merged_manifest/debug/processDebugManifest/AndroidManifest.xml",
             ).get().asFile.absolutePath,
         )
-    }
-}
-
-// Execute only the actual main-wallet JNI owner against an explicitly supplied
-// rebuilt host artifact. This is a negative host check, not Native-root admission.
-afterEvaluate {
-    tasks.register<Test>("testDebugHostNative") {
-        description = "Check exact host JNI ABI and missing ordinary Native root refusal."
-        group = "verification"
-        val managed = tasks.named<Test>("testDebugUnitTest").get()
-        testClassesDirs = managed.testClassesDirs
-        classpath = managed.classpath
-        dependsOn(provider { managed.taskDependencies.getDependencies(managed) })
-        useJUnitPlatform { includeTags("host-native") }
-        filter {
-            includeTestsMatching("org.hyperledger.iroha.sdk.offline.KagemushaOrdinaryRuntimeHostNativeV1Test")
-            isFailOnNoMatchingTests = true
-        }
-        outputs.upToDateWhen { false }
-        outputs.doNotCacheIf("Actual host JNI negatives must execute against the supplied artifact") { true }
-        val nativeDirectory = providers.environmentVariable("IROHA_NATIVE_LIBRARY_PATH")
-        doFirst {
-            val configured = nativeDirectory.orNull
-            require(!configured.isNullOrBlank()) {
-                "testDebugHostNative requires the rebuilt IROHA_NATIVE_LIBRARY_PATH"
-            }
-            val directory = File(configured).toPath()
-            require(directory.isAbsolute && directory.normalize() == directory &&
-                directory.toRealPath() == directory &&
-                Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) {
-                "IROHA_NATIVE_LIBRARY_PATH must be one canonical existing directory"
-            }
-            val library = directory.resolve(System.mapLibraryName("connect_norito_bridge"))
-            require(Files.isRegularFile(library, LinkOption.NOFOLLOW_LINKS) &&
-                !Files.isSymbolicLink(library)) { "The actual rebuilt host JNI bridge is missing" }
-            systemProperty("java.library.path", directory.toString())
-        }
     }
 }
 

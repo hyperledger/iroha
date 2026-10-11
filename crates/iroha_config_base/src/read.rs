@@ -740,7 +740,7 @@ impl<T> ReadingDoneValue<T> {
     {
         match self {
             Self::Errored => FinalWrap(FinalWrapInner::Errored),
-            Self::Fine(t) => FinalWrap(FinalWrapInner::Value(f(t))),
+            Self::Fine(t) => FinalWrap(FinalWrapInner::Value(Box::new(f(t)))),
         }
     }
 }
@@ -786,7 +786,8 @@ pub struct FinalWrap<T>(FinalWrapInner<T>);
 /// Exists to not expose enum variants if they were in [`FinalWrap`]
 enum FinalWrapInner<T> {
     Errored,
-    Value(T),
+    // Keep deferred wrappers independent of T: derived readers capture one per field.
+    Value(Box<T>),
     ValueFn(Box<dyn FnOnce() -> T>),
 }
 impl<T> FinalWrap<T> {
@@ -808,7 +809,7 @@ impl<T> FinalWrap<T> {
             FinalWrapInner::Errored => panic!(
                 "`FinalWrap::unwrap` is supposed to be called only after `ConfigReader::into_result` returns OK; it is probably a bug"
             ),
-            FinalWrapInner::Value(value) => value,
+            FinalWrapInner::Value(value) => *value,
             FinalWrapInner::ValueFn(fun) => fun(),
         }
     }
@@ -1145,3 +1146,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod final_wrap_tests;

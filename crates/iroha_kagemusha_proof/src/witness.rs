@@ -1118,7 +1118,7 @@ impl<F: PoseidonField> StepWitness<F> {
 
 #[cfg(test)]
 mod tests {
-    use ff::Field;
+    use ff::{Field, PrimeField};
     use iroha_pasta::{Fp, Fq};
 
     use super::*;
@@ -1135,12 +1135,20 @@ mod tests {
         assert_eq!(SigmaRelation::SEND.selector(), (3, 0));
         assert_eq!(SigmaRelation::send(CONTROL_BLACKLIST).selector(), (3, 1));
         assert_eq!(SigmaRelation::RECEIVE.selector(), (4, 0));
-        assert_eq!(SigmaRelation::of(StepRelation::Receive), SigmaRelation::RECEIVE);
+        assert_eq!(
+            SigmaRelation::of(StepRelation::Receive),
+            SigmaRelation::RECEIVE
+        );
         assert!(SigmaRelation::send(CONTROL_BLACKLIST).enforces(CONTROL_BLACKLIST));
         assert!(!SigmaRelation::SEND.enforces(CONTROL_BLACKLIST));
         assert!(!SigmaRelation::SEND.enforces(0));
         assert!(SigmaRelation::send(CONTROL_BLACKLIST).is_supported());
-        for unsupported in [CONTROL_QUOTAS, CONTROL_ATTESTATION_LEASE, CONTROLS_DEFINED, 8] {
+        for unsupported in [
+            CONTROL_QUOTAS,
+            CONTROL_ATTESTATION_LEASE,
+            CONTROLS_DEFINED,
+            8,
+        ] {
             assert!(!SigmaRelation::send(unsupported).is_supported());
         }
         assert_eq!(SigmaRelation::send(1).label(), "send_m1");
@@ -1186,11 +1194,7 @@ mod tests {
             state.commitment(),
             hash_with_domain(
                 CORE_DOMAIN,
-                &[
-                    core.as_slice(),
-                    &[hash_with_domain(REST_DOMAIN, &rest)]
-                ]
-                .concat()
+                &[core.as_slice(), &[hash_with_domain(REST_DOMAIN, &rest)]].concat()
             )
         );
     }
@@ -1287,7 +1291,10 @@ mod tests {
         assert_eq!(native.chain_entry.len(), SEND_CHAIN_FIELDS);
         // The chain entry and the effect carry the one-element credit_id.
         assert_eq!(native.chain_entry[1], native.digests.credit);
-        assert_eq!(native.statement[STATEMENT_HEADER_FIELDS], native.digests.credit);
+        assert_eq!(
+            native.statement[STATEMENT_HEADER_FIELDS],
+            native.digests.credit
+        );
         // The Send effect and chain bind the Request digest limbs after the
         // fee.
         let request = digest_fields::<Fp>(&send.request_digest);
@@ -1336,7 +1343,11 @@ mod tests {
     fn mutations_are_reported_as_violations() {
         let blacklist = SigmaRelation::send(CONTROL_BLACKLIST);
         let cases = [
-            (SigmaRelation::SEND, Mutation::Overdraft, Violation::Overdraft),
+            (
+                SigmaRelation::SEND,
+                Mutation::Overdraft,
+                Violation::Overdraft,
+            ),
             (SigmaRelation::SEND, Mutation::Burned, Violation::Overdraft),
             (
                 SigmaRelation::SEND,
@@ -1358,8 +1369,16 @@ mod tests {
                 Mutation::ControlsMismatch,
                 Violation::ControlsMismatch,
             ),
-            (blacklist, Mutation::StaleBlacklist, Violation::BlacklistTooOld),
-            (blacklist, Mutation::FutureBlacklist, Violation::BlacklistTooOld),
+            (
+                blacklist,
+                Mutation::StaleBlacklist,
+                Violation::BlacklistTooOld,
+            ),
+            (
+                blacklist,
+                Mutation::FutureBlacklist,
+                Violation::BlacklistTooOld,
+            ),
             (
                 SigmaRelation::RECEIVE,
                 Mutation::Overflow,
@@ -1448,7 +1467,9 @@ mod tests {
                 Some(LIFECYCLE_RETIRING)
             );
             assert_eq!(
-                witness.statement(relation).map(|statement| statement.lifecycle),
+                witness
+                    .statement(relation)
+                    .map(|statement| statement.lifecycle),
                 Some(LIFECYCLE_RETIRING)
             );
         }

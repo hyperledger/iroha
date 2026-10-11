@@ -160,13 +160,7 @@ impl ManagedReserveAccountRegistration {
         let purpose = Purpose::ReserveAccount(self.authority.provider_id()?);
         let deadline = authorization.validate(&self.authority, purpose, deadline)?;
         if policy != &authorization.policies().network.reserve
-            || underwriting
-                != self
-                    .authority
-                    .prepared
-                    .provider_service_plan(self.authority.provider_id()?)?
-                    .ok_or_else(|| invalid("generated reserve underwriting absent"))?
-                    .reserve_terms()
+            || underwriting != self.authority.provider_plan()?.reserve_terms()
         {
             return Err(invalid(
                 "reserve registration differs from authorized policy or underwriting",

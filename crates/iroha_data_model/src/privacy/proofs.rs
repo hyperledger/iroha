@@ -125,20 +125,6 @@ impl IrohaZkAmsProofV1 {
             | Self::Ristretto255LsagProvisionAccount(bytes) => bytes,
         }
     }
-    /// Return whether this proof variant matches a typed public action.
-    #[must_use]
-    pub const fn matches_action(&self, action: &PrivacyZkAmsActionV1) -> bool {
-        matches!(
-            (self, action),
-            (
-                Self::MaskedRelaxedSpartanBatchAdmission(_),
-                PrivacyZkAmsActionV1::BatchAdmission(_)
-            ) | (
-                Self::Ristretto255LsagProvisionAccount(_),
-                PrivacyZkAmsActionV1::ProvisionAccount(_)
-            )
-        )
-    }
 }
 /// Protocol-typed native proof payload.
 #[derive(
@@ -1074,29 +1060,9 @@ impl PrivacyProofEnvelopeV1 {
                 actual: self.engine_id,
             });
         }
-        let statement_protocol = self.statement.protocol_id();
-        if statement_protocol != self.protocol_id {
-            return Err(
-                PrivacyProofEnvelopeValidationError::StatementProtocolMismatch {
-                    envelope: self.protocol_id,
-                    statement: statement_protocol,
-                },
-            );
-        }
-        let proof_protocol = self.proof.protocol_id();
-        if proof_protocol != self.protocol_id {
-            return Err(PrivacyProofEnvelopeValidationError::ProofProtocolMismatch {
-                envelope: self.protocol_id,
-                proof: proof_protocol,
-            });
-        }
-        if let (PrivacyStatementV1::IrohaZkAmsV1(statement), PrivacyProofV1::IrohaZkAmsV1(proof)) =
-            (&self.statement, &self.proof)
-            && !proof.matches_action(&statement.action)
-        {
-            return Err(PrivacyProofEnvelopeValidationError::ZkAmsActionProofMismatch);
-        }
-        Ok(())
+        // The single role resolver owns protocol, statement, proof and ZK-AMS
+        // action agreement; nothing else decides which role an envelope selects.
+        self.action_role_v1().map(|_| ())
     }
     fn validate_artifact_bindings(&self) -> Result<(), PrivacyProofEnvelopeValidationError> {
         if self.parameter_id.is_zero() {
@@ -1670,7 +1636,6 @@ mod exact12_fixture {
             seed_public_key: zk_ams_seed_key(seed.wrapping_add(32)),
         }
     }
-    #[cfg(test)]
     pub(super) fn zk_ams_provision_statement(ring_size: u8) -> PrivacyStatementV1 {
         PrivacyStatementV1::IrohaZkAmsV1(IrohaZkAmsStatementV1 {
             context: context(),
@@ -2122,10 +2087,7 @@ mod exact12_fixture {
     }
     fn try_envelope(
         statement: PrivacyStatementV1,
-    ) -> Result<PrivacyProofEnvelopeV1, norito::Error> {
-        let protocol_id = statement.protocol_id();
-        let context = *statement.context();
-        let statement_digest = statement.digest()?;
+    ) -> Result<PrivacyProofEnvelopeV1, PrivacyProofEnvelopeValidationError> {
         let proof = match &statement {
             PrivacyStatementV1::IrohaZkAmsV1(IrohaZkAmsStatementV1 {
                 action: PrivacyZkAmsActionV1::ProvisionAccount(_),
@@ -2135,23 +2097,9 @@ mod exact12_fixture {
                     PrivacyProofBytesV1::new(vec![0xA5, 0x5A, 1]),
                 ))
             }
-            _ => proof_for(protocol_id),
+            _ => proof_for(statement.protocol_id()),
         };
-        Ok(PrivacyProofEnvelopeV1 {
-            wire_magic: crate::privacy::PrivacyProofWireMagicV1::default(),
-            catalog_commitment: crate::privacy::PrivacyExact12CatalogCommitmentV1::default(),
-            protocol_id,
-            proof_system_id: protocol_id.expected_proof_system(),
-            engine_id: protocol_id.expected_engine(),
-            parameter_id: context.parameter_id,
-            parameter_digest: context.parameter_digest,
-            verifier_digest: context.verifier_digest,
-            statement_schema_digest: context.statement_schema_digest,
-            engine_manifest_digest: context.engine_manifest_digest,
-            statement_digest,
-            statement,
-            proof,
-        })
+        PrivacyProofEnvelopeV1::bind_v1(statement, proof)
     }
     #[cfg(test)]
     pub(super) fn envelope(statement: PrivacyStatementV1) -> PrivacyProofEnvelopeV1 {
@@ -2266,12 +2214,18 @@ mod exact12_fixture {
         /// A typed statement digest or proof-envelope encoding failed.
         #[error("exact12 typed fixture canonical encoding failed: {0}")]
         CanonicalEncoding(#[from] norito::Error),
+        /// The canonical envelope binding rejected a fixture statement and proof.
+        #[error("exact12 typed fixture envelope binding failed: {0}")]
+        EnvelopeBinding(#[from] PrivacyProofEnvelopeValidationError),
         /// The fixture constructor no longer produced the closed registry size.
         #[error("exact12 typed fixture produced {actual} rows instead of 12")]
         RowCount {
             /// Number of rows constructed from the current typed fixtures.
             actual: usize,
         },
+        /// The role samples do not cover every Exact12 role exactly once.
+        #[error("exact12 role samples do not cover the thirteen roles exactly once")]
+        RoleCoverage,
         /// Canonical transaction-intent projection or binding failed.
         #[error("exact12 transaction-intent fixture failed: {0}")]
         TransactionIntent(#[from] PrivacyTransactionIntentErrorV1),
@@ -2327,7 +2281,11 @@ mod exact12_fixture {
         {
             statement.action_digest = statement.computed_action_digest()?;
         }
-        submission.envelope.statement_digest = submission.envelope.statement.digest()?;
+        // Rebind through the one assembler so the envelope follows the changed statement.
+        submission.envelope = PrivacyProofEnvelopeV1::bind_v1(
+            submission.envelope.statement.clone(),
+            submission.envelope.proof.clone(),
+        )?;
         payload.instructions =
             Executable::Instructions(vec![InstructionBox::from(submission.clone())].into());
         Ok(submission)
@@ -2403,6 +2361,155 @@ mod exact12_fixture {
             signed_transaction_versioned_norito,
             signed_transaction_hash,
         })
+    }
+    /// Maximum governed limits of one protocol, as an activation record carries them.
+    pub(super) fn sample_protocol_limits(
+        protocol: PrivacyProtocolIdV1,
+    ) -> PrivacyProtocolActivationLimitsV1 {
+        match protocol {
+            PrivacyProtocolIdV1::ZkAcePqAuthorizationV1 => {
+                PrivacyProtocolActivationLimitsV1::ZkAcePqAuthorizationV1
+            }
+            PrivacyProtocolIdV1::AnonymousPgcKOutOfNV1 => {
+                PrivacyProtocolActivationLimitsV1::AnonymousPgcKOutOfNV1(
+                    AnonymousPgcActivationLimitsV1 {
+                        max_anonymity_set_size: ANONYMOUS_PGC_MAX_ANONYMITY_SET_SIZE_V1,
+                        max_recipient_count: ANONYMOUS_PGC_MAX_RECIPIENTS_V1,
+                    },
+                )
+            }
+            PrivacyProtocolIdV1::VeRangeTransparentRangeV1 => {
+                PrivacyProtocolActivationLimitsV1::VeRangeTransparentRangeV1(
+                    VeRangeActivationLimitsV1 {
+                        max_aggregation_count: VERANGE_TAIRA_MAX_AGGREGATION_COUNT_V1,
+                    },
+                )
+            }
+            PrivacyProtocolIdV1::IrohaZkAmsV1 => {
+                PrivacyProtocolActivationLimitsV1::IrohaZkAmsV1(ZkAmsActivationLimitsV1 {
+                    max_batch_size: ZK_AMS_MAX_BATCH_SIZE_V1,
+                    max_ring_size: ZK_AMS_MAX_RING_SIZE_V1,
+                })
+            }
+            PrivacyProtocolIdV1::VegaExistingCredentialZkV1 => {
+                PrivacyProtocolActivationLimitsV1::VegaExistingCredentialZkV1
+            }
+            PrivacyProtocolIdV1::IrohaZkX509StarkP256V1 => {
+                PrivacyProtocolActivationLimitsV1::IrohaZkX509StarkP256V1
+            }
+            PrivacyProtocolIdV1::IrohaJindoPolynomialCommitmentV1 => {
+                PrivacyProtocolActivationLimitsV1::IrohaJindoPolynomialCommitmentV1(
+                    JindoActivationLimitsV1 {
+                        max_polynomial_count: IROHA_JINDO_MAX_POLYNOMIALS_V1,
+                    },
+                )
+            }
+            PrivacyProtocolIdV1::IrohaBootleLanternAnoncredV1 => {
+                PrivacyProtocolActivationLimitsV1::IrohaBootleLanternAnoncredV1
+            }
+            PrivacyProtocolIdV1::OrchardHalo2ActionsV1 => {
+                PrivacyProtocolActivationLimitsV1::OrchardHalo2ActionsV1(
+                    OrchardActivationLimitsV1 {
+                        max_action_count: ORCHARD_MAX_ACTIONS_V1,
+                    },
+                )
+            }
+            PrivacyProtocolIdV1::MoneroFcmpPlusPlusV1 => {
+                PrivacyProtocolActivationLimitsV1::MoneroFcmpPlusPlusV1(FcmpActivationLimitsV1 {
+                    max_input_count: FCMP_MAX_INPUTS_V1,
+                    max_output_count: FCMP_MAX_OUTPUTS_V1,
+                })
+            }
+            PrivacyProtocolIdV1::IrohaIvmPrivateNoteStarkV1 => {
+                PrivacyProtocolActivationLimitsV1::IrohaIvmPrivateNoteStarkV1(
+                    IvmPrivateNoteActivationLimitsV1 {
+                        max_input_count: IVM_PRIVATE_NOTE_MAX_INPUTS_V1,
+                        max_output_count: IVM_PRIVATE_NOTE_MAX_OUTPUTS_V1,
+                    },
+                )
+            }
+            PrivacyProtocolIdV1::PqMaspStarkV1 => {
+                PrivacyProtocolActivationLimitsV1::PqMaspStarkV1(PqMaspActivationLimitsV1 {
+                    max_input_count: PQ_MASP_MAX_INPUTS_V1,
+                    max_output_count: PQ_MASP_MAX_OUTPUTS_V1,
+                })
+            }
+        }
+    }
+    /// An active activation record that admits `envelope` from height 2.
+    pub(super) fn sample_activation(
+        envelope: &PrivacyProofEnvelopeV1,
+    ) -> PrivacyProtocolActivationRecordV1 {
+        PrivacyProtocolActivationRecordV1 {
+            protocol_id: envelope.protocol_id,
+            proof_system_id: envelope.proof_system_id,
+            engine_id: envelope.engine_id,
+            parameter_id: envelope.parameter_id,
+            parameter_digest: envelope.parameter_digest,
+            verifier_digest: envelope.verifier_digest,
+            statement_schema_digest: envelope.statement_schema_digest,
+            engine_manifest_digest: envelope.engine_manifest_digest,
+            lifecycle: PrivacyProtocolLifecycleV1::Active(PrivacyActiveLifecycleV1 {
+                proposed_at_height: 1,
+                activated_at_height: 2,
+                state_since_height: 2,
+            }),
+            protocol_limits: sample_protocol_limits(envelope.protocol_id),
+            pending_protocol_limits_tightening: None,
+        }
+    }
+    /// One structurally valid sample of an Exact12 role.
+    ///
+    /// The envelope is the canonical binding of a typed sample statement and a
+    /// placeholder proof; the activation record is active from height 2 and
+    /// carries exactly the envelope's identities. A sample passes intrinsic and
+    /// activation validation and is never accepted by a native verifier, so it
+    /// exercises routing, substitution and refusal without a prover.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct PrivacyActionRoleSampleV1 {
+        /// The role the sample selects.
+        pub role: PrivacyActionRoleV1,
+        /// Canonical envelope of the sample statement and placeholder proof.
+        pub envelope: PrivacyProofEnvelopeV1,
+        /// Active record whose identities equal the envelope's.
+        pub activation: PrivacyProtocolActivationRecordV1,
+    }
+    /// Build one structurally valid sample for each of the thirteen Exact12 roles.
+    ///
+    /// The rows are in [`PrivacyActionRoleV1::ALL`] order. Like the other
+    /// helpers of this module the function exists only in tests and in builds
+    /// that enable `iroha_data_model/privacy-exact12-conformance`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a sample statement has no canonical digest, a sample
+    /// proof does not bind, or the samples do not cover every role exactly once.
+    pub fn privacy_action_role_samples_v1()
+    -> Result<Vec<PrivacyActionRoleSampleV1>, PrivacyExact12FixtureErrorV1> {
+        let mut statements = sample_statements();
+        statements.push(zk_ams_provision_statement(16));
+        let mut samples = statements
+            .into_iter()
+            .map(|statement| {
+                let envelope = try_envelope(statement)?;
+                let role = envelope.action_role_v1()?;
+                let activation = sample_activation(&envelope);
+                Ok(PrivacyActionRoleSampleV1 {
+                    role,
+                    envelope,
+                    activation,
+                })
+            })
+            .collect::<Result<Vec<_>, PrivacyExact12FixtureErrorV1>>()?;
+        samples.sort_by_key(|sample| sample.role);
+        if samples
+            .iter()
+            .map(|sample| sample.role)
+            .ne(PrivacyActionRoleV1::ALL)
+        {
+            return Err(PrivacyExact12FixtureErrorV1::RoleCoverage);
+        }
+        Ok(samples)
     }
     /// Recompute all 12 canonical cross-SDK semantic rows from current Rust
     /// types and canonical Norito serialization.

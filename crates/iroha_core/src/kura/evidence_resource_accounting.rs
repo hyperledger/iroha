@@ -75,43 +75,6 @@ fn evidence_resource_kind(
         return Err(Missing::OwnerMismatch);
     }
 
-    let by_hash = match directory {
-        Some(KAGEMUSHA_MINT_OUTBOX_DIR_NAME) => Some(MAX_KAGEMUSHA_MINT_OUTBOX_ENTRY_BYTES as u64),
-        Some(KAGEMUSHA_ORDINARY_MINT_OUTBOX_DIR_NAME) => {
-            Some(MAX_KAGEMUSHA_ORDINARY_MINT_OUTBOX_BYTES as u64)
-        }
-        Some(KAGEMUSHA_ORDINARY_MINT_PROGRESS_DIR_NAME) => {
-            Some(MAX_KAGEMUSHA_ORDINARY_MINT_PROGRESS_BYTES as u64)
-        }
-        _ => None,
-    };
-    if let Some(maximum) = by_hash {
-        if stem.is_some_and(|stem| evidence_resource_hex(stem, Hash::LENGTH)) {
-            return singleton(maximum, temporary);
-        }
-        if name.starts_with(".kura-sidecar-") && name.len() > ".kura-sidecar-".len() {
-            return singleton(maximum, true);
-        }
-        return Err(Missing::OwnerMismatch);
-    }
-    if directory == Some(KAGEMUSHA_MINT_AUTHORITY_DIR_NAME) {
-        if stem
-            .and_then(|stem| stem.split_once('-'))
-            .is_some_and(|(release, authority)| {
-                evidence_resource_hex(release, Hash::LENGTH)
-                    && evidence_resource_hex(authority, Hash::LENGTH)
-            })
-        {
-            return singleton(
-                MAX_KAGEMUSHA_MINT_AUTHORITY_CHECKPOINT_BYTES as u64,
-                temporary,
-            );
-        }
-        if name.starts_with(".kura-sidecar-") && name.len() > ".kura-sidecar-".len() {
-            return singleton(MAX_KAGEMUSHA_MINT_AUTHORITY_CHECKPOINT_BYTES as u64, true);
-        }
-        return Err(Missing::OwnerMismatch);
-    }
     let fixed = match stable {
         COUNT_FILE_NAME => Some(MAX_BLOCK_COMMIT_MARKER_BYTES as u64),
         DA_BLOCK_REWRITE_STAGE_FILE_NAME => Some(MAX_DA_BLOCK_REWRITE_STAGE_BYTES),

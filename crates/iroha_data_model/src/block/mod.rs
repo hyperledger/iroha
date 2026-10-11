@@ -688,12 +688,24 @@ impl SignedBlock {
     /// This restores the original proposal prefix and signatures without cloning any
     /// nested transaction or consensus evidence allocation.
     /// # Errors
-    /// Rejects the same malformed suffix, encoding and archive-limit conditions as
-    /// [`Self::canonical_resultless_proposal`] before mutating the source graph.
-    pub fn into_resultless_proposal(mut self) -> Result<Self, NoritoFrameError> {
-        let projection = proposal::Proposal::new(&self)?;
-        projection.checked_payload_len()?;
-        let (header, keep, context_keep) = projection.shape();
+    /// Returns the unchanged original block and the same malformed-suffix, encoding or
+    /// archive-limit error before mutating any part of the source graph.
+    #[expect(
+        clippy::result_large_err,
+        reason = "refusal must return the original graph without allocating an error box"
+    )]
+    pub fn into_resultless_proposal(mut self) -> Result<Self, (Self, NoritoFrameError)> {
+        // Perform the fallible borrowed projection once. Inherited codec counters must
+        // not be rechecked after the caller loses its original owner.
+        let prepared_shape = (|| {
+            let projection = proposal::Proposal::new(&self)?;
+            projection.checked_payload_len()?;
+            Ok::<_, NoritoFrameError>(projection.shape())
+        })();
+        let (header, keep, context_keep) = match prepared_shape {
+            Ok(shape) => shape,
+            Err(error) => return Err((self, error)),
+        };
         self.payload.header = header;
         self.payload.external_entrypoints.truncate(keep);
         if let (Some(context), Some(keep)) = (self.payload.execution_context.as_mut(), context_keep)
@@ -840,6 +852,27 @@ impl SignedBlock {
     pub fn signatures_admitted_to(&self, budget: &iroha_allocation::AllocationBudget) -> bool {
         self.signatures.admitted_to(budget)
     }
+    /// Prepare the exact empty local-construction signature leaf in the original pool.
+    ///
+    /// Canonical wire bytes, header, payload and all original transaction children are unchanged.
+    /// An already admitted same-pool leaf is retained without allocating or replacing its control.
+    /// This proves only signature-leaf physical custody, never availability or execution authority.
+    /// Ordinary remote decoding and validator admission remain mandatory.
+    ///
+    /// # Errors
+    /// Returns the exact original allocation/control refusal without moving this block. Rejects
+    /// signed, executed, certified or foreign-pool profiles without changing their original graph.
+    #[cfg(feature = "transparent_api")]
+    pub fn prepare_local_unsigned_signature_custody(
+        &mut self,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<(), BlockSignatureCustodyError> {
+        if !self.is_resultless_proposal() {
+            return Err(BlockSignatureCustodyError::UnsignedProfile);
+        }
+        self.signatures.prepare_local_unsigned(budget)
+    }
+
     /// Whether the two blocks retain one identical prepared signature collection owner.
     /// This identity establishes no execution, availability or finality authorization.
     pub fn same_signature_custody(&self, other: &Self) -> bool {
@@ -1729,3 +1762,10 @@ mod proposal_wire_hash_tests;
 #[cfg(all(test, feature = "transparent_api"))]
 #[path = "executed_wire_identity_tests.rs"]
 mod executed_wire_identity_tests;
+
+#[cfg(all(test, feature = "transparent_api"))]
+mod resultless_owner_tests;
+
+#[cfg(all(test, feature = "transparent_api"))]
+#[path = "local_unsigned_custody_tests.rs"]
+mod local_unsigned_custody_tests;

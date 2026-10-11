@@ -224,3 +224,31 @@ fn provider_attestation_invalid_expired_and_zero_budget_are_zero_http() {
         },
     );
 }
+
+#[test]
+fn provider_attestation_charges_one_request_frame_and_distinct_response_reservation() {
+    let client = client_with_base_url(base_url());
+    let key = signed(&client).key();
+    let canonical = norito::encode_canonical(&key).unwrap();
+    let budget = canonical.len() + RESPONSE_MAX;
+    let limits = norito::DecodeLimits::new(RESPONSE_MAX, RESPONSE_MAX, RESPONSE_MAX, budget, 64);
+    let (read, calls) = capture_requests(empty_response(StatusCode::NO_CONTENT), |http| {
+        let client = client.clone().with_test_http_transport(http);
+        norito::with_decode_limits_scope(limits, || {
+            let first = client.get_sorafs_provider_attestation(key);
+            assert!(
+                client.get_sorafs_provider_attestation(key).is_err(),
+                "the original request/response allowance cannot renew"
+            );
+            first
+        })
+    });
+    assert_eq!(read.unwrap(), None);
+    assert_eq!(
+        calls.len(),
+        1,
+        "allocation refusal must precede another HTTP dispatch"
+    );
+    assert_eq!(calls[0].body, canonical);
+    assert_eq!(calls[0].max_response_bytes, RESPONSE_MAX);
+}

@@ -190,8 +190,7 @@ fn manifest_admission_root_parameter() -> iroha_data_model::parameter::Parameter
 }
 #[test]
 fn ivm_manifest_mismatched_abi_hash_rejected_at_admission() {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use iroha_core::{kura::Kura, query::store::LiveQueryStore};
     use iroha_data_model::{
         permission,
@@ -236,7 +235,13 @@ fn ivm_manifest_mismatched_abi_hash_rejected_at_admission() {
         .expect("grant permission");
     // Register manifest with wrong abi_hash
     manifest.abi_hash = Some(iroha_crypto::Hash::prehashed(wrong_abi));
-    let manifest = manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &kp).expect("sign bounded fixture manifest");
+    let manifest = manifest
+        .try_signed(
+            manifest_signing.context(),
+            manifest_signing.max_frame_bytes(),
+            &kp,
+        )
+        .expect("sign bounded fixture manifest");
     stx1.world.contract_manifests_mut_for_testing().insert(
         ContractArtifactId::new(DataSpaceId::UNIVERSAL, code_hash),
         manifest,
@@ -280,8 +285,7 @@ fn ivm_manifest_mismatched_abi_hash_rejected_at_admission() {
 }
 #[test]
 fn ivm_manifest_matching_abi_hash_accepted_at_admission() {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use iroha_core::{kura::Kura, query::store::LiveQueryStore};
     use iroha_data_model::{
         permission,
@@ -341,7 +345,13 @@ fn ivm_manifest_matching_abi_hash_accepted_at_admission() {
         Some(iroha_crypto::Hash::prehashed(correct_abi)),
         "verified contract manifest must bind the canonical ABI"
     );
-    let manifest = manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &kp).expect("sign bounded fixture manifest");
+    let manifest = manifest
+        .try_signed(
+            manifest_signing.context(),
+            manifest_signing.max_frame_bytes(),
+            &kp,
+        )
+        .expect("sign bounded fixture manifest");
     {
         let scoped_manifest = manifest;
         iroha_data_model::isi::smart_contract_code::RegisterSmartContractCode {
@@ -400,8 +410,7 @@ fn ivm_manifest_matching_abi_hash_accepted_at_admission() {
 }
 #[test]
 fn ivm_manifest_without_abi_hash_is_rejected_at_admission() {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use iroha_core::{kura::Kura, query::store::LiveQueryStore};
     use iroha_data_model::{
         permission,
@@ -442,7 +451,13 @@ fn ivm_manifest_without_abi_hash_is_rejected_at_admission() {
         .expect("grant permission");
     // Register manifest with code_hash only
     manifest.abi_hash = None;
-    let manifest = manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &kp).expect("sign bounded fixture manifest");
+    let manifest = manifest
+        .try_signed(
+            manifest_signing.context(),
+            manifest_signing.max_frame_bytes(),
+            &kp,
+        )
+        .expect("sign bounded fixture manifest");
     stx1.world.contract_manifests_mut_for_testing().insert(
         ContractArtifactId::new(DataSpaceId::UNIVERSAL, code_hash),
         manifest,
@@ -484,8 +499,7 @@ fn ivm_manifest_without_abi_hash_is_rejected_at_admission() {
 }
 #[test]
 fn ivm_manifest_matching_abi_hash_v1_accepted_at_admission() {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use iroha_core::{kura::Kura, query::store::LiveQueryStore};
     use iroha_data_model::{
         permission,
@@ -539,7 +553,13 @@ fn ivm_manifest_matching_abi_hash_v1_accepted_at_admission() {
         Some(iroha_crypto::Hash::prehashed(abi_current)),
         "verified V1 contract manifest must bind the canonical ABI"
     );
-    let manifest = manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &kp).expect("sign bounded fixture manifest");
+    let manifest = manifest
+        .try_signed(
+            manifest_signing.context(),
+            manifest_signing.max_frame_bytes(),
+            &kp,
+        )
+        .expect("sign bounded fixture manifest");
     {
         let scoped_manifest = manifest;
         iroha_data_model::isi::smart_contract_code::RegisterSmartContractCode {
@@ -598,8 +618,7 @@ fn ivm_manifest_matching_abi_hash_v1_accepted_at_admission() {
 }
 #[test]
 fn ivm_manifest_unknown_syscall_rejected_before_execution() {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use iroha_core::{kura::Kura, query::store::LiveQueryStore};
     use iroha_data_model::{
         permission,
@@ -643,7 +662,13 @@ fn ivm_manifest_unknown_syscall_rejected_before_execution() {
         .expect("grant permission");
     manifest.code_hash = Some(code_hash);
     manifest.abi_hash = Some(iroha_crypto::Hash::prehashed(abi_hash));
-    let manifest = manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &kp).expect("sign bounded fixture manifest");
+    let manifest = manifest
+        .try_signed(
+            manifest_signing.context(),
+            manifest_signing.max_frame_bytes(),
+            &kp,
+        )
+        .expect("sign bounded fixture manifest");
     stx1.world.contract_manifests_mut_for_testing().insert(
         ContractArtifactId::new(DataSpaceId::UNIVERSAL, code_hash),
         manifest,

@@ -81,8 +81,7 @@ fn derive_ballot_nullifier(
 #[test]
 #[allow(clippy::too_many_lines)]
 fn forced_vendor_latch_cannot_admit_development_ballot() {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     // Minimal state
     let authority: AccountId = ALICE_ID.clone();
     let domain_id: iroha_model_base::domain::DomainId =
@@ -155,7 +154,14 @@ seiyaku VendorBridgeGate {
     .execute(&authority, &mut stx)
     .expect("register vendor-bridge contract bytes");
     {
-        let scoped_manifest = verified_contract.manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &ALICE_KEYPAIR).expect("sign bounded fixture manifest");
+        let scoped_manifest = verified_contract
+            .manifest
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &ALICE_KEYPAIR,
+            )
+            .expect("sign bounded fixture manifest");
         RegisterSmartContractCode {
             artifact_id: iroha_data_model::smart_contract::ContractArtifactId::new(
                 iroha_model_base::topology::DataSpaceId::UNIVERSAL,

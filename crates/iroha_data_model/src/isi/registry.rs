@@ -26,6 +26,12 @@ type Registrar = fn(InstructionRegistry) -> InstructionRegistry;
 pub fn default() -> InstructionRegistry {
     wire_ids::register_all()
 }
+/// Read the sole built-in encoding inventory without constructing the decoder registry.
+pub(super) fn default_encoding_entry(
+    type_name: &'static str,
+) -> Option<super::InstructionEncodingEntry> {
+    wire_ids::encoding_entry(type_name)
+}
 /// Return whether `wire_id` identifies a built-in instruction accepted by the default registry.
 ///
 /// Sponsor-program revision validation uses this fail-closed lookup before an
@@ -34,6 +40,12 @@ pub fn default() -> InstructionRegistry {
 pub fn is_instruction_wire_id_registered(wire_id: &str) -> bool {
     static DEFAULT_REGISTRY: std::sync::OnceLock<InstructionRegistry> = std::sync::OnceLock::new();
     DEFAULT_REGISTRY.get_or_init(default).contains(wire_id)
+}
+#[cfg(test)]
+pub(super) fn encoding_inventory_for_tests() -> impl Iterator<Item = (&'static str, &'static str)> {
+    wire_ids::ALL
+        .iter()
+        .map(|record| ((record.type_name)(), record.wire_id))
 }
 #[cfg(test)]
 mod tests {
@@ -361,9 +373,9 @@ mod tests {
     }
     #[test]
     fn source_has_one_bounded_typed_codec_registration_inventory() {
-        const EXPECTED_SOURCE_TYPED_CODEC_REGISTRARS: usize = 400;
+        const EXPECTED_SOURCE_TYPED_CODEC_REGISTRARS: usize = 396;
         #[cfg(feature = "governance")]
-        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 400;
+        const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 396;
         #[cfg(not(feature = "governance"))]
         const EXPECTED_ENABLED_TYPED_CODEC_REGISTRARS: usize = 378;
         let registry_source = include_str!("registry.rs");
@@ -415,7 +427,7 @@ mod tests {
         use sha2::{Digest, Sha256};
         #[cfg(feature = "governance")]
         const EXPECTED_WITH_GOVERNANCE_SHA256: &str =
-            "cf317f943c61b42bcb49f944bc006c2bc668812523f392884cbe97812af1aa05";
+            "14025d26bb09cfa26a1a79988bbc708899d72a4b66a065753d68795bc9aa91ab";
         const EXPECTED_WITHOUT_GOVERNANCE_SHA256: &str =
             "e6fc7d5b775f6909a95e1658fc396c2eb536a9c521cebac2af847b52ca3f4d4b";
         let assignment_digest = |entries: Vec<&wire_ids::BuiltInWireId>| {
@@ -1484,7 +1496,8 @@ mod tests {
             "iroha.offline.kagemusha.taira_canary.authorize.v1".to_owned(),
             "iroha.instruction.v1::governance::ProposeKagemushaVerifierPolicyInstallV1".to_owned(),
             "iroha.instruction.v1::governance::ProposeKagemushaVerifierReleaseInstallV1".to_owned(),
-            "iroha.instruction.v1::governance::ProposeKagemushaVerifierReleaseActivateV1".to_owned(),
+            "iroha.instruction.v1::governance::ProposeKagemushaVerifierReleaseActivateV1"
+                .to_owned(),
             "iroha.instruction.v1::governance::ProposeKagemushaVerifierReleaseRetireV1".to_owned(),
             "iroha.offline.device_attestation.register".to_owned(),
             "iroha.instruction.v1::offline::SetOfflineDeviceAttestationPolicy".to_owned(),

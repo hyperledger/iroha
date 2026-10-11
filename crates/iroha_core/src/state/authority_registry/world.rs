@@ -198,8 +198,6 @@ classified_owner!(WorldData, check_world_fields, WORLD_FIELDS, readers = WorldRe
         Role::Canonical(Canonical::Table { key: schema::<AxtSourceTransferReplayKeyV1>(), value: schema::<AxtSourceTransferReplayRecordV1>() }));
     axt_handle_budget_ledger: Storage<AxtHandleBudgetKey, AxtHandleBudgetRecord> => ("world.axt_handle_budget_ledger",
         Role::Canonical(Canonical::Table { key: schema::<AxtHandleBudgetKey>(), value: schema::<AxtHandleBudgetRecord>() }));
-    kagemusha_verifier_registry: Cell<iroha_data_model::kagemusha::KagemushaGovernedVerifierRegistryV1> => ("world.kagemusha_verifier_registry",
-        Role::Canonical(Canonical::Cell(schema::<iroha_data_model::kagemusha::KagemushaGovernedVerifierRegistryV1>())));
     tx_sequences: Storage<AccountId, u64> => ("world.tx_sequences",
         Role::Canonical(Canonical::Table { key: schema::<AccountId>(), value: schema::<u64>() }));
     triggers: TriggerSet => ("world.triggers",
@@ -468,10 +466,6 @@ classified_owner!(WorldData, check_world_fields, WORLD_FIELDS, readers = WorldRe
         Role::Derived { sources: &["world.repo_agreements"], check: DerivationCheck::Rebuild("World::rebuild_repo_agreement_indexes; state::authority_registry::grouped_ownership::CheckedRepoAgreements::capture") });
     settlement_receipts: Storage<SettlementId, SettlementReceipt> => ("world.settlement_receipts",
         Role::Canonical(Canonical::Table { key: schema::<SettlementId>(), value: schema::<SettlementReceipt>() }));
-    kagemusha_reserve_pools: Storage<[u8; 32], KagemushaReservePoolV1> => ("world.kagemusha_reserve_pools",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<KagemushaReservePoolV1>() }));
-    kagemusha_reserve_operations: Storage<[u8; 32], KagemushaReserveOperationRecordV1> => ("world.kagemusha_reserve_operations",
-        Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<KagemushaReserveOperationRecordV1>() }));
     kagemusha_mint_credit_operations: OperationIndex => ("world.kagemusha_mint_credit_operations",
         Role::Canonical(Canonical::Table { key: schema::<[u8; 32]>(), value: schema::<[u8; 32]>() }));
     kagemusha_issuance_operations: OperationIndex => ("world.kagemusha_issuance_operations",

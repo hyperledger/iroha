@@ -13,7 +13,7 @@
 //!
 //! The data model computes every Poseidon value natively with `iroha_pasta` ([`super::poseidon`]):
 //! the commitment and rest digest, the chain appends, the map leaves and roots, the σ statement
-//! digest and the packed-byte `proof_digest`.
+//! digest, the packed-byte `proof_digest` and the lineage digest.
 
 use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
@@ -21,9 +21,10 @@ use norito::codec::{Decode, Encode};
 use super::{
     KAGEMUSHA_WALLET_VERSION_V1, WalletResult, WalletVersionsV1,
     digest::{
-        KagemushaWalletDigestRoleV1 as Role, KagemushaWalletSignerOutputV1, WalletFieldItemsV1,
-        WalletTranscriptV1, kagemusha_wallet_digest_v1, kagemusha_wallet_freeze_signature_v1,
-        kagemusha_wallet_preimage_v1, kagemusha_wallet_signed_object_digest_v1,
+        KagemushaWalletDigestRoleV1 as Role, KagemushaWalletSignerOutputV1,
+        KagemushaWalletSigningDomainV1 as Domain, WalletFieldItemsV1, WalletTranscriptV1,
+        kagemusha_wallet_digest_v1, kagemusha_wallet_freeze_signature_v1,
+        kagemusha_wallet_signed_object_digest_v1, kagemusha_wallet_signing_message_v1,
         kagemusha_wallet_verify_signature_v1,
     },
     identity::{
@@ -37,15 +38,16 @@ use super::{
     overflow_v1,
     policy::KagemushaWalletQuotaWindowKindV1,
     poseidon::{
-        KAGEMUSHA_WALLET_CONSUMED_CREDIT_LEAF_DOMAIN_V1, KAGEMUSHA_WALLET_CORE_DOMAIN_V1,
-        KAGEMUSHA_WALLET_CREDIT_DIGEST_LEAF_DOMAIN_V1, KAGEMUSHA_WALLET_FEE_CLAIM_LEAF_DOMAIN_V1,
-        KAGEMUSHA_WALLET_LOAD_RECOVERY_LEAF_DOMAIN_V1,
-        KAGEMUSHA_WALLET_PENDING_OUTGOING_LEAF_DOMAIN_V1, KAGEMUSHA_WALLET_PROOF_DOMAIN_V1,
-        KAGEMUSHA_WALLET_QUOTA_USAGE_LEAF_DOMAIN_V1, KAGEMUSHA_WALLET_RECV_CHAIN_DOMAIN_V1,
-        KAGEMUSHA_WALLET_REDEEM_RECOVERY_LEAF_DOMAIN_V1, KAGEMUSHA_WALLET_REST_DOMAIN_V1,
+        KAGEMUSHA_WALLET_CONSUMED_CREDIT_VALUE_DOMAIN_V1, KAGEMUSHA_WALLET_CORE_DOMAIN_V1,
+        KAGEMUSHA_WALLET_CREDIT_DIGEST_VALUE_DOMAIN_V1, KAGEMUSHA_WALLET_FEE_CLAIM_VALUE_DOMAIN_V1,
+        KAGEMUSHA_WALLET_LINEAGE_DOMAIN_V1, KAGEMUSHA_WALLET_LOAD_VALUE_DOMAIN_V1,
+        KAGEMUSHA_WALLET_PENDING_OUTGOING_VALUE_DOMAIN_V1, KAGEMUSHA_WALLET_PROOF_DOMAIN_V1,
+        KAGEMUSHA_WALLET_QUOTA_USAGE_VALUE_DOMAIN_V1, KAGEMUSHA_WALLET_RECV_CHAIN_DOMAIN_V1,
+        KAGEMUSHA_WALLET_REDEEM_VALUE_DOMAIN_V1, KAGEMUSHA_WALLET_REST_DOMAIN_V1,
         KAGEMUSHA_WALLET_SEND_CHAIN_DOMAIN_V1, KAGEMUSHA_WALLET_STATEMENT_DOMAIN_V1,
-        KAGEMUSHA_WALLET_STEP_PROOF_DOMAIN_V1, kagemusha_wallet_empty_map_root_v1,
-        kagemusha_wallet_pair_key_v1, kagemusha_wallet_poseidon_bytes_v1, poseidon_items_v1,
+        KAGEMUSHA_WALLET_STEP_PROOF_DOMAIN_V1, KagemushaWalletIndexedLeafV1,
+        kagemusha_wallet_empty_map_root_v1, kagemusha_wallet_pair_key_v1,
+        kagemusha_wallet_poseidon_bytes_v1, poseidon_items_v1,
     },
     require_canonical_field_v1, require_nonzero_field_v1, require_nonzero_v1, require_scheme_v1,
     require_version_v1,
@@ -84,9 +86,9 @@ const EFFECT_FIELDS_BYTES: [usize; 8] = [
     RETIRING_EFFECT_FIELDS_BYTES,
 ];
 
-/// σ-field element counts of every effect variant, in tag order: `credit_id` is one element
-/// (§3), every other digest two limbs.
-const EFFECT_FIELD_ITEMS: [usize; 8] = [4, 5, 10, 4, 3, 7, 4, 0];
+/// σ-field element counts of every effect variant, in tag order: `credit_id` and the Credited
+/// digest are one element each (§3, owner answer A3), every other digest two limbs.
+const EFFECT_FIELD_ITEMS: [usize; 8] = [4, 5, 10, 4, 2, 7, 4, 0];
 
 const fn max_width_v1(widths: &[usize]) -> usize {
     let mut max = 0;
@@ -768,8 +770,8 @@ pub struct KagemushaWalletConsumedCreditLeafV1 {
 }
 
 impl KagemushaWalletConsumedCreditLeafV1 {
-    /// Poseidon domain of this map's leaves.
-    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_CONSUMED_CREDIT_LEAF_DOMAIN_V1;
+    /// Poseidon domain of this map's values.
+    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_CONSUMED_CREDIT_VALUE_DOMAIN_V1;
 
     /// Map key: `credit_id`.
     #[must_use]
@@ -791,7 +793,8 @@ impl KagemushaWalletConsumedCreditLeafV1 {
             .finish())
     }
 
-    /// Leaf value `P(kgwccrd1, elements)`.
+    /// Map value `P(kgwccrd1, elements)`, the `value` of this entry's indexed-tree leaf
+    /// (§3.2).
     ///
     /// # Errors
     ///
@@ -823,8 +826,8 @@ pub struct KagemushaWalletPendingOutgoingLeafV1 {
 }
 
 impl KagemushaWalletPendingOutgoingLeafV1 {
-    /// Poseidon domain of this map's leaves.
-    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_PENDING_OUTGOING_LEAF_DOMAIN_V1;
+    /// Poseidon domain of this map's values.
+    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_PENDING_OUTGOING_VALUE_DOMAIN_V1;
 
     /// Map key: `credit_id`.
     #[must_use]
@@ -849,7 +852,8 @@ impl KagemushaWalletPendingOutgoingLeafV1 {
         )
     }
 
-    /// Leaf value `P(kgwpout1, elements)`.
+    /// Map value `P(kgwpout1, elements)`, the `value` of this entry's indexed-tree leaf
+    /// (§3.2).
     ///
     /// # Errors
     ///
@@ -895,8 +899,8 @@ pub struct KagemushaWalletLoadLeafV1 {
 }
 
 impl KagemushaWalletLoadLeafV1 {
-    /// Poseidon domain of load leaves.
-    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_LOAD_RECOVERY_LEAF_DOMAIN_V1;
+    /// Poseidon domain of load values.
+    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_LOAD_VALUE_DOMAIN_V1;
 
     /// Map key `(Load, ordinal)`: `1 · 2^128 + ordinal`.
     #[must_use]
@@ -914,7 +918,8 @@ impl KagemushaWalletLoadLeafV1 {
             .finish()
     }
 
-    /// Leaf value `P(kgwload1, elements)`.
+    /// Map value `P(kgwload1, elements)`, the `value` of this entry's indexed-tree leaf
+    /// (§3.2).
     #[must_use]
     pub fn leaf_value(&self) -> [u8; 32] {
         poseidon_items_v1(Self::DOMAIN, &self.field_items())
@@ -939,8 +944,8 @@ pub struct KagemushaWalletRedeemLeafV1 {
 }
 
 impl KagemushaWalletRedeemLeafV1 {
-    /// Poseidon domain of redeem leaves.
-    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_REDEEM_RECOVERY_LEAF_DOMAIN_V1;
+    /// Poseidon domain of redeem values.
+    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_REDEEM_VALUE_DOMAIN_V1;
 
     /// Map key `(Redeem, ordinal)`: `2 · 2^128 + ordinal`.
     #[must_use]
@@ -959,7 +964,8 @@ impl KagemushaWalletRedeemLeafV1 {
             .finish()
     }
 
-    /// Leaf value `P(kgwrdm_1, elements)`.
+    /// Map value `P(kgwrdm_1, elements)`, the `value` of this entry's indexed-tree leaf
+    /// (§3.2).
     #[must_use]
     pub fn leaf_value(&self) -> [u8; 32] {
         poseidon_items_v1(Self::DOMAIN, &self.field_items())
@@ -981,8 +987,8 @@ pub struct KagemushaWalletFeeClaimLeafV1 {
 }
 
 impl KagemushaWalletFeeClaimLeafV1 {
-    /// Poseidon domain of this map's leaves.
-    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_FEE_CLAIM_LEAF_DOMAIN_V1;
+    /// Poseidon domain of this map's values.
+    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_FEE_CLAIM_VALUE_DOMAIN_V1;
 
     /// Map key: `credit_id`.
     #[must_use]
@@ -1004,7 +1010,8 @@ impl KagemushaWalletFeeClaimLeafV1 {
             .finish())
     }
 
-    /// Leaf value `P(kgwfee_1, elements)`.
+    /// Map value `P(kgwfee_1, elements)`, the `value` of this entry's indexed-tree leaf
+    /// (§3.2).
     ///
     /// # Errors
     ///
@@ -1031,8 +1038,8 @@ pub struct KagemushaWalletQuotaUsageLeafV1 {
 }
 
 impl KagemushaWalletQuotaUsageLeafV1 {
-    /// Poseidon domain of this map's leaves.
-    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_QUOTA_USAGE_LEAF_DOMAIN_V1;
+    /// Poseidon domain of this map's values.
+    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_QUOTA_USAGE_VALUE_DOMAIN_V1;
 
     /// Map key `(window kind tag, window start)`: `tag · 2^128 + window_start_ms`.
     #[must_use]
@@ -1051,7 +1058,8 @@ impl KagemushaWalletQuotaUsageLeafV1 {
             .finish()
     }
 
-    /// Leaf value `P(kgwquse1, elements)`.
+    /// Map value `P(kgwquse1, elements)`, the `value` of this entry's indexed-tree leaf
+    /// (§3.2).
     #[must_use]
     pub fn leaf_value(&self) -> [u8; 32] {
         poseidon_items_v1(Self::DOMAIN, &self.field_items())
@@ -1184,11 +1192,11 @@ impl KagemushaWalletRecvChainEntryV1 {
     }
 }
 
-/// Lineage-level credit-digest leaf `credit_id → (Payment digest, burned flag)` (§3).
+/// Lineage-level credit-digest entry `credit_id → (Payment digest, burned flag)` (§3).
 ///
 /// `Λ_recv` inserts it into the credit-digest root that Ω exposes and `CreditStatus` opens; it
-/// is not part of the state commitment. The tree is the depth-256 sparse tree of
-/// [`super::poseidon`] keyed by `credit_id`.
+/// is not part of the state commitment. The tree is the depth-32 indexed tree of
+/// [`super::poseidon`] keyed by `credit_id` (owner answer A2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KagemushaWalletCreditDigestLeafV1 {
     /// Credit identity (the tree key), a canonical σ-field value.
@@ -1200,8 +1208,8 @@ pub struct KagemushaWalletCreditDigestLeafV1 {
 }
 
 impl KagemushaWalletCreditDigestLeafV1 {
-    /// Poseidon domain of this leaf.
-    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_CREDIT_DIGEST_LEAF_DOMAIN_V1;
+    /// Poseidon domain of this value.
+    pub const DOMAIN: u64 = KAGEMUSHA_WALLET_CREDIT_DIGEST_VALUE_DOMAIN_V1;
 
     /// Tree key: `credit_id`.
     #[must_use]
@@ -1224,13 +1232,30 @@ impl KagemushaWalletCreditDigestLeafV1 {
             .finish())
     }
 
-    /// Leaf value `P(kgwcdig1, elements)`.
+    /// Map value `P(kgwcdig1, elements)`, the `value` of this entry's indexed-tree leaf
+    /// (§3.2).
     ///
     /// # Errors
     ///
     /// Rejects what [`Self::field_items`] rejects.
     pub fn leaf_value(&self) -> WalletResult<[u8; 32]> {
         Ok(poseidon_items_v1(Self::DOMAIN, &self.field_items()?))
+    }
+
+    /// Indexed-tree leaf `(credit_id, value, next_key)` of this entry.
+    ///
+    /// # Errors
+    ///
+    /// Rejects what [`Self::field_items`] rejects and a `next_key` that is noncanonical or
+    /// nonzero and not above `credit_id`.
+    pub fn indexed_leaf(&self, next_key: [u8; 32]) -> WalletResult<KagemushaWalletIndexedLeafV1> {
+        let leaf = KagemushaWalletIndexedLeafV1 {
+            key: self.credit_id,
+            value: self.leaf_value()?,
+            next_key,
+        };
+        leaf.validate()?;
+        Ok(leaf)
     }
 }
 
@@ -1443,7 +1468,8 @@ pub enum KagemushaWalletEffectV1 {
     ArchiveSent {
         /// Credit identity.
         credit_id: [u8; 32],
-        /// Digest of the verified Credited evidence.
+        /// Credited digest `P_bytes(kgwcrdd1, ·)` of the verified evidence, a canonical
+        /// σ-field value.
         credited: [u8; 32],
     },
     /// Create a ledger-directed redemption claim.
@@ -1674,7 +1700,7 @@ impl KagemushaWalletEffectV1 {
             Self::ArchiveSent {
                 credit_id,
                 credited,
-            } => items.field(credit_id).digest(credited),
+            } => items.field(credit_id).field(credited),
             Self::Unload {
                 nullifier,
                 redeem_ordinal,
@@ -1703,7 +1729,8 @@ impl KagemushaWalletEffectV1 {
     ///
     /// # Errors
     ///
-    /// Rejects zero identities, a noncanonical `credit_id`, a zero Send, Receive or Unload
+    /// Rejects zero identities, a noncanonical `credit_id` or Credited digest, a zero Send,
+    /// Receive or Unload
     /// amount, a Send whose gross debit overflows or whose accepted interval is inverted, and
     /// an Unload whose online charge exceeds its amount or disagrees with its charge quote.
     pub fn validate(&self) -> WalletResult<()> {
@@ -1757,7 +1784,7 @@ impl KagemushaWalletEffectV1 {
                 credited,
             } => {
                 require_nonzero_field_v1("effect.credit_id", credit_id)?;
-                require_nonzero_v1("effect.credited", credited)
+                require_nonzero_field_v1("effect.credited", credited)
             }
             Self::Unload {
                 nullifier,
@@ -2416,10 +2443,11 @@ impl KagemushaWalletLineageV1 {
         bytes
     }
 
-    /// Lineage digest `H("lineage", Ω bytes)`; byte-identity reuse compares it (§5.1).
+    /// Lineage digest `P_bytes(kgwlin_1, Ω bytes)`, one canonical σ-field value; byte-identity
+    /// reuse compares it (§5.1, owner answer A3).
     #[must_use]
     pub fn lineage_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_digest_v1(Role::Lineage, &self.bytes())
+        kagemusha_wallet_poseidon_bytes_v1(KAGEMUSHA_WALLET_LINEAGE_DOMAIN_V1, &self.bytes())
     }
 }
 
@@ -2685,16 +2713,11 @@ impl KagemushaWalletReceiptBodyV1 {
             .finish()
     }
 
-    /// Signed body digest `e = H("receipt-body", transcript)`.
+    /// Signing message `m = P_bytes(kgwrcpt1, transcript)`: the 32 bytes the payment key signs
+    /// with ECDSA-P256-SHA256 (owner answer A1).
     #[must_use]
-    pub fn body_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_digest_v1(Role::ReceiptBody, &self.transcript())
-    }
-
-    /// Exact ECDSA message the payment key signs.
-    #[must_use]
-    pub fn signing_message(&self) -> Vec<u8> {
-        kagemusha_wallet_preimage_v1(Role::ReceiptBody, &self.transcript())
+    pub fn signing_message(&self) -> [u8; 32] {
+        kagemusha_wallet_signing_message_v1(Domain::Receipt, &self.transcript())
     }
 }
 
@@ -2715,7 +2738,7 @@ pub struct KagemushaWalletReceiptV1 {
     pub capsule_digest: [u8; 32],
     /// Full canonical Payment digest of a Receive; zero otherwise.
     pub payment_digest: [u8; 32],
-    /// Payment-key signature over `receipt-body`.
+    /// Payment-key signature over the receipt signing message (`kgwrcpt1`).
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -2746,8 +2769,8 @@ impl KagemushaWalletReceiptV1 {
         )?;
         let signature = kagemusha_wallet_freeze_signature_v1(
             &signer.payment_key,
-            Role::ReceiptBody,
-            &body.transcript(),
+            Domain::Receipt,
+            &body.signing_message(),
             signer_output,
         )?;
         let receipt = Self {
@@ -2802,7 +2825,7 @@ impl KagemushaWalletReceiptV1 {
         Ok(body)
     }
 
-    /// Verify the receipt and return its digest `H("receipt", e || signature)`.
+    /// Verify the receipt and return its digest `H("receipt", m || signature)`.
     ///
     /// # Errors
     ///
@@ -2815,15 +2838,16 @@ impl KagemushaWalletReceiptV1 {
         proof_digest: &[u8; 32],
     ) -> WalletResult<[u8; 32]> {
         let body = self.body(signer, statement, proof_digest)?;
+        let message = body.signing_message();
         kagemusha_wallet_verify_signature_v1(
             &signer.payment_key,
-            Role::ReceiptBody,
-            &body.transcript(),
+            Domain::Receipt,
+            &message,
             &self.signature,
         )?;
         Ok(kagemusha_wallet_signed_object_digest_v1(
             Role::Receipt,
-            &body.body_digest(),
+            &message,
             &self.signature,
         ))
     }
@@ -3011,18 +3035,23 @@ impl KagemushaWalletPackageV1 {
         Ok((signer, digests))
     }
 
-    /// Verifying-key selector of σ (§3.2, owner answer Q11): the operation tag and, for Send,
-    /// the enabled-controls mask (equal to `Ω.enabled_controls` by the consumer checks); zero
-    /// for every other operation. Statements and Ω carry one scheme-level `relation_id`; the
+    /// Verifying-key selector of σ (§3.2, owner answers Q11 and A5): the operation tag and,
+    /// for Send, the enabled-controls mask (equal to `Ω.enabled_controls` by the consumer
+    /// checks); for Receive, the blacklist bit of the statement's mask, which selects the
+    /// `σ_recv` that proves the payer's non-membership in the receiver's committed list; zero for
+    /// every other operation. Statements and Ω carry one scheme-level `relation_id`; the
     /// selector picks σ's entry of the verifying-key allowlist
     /// ([`super::KagemushaWalletVerifyingKeyAllowlistV1`]) whose digest the relation binds.
     #[must_use]
     pub fn verifying_key_selector(&self) -> (KagemushaWalletOperationKindV1, u32) {
         let kind = self.statement.effect.kind();
-        if kind == KagemushaWalletOperationKindV1::Send {
-            (kind, self.statement.enabled_controls)
-        } else {
-            (kind, 0)
+        match kind {
+            KagemushaWalletOperationKindV1::Send => (kind, self.statement.enabled_controls),
+            KagemushaWalletOperationKindV1::Receive => (
+                kind,
+                self.statement.enabled_controls & KAGEMUSHA_WALLET_CONTROL_BLACKLIST_V1,
+            ),
+            _ => (kind, 0),
         }
     }
 

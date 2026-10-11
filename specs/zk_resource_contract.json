@@ -72,6 +72,10 @@
         {
           "path": "crates/iroha_data_model/tests/resource_contract_v1.rs",
           "name": "x509_validity_windows_are_fixed_and_inclusive"
+        },
+        {
+          "path": "crates/iroha_data_model/tests/resource_contract_v1.rs",
+          "name": "signed_attachment_bounds_accept_the_limit_and_reject_one_over"
         }
       ]
     },
@@ -116,6 +120,10 @@
         {
           "path": "crates/iroha_core/src/queue/resource_contract_tests.rs",
           "name": "deferred_includable_assessment_defers_queue_admission_without_custody"
+        },
+        {
+          "path": "crates/iroha_core/src/tx.rs",
+          "name": "ceiling_sized_attachment_is_admitted_and_one_byte_over_is_rejected"
         }
       ]
     },
@@ -415,6 +423,16 @@
           "stage": "sdk",
           "path": "crates/iroha_data_model/src/privacy/tests/protocol_and_proofs.rs",
           "name": "privacy_proof_payload_admits_exact_nine_mib_and_rejects_cap_plus_one"
+        },
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/transaction/signed/ordered_intent_tests.rs",
+          "name": "signed_transaction_with_a_schema_violation_does_not_decode"
+        },
+        {
+          "stage": "queue",
+          "path": "crates/iroha_core/src/tx.rs",
+          "name": "signed_attachment_schema_violations_are_rejected_at_admission"
         }
       ]
     }
@@ -489,7 +507,7 @@
     {
       "id": "transaction.max_decompressed_bytes",
       "group": "transaction",
-      "what": "Largest aggregate of proof-attachment bytes one transaction expands to at admission.",
+      "what": "Largest aggregate of signed attachment occurrence bytes one transaction carries at admission.",
       "unit": "bytes",
       "value": 10485760,
       "source": "committed",
@@ -506,7 +524,7 @@
       },
       "committed_as": "Parameters.transaction.max_decompressed_bytes (TransactionParameter::MaxDecompressedBytes)",
       "inclusive": true,
-      "framing": "Sums the raw proof bytes, 32 bytes for each commitment or envelope hash and the encoded lane-privacy witness of every attachment.",
+      "framing": "Sums the byte lengths of all attachment occurrences; a wrapped proof carrier counts with its wrapper, and the descriptor and framing count toward transaction.max_tx_bytes only.",
       "enforcement": [
         {
           "stage": "queue",
@@ -516,13 +534,17 @@
         {
           "stage": "follower",
           "path": "crates/iroha_core/src/tx.rs",
-          "contains": "validate_proof_attachment_shapes(tx)?;"
+          "contains": "validate_signed_attachments(tx)?;"
         }
       ],
       "tests": [
         {
           "path": "crates/iroha_core/src/tx.rs",
           "name": "attachments_decompressed_limit_enforced"
+        },
+        {
+          "path": "crates/iroha_core/src/tx.rs",
+          "name": "ceiling_sized_attachment_is_admitted_and_one_byte_over_is_rejected"
         }
       ]
     },
@@ -3398,19 +3420,282 @@
           "contains": "let name_bytes = take_len_prefixed_slice(bytes, &mut offset, MAX_REF_FIELD_BYTES)?;"
         }
       ],
-      "test_gap": {
-        "owner": "I.1",
-        "summary": "No test takes a verifying-key reference or name field to exactly MAX_REF_FIELD_BYTES and one byte over; the attachment schema of I.1 owns it."
-      }
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/proof/tests.rs",
+          "name": "verifying_key_reference_fields_accept_the_limit_and_reject_one_over"
+        }
+      ]
+    },
+    {
+      "id": "attachment.occurrence_max_bytes",
+      "group": "attachment",
+      "what": "Largest byte length of one signed inline attachment occurrence of a transaction. It equals the zk-X509 proof ceiling, so a ceiling-sized native proof travels as one occurrence of raw proof bytes; a wrapped proof carrier counts with its wrapper.",
+      "unit": "bytes",
+      "value": 9437184,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+        "symbol": "SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1",
+        "kind": "const",
+        "expr": "9 * 1024 * 1024"
+      },
+      "inclusive": true,
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+          "contains": "if occurrence.bytes.len() > SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1 {"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+          "contains": "if declared > SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1 {"
+        },
+        {
+          "stage": "queue",
+          "path": "crates/iroha_core/src/tx.rs",
+          "contains": "validate_signed_attachments(tx)?;"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments/tests.rs",
+          "name": "occurrence_bytes_accept_the_limit_and_reject_one_over"
+        },
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments/tests.rs",
+          "name": "occurrence_decoder_refuses_a_declared_byte_count_over_the_limit_before_allocating"
+        },
+        {
+          "path": "crates/iroha_data_model/tests/resource_contract_v1.rs",
+          "name": "signed_attachment_bounds_accept_the_limit_and_reject_one_over"
+        },
+        {
+          "path": "crates/iroha_core/src/tx.rs",
+          "name": "ceiling_sized_attachment_is_admitted_and_one_byte_over_is_rejected"
+        }
+      ]
+    },
+    {
+      "id": "attachment.max_occurrences",
+      "group": "attachment",
+      "what": "Largest number of signed inline attachment occurrences in one transaction. It bounds the count only; the bytes are bounded by attachment.signed_frame_max_bytes.",
+      "unit": "count",
+      "value": 16,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+        "symbol": "SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1",
+        "kind": "const",
+        "expr": "16"
+      },
+      "inclusive": true,
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+          "contains": "if self.occurrences.len() > SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1 {"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+          "contains": "if occurrence_count > SIGNED_ATTACHMENTS_MAX_OCCURRENCES_V1 {"
+        },
+        {
+          "stage": "queue",
+          "path": "crates/iroha_core/src/tx.rs",
+          "contains": "validate_signed_attachments(tx)?;"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments/tests.rs",
+          "name": "occurrence_count_accepts_the_limit_and_rejects_one_over"
+        },
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments/tests.rs",
+          "name": "decoder_refuses_forged_counts_before_decoding_elements"
+        },
+        {
+          "path": "crates/iroha_data_model/tests/resource_contract_v1.rs",
+          "name": "signed_attachment_bounds_accept_the_limit_and_reject_one_over"
+        }
+      ]
+    },
+    {
+      "id": "attachment.max_actions",
+      "group": "attachment",
+      "what": "Largest number of declared attachment-backed actions in the ordered intent descriptor of one transaction. It bounds the descriptor and does not replace transaction.max_instructions.",
+      "unit": "count",
+      "value": 16,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+        "symbol": "SIGNED_ATTACHMENTS_MAX_ACTIONS_V1",
+        "kind": "const",
+        "expr": "16"
+      },
+      "inclusive": true,
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+          "contains": "if self.actions.len() > SIGNED_ATTACHMENTS_MAX_ACTIONS_V1 {"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+          "contains": "if action_count > SIGNED_ATTACHMENTS_MAX_ACTIONS_V1 {"
+        },
+        {
+          "stage": "queue",
+          "path": "crates/iroha_core/src/tx.rs",
+          "contains": "validate_signed_attachments(tx)?;"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments/tests.rs",
+          "name": "action_count_accepts_the_limit_and_rejects_one_over"
+        },
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments/tests.rs",
+          "name": "decoder_refuses_forged_counts_before_decoding_elements"
+        }
+      ]
+    },
+    {
+      "id": "attachment.signed_frame_max_bytes",
+      "group": "attachment",
+      "what": "Largest complete canonical Norito frame of the ordered intent descriptor and the signed inline attachment occurrences of one transaction: one ceiling-sized occurrence plus a 64 KiB aggregate allowance for the descriptor and all framing. Sixteen maximal occurrences therefore do not fit; the allowance is not a guarantee that every maximal metadata combination fits.",
+      "unit": "bytes",
+      "value": 9502720,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+        "symbol": "SIGNED_ATTACHMENTS_MAX_CANONICAL_FRAME_BYTES_V1",
+        "kind": "const",
+        "expr": "SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1 + 64 * 1024"
+      },
+      "refs": {
+        "SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1": "attachment.occurrence_max_bytes"
+      },
+      "inclusive": true,
+      "framing": "Measured on the complete canonical frame of SignedAttachmentsV1: the 40-byte Norito header, alignment padding, both sequence counts, every action with its operation, bindings, digests and references, and every occurrence with its index, type, declared length, hash and bytes.",
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+          "contains": "if frame_len > SIGNED_ATTACHMENTS_MAX_CANONICAL_FRAME_BYTES_V1 {",
+          "count": 2
+        },
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+          "contains": "if bytes.len() > SIGNED_ATTACHMENTS_MAX_CANONICAL_FRAME_BYTES_V1 {"
+        },
+        {
+          "stage": "queue",
+          "path": "crates/iroha_core/src/tx.rs",
+          "contains": "validate_signed_attachments(tx)?;"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments/tests.rs",
+          "name": "frame_accepts_the_limit_and_rejects_one_over"
+        },
+        {
+          "path": "crates/iroha_data_model/tests/resource_contract_v1.rs",
+          "name": "signed_attachment_bounds_accept_the_limit_and_reject_one_over"
+        },
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed/ordered_intent_tests.rs",
+          "name": "ceiling_sized_proof_fits_the_frame_bound_and_the_transaction_cap"
+        }
+      ]
+    },
+    {
+      "id": "attachment.invocation_max_call_path_depth",
+      "group": "attachment",
+      "what": "Largest number of child-invocation ordinals in the signed contract invocation binding of a declared action.",
+      "unit": "count",
+      "value": 32,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+        "symbol": "ACTION_INVOCATION_MAX_CALL_PATH_DEPTH_V1",
+        "kind": "const",
+        "expr": "32"
+      },
+      "inclusive": true,
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+          "contains": "if call_path_len > ACTION_INVOCATION_MAX_CALL_PATH_DEPTH_V1 {"
+        },
+        {
+          "stage": "queue",
+          "path": "crates/iroha_core/src/tx.rs",
+          "contains": "validate_signed_attachments(tx)?;"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments/tests.rs",
+          "name": "invocation_path_depth_accepts_the_limit_and_rejects_one_over"
+        }
+      ]
+    },
+    {
+      "id": "attachment.operation_max_wire_id_bytes",
+      "group": "attachment",
+      "what": "Largest byte length of the instruction wire identifier a declared native instruction action names.",
+      "unit": "bytes",
+      "value": 128,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+        "symbol": "ACTION_OPERATION_MAX_WIRE_ID_BYTES_V1",
+        "kind": "const",
+        "expr": "128"
+      },
+      "inclusive": true,
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments.rs",
+          "contains": "&& wire_id.len() <= ACTION_OPERATION_MAX_WIRE_ID_BYTES_V1"
+        },
+        {
+          "stage": "queue",
+          "path": "crates/iroha_core/src/tx.rs",
+          "contains": "validate_signed_attachments(tx)?;"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments/tests.rs",
+          "name": "instruction_wire_identifier_is_bounded_ascii"
+        }
+      ]
     },
     {
       "id": "attachment.list_max_canonical_frame_bytes",
       "group": "attachment",
-      "what": "Largest canonical Norito frame of the proof attachment list one signed transaction carries. It is below the 9,437,184-byte proof ceiling, so a ceiling-sized proof cannot travel as a signed-transaction attachment today.",
+      "what": "Largest canonical Norito frame of the bounded proof attachment list that Torii's prover API reads and SDK builders stage proof attachments in. It is not a signed-transaction bound.",
       "unit": "bytes",
       "value": 8388608,
       "source": "constant",
-      "class": "consensus",
+      "class": "local_defer",
       "owner": {
         "path": "crates/iroha_data_model/src/proof.rs",
         "symbol": "PROOF_ATTACHMENT_LIST_MAX_CANONICAL_FRAME_BYTES_V1",
@@ -3432,14 +3717,9 @@
           "contains": "if canonical_frame_len <= PROOF_ATTACHMENT_LIST_MAX_CANONICAL_FRAME_BYTES_V1 =>"
         },
         {
-          "stage": "follower",
+          "stage": "torii",
           "path": "crates/iroha_data_model/src/proof.rs",
           "contains": "if hinted_frame_len > PROOF_ATTACHMENT_LIST_MAX_CANONICAL_FRAME_BYTES_V1 {"
-        },
-        {
-          "stage": "queue",
-          "path": "crates/iroha_core/src/tx.rs",
-          "contains": "validate_proof_attachment_shapes(tx)?;"
         }
       ],
       "tests": [
@@ -3459,16 +3739,20 @@
           "path": "crates/iroha_data_model/src/proof/tests.rs",
           "name": "proof_attachment_list_gross_oversize_rejects_before_authoritative_serialization"
         }
-      ]
+      ],
+      "validity": false,
+      "on_exhaustion": "local_refusal",
+      "guarded_by": "attachment_list_frame_within_signed_attachment_frame",
+      "note": "The list is no longer a signed-transaction field. Torii reads it in its non-consensus prover API and SDK builders stage proof attachments in it; a transaction carries each staged attachment as one signed attachment occurrence. Exceeding the bound refuses one local scan or one staging call and is never a verdict on a transaction. A carrier set between this frame and attachment.signed_frame_max_bytes cannot be staged through the list; the signed attachment plan stages it directly."
     },
     {
       "id": "attachment.list_max_attachments",
       "group": "attachment",
-      "what": "Largest number of attachments in the proof attachment list of one signed transaction.",
+      "what": "Largest number of attachments in the bounded proof attachment list that Torii's prover API reads and SDK builders stage proof attachments in. It is not a signed-transaction bound.",
       "unit": "count",
       "value": 16,
       "source": "constant",
-      "class": "consensus",
+      "class": "local_defer",
       "owner": {
         "path": "crates/iroha_data_model/src/proof.rs",
         "symbol": "PROOF_ATTACHMENT_LIST_MAX_ATTACHMENTS_V1",
@@ -3488,7 +3772,7 @@
           "contains": "if self.0.len() >= PROOF_ATTACHMENT_LIST_MAX_ATTACHMENTS_V1 {"
         },
         {
-          "stage": "follower",
+          "stage": "torii",
           "path": "crates/iroha_data_model/src/proof.rs",
           "contains": "if attachments > PROOF_ATTACHMENT_LIST_MAX_ATTACHMENTS_V1 {"
         }
@@ -3506,7 +3790,11 @@
           "path": "crates/iroha_data_model/src/proof/tests.rs",
           "name": "proof_attachment_list_json_rejects_over_limit_attachment_count"
         }
-      ]
+      ],
+      "validity": false,
+      "on_exhaustion": "local_refusal",
+      "guarded_by": "attachment_list_count_is_the_signed_occurrence_count",
+      "note": "The list is no longer a signed-transaction field. Torii reads it in its non-consensus prover API and SDK builders stage proof attachments in it; a transaction carries each staged attachment as one signed attachment occurrence. Exceeding the bound refuses one local scan or one staging call and is never a verdict on a transaction."
     },
     {
       "id": "x509.max_proof_bytes",
@@ -10776,6 +11064,83 @@
         }
       ],
       "test_note": "The default equals the largest JSON document the data model holds, so a payload of one byte above the default cannot be built; the test admits a payload of exactly the default, and exactly a committed custom bound, and refuses one byte above the custom bound."
+    },
+    {
+      "id": "transaction.name_max_bytes",
+      "group": "transaction",
+      "what": "Largest UTF-8 byte length of a canonical Name: every domain, asset-definition, role, trigger and parameter name a transaction or a block carries. Both constructors refuse a longer text, and the wire decoder refuses a longer declared length before it reads the body.",
+      "unit": "bytes",
+      "value": 255,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_model_base/src/name.rs",
+        "symbol": "MAX_NAME_BYTES",
+        "kind": "const",
+        "expr": "255"
+      },
+      "inclusive": true,
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_model_base/src/name.rs",
+          "contains": "if candidate.len() > MAX_NAME_BYTES {"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_model_base/src/name.rs",
+          "contains": "if len > MAX_NAME_BYTES {"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_model_base/src/name.rs",
+          "name": "name_utf8_byte_limit_is_enforced_by_both_constructors"
+        },
+        {
+          "path": "crates/iroha_model_base/src/name.rs",
+          "name": "slice_decoder_rejects_declared_oversize_before_body_access"
+        }
+      ],
+      "test_note": "The constructor test accepts a name of exactly 255 bytes (ASCII, and the longest two-byte text below the bound) and refuses one of 256. The decoder test refuses a declared length of 256 before the body is read. The constant lies outside the four compared crates; the node compares it by name (crates/iroha_core/src/sns.rs, crates/iroha_core/src/smartcontracts/isi/query/canonical_topk.rs), which is how the scan finds it."
+    },
+    {
+      "id": "transaction.json_document_max_bytes",
+      "group": "transaction",
+      "what": "Largest UTF-8 byte length of one Json document: every metadata value, trigger payload, custom parameter and custom instruction payload a transaction or a block carries. The constructors refuse a longer text and the wire decoder refuses a longer declared length before it reads the body; lower context-specific limits apply on top of it.",
+      "unit": "bytes",
+      "value": 1048576,
+      "source": "constant",
+      "class": "consensus",
+      "owner": {
+        "path": "crates/iroha_primitives/src/json.rs",
+        "symbol": "MAX_JSON_BYTES",
+        "kind": "const",
+        "expr": "1_048_576"
+      },
+      "inclusive": true,
+      "enforcement": [
+        {
+          "stage": "sdk",
+          "path": "crates/iroha_primitives/src/json.rs",
+          "contains": "if value.len() > MAX_JSON_BYTES {"
+        },
+        {
+          "stage": "follower",
+          "path": "crates/iroha_primitives/src/json.rs",
+          "contains": "if len > MAX_JSON_BYTES {"
+        }
+      ],
+      "tests": [
+        {
+          "path": "crates/iroha_primitives/src/json.rs",
+          "name": "json_size_limit_covers_constructors_and_wire_decoders",
+          "features": [
+            "json"
+          ]
+        }
+      ],
+      "test_note": "The test accepts a document of exactly 1,048,576 bytes through the raw constructor, FromStr, the JSON deserializer and the serializer, and refuses one of 1,048,577 through each; it also covers the wire decoders. The constant lies outside the four compared crates: the scan finds it because two limits of the data model and the node are defined as it (MAX_NEXUS_RUNTIME_CATALOG_BYTES, LANE_COMPLIANCE_POLICY_MAX_FIELD_BYTES). The committed metadata and trigger-payload defaults (transaction.metadata_value_default_max_bytes, transaction.instruction_payload_default_max_bytes) equal it."
     }
   ],
   "relations": [
@@ -11210,27 +11575,86 @@
     },
     {
       "id": "attachment_list_frame_holds_a_ceiling_proof",
-      "expr": "x509.max_proof_bytes <= attachment.list_max_canonical_frame_bytes",
-      "why": "A maximum zk-X509 proof must be carriable as an inline signed-transaction attachment (delivery plan, 'One-call API and IVM composition'). The list frame is 8 MiB today, below the 9,437,184-byte ceiling, and the framing of the list is not yet counted. The 16 MiB payload default does not change it.",
+      "expr": "x509.max_proof_bytes <= attachment.occurrence_max_bytes",
+      "why": "A maximum zk-X509 proof must be carriable as an inline signed-transaction attachment (delivery plan, 'One-call API and IVM composition'). One occurrence holds exactly the proof ceiling as raw proof bytes, the attachment frame adds a 64 KiB allowance for the descriptor and all framing, and the complete signed transaction with such a proof is measured within the 10 MiB transaction cap. The former 8 MiB proof attachment list is no longer a transaction field.",
       "expect": {
-        "today": "violated",
-        "x2_target": "violated"
-      },
-      "open": {
-        "owner": "I.1",
-        "summary": "The attachment occurrence schema must admit one occurrence of x509.max_proof_bytes plus its framing; today's 8 MiB list frame cannot. X.2 measures the complete envelope against the 10 MiB transaction cap."
+        "today": "holds",
+        "x2_target": "holds"
       },
       "tests": [
         {
           "path": "crates/iroha_data_model/tests/resource_contract_v1.rs",
-          "name": "attachment_list_bounds_accept_the_limit_and_reject_one_over"
+          "name": "signed_attachment_bounds_accept_the_limit_and_reject_one_over"
+        },
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed/ordered_intent_tests.rs",
+          "name": "ceiling_sized_proof_fits_the_frame_bound_and_the_transaction_cap"
+        },
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed/ordered_intent_tests.rs",
+          "name": "tracked_signed_attachment_vectors_are_the_current_generator_output"
+        },
+        {
+          "path": "crates/iroha_core/src/tx.rs",
+          "name": "ceiling_sized_attachment_is_admitted_and_one_byte_over_is_rejected"
         }
       ]
     },
     {
       "id": "attachment_list_frame_within_transaction_cap",
-      "expr": "attachment.list_max_canonical_frame_bytes <= transaction.max_tx_bytes",
-      "why": "The attachment list is part of the framed signed transaction, so its frame bound cannot exceed the transaction cap.",
+      "expr": "attachment.signed_frame_max_bytes <= transaction.max_tx_bytes",
+      "why": "The attachment frame is part of the framed signed transaction, so its bound cannot exceed the transaction cap. The margin is what remains for the signatures, the executable and the other payload fields beside a maximal attachment frame.",
+      "expect": {
+        "today": "holds",
+        "x2_target": "holds"
+      }
+    },
+    {
+      "id": "attachment_frame_is_one_ceiling_occurrence_plus_allowance",
+      "expr": "attachment.signed_frame_max_bytes - attachment.occurrence_max_bytes == 65536",
+      "why": "The attachment frame bound is one ceiling-sized occurrence plus a fixed 64 KiB aggregate allowance for the descriptor and all Norito framing, so the byte bound and the occurrence count are independent: two maximal occurrences already exceed it.",
+      "expect": {
+        "today": "holds",
+        "x2_target": "holds"
+      },
+      "tests": [
+        {
+          "path": "crates/iroha_data_model/src/transaction/signed_attachments/tests.rs",
+          "name": "frame_accepts_the_limit_and_rejects_one_over"
+        }
+      ]
+    },
+    {
+      "id": "attachment_occurrence_ceiling_is_the_proof_ceiling",
+      "expr": "attachment.occurrence_max_bytes == x509.max_proof_bytes",
+      "why": "A ceiling-sized native proof travels as exactly one occurrence of raw proof bytes; the occurrence bound is neither below the separately fixed proof ceiling nor a second, larger ceiling.",
+      "expect": {
+        "today": "holds",
+        "x2_target": "holds"
+      }
+    },
+    {
+      "id": "attachment_invocation_path_is_the_host_call_depth",
+      "expr": "attachment.invocation_max_call_path_depth == work_budget.max_nested_contract_call_depth",
+      "why": "A signed contract invocation binding names a call path the host can follow: its depth bound equals the nested contract-call depth the IVM host admits.",
+      "expect": {
+        "today": "holds",
+        "x2_target": "holds"
+      }
+    },
+    {
+      "id": "attachment_list_frame_within_signed_attachment_frame",
+      "expr": "attachment.list_max_canonical_frame_bytes <= attachment.signed_frame_max_bytes",
+      "why": "The bounded proof attachment list of the prover API and of SDK staging is 1,114,112 bytes below the signed attachment frame bound. Carrying each of at most sixteen staged attachments as one transaction-level proof carrier adds a 40-byte frame header and a fixed-size declaration per attachment, far less than that margin, so a staged list is not refused by the signed attachment frame bound for its size.",
+      "expect": {
+        "today": "holds",
+        "x2_target": "holds"
+      }
+    },
+    {
+      "id": "attachment_list_count_is_the_signed_occurrence_count",
+      "expr": "attachment.list_max_attachments == attachment.max_occurrences",
+      "why": "Each staged proof attachment becomes one signed attachment occurrence, so the list holds exactly as many attachments as a transaction carries occurrences.",
       "expect": {
         "today": "holds",
         "x2_target": "holds"
@@ -11545,6 +11969,22 @@
       "expect": {
         "today": "holds"
       }
+    },
+    {
+      "id": "metadata_default_within_json_document",
+      "expr": "transaction.metadata_value_default_max_bytes <= transaction.json_document_max_bytes",
+      "why": "A metadata value is a Json document: a committed metadata limit above the document ceiling admits nothing more, because the longer value cannot be built or decoded.",
+      "expect": {
+        "today": "holds"
+      }
+    },
+    {
+      "id": "instruction_payload_default_within_json_document",
+      "expr": "transaction.instruction_payload_default_max_bytes <= transaction.json_document_max_bytes",
+      "why": "A trigger or custom-instruction payload is a Json document: a committed payload limit above the document ceiling admits nothing more.",
+      "expect": {
+        "today": "holds"
+      }
     }
   ],
   "profiles": {
@@ -11558,44 +11998,6 @@
     }
   },
   "declared": [
-    {
-      "id": "attachment.signed_inline_occurrences",
-      "group": "attachment",
-      "status": "not_implemented",
-      "what": "Typed inline signed-transaction attachment occurrences for large proofs and admitted key material (the I.1 design).",
-      "today": "A signed transaction carries an optional ProofAttachmentList of at most attachment.list_max_attachments (16) attachments whose complete canonical frame is at most attachment.list_max_canonical_frame_bytes (8 MiB); the constructor and the decoder refuse anything larger. Admission then checks each attachment's structure and charges its bytes against transaction.max_decompressed_bytes. The 8 MiB list frame is below the 9,437,184-byte proof ceiling (relation attachment_list_frame_holds_a_ceiling_proof), and no instruction refers to an attachment by type, index, length and hash.",
-      "requires": [
-        "The transaction signature covers the complete proof-bearing bytes; no payload enters through a hash-only reference.",
-        "Attachment bytes and their Norito framing are part of the framed transaction length measured against transaction.max_tx_bytes.",
-        "Each occurrence declares type, index, exact length and hash; a wrong-role, substituted, cross-invocation, missing, duplicated or unused declaration aborts the transaction deterministically.",
-        "One occurrence is at most x509.max_proof_bytes for a proof; the sum over a transaction is at most transaction.max_decompressed_bytes.",
-        "The proof-free ordered intent descriptor excludes generated proof bytes and digests, so the proof never hashes itself.",
-        "The list frame bound admits one occurrence of x509.max_proof_bytes with its framing and stays within transaction.max_tx_bytes."
-      ],
-      "relations": [
-        "attachment_list_frame_holds_a_ceiling_proof",
-        "attachment_list_frame_within_transaction_cap",
-        "transaction_cap_fits_block_payload",
-        "proof_ceiling_leaves_one_mib_of_context",
-        "action_envelope_holds_a_ceiling_proof"
-      ],
-      "open": {
-        "owner": "I.1",
-        "summary": "The attachment occurrence schema and its fixtures do not exist."
-      },
-      "enforcement": [
-        {
-          "stage": "sdk",
-          "path": "crates/iroha_data_model/src/proof.rs",
-          "contains": "|field| Some((field, \"must match attachment backend\")),"
-        },
-        {
-          "stage": "queue",
-          "path": "crates/iroha_core/src/tx.rs",
-          "contains": "validate_proof_attachment_shapes(tx)?;"
-        }
-      ]
-    },
     {
       "id": "transaction.structured_size_refusal",
       "group": "transaction",
@@ -11712,35 +12114,67 @@
     }
   ],
   "ram_lfe": {
-    "what": "Budgets of the full RAM-LFE workload, derived from the candidate shape recorded by the R.0 contract (specs/ram_lfe_execution_proof.md): 64 input slots, 64 outputs, four registers, 32 state lanes, 256 instructions, rank 16, 64 refreshes. Every part of the workload has a budget (`component`): the registered program, key registration, the request, evaluation, the receipt, verification, the single-opener opening, the threshold opening, the validator's decode and verification scratch, each of the three classes, leakage and the prover. A budget whose inputs are all known has a number the checker recomputes. A budget with an open input has no number: its formula and inputs are recorded and the owning task supplies the measurement. Every open input and every shape bound is used by a budget. The diagnostic Halo2 k <= 16 and 192 KiB ceilings (proof.config_halo2_max_k, proof.config_halo2_max_proof_bytes) are not requirements of the new proof.",
+    "what": "Budgets of the full RAM-LFE workload, derived from the candidate shape recorded by the R.0 contract (specs/ram_lfe_execution_proof.md): 64 input slots, 64 outputs, four registers, 32 state lanes, 256 instructions, rank 16, 64 refreshes. Every part of the workload has a budget (`component`): the registered program, key registration, the request, evaluation, the receipt, verification, the single-opener opening, the threshold opening, the validator's decode and verification scratch, each of the three classes, leakage and the prover. A budget whose inputs are all known has a number the checker recomputes. A budget with an open input has no number: its formula and inputs are recorded and the owning task supplies the measurement. Every open input and every shape bound is used by a budget. The diagnostic Halo2 k <= 16 and 192 KiB ceilings (proof.config_halo2_max_k, proof.config_halo2_max_proof_bytes) are not requirements of the new proof. An open input may record under `candidates` what each unselected candidate profile of its owning task projects for it (`resource_contract_inputs` of the named summary file). The checker compares that record with the file. It is not the input's value: the input stays open until a profile is selected and qualified.",
     "open_inputs": [
       {
         "id": "ram_lfe.ciphertext_bytes",
         "unit": "bytes",
         "value": null,
         "owner": "C.3",
-        "summary": "Canonical framed size of one ciphertext of the selected RNS-BGV profile; no profile is selected."
+        "summary": "Canonical framed size of one ciphertext of the selected RNS-BGV profile; no profile is selected.",
+        "candidates": {
+          "source": "specs/fhe_bgv_cost_summary.json",
+          "values": {
+            "bgv.f257.n14.q6x50.p2x60": 1572940,
+            "bgv.f257.n16.q22x50.p2x60": 23068844,
+            "bgv.f257.n16.q32x50.p2x60": 33554668
+          }
+        }
       },
       {
         "id": "ram_lfe.input_ciphertexts",
         "unit": "count",
         "value": null,
         "owner": "C.3",
-        "summary": "Ciphertexts that carry the 64 input slots under the selected packing."
+        "summary": "Ciphertexts that carry the 64 input slots under the selected packing.",
+        "candidates": {
+          "source": "specs/fhe_bgv_cost_summary.json",
+          "values": {
+            "bgv.f257.n14.q6x50.p2x60": 1,
+            "bgv.f257.n16.q22x50.p2x60": 1,
+            "bgv.f257.n16.q32x50.p2x60": 1
+          }
+        }
       },
       {
         "id": "ram_lfe.output_ciphertexts",
         "unit": "count",
         "value": null,
         "owner": "C.3",
-        "summary": "Ciphertexts that carry the 64 outputs under the selected packing."
+        "summary": "Ciphertexts that carry the 64 outputs under the selected packing.",
+        "candidates": {
+          "source": "specs/fhe_bgv_cost_summary.json",
+          "values": {
+            "bgv.f257.n14.q6x50.p2x60": 1,
+            "bgv.f257.n16.q22x50.p2x60": 1,
+            "bgv.f257.n16.q32x50.p2x60": 1
+          }
+        }
       },
       {
         "id": "ram_lfe.evaluation_key_bytes",
         "unit": "bytes",
         "value": null,
         "owner": "C.3",
-        "summary": "Canonical framed size of the evaluation key material of the selected profile."
+        "summary": "Canonical framed size of the evaluation key material of the selected profile.",
+        "candidates": {
+          "source": "specs/fhe_bgv_cost_summary.json",
+          "values": {
+            "bgv.f257.n14.q6x50.p2x60": 50331944,
+            "bgv.f257.n16.q22x50.p2x60": 2214592808,
+            "bgv.f257.n16.q32x50.p2x60": 4563403048
+          }
+        }
       },
       {
         "id": "ram_lfe.execution_proof_bytes",
@@ -11789,7 +12223,15 @@
         "unit": "work",
         "value": null,
         "owner": "C.3",
-        "summary": "Deterministic work units of one ciphertext multiplication with relinearization in the selected profile's cost model."
+        "summary": "Deterministic work units of one ciphertext multiplication with relinearization in the selected profile's cost model. The modulus switches of a product are not included.",
+        "candidates": {
+          "source": "specs/fhe_bgv_cost_summary.json",
+          "values": {
+            "bgv.f257.n14.q6x50.p2x60": 12828672,
+            "bgv.f257.n16.q22x50.p2x60": 338231296,
+            "bgv.f257.n16.q32x50.p2x60": 616431616
+          }
+        }
       },
       {
         "id": "ram_lfe.refresh_work_units",
@@ -11873,7 +12315,15 @@
         "unit": "work",
         "value": null,
         "owner": "C.3",
-        "summary": "Deterministic work units of the most expensive affine.v1 instruction (a plaintext multiplication) in the selected profile's cost model."
+        "summary": "Deterministic work units of the most expensive affine.v1 instruction (an input load) in the selected profile's cost model.",
+        "candidates": {
+          "source": "specs/fhe_bgv_cost_summary.json",
+          "values": {
+            "bgv.f257.n14.q6x50.p2x60": 55099392,
+            "bgv.f257.n16.q22x50.p2x60": 1795227648,
+            "bgv.f257.n16.q32x50.p2x60": 3482451968
+          }
+        }
       }
     ],
     "budgets": [
@@ -12883,7 +13333,7 @@
     }
   ],
   "completeness": {
-    "what": "The owner files, directories and committed-parameter modules the checker scans. In a `const` scope every constant, and every immutable `static`, whose name marks a limit (MAX, MAXIMUM, LIMIT, BUDGET, CEILING, OVERHEAD, RESERVE, CAP or CAPACITY) is in scope; in a `default_fn` scope every default of the module is. A `tree` scope scans every Rust source below a directory, test, bench, example and fixture files and the paths under `skip` excepted, so a new file there is scanned too. Each limit is the owner of a bound above or is excluded here with the reason it is not a resource bound of the transaction and proof path, and an excluded limit records its defining expression in `exprs`: the reason was written for that value, so a changed value fails the checker until the exclusion is reviewed and refreshed. A new limit in a scanned file fails the checker until it is classified, a second definition of a listed name fails it, and every file that owns a constant bound is scanned. The crates on the path are scanned whole: the data model (iroha_data_model), Torii (iroha_torii), the node (iroha_core) and the proof-verification crate (iroha_core_zk), with the consensus core, the IVM and its ABI and the P2P layer. In the four crates named first (`comparisons`) a limit is also found by what the code compares, whatever its name: an integer constant that takes part in a relational comparison (`<`, `<=`, `>`, `>=`, also written as the methods `.lt`, `.le`, `.gt`, `.ge`), in a capping call (`.min`, `.max`, `.clamp`, `.take`, `.truncate`), in either of the two called as a function, bare or behind any path (`cmp::max(a, b)`, `u32::clamp(n, 2, 64)`, `PartialOrd::lt(&a, &b)`), or in a range tested with `.contains`, the tested value included. A call compares its arguments and, for `.min`, `.max`, `.clamp` and the comparison methods, its receiver: the whole method chain in front of the call, on one line or broken across several (`ROWS.min(n)`, `n.saturating_mul(ROWS).saturating_add(1).min(cap)`). Also: an integer constant that the defining expression of a scanned limit names (a term of that limit, followed until no new constant appears); a limit-named function without parameters that returns an integer, an `Option` of one or a `Result` of one; and every literal comparison (`literals`), whether the literal is a whole operand or a part of one. An excluded term records under `term_of` the limits it is part of. A source whose name looks like a test or fixture file is scanned when its crate compiles it outside test builds; a source that every declaration gates by `cfg(test)` is read by name only. An inline module is test code when one of its `cfg` gates holds only in test builds, in whatever order the gate is written (`all(feature = \"..\", test)`), and its block is read on the code alone, so a brace in a character literal or a raw string of the tests hides nothing that follows the module. `python3 scripts/check_zk_resource_contract.py --mutate` changes every scanned limit and every literal of every recorded comparison in memory, one at a time, and fails when a change goes unnoticed. What no textual scan sees is stated in the checker's documentation and in specs/zk_first_release_goals.md: a limit that reaches its comparison only through a function argument, a struct field or a local variable and is neither limit-named nor compared by name; a limit a function returns when the function takes parameters, its name has no limit word or its return type is no integer, `Option` of one or `Result` of one; a limit computed at run time; a constant of a non-integer type (a `Duration`, a range) that its name does not mark; a literal below `literals.minimum` or that is no integer. Comparisons the scan does not read, for a constant that no name marks as for a literal: one with `==`, `!=`, `cmp` or `partial_cmp`; a `match` pattern; a relational operator written without whitespace around it; checked arithmetic that refuses by underflow (`limit.checked_sub(64)?`); the receiver of `.take` and `.truncate` (the collection that is cut, as in `(0..ROWS).take(n)`); what a block yields when the block is the receiver of a cap or an operand (`match kind { .. }.min(cap)`); the head of a receiver chain in front of a blank outside brackets (the first arguments of a turbofish, as in `rows::<A, B>().min(cap)`); a cap or comparison function called under another name (an alias of `use`); and a constant or literal further than 600 characters from the operator of its relational comparison (no comparison of the four crates is that long). An exclusion pins the text of its limit's expression. In the four crates a constant that the expression names is pinned too, as a term; an associated constant of a type (`Header::SIZE`), a constant of a crate that is not compared and a value a function computes are not followed. The consensus core, the IVM and its ABI and the P2P layer are scanned by name only.",
+    "what": "The owner files, directories and committed-parameter modules the checker scans. In a `const` scope every constant, and every immutable `static`, whose name marks a limit (MAX, MAXIMUM, LIMIT, BUDGET, CEILING, OVERHEAD, RESERVE, CAP or CAPACITY) is in scope; in a `default_fn` scope every default of the module is. A `tree` scope scans every Rust source below a directory, test, bench, example and fixture files and the paths under `skip` excepted, so a new file there is scanned too. Each limit is the owner of a bound above or is excluded here with the reason it is not a resource bound of the transaction and proof path, and an excluded limit records its defining expression in `exprs`: the reason was written for that value, so a changed value fails the checker until the exclusion is reviewed and refreshed. A new limit in a scanned file fails the checker until it is classified, a second definition of a listed name fails it, and every file that owns a constant bound is scanned. The crates on the path are scanned whole: the data model (iroha_data_model), Torii (iroha_torii), the node (iroha_core) and the proof-verification crate (iroha_core_zk), with the consensus core, the IVM and its ABI and the P2P layer. In the four crates named first (`comparisons`) a limit is also found by what the code compares, whatever its name: an integer constant that takes part in a relational comparison (`<`, `<=`, `>`, `>=`, also written as the methods `.lt`, `.le`, `.gt`, `.ge`), in a capping call (`.min`, `.max`, `.clamp`, `.take`, `.truncate`), in either of the two called as a function, bare or behind any path (`cmp::max(a, b)`, `u32::clamp(n, 2, 64)`, `PartialOrd::lt(&a, &b)`), or in a range tested with `.contains`, the tested value included. A call compares its arguments and, for `.min`, `.max`, `.clamp` and the comparison methods, its receiver: the whole method chain in front of the call, on one line or broken across several (`ROWS.min(n)`, `n.saturating_mul(ROWS).saturating_add(1).min(cap)`). Also: an integer constant that the defining expression of a scanned limit names (a term of that limit, followed until no new constant appears); a limit-named function without parameters that returns an integer, an `Option` of one or a `Result` of one; and every literal comparison (`literals`), whether the literal is a whole operand or a part of one. An excluded term records under `term_of` the limits it is part of. A source whose name looks like a test or fixture file is scanned when its crate compiles it outside test builds; a source that every declaration gates by `cfg(test)` is read by name only. An inline module is test code when one of its `cfg` gates holds only in test builds, in whatever order the gate is written (`all(feature = \"..\", test)`), and its block is read on the code alone, so a brace in a character literal or a raw string of the tests hides nothing that follows the module. `python3 scripts/check_zk_resource_contract.py --mutate` changes every scanned limit and every literal of every recorded comparison in memory, one at a time, and fails when a change goes unnoticed. What no textual scan sees is stated in the checker's documentation and in specs/zk_first_release_goals.md: a limit that reaches its comparison only through a function argument, a struct field or a local variable and is neither limit-named nor compared by name; a limit a function returns when the function takes parameters, its name has no limit word or its return type is no integer, `Option` of one or `Result` of one; a limit computed at run time; a constant of a non-integer type (a `Duration`, a range) that its name does not mark; a literal below `literals.minimum` or that is no integer. Comparisons the scan does not read, for a constant that no name marks as for a literal: one with `==`, `!=`, `cmp` or `partial_cmp`; a `match` pattern; a relational operator written without whitespace around it; checked arithmetic that refuses by underflow (`limit.checked_sub(64)?`); the receiver of `.take` and `.truncate` (the collection that is cut, as in `(0..ROWS).take(n)`); what a block yields when the block is the receiver of a cap or an operand (`match kind { .. }.min(cap)`); the head of a receiver chain in front of a blank outside brackets (the first arguments of a turbofish, as in `rows::<A, B>().min(cap)`); a cap or comparison function called under another name (an alias of `use`); and a constant or literal further than 600 characters from the operator of its relational comparison (no comparison of the four crates is that long). An exclusion pins the text of its limit's expression. In the four crates a constant that the expression names is pinned too, as a term; an associated constant of a type (`Header::SIZE`), a constant of a crate outside the workspace and a value a function computes are not followed. A constant that another source of the workspace defines is scanned where it is defined when the code of the four crates names it: in a compared position, bare or behind a module path (also under the name a `use` of the file gives it), or in the defining expression of a scanned limit. The name stands for every integer constant of that name in a production source the naming crate can reach: any item of its own crate (a skipped directory) and a `pub` item of a workspace crate it depends on, directly or through other workspace crates. Each is a listed bound or excluded with a pinned expression, its terms are followed from its own source, and `--mutate` changes it. The resolution is by name, so each reachable crate that defines the name is scanned. Not seen there: an associated constant of a type of another crate (`Shape::SIZE`), a constant another crate re-exports under a new name, the root of a binary target and a source only test builds compile. The consensus core, the IVM and its ABI and the P2P layer are scanned by name and, like every other crate of the workspace, for the constants the four crates name.",
     "scopes": [
       {
         "path": "crates/iroha_data_model/src/transaction/executable.rs",
@@ -15301,6 +15751,16 @@
         }
       },
       {
+        "path": "crates/iroha_data_model/src/phone_control.rs",
+        "symbols": [
+          "PHONE_CONTROL_V1_MAX_PROVIDER_KEYS"
+        ],
+        "reason": "Capacity of one committed phone-control provider policy: the provider keys one identifier namespace may hold, in every lifecycle state. It bounds that record and the key lookup of one credential verification. No transaction or proof meets it today, because no Core, Torii or SDK path consumes the provider policy; R.4 wires the claim transition and classifies the bound it enforces there.",
+        "exprs": {
+          "PHONE_CONTROL_V1_MAX_PROVIDER_KEYS": "32"
+        }
+      },
+      {
         "path": "crates/iroha_core/src/smartcontracts/isi/world.rs",
         "symbols": [
           "MAX_PENDING_CONTRACT_CODE_UPLOADS_PER_AUTHORITY",
@@ -15483,15 +15943,6 @@
             }
           },
           {
-            "path": "crates/iroha_core/src/smartcontracts/isi/kagemusha/kagemusha_v1_reserve.rs",
-            "symbols": [
-              "KAGEMUSHA_RESERVE_VERSION_V1"
-            ],
-            "exprs": {
-              "KAGEMUSHA_RESERVE_VERSION_V1": "1"
-            }
-          },
-          {
             "path": "crates/iroha_core/src/smartcontracts/isi/multisig.rs",
             "symbols": [
               "DELIMITER"
@@ -15647,7 +16098,7 @@
         ]
       },
       {
-        "reason": "The KAGEMUSHA offline-cash product: record, message, key, proof, evidence and file sizes, counts and lifetimes of its wallet, device, enrollment, mint, release and verifier-registry data model; its recursion carriers, state journals and wallet files in the proof crate; and the node's mint outbox, checkpoint and profile records. They bound that product's own records. An instruction of the product travels in a transaction bounded by transaction.max_tx_bytes (10 MiB), so a ceiling above that never decides the admission of a transaction: it bounds a file, an evidence bundle, a journal, a request or an offline artifact of the product. The product owns them.",
+        "reason": "The KAGEMUSHA offline-cash product: record, message, key, proof, evidence and file sizes, counts and lifetimes of its wallet, device, enrollment, mint, release and verifier-registry data model; its recursion carriers, state journals and wallet files in the proof crate. They bound that product's own records. An instruction of the product travels in a transaction bounded by transaction.max_tx_bytes (10 MiB), so a ceiling above that never decides the admission of a transaction: it bounds a file, an evidence bundle, a journal, a request or an offline artifact of the product. The product owns them.",
         "files": [
           {
             "path": "crates/iroha_data_model/src/kagemusha/kagemusha_app_enrollment_possession_v1.rs",
@@ -16191,39 +16642,6 @@
             ],
             "exprs": {
               "KAGEMUSHA_VERIFIER_RELEASE_LIMIT_V1": "64"
-            }
-          },
-          {
-            "path": "crates/iroha_core/src/kura.rs",
-            "symbols": [
-              "MAX_KAGEMUSHA_ORDINARY_MINT_PROGRESS_BYTES",
-              "MAX_KAGEMUSHA_ORDINARY_MINT_OUTBOX_BYTES",
-              "MAX_KAGEMUSHA_MINT_OUTBOX_ENTRY_BYTES",
-              "MAX_KAGEMUSHA_MINT_AUTHORITY_CHECKPOINT_BYTES"
-            ],
-            "exprs": {
-              "MAX_KAGEMUSHA_ORDINARY_MINT_PROGRESS_BYTES": "4096",
-              "MAX_KAGEMUSHA_ORDINARY_MINT_OUTBOX_BYTES": "iroha_data_model::kagemusha::KAGEMUSHA_ORDINARY_FINALIZED_MINT_CREDIT_MAX_BYTES_V1",
-              "MAX_KAGEMUSHA_MINT_OUTBOX_ENTRY_BYTES": "iroha_data_model::isi::kagemusha_v1::KAGEMUSHA_OPERATION_RESULT_MAX_BYTES_V1 + 256",
-              "MAX_KAGEMUSHA_MINT_AUTHORITY_CHECKPOINT_BYTES": "64 * 1024"
-            }
-          },
-          {
-            "path": "crates/iroha_core/src/smartcontracts/isi/kagemusha/ordinary_mint_clock.rs",
-            "symbols": [
-              "MAX_PARENT_PROOF_BYTES"
-            ],
-            "exprs": {
-              "MAX_PARENT_PROOF_BYTES": "4 * 1024 * 1024"
-            }
-          },
-          {
-            "path": "crates/iroha_core/src/smartcontracts/isi/kagemusha.rs",
-            "symbols": [
-              "KAGEMUSHA_RECURSIVE_PROFILE_MAX_BYTES_V1"
-            ],
-            "exprs": {
-              "KAGEMUSHA_RECURSIVE_PROFILE_MAX_BYTES_V1": "64 * 1024"
             }
           },
           {
@@ -21560,15 +21978,6 @@
             }
           },
           {
-            "path": "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/poseidon.rs",
-            "symbols": [
-              "KAGEMUSHA_WALLET_SPARSE_TREE_DEPTH_V1"
-            ],
-            "exprs": {
-              "KAGEMUSHA_WALLET_SPARSE_TREE_DEPTH_V1": "256"
-            }
-          },
-          {
             "path": "crates/iroha_data_model/src/sorafs/stream_token_custody.rs",
             "symbols": [
               "STREAM_TOKEN_CUSTODY_NORMAL_REVISIONS_V1"
@@ -22323,15 +22732,6 @@
         "reason": "Fixture builders and the fixture export tool of the IVM. Their file names look like fixtures, but the library and a binary target compile them, so they are scanned: the cycle budget written into generated programs, an immediate-chunk bound of the fixture assembler and the frame limit of the tool's manifest encoder. They shape generated fixtures; nothing a node receives is compared with them.",
         "files": [
           {
-            "path": "crates/ivm/src/bin/ivm_fixture_export.rs",
-            "symbols": [
-              "CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT"
-            ],
-            "exprs": {
-              "CONTRACT_MANIFEST_FIXTURE_FRAME_LIMIT": "64 * 1024"
-            }
-          },
-          {
             "path": "crates/ivm/src/prebuilt_fixtures.rs",
             "symbols": [
               "DEFAULT_MAX_CYCLES",
@@ -22505,7 +22905,7 @@
               "KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1"
             ],
             "exprs": {
-              "KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1": "1_615"
+              "KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1": "1_681"
             },
             "term_of": {
               "KAGEMUSHA_WALLET_PAYMENT_FIXED_BYTES_V1": [
@@ -22889,6 +23289,1072 @@
             }
           }
         ]
+      },
+      {
+        "reason": "The SoraFS storage product, defined in its manifest crate and compared in the data model and the node: the encoded manifest ceiling of a pin registration, the owner-account length of an orderbook payload, the signer and deployment identity length, the release-manifest payload ceiling, the custody, custody-control and stream-token signing-payload ceilings of its signer authority records, and the stream, request and byte quota maxima of one stream token. Each bounds one instruction payload or committed record of that product, like the SoraFS limits the data model and the node define themselves (excluded above); the transaction that carries the instruction is bounded by transaction.max_tx_bytes.",
+        "files": [
+          {
+            "path": "crates/sorafs_manifest/src/validation.rs",
+            "symbols": [
+              "MAX_MANIFEST_ENCODED_BYTES"
+            ],
+            "exprs": {
+              "MAX_MANIFEST_ENCODED_BYTES": "512 * 1024"
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/orderbook.rs",
+            "symbols": [
+              "ORDERBOOK_OWNER_ACCOUNT_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "ORDERBOOK_OWNER_ACCOUNT_MAX_BYTES_V1": "256"
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/signer/protocol.rs",
+            "symbols": [
+              "SIGNER_MAX_ID_BYTES_V1",
+              "SIGNER_RELEASE_MANIFEST_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "SIGNER_MAX_ID_BYTES_V1": "128",
+              "SIGNER_RELEASE_MANIFEST_MAX_BYTES_V1": "1024 * 1024"
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/signer/custody.rs",
+            "symbols": [
+              "SIGNER_CUSTODY_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "SIGNER_CUSTODY_MAX_BYTES_V1": "16 * 1024"
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/signer/custody_control.rs",
+            "symbols": [
+              "SIGNER_CUSTODY_CONTROL_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "SIGNER_CUSTODY_CONTROL_MAX_BYTES_V1": "16 * 1024"
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/signer/stream_token.rs",
+            "symbols": [
+              "SIGNER_STREAM_TOKEN_MAX_PAYLOAD_BYTES_V1"
+            ],
+            "exprs": {
+              "SIGNER_STREAM_TOKEN_MAX_PAYLOAD_BYTES_V1": "2_048"
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/token.rs",
+            "symbols": [
+              "STREAM_TOKEN_MAX_STREAMS_V1",
+              "STREAM_TOKEN_MAX_RATE_LIMIT_BYTES_V1",
+              "STREAM_TOKEN_MAX_REQUESTS_PER_MINUTE_V1"
+            ],
+            "exprs": {
+              "STREAM_TOKEN_MAX_STREAMS_V1": "1_024",
+              "STREAM_TOKEN_MAX_RATE_LIMIT_BYTES_V1": "1_073_741_824",
+              "STREAM_TOKEN_MAX_REQUESTS_PER_MINUTE_V1": "10_000"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The SoraFS services of Torii, defined in the product's manifest, node and CAR crates and in the shared API crate and compared only in Torii: signer, catalog, label, commitment, credential, context, evidence, authentication-proof and dead-letter ceilings and page sizes of its gateway-compliance, publication, data-availability persistence, proof-of-possession, proof-of-retrievability, stream-token transport, evidence-viewer, billing, moderation, reserve and provider-source endpoints. They are local serving limits like the SoraFS limits Torii defines itself (excluded above): that route refuses a larger request. Two of them cap a signed transaction a route forwards (moderation 10 MiB, reserve 2 MiB); the transaction itself is admitted or refused under transaction.max_tx_bytes.",
+        "files": [
+          {
+            "path": "crates/sorafs_manifest/src/gateway_compliance.rs",
+            "symbols": [
+              "MAX_GATEWAY_COMPLIANCE_SIGNERS_V1",
+              "MAX_GATEWAY_COMPLIANCE_CATALOG_BYTES_V1"
+            ],
+            "exprs": {
+              "MAX_GATEWAY_COMPLIANCE_SIGNERS_V1": "128",
+              "MAX_GATEWAY_COMPLIANCE_CATALOG_BYTES_V1": "16 * 1024 * 1024"
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/governance.rs",
+            "symbols": [
+              "GOVERNANCE_PUBLICATION_LABEL_MAX_ENTRIES_V1",
+              "GOVERNANCE_PUBLICATION_LABEL_KEY_MAX_BYTES_V1",
+              "GOVERNANCE_PUBLICATION_LABEL_STRING_MAX_BYTES_V1",
+              "GOVERNANCE_PUBLICATION_LABEL_TOTAL_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "GOVERNANCE_PUBLICATION_LABEL_MAX_ENTRIES_V1": "64",
+              "GOVERNANCE_PUBLICATION_LABEL_KEY_MAX_BYTES_V1": "128",
+              "GOVERNANCE_PUBLICATION_LABEL_STRING_MAX_BYTES_V1": "4 * 1024",
+              "GOVERNANCE_PUBLICATION_LABEL_TOTAL_MAX_BYTES_V1": "64 * 1024"
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/pdp.rs",
+            "symbols": [
+              "PDP_COMMITMENT_MAX_CANONICAL_BYTES_V1"
+            ],
+            "exprs": {
+              "PDP_COMMITMENT_MAX_CANONICAL_BYTES_V1": "16 * 1024"
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/pop_credentials.rs",
+            "symbols": [
+              "POP_MEMBERSHIP_CONTEXT_MAX_BYTES_V1",
+              "POP_IDENTITY_TEXT_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "POP_MEMBERSHIP_CONTEXT_MAX_BYTES_V1": "256",
+              "POP_IDENTITY_TEXT_MAX_BYTES_V1": "256"
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/por.rs",
+            "symbols": [
+              "POR_CHALLENGE_STATUS_PAGE_MAX_RECORDS_V1"
+            ],
+            "exprs": {
+              "POR_CHALLENGE_STATUS_PAGE_MAX_RECORDS_V1": "1_000"
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/signer/stream_token_evidence.rs",
+            "symbols": [
+              "SIGNER_STREAM_TOKEN_EVIDENCE_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "SIGNER_STREAM_TOKEN_EVIDENCE_MAX_BYTES_V1": "64 * 1024"
+            }
+          },
+          {
+            "path": "crates/sorafs_node/src/evidence_viewer.rs",
+            "symbols": [
+              "EVIDENCE_VIEWER_MAX_OPAQUE_TOKEN_BYTES_V1",
+              "EVIDENCE_VIEWER_MAX_WEBAUTHN_ASSERTION_BYTES_V1"
+            ],
+            "exprs": {
+              "EVIDENCE_VIEWER_MAX_OPAQUE_TOKEN_BYTES_V1": "4 * 1024",
+              "EVIDENCE_VIEWER_MAX_WEBAUTHN_ASSERTION_BYTES_V1": "64 * 1024"
+            }
+          },
+          {
+            "path": "crates/sorafs_node/src/hedging_billing_service.rs",
+            "symbols": [
+              "BILLING_ACKNOWLEDGEMENT_PROOF_MAX_BYTES_V1",
+              "HEDGING_BILLING_RUNTIME_API_MAX_PAGE_ITEMS_V1"
+            ],
+            "exprs": {
+              "BILLING_ACKNOWLEDGEMENT_PROOF_MAX_BYTES_V1": "64 * 1024",
+              "HEDGING_BILLING_RUNTIME_API_MAX_PAGE_ITEMS_V1": "100"
+            }
+          },
+          {
+            "path": "crates/sorafs_node/src/moderation_orchestrator.rs",
+            "symbols": [
+              "MODERATION_SIGNED_TRANSACTION_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "MODERATION_SIGNED_TRANSACTION_MAX_BYTES_V1": "10 * 1024 * 1024"
+            }
+          },
+          {
+            "path": "crates/sorafs_node/src/pop_credentials.rs",
+            "symbols": [
+              "POP_API_AUTHENTICATION_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "POP_API_AUTHENTICATION_MAX_BYTES_V1": "16 * 1024"
+            }
+          },
+          {
+            "path": "crates/sorafs_node/src/reserve_transaction_forwarder.rs",
+            "symbols": [
+              "RESERVE_TRANSACTION_MAX_CANONICAL_BYTES_V1"
+            ],
+            "exprs": {
+              "RESERVE_TRANSACTION_MAX_CANONICAL_BYTES_V1": "2 * 1024 * 1024"
+            }
+          },
+          {
+            "path": "crates/sorafs_car/src/publisher.rs",
+            "symbols": [
+              "PROVIDER_SOURCE_RESPONSE_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "PROVIDER_SOURCE_RESPONSE_MAX_BYTES_V1": "PUBLISHER_SOURCE_HEADER_MAX_BYTES_V1 + 4096"
+            }
+          },
+          {
+            "path": "crates/iroha_torii_shared/src/sorafs_hedging_billing_api.rs",
+            "symbols": [
+              "BILLING_ACKNOWLEDGEMENT_PROOF_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "BILLING_ACKNOWLEDGEMENT_PROOF_MAX_BYTES_V1": "64 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_torii_shared/src/sorafs_moderation_api.rs",
+            "symbols": [
+              "SORAFS_MODERATION_DEAD_LETTER_RESOLUTION_MAX_CANONICAL_BYTES_V1"
+            ],
+            "exprs": {
+              "SORAFS_MODERATION_DEAD_LETTER_RESOLUTION_MAX_CANONICAL_BYTES_V1": "4 * 1024"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Durations and periods defined in other crates and compared by name: the age of a signer state observation and the future skew of a stream token (SoraFS), the lease of external moderation work, the largest TLS handshake deadline Torii's configuration may set, the lifetime of a Bootle-Lantern issuance authorization in blocks and the default NPoS epoch length in blocks. A time window is not a byte, count or work bound; F.4 owns validity windows.",
+        "files": [
+          {
+            "path": "crates/sorafs_manifest/src/signer/state_observation.rs",
+            "symbols": [
+              "SIGNER_STATE_OBSERVATION_MAX_AGE_MS_V1"
+            ],
+            "exprs": {
+              "SIGNER_STATE_OBSERVATION_MAX_AGE_MS_V1": "300_000"
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/token.rs",
+            "symbols": [
+              "STREAM_TOKEN_MAX_FUTURE_SKEW_SECS_V1"
+            ],
+            "exprs": {
+              "STREAM_TOKEN_MAX_FUTURE_SKEW_SECS_V1": "60"
+            }
+          },
+          {
+            "path": "crates/sorafs_node/src/moderation_orchestrator.rs",
+            "symbols": [
+              "MODERATION_EXTERNAL_WORK_LEASE_MS_V1"
+            ],
+            "exprs": {
+              "MODERATION_EXTERNAL_WORK_LEASE_MS_V1": "30_000"
+            }
+          },
+          {
+            "path": "crates/iroha_config/src/parameters/defaults.rs",
+            "symbols": [
+              "MAX_HANDSHAKE_TIMEOUT_MS",
+              "EPOCH_LENGTH_BLOCKS"
+            ],
+            "exprs": {
+              "MAX_HANDSHAKE_TIMEOUT_MS": "120_000",
+              "EPOCH_LENGTH_BLOCKS": "3_600"
+            }
+          },
+          {
+            "path": "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/issuer.rs",
+            "symbols": [
+              "MAX_BOOTLE_LANTERN_AUTHORIZATION_LIFETIME_BLOCKS_V1"
+            ],
+            "exprs": {
+              "MAX_BOOTLE_LANTERN_AUTHORIZATION_LIFETIME_BLOCKS_V1": "4_096"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Torii's HTTP and app services other than transaction submission, defined in the shared API crate, the configuration defaults and the Kotodama linker and compared only in Torii: response and reader ceilings of the account-capability, faucet-policy, authority-original, resource-name, multisig-evidence, Parliament casting-proof and validation-fee proof routes; the request body of the data-availability queries; cursor, page, offset and query-pair limits; the backends one retention-status response summarizes; the configured list limits, page cost, replay-cache capacity, prover report and in-flight counts, native-issuance concurrency, TLS certificate-chain length and key-file size and drand endpoint count; and the source count and source bytes of one contract-source module graph. They are local serving limits like the ones Torii defines itself (excluded above): that route refuses or truncates a larger request or response, and no transaction, proof or block is judged by them.",
+        "files": [
+          {
+            "path": "crates/iroha_torii_shared/src/account_capabilities.rs",
+            "symbols": [
+              "ACCOUNT_CAPABILITIES_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "ACCOUNT_CAPABILITIES_MAX_BYTES_V1": "4 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_torii_shared/src/account_faucet_policy.rs",
+            "symbols": [
+              "ACCOUNT_FAUCET_POLICY_MAX_BYTES"
+            ],
+            "exprs": {
+              "ACCOUNT_FAUCET_POLICY_MAX_BYTES": "4096"
+            }
+          },
+          {
+            "path": "crates/iroha_torii_shared/src/authority_originals.rs",
+            "symbols": [
+              "NATIVE_AUTHORITY_ORIGINALS_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "NATIVE_AUTHORITY_ORIGINALS_MAX_BYTES_V1": "128 * 1024 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_torii_shared/src/canonical_request_form.rs",
+            "symbols": [
+              "CANONICAL_REQUEST_MAX_QUERY_PAIRS_V1"
+            ],
+            "exprs": {
+              "CANONICAL_REQUEST_MAX_QUERY_PAIRS_V1": "64"
+            }
+          },
+          {
+            "path": "crates/iroha_torii_shared/src/da/queries.rs",
+            "symbols": [
+              "DA_QUERY_REQUEST_MAX_BYTES"
+            ],
+            "exprs": {
+              "DA_QUERY_REQUEST_MAX_BYTES": "64 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_torii_shared/src/lib.rs",
+            "symbols": [
+              "PROOF_RETENTION_STATUS_MAX_BACKENDS"
+            ],
+            "exprs": {
+              "PROOF_RETENTION_STATUS_MAX_BACKENDS": "256"
+            }
+          },
+          {
+            "path": "crates/iroha_torii_shared/src/list_query/mod.rs",
+            "symbols": [
+              "CURSOR_MAX_BYTES"
+            ],
+            "exprs": {
+              "CURSOR_MAX_BYTES": "4096"
+            }
+          },
+          {
+            "path": "crates/iroha_torii_shared/src/multisig_execution_evidence.rs",
+            "symbols": [
+              "MULTISIG_EXECUTION_EVIDENCE_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "MULTISIG_EXECUTION_EVIDENCE_MAX_BYTES_V1": "16 * 1024 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_torii_shared/src/parliament_api.rs",
+            "symbols": [
+              "PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_FINALITY_CHAIN_BYTES_V1",
+              "PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_RESPONSE_BYTES_V1"
+            ],
+            "exprs": {
+              "PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_FINALITY_CHAIN_BYTES_V1": "3 * 1024 * 1024",
+              "PARLIAMENT_TIMED_OVN_CASTING_PROOF_MAX_RESPONSE_BYTES_V1": "8 * 1024 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_torii_shared/src/resource_names_state.rs",
+            "symbols": [
+              "NATIVE_RESOURCE_NAMES_STATE_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "NATIVE_RESOURCE_NAMES_STATE_MAX_BYTES_V1": "128 * 1024 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_torii_shared/src/sumeragi_evidence_api.rs",
+            "symbols": [
+              "SUMERAGI_EVIDENCE_LIST_MAX_LIMIT",
+              "SUMERAGI_EVIDENCE_LIST_MAX_OFFSET"
+            ],
+            "exprs": {
+              "SUMERAGI_EVIDENCE_LIST_MAX_LIMIT": "1_000",
+              "SUMERAGI_EVIDENCE_LIST_MAX_OFFSET": "10_000"
+            }
+          },
+          {
+            "path": "crates/iroha_torii_shared/src/validation_fee_api.rs",
+            "symbols": [
+              "VALIDATION_FEE_PROPOSAL_PAGE_MAX_LIMIT_V1",
+              "VALIDATION_FEE_POLICY_PROOF_MAX_FINALITY_CHAIN_BYTES",
+              "VALIDATION_FEE_POLICY_PROOF_MAX_RESPONSE_BYTES"
+            ],
+            "exprs": {
+              "VALIDATION_FEE_PROPOSAL_PAGE_MAX_LIMIT_V1": "100",
+              "VALIDATION_FEE_POLICY_PROOF_MAX_FINALITY_CHAIN_BYTES": "3 * 1024 * 1024",
+              "VALIDATION_FEE_POLICY_PROOF_MAX_RESPONSE_BYTES": "4 * 1024 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_config/src/parameters/defaults.rs",
+            "symbols": [
+              "DRAND_MAX_ENDPOINTS",
+              "PROOF_MAX_LIST_LIMIT",
+              "MAX_INFLIGHT_HARD",
+              "REPLAY_CACHE_CAPACITY",
+              "APP_API_DEFAULT_LIST_LIMIT",
+              "APP_API_MAX_LIST_LIMIT",
+              "APP_API_RATE_LIMIT_COST_PER_PAGE",
+              "ZK_PROVER_REPORTS_MAX_COUNT",
+              "ZK_PROVER_MAX_INFLIGHT",
+              "MAX_CERTIFICATES",
+              "MAX_DER_BYTES"
+            ],
+            "exprs": {
+              "DRAND_MAX_ENDPOINTS": "8",
+              "PROOF_MAX_LIST_LIMIT": "200",
+              "MAX_INFLIGHT_HARD": "64",
+              "REPLAY_CACHE_CAPACITY": "10_000 | 10_000",
+              "APP_API_DEFAULT_LIST_LIMIT": "100",
+              "APP_API_MAX_LIST_LIMIT": "500",
+              "APP_API_RATE_LIMIT_COST_PER_PAGE": "1",
+              "ZK_PROVER_REPORTS_MAX_COUNT": "4_096",
+              "ZK_PROVER_MAX_INFLIGHT": "2",
+              "MAX_CERTIFICATES": "4",
+              "MAX_DER_BYTES": "16 * 1024"
+            }
+          },
+          {
+            "path": "crates/kotodama_lang/src/linker.rs",
+            "symbols": [
+              "MAX_MODULE_GRAPH_SOURCES",
+              "MAX_MODULE_GRAPH_SOURCE_BYTES"
+            ],
+            "exprs": {
+              "MAX_MODULE_GRAPH_SOURCES": "512",
+              "MAX_MODULE_GRAPH_SOURCE_BYTES": "16 * 1024 * 1024"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Codec-internal decode guard: the structural nesting norito accepts while it builds a JSON value, one level above its value nesting depth (excluded above). Torii compares it when it walks a JSON document it serves or relays; it never decides admission.",
+        "path": "crates/norito/src/lib.rs",
+        "symbols": [
+          "MAX_JSON_VALUE_NESTING_DEPTH"
+        ],
+        "exprs": {
+          "MAX_JSON_VALUE_NESTING_DEPTH": "crate::core::MAX_VALUE_NESTING_DEPTH + 1"
+        }
+      },
+      {
+        "reason": "Node-local sizing defined in the configuration defaults and the telemetry crate and compared in the node: the largest slot count the history-checkpoint cache may be configured with, the stack size range of the Sumeragi helper threads and the manifest activations a telemetry snapshot retains. A cache miss recomputes, a thread is sized once at start and telemetry is no input of execution: none changes a verdict.",
+        "files": [
+          {
+            "path": "crates/iroha_config/src/parameters/defaults.rs",
+            "symbols": [
+              "MAX_HISTORY_CHECKPOINT_CACHE_CAPACITY",
+              "SUMERAGI_STACK_BYTES_MIN",
+              "SUMERAGI_STACK_BYTES_MAX"
+            ],
+            "exprs": {
+              "MAX_HISTORY_CHECKPOINT_CACHE_CAPACITY": "65_536",
+              "SUMERAGI_STACK_BYTES_MIN": "64 * 1024 * 1024",
+              "SUMERAGI_STACK_BYTES_MAX": "64 * 1024 * 1024"
+            }
+          },
+          {
+            "path": "crates/iroha_telemetry/src/metrics.rs",
+            "symbols": [
+              "GOVERNANCE_MANIFEST_RECENT_CAP"
+            ],
+            "exprs": {
+              "GOVERNANCE_MANIFEST_RECENT_CAP": "8"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The SCCP bridge, defined in its protocol crate and compared in the node's SCCP instructions: the attester roster size range (4 to 31), the length of a Taira account payload and the exclusive amount bound of a TON endpoint (2^96). They are parameter ranges and shape bounds of that product's instructions, like the SCCP limits the data model and the node define themselves (excluded above); its source proof is bounded by proof.sccp_source_proof_max_bytes.",
+        "path": "crates/iroha_sccp/src/v1/constants.rs",
+        "symbols": [
+          "MIN_ROSTER_MEMBERS",
+          "MAX_ROSTER_MEMBERS",
+          "MAX_TAIRA_ACCOUNT_BYTES",
+          "TON_AMOUNT_BOUND"
+        ],
+        "exprs": {
+          "MIN_ROSTER_MEMBERS": "4",
+          "MAX_ROSTER_MEMBERS": "31",
+          "MAX_TAIRA_ACCOUNT_BYTES": "1024",
+          "TON_AMOUNT_BOUND": "1 << 96"
+        }
+      },
+      {
+        "reason": "Statement-shape bounds and value ranges of privacy products, defined in the privacy and Poseidon crates: the ring size range and the admission batch size of ZK-AMS, which the node compares when it checks release evidence, and the presentation-year and age-threshold ranges of a Vega mDL statement, which the data model compares. Like the product bounds the data model defines itself (excluded above), they are inside the action bytes proof.privacy_max_action_bytes bounds; P.4 and the product tasks own their relations.",
+        "files": [
+          {
+            "path": "crates/iroha_core_privacy/src/privacy_engines/zk_ams.rs",
+            "symbols": [
+              "ZK_AMS_MIN_RING_SIZE_V1",
+              "ZK_AMS_MAX_RING_SIZE_V1",
+              "ZK_AMS_MAX_ADMISSION_BATCH_SIZE_V1"
+            ],
+            "exprs": {
+              "ZK_AMS_MIN_RING_SIZE_V1": "16",
+              "ZK_AMS_MAX_RING_SIZE_V1": "64",
+              "ZK_AMS_MAX_ADMISSION_BATCH_SIZE_V1": "8"
+            }
+          },
+          {
+            "path": "crates/iroha_zkp_poseidon/src/vega_constants.rs",
+            "symbols": [
+              "VEGA_MDL_MIN_PRESENTATION_YEAR_V1",
+              "VEGA_MDL_MAX_PRESENTATION_YEAR_V1",
+              "VEGA_MDL_MIN_AGE_THRESHOLD_YEARS_V1",
+              "VEGA_MDL_MAX_AGE_THRESHOLD_YEARS_V1"
+            ],
+            "exprs": {
+              "VEGA_MDL_MIN_PRESENTATION_YEAR_V1": "1_970",
+              "VEGA_MDL_MAX_PRESENTATION_YEAR_V1": "9_998",
+              "VEGA_MDL_MIN_AGE_THRESHOLD_YEARS_V1": "1",
+              "VEGA_MDL_MAX_AGE_THRESHOLD_YEARS_V1": "150"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "The Soracloud product's BFV envelope, defined in iroha_crypto and compared by the node's Soracloud instructions and the product's FHE schema in the data model: the artifact ceiling of a full-bootstrap proof profile and the slot count of the registered RAM-LFE identifier envelope. They bound that product's envelopes like the Soracloud limits excluded above.",
+        "path": "crates/iroha_crypto/src/fhe_bfv.rs",
+        "symbols": [
+          "BFV_FULL_BOOTSTRAP_PROOF_PROFILE_ARTIFACT_MAX_BYTES",
+          "RAM_LFE_BFV_IDENTIFIER_SLOT_COUNT"
+        ],
+        "exprs": {
+          "BFV_FULL_BOOTSTRAP_PROOF_PROFILE_ARTIFACT_MAX_BYTES": "16 * 1024 * 1024",
+          "RAM_LFE_BFV_IDENTIFIER_SLOT_COUNT": "64"
+        }
+      },
+      {
+        "reason": "Parameter ranges of the SoraNet handshake puzzle (Argon2 memory, time cost and lanes, proof-of-work difficulty), defined in iroha_crypto and compared when the node validates a runtime update of its network admission settings. They bound a node's own connection-admission work, not a frame, transaction or block.",
+        "path": "crates/iroha_crypto/src/soranet/puzzle.rs",
+        "symbols": [
+          "MIN_MEMORY_KIB",
+          "MAX_MEMORY_KIB",
+          "MAX_TIME_COST",
+          "MAX_LANES",
+          "MAX_DIFFICULTY"
+        ],
+        "exprs": {
+          "MIN_MEMORY_KIB": "4 * 1024",
+          "MAX_MEMORY_KIB": "128 * 1024",
+          "MAX_TIME_COST": "8",
+          "MAX_LANES": "16",
+          "MAX_DIFFICULTY": "32"
+        }
+      },
+      {
+        "reason": "The largest survivor roster the timed-OVN tally decoder accepts (1,000), defined in iroha_crypto and compared by the node's Parliament instruction. A per-instruction shape limit of that product, like the ones excluded above; the instruction travels inside a transaction bounded by transaction.max_tx_bytes.",
+        "path": "crates/iroha_crypto/src/timed_ovn.rs",
+        "symbols": [
+          "TIMED_OVN_MAX_PARTICIPANTS_V1"
+        ],
+        "exprs": {
+          "TIMED_OVN_MAX_PARTICIPANTS_V1": "1_000"
+        }
+      },
+      {
+        "reason": "The numeric domain of iroha_primitives: the largest decimal scale (28) and the scale of XOR amounts (9), compared as value ranges in the data model, the node and Torii; the basis-point scale of the SoraFS manifest crate (10,000), compared as the range of a ratio in the data model; and the frame length of a V1 quantity, which the data model compares when it reads the quantity frame of a VPN record. They fix what a numeric value is, a scale or a width, not a budget a transaction can approach.",
+        "files": [
+          {
+            "path": "crates/iroha_primitives/src/numeric.rs",
+            "symbols": [
+              "MAX_DECIMAL_SCALE",
+              "XOR_QUANTITY_SCALE"
+            ],
+            "exprs": {
+              "MAX_DECIMAL_SCALE": "28",
+              "XOR_QUANTITY_SCALE": "9"
+            }
+          },
+          {
+            "path": "crates/iroha_primitives/src/numeric_abi.rs",
+            "symbols": [
+              "MAX_QUANTITY_FRAME_BYTES_V1"
+            ],
+            "exprs": {
+              "MAX_QUANTITY_FRAME_BYTES_V1": "MAX_DECIMAL_FRAME_BYTES_V1"
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/deal.rs",
+            "symbols": [
+              "BASIS_POINTS_PER_UNIT"
+            ],
+            "exprs": {
+              "BASIS_POINTS_PER_UNIT": "10_000"
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Hard ceilings of iroha_crypto's ordered-range table builder: rows, the sum of retained key and value frame bytes, one key frame and one value frame. The node's State authority-registry readers take the smaller of each ceiling and the limit their caller passes (`limits.max_rows.min(..)`), so a ceiling admits nothing the caller's limit refuses. They bound one table capture of the node, never a transaction, proof or block; what a committed State table may hold is the State commitment's decision (G.3).",
+        "path": "crates/iroha_crypto/src/merkle_map/ordered_range.rs",
+        "symbols": [
+          "MAX_NORITO_TREE_ENTRIES",
+          "MAX_NORITO_TREE_PAYLOAD_BYTES",
+          "MAX_NORITO_KEY_BYTES",
+          "MAX_NORITO_VALUE_BYTES"
+        ],
+        "exprs": {
+          "MAX_NORITO_TREE_ENTRIES": "65_536",
+          "MAX_NORITO_TREE_PAYLOAD_BYTES": "64 * 1024 * 1024",
+          "MAX_NORITO_KEY_BYTES": "4 * 1024",
+          "MAX_NORITO_VALUE_BYTES": "1024 * 1024"
+        }
+      },
+      {
+        "reason": "Terms of excluded limits, defined in the model crate: the byte length of a canonical StatePath, as which the durable-state path bound of the ABI (STATE_MAX_PATH_BYTES, excluded above with the shape bounds of the durable-state syscalls) is defined. It shares the reason of that limit.",
+        "path": "crates/iroha_model_base/src/state_path.rs",
+        "symbols": [
+          "MAX_STATE_PATH_BYTES"
+        ],
+        "exprs": {
+          "MAX_STATE_PATH_BYTES": "16 * 1024"
+        },
+        "term_of": {
+          "MAX_STATE_PATH_BYTES": [
+            "crates/ivm_abi/src/syscalls.rs: STATE_MAX_PATH_BYTES"
+          ]
+        }
+      },
+      {
+        "reason": "Terms of excluded limits, defined in the SoraFS manifest crate: integer constants found only because the defining expressions of the decode, proof and registry limits of the node's SoraFS instruction handlers and finalized-source readers (excluded above) name them: the value length of capacity and replication-order metadata, the PDP challenge, proof and governance-archive payload ceilings, and the membership-proof ceiling and revocation count of the proof-of-possession registry. Each shares the reason of the limits `term_of` lists for it: a bound of that product, not of the transaction and proof path.",
+        "files": [
+          {
+            "path": "crates/sorafs_manifest/src/capacity.rs",
+            "symbols": [
+              "MAX_CAPACITY_METADATA_VALUE_BYTES"
+            ],
+            "exprs": {
+              "MAX_CAPACITY_METADATA_VALUE_BYTES": "4096"
+            },
+            "term_of": {
+              "MAX_CAPACITY_METADATA_VALUE_BYTES": [
+                "crates/iroha_core/src/query/provider_ingest_finalized.rs: REPLICATION_ORDER_DECODE_LIMITS_V1",
+                "crates/iroha_core/src/smartcontracts/isi/sorafs.rs: CAPACITY_DECLARATION_DECODE_LIMITS",
+                "crates/iroha_core/src/smartcontracts/isi/sorafs.rs: REPLICATION_ORDER_DECODE_LIMITS",
+                "crates/iroha_torii/src/routing.rs: SORAFS_CAPACITY_DECLARATION_DECODE_LIMITS",
+                "crates/iroha_torii/src/sorafs/registry.rs: REPLICATION_ORDER_DECODE_LIMITS_V1"
+              ]
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/pdp.rs",
+            "symbols": [
+              "PDP_CHALLENGE_MAX_CANONICAL_BYTES_V1",
+              "PDP_PROOF_MAX_CANONICAL_BYTES_V1",
+              "PDP_GOVERNANCE_ARCHIVE_MAX_CANONICAL_BYTES_V1"
+            ],
+            "exprs": {
+              "PDP_CHALLENGE_MAX_CANONICAL_BYTES_V1": "512 * 1024",
+              "PDP_PROOF_MAX_CANONICAL_BYTES_V1": "16 * 1024 * 1024",
+              "PDP_GOVERNANCE_ARCHIVE_MAX_CANONICAL_BYTES_V1": "PDP_CHALLENGE_MAX_CANONICAL_BYTES_V1 + PDP_PROOF_MAX_CANONICAL_BYTES_V1 + 64 * 1024"
+            },
+            "term_of": {
+              "PDP_CHALLENGE_MAX_CANONICAL_BYTES_V1": [
+                "crates/sorafs_manifest/src/pdp.rs: PDP_GOVERNANCE_ARCHIVE_MAX_CANONICAL_BYTES_V1"
+              ],
+              "PDP_PROOF_MAX_CANONICAL_BYTES_V1": [
+                "crates/iroha_core/src/smartcontracts/isi/sorafs_proof_outcome.rs: PDP_PROOF_LIMITS",
+                "crates/sorafs_manifest/src/pdp.rs: PDP_GOVERNANCE_ARCHIVE_MAX_CANONICAL_BYTES_V1"
+              ],
+              "PDP_GOVERNANCE_ARCHIVE_MAX_CANONICAL_BYTES_V1": [
+                "crates/iroha_core/src/smartcontracts/isi/sorafs_proof_outcome.rs: PDP_ARCHIVE_LIMITS"
+              ]
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/pop_credentials.rs",
+            "symbols": [
+              "POP_MEMBERSHIP_PROOF_MAX_BYTES_V1",
+              "POP_REVOCATION_ENTRIES_MAX_V1"
+            ],
+            "exprs": {
+              "POP_MEMBERSHIP_PROOF_MAX_BYTES_V1": "128 * 1024",
+              "POP_REVOCATION_ENTRIES_MAX_V1": "4_096"
+            },
+            "term_of": {
+              "POP_MEMBERSHIP_PROOF_MAX_BYTES_V1": [
+                "crates/iroha_core/src/smartcontracts/isi/sorafs_moderation.rs: PROOF_LIMITS",
+                "crates/iroha_torii/src/sorafs/pop_api.rs: POP_PROOF_REQUEST_MAX_BYTES_V1"
+              ],
+              "POP_REVOCATION_ENTRIES_MAX_V1": [
+                "crates/iroha_core/src/smartcontracts/isi/sorafs_pop_registry.rs: BATCH_LIMITS",
+                "crates/iroha_core/src/smartcontracts/isi/sorafs_pop_registry.rs: REVOCATION_LIMITS",
+                "crates/iroha_core/src/smartcontracts/isi/sorafs_pop_registry.rs: STATE_LIMITS"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Terms of excluded limits, defined in the SoraFS manifest, node and CAR crates and the configuration defaults: integer constants found only because the defining expressions of request, response and record ceilings of Torii's SoraFS endpoints (excluded above) name them: the source payload ceiling of the governance DAG with the signed reputation snapshot ceiling it equals, the proof-of-retrievability proof, audit-verdict and status-page record ceilings, the wire and header ceilings of a stream token, the signed billing statement ceiling, the encrypted enrollment envelope ceiling, the publisher-source header ceiling and the runtime-state entry ceiling of the proof-of-retrievability projections. Each shares the reason of the limits `term_of` lists for it: a local serving limit.",
+        "files": [
+          {
+            "path": "crates/sorafs_manifest/src/governance.rs",
+            "symbols": [
+              "GOVERNANCE_DAG_SOURCE_PAYLOAD_MAX_CANONICAL_BYTES_V1"
+            ],
+            "exprs": {
+              "GOVERNANCE_DAG_SOURCE_PAYLOAD_MAX_CANONICAL_BYTES_V1": "MAX_SIGNED_REPUTATION_SNAPSHOT_ENCODED_BYTES"
+            },
+            "term_of": {
+              "GOVERNANCE_DAG_SOURCE_PAYLOAD_MAX_CANONICAL_BYTES_V1": [
+                "crates/iroha_torii/src/sorafs/api.rs: GOVERNANCE_DAG_CAR_SOURCE_TOTAL_MAX_BYTES"
+              ]
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/reputation/signed.rs",
+            "symbols": [
+              "MAX_SIGNED_REPUTATION_SNAPSHOT_ENCODED_BYTES"
+            ],
+            "exprs": {
+              "MAX_SIGNED_REPUTATION_SNAPSHOT_ENCODED_BYTES": "64 * 1024 * 1024"
+            },
+            "term_of": {
+              "MAX_SIGNED_REPUTATION_SNAPSHOT_ENCODED_BYTES": [
+                "crates/sorafs_manifest/src/governance.rs: GOVERNANCE_DAG_SOURCE_PAYLOAD_MAX_CANONICAL_BYTES_V1"
+              ]
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/por.rs",
+            "symbols": [
+              "POR_PROOF_MAX_CANONICAL_BYTES_V1",
+              "AUDIT_VERDICT_MAX_CANONICAL_BYTES_V1",
+              "POR_CHALLENGE_STATUS_PAGE_MAX_RECORD_BYTES_V1"
+            ],
+            "exprs": {
+              "POR_PROOF_MAX_CANONICAL_BYTES_V1": "16 * 1024 * 1024",
+              "AUDIT_VERDICT_MAX_CANONICAL_BYTES_V1": "256 * 1024",
+              "POR_CHALLENGE_STATUS_PAGE_MAX_RECORD_BYTES_V1": "4 * 1024 * 1024"
+            },
+            "term_of": {
+              "POR_PROOF_MAX_CANONICAL_BYTES_V1": [
+                "crates/iroha_torii/src/routing.rs: POR_PROOF_SUBMISSION_MAX_HTTP_BODY_BYTES_V1"
+              ],
+              "AUDIT_VERDICT_MAX_CANONICAL_BYTES_V1": [
+                "crates/iroha_torii/src/routing.rs: POR_VERDICT_SUBMISSION_MAX_HTTP_BODY_BYTES_V1"
+              ],
+              "POR_CHALLENGE_STATUS_PAGE_MAX_RECORD_BYTES_V1": [
+                "crates/iroha_torii/src/sorafs/por.rs: POR_STATUS_PAGE_MAX_CANONICAL_BYTES_V1"
+              ]
+            }
+          },
+          {
+            "path": "crates/sorafs_manifest/src/token.rs",
+            "symbols": [
+              "STREAM_TOKEN_MAX_WIRE_BYTES_V1",
+              "STREAM_TOKEN_MAX_BASE64_BYTES_V1"
+            ],
+            "exprs": {
+              "STREAM_TOKEN_MAX_WIRE_BYTES_V1": "2_048",
+              "STREAM_TOKEN_MAX_BASE64_BYTES_V1": "4_096"
+            },
+            "term_of": {
+              "STREAM_TOKEN_MAX_WIRE_BYTES_V1": [
+                "crates/iroha_torii/src/sorafs/token.rs: MAX_STREAM_TOKEN_WIRE_BYTES"
+              ],
+              "STREAM_TOKEN_MAX_BASE64_BYTES_V1": [
+                "crates/iroha_torii/src/sorafs/token.rs: MAX_STREAM_TOKEN_BASE64_BYTES"
+              ]
+            }
+          },
+          {
+            "path": "crates/sorafs_node/src/hedging_billing_service.rs",
+            "symbols": [
+              "SIGNED_GOVERNED_BILLING_STATEMENT_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "SIGNED_GOVERNED_BILLING_STATEMENT_MAX_BYTES_V1": "20 * 1024 * 1024"
+            },
+            "term_of": {
+              "SIGNED_GOVERNED_BILLING_STATEMENT_MAX_BYTES_V1": [
+                "crates/iroha_torii/src/sorafs/hedging_billing_api.rs: MAX_PUBLISHED_STATEMENT_RESPONSE_BYTES_V1"
+              ]
+            }
+          },
+          {
+            "path": "crates/sorafs_node/src/pop_credentials.rs",
+            "symbols": [
+              "POP_ENCRYPTED_ENROLLMENT_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "POP_ENCRYPTED_ENROLLMENT_MAX_BYTES_V1": "1024 * 1024"
+            },
+            "term_of": {
+              "POP_ENCRYPTED_ENROLLMENT_MAX_BYTES_V1": [
+                "crates/iroha_torii/src/sorafs/pop_api.rs: POP_ENROLLMENT_REQUEST_MAX_BYTES_V1"
+              ]
+            }
+          },
+          {
+            "path": "crates/sorafs_car/src/publisher.rs",
+            "symbols": [
+              "PUBLISHER_SOURCE_HEADER_MAX_BYTES_V1"
+            ],
+            "exprs": {
+              "PUBLISHER_SOURCE_HEADER_MAX_BYTES_V1": "4 * 1024 * 1024"
+            },
+            "term_of": {
+              "PUBLISHER_SOURCE_HEADER_MAX_BYTES_V1": [
+                "crates/sorafs_car/src/publisher.rs: PROVIDER_SOURCE_RESPONSE_MAX_BYTES_V1"
+              ]
+            }
+          },
+          {
+            "path": "crates/iroha_config/src/parameters/defaults.rs",
+            "symbols": [
+              "RUNTIME_STATE_ENTRY_LIMIT_MAX"
+            ],
+            "exprs": {
+              "RUNTIME_STATE_ENTRY_LIMIT_MAX": "65_536"
+            },
+            "term_of": {
+              "RUNTIME_STATE_ENTRY_LIMIT_MAX": [
+                "crates/iroha_torii/src/sorafs/por.rs: MAX_POR_COORDINATOR_RECORDS"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Terms of excluded limits, defined in the configuration defaults, the shared API crate, the Kotodama front end and iroha_crypto: integer constants found only because the defining expressions of ceilings of Torii's attachment store, background prover, list filters, contract-source service and operator-key and fan-out helpers (excluded above) name them: the node-global attachment count; the prover's report, summary, aggregate-report and per-scan byte budgets and its scan time budget; the depth, node and membership limits of a list filter; the path length and the size of one contract source; and the protocol-wide payload ceiling of one public key. Each shares the reason of the limits `term_of` lists for it: a local serving limit. The public-key ceiling bounds one key inside signed bytes that transaction.max_tx_bytes and the frame bounds cover; transport.max_public_key_len is the listed bound of a consensus key on the transport path.",
+        "files": [
+          {
+            "path": "crates/iroha_config/src/parameters/defaults.rs",
+            "symbols": [
+              "ATTACHMENTS_GLOBAL_MAX_COUNT_MAX",
+              "ZK_PROVER_REPORTS_MAX_BYTES",
+              "ZK_PROVER_REPORT_MAX_BYTES_V1",
+              "ZK_PROVER_REPORT_SUMMARY_MAX_BYTES_V1",
+              "ZK_PROVER_MAX_SCAN_BYTES",
+              "ZK_PROVER_MAX_SCAN_MILLIS"
+            ],
+            "exprs": {
+              "ATTACHMENTS_GLOBAL_MAX_COUNT_MAX": "20_000",
+              "ZK_PROVER_REPORTS_MAX_BYTES": "256 * 1024 * 1024",
+              "ZK_PROVER_REPORT_MAX_BYTES_V1": "8 * 1024 * 1024",
+              "ZK_PROVER_REPORT_SUMMARY_MAX_BYTES_V1": "64 * 1024",
+              "ZK_PROVER_MAX_SCAN_BYTES": "16 * 1024 * 1024",
+              "ZK_PROVER_MAX_SCAN_MILLIS": "2_000"
+            },
+            "term_of": {
+              "ATTACHMENTS_GLOBAL_MAX_COUNT_MAX": [
+                "crates/iroha_torii/src/zk_attachments.rs: ATTACHMENT_META_SCAN_MAX_FILES"
+              ],
+              "ZK_PROVER_REPORTS_MAX_BYTES": [
+                "crates/iroha_torii/src/zk_prover.rs: cfg_reports_max_bytes"
+              ],
+              "ZK_PROVER_REPORT_MAX_BYTES_V1": [
+                "crates/iroha_torii/src/zk_prover.rs: REPORT_FILE_MAX_BYTES"
+              ],
+              "ZK_PROVER_REPORT_SUMMARY_MAX_BYTES_V1": [
+                "crates/iroha_torii/src/zk_prover.rs: REPORT_SUMMARY_FILE_MAX_BYTES"
+              ],
+              "ZK_PROVER_MAX_SCAN_BYTES": [
+                "crates/iroha_torii/src/zk_prover.rs: cfg_max_scan_bytes"
+              ],
+              "ZK_PROVER_MAX_SCAN_MILLIS": [
+                "crates/iroha_torii/src/zk_prover.rs: cfg_max_scan_millis"
+              ]
+            }
+          },
+          {
+            "path": "crates/iroha_torii_shared/src/list_query/filter.rs",
+            "symbols": [
+              "FILTER_MAX_DEPTH",
+              "FILTER_MAX_NODES",
+              "FILTER_MAX_MEMBERSHIP_VALUES",
+              "FILTER_MAX_TOTAL_MEMBERSHIP_VALUES"
+            ],
+            "exprs": {
+              "FILTER_MAX_DEPTH": "10",
+              "FILTER_MAX_NODES": "1_024",
+              "FILTER_MAX_MEMBERSHIP_VALUES": "1_024",
+              "FILTER_MAX_TOTAL_MEMBERSHIP_VALUES": "4_096"
+            },
+            "term_of": {
+              "FILTER_MAX_DEPTH": [
+                "crates/iroha_torii/src/filter.rs: FILTER_EXPR_MAX_DEPTH"
+              ],
+              "FILTER_MAX_NODES": [
+                "crates/iroha_torii/src/filter.rs: FILTER_EXPR_MAX_NODES"
+              ],
+              "FILTER_MAX_MEMBERSHIP_VALUES": [
+                "crates/iroha_torii/src/filter.rs: FILTER_EXPR_MAX_MEMBERSHIP_VALUES"
+              ],
+              "FILTER_MAX_TOTAL_MEMBERSHIP_VALUES": [
+                "crates/iroha_torii/src/filter.rs: FILTER_EXPR_MAX_TOTAL_MEMBERSHIP_VALUES"
+              ]
+            }
+          },
+          {
+            "path": "crates/kotodama_lang/src/linker.rs",
+            "symbols": [
+              "MAX_LOGICAL_SOURCE_PATH_BYTES"
+            ],
+            "exprs": {
+              "MAX_LOGICAL_SOURCE_PATH_BYTES": "4096"
+            },
+            "term_of": {
+              "MAX_LOGICAL_SOURCE_PATH_BYTES": [
+                "crates/iroha_torii/src/contract_sources.rs: VERIFIED_SOURCE_NAME_MAX_BYTES_V1"
+              ]
+            }
+          },
+          {
+            "path": "crates/kotodama_lang/src/source.rs",
+            "symbols": [
+              "MAX_SOURCE_BYTES"
+            ],
+            "exprs": {
+              "MAX_SOURCE_BYTES": "1024 * 1024"
+            },
+            "term_of": {
+              "MAX_SOURCE_BYTES": [
+                "crates/iroha_torii/src/contract_sources.rs: VERIFIED_SOURCE_TEXT_MAX_BYTES_V1"
+              ]
+            }
+          },
+          {
+            "path": "crates/iroha_crypto/src/lib.rs",
+            "symbols": [
+              "MAX_PUBLIC_KEY_PAYLOAD_BYTES"
+            ],
+            "exprs": {
+              "MAX_PUBLIC_KEY_PAYLOAD_BYTES": "2 + (u16::MAX as usize / 8) + 65"
+            },
+            "term_of": {
+              "MAX_PUBLIC_KEY_PAYLOAD_BYTES": [
+                "crates/iroha_torii/src/mcp.rs: OPERATOR_PUBLIC_KEY_MAX_LITERAL_BYTES",
+                "crates/iroha_torii/src/torii_fanout_decode_helpers.rs: QUERY_FANOUT_PUBLIC_KEY_VALIDATION_SCRATCH_BYTES",
+                "crates/iroha_torii/src/torii_fanout_decode_helpers.rs: query_fanout_candidate_snapshot_overhead_bytes"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Terms of excluded limits, defined in iroha_primitives: the mantissa width in bits and in bytes, the numeric frame header and the integer and decimal frame lengths, from which the V1 quantity frame length (excluded above with the numeric domain) is built. Fixed widths of the numeric encoding: they share the reason of that limit.",
+        "files": [
+          {
+            "path": "crates/iroha_primitives/src/numeric.rs",
+            "symbols": [
+              "MAX_MANTISSA_BITS",
+              "MAX_MANTISSA_BYTES"
+            ],
+            "exprs": {
+              "MAX_MANTISSA_BITS": "512",
+              "MAX_MANTISSA_BYTES": "MAX_MANTISSA_BITS / 8"
+            },
+            "term_of": {
+              "MAX_MANTISSA_BITS": [
+                "crates/iroha_primitives/src/numeric.rs: MAX_MANTISSA_BYTES"
+              ],
+              "MAX_MANTISSA_BYTES": [
+                "crates/iroha_primitives/src/numeric_abi.rs: MAX_INT_FRAME_BYTES_V1"
+              ]
+            }
+          },
+          {
+            "path": "crates/iroha_primitives/src/numeric_abi.rs",
+            "symbols": [
+              "NUMERIC_FRAME_HEADER_BYTES_V1",
+              "MAX_INT_FRAME_BYTES_V1",
+              "MAX_DECIMAL_FRAME_BYTES_V1"
+            ],
+            "exprs": {
+              "NUMERIC_FRAME_HEADER_BYTES_V1": "40",
+              "MAX_INT_FRAME_BYTES_V1": "NUMERIC_FRAME_HEADER_BYTES_V1 + 4 + MAX_MANTISSA_BYTES",
+              "MAX_DECIMAL_FRAME_BYTES_V1": "MAX_INT_FRAME_BYTES_V1 + 1"
+            },
+            "term_of": {
+              "NUMERIC_FRAME_HEADER_BYTES_V1": [
+                "crates/iroha_primitives/src/numeric_abi.rs: MAX_INT_FRAME_BYTES_V1"
+              ],
+              "MAX_INT_FRAME_BYTES_V1": [
+                "crates/iroha_primitives/src/numeric_abi.rs: MAX_DECIMAL_FRAME_BYTES_V1"
+              ],
+              "MAX_DECIMAL_FRAME_BYTES_V1": [
+                "crates/iroha_primitives/src/numeric_abi.rs: MAX_QUANTITY_FRAME_BYTES_V1"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "reason": "Terms of excluded limits, defined in the configuration defaults: the number of blocks the node caches in memory, from which the default capacity of the node's pipeline-sidecar queue (a limit-named function excluded above) is computed. Node-local sizing; it changes no verdict.",
+        "path": "crates/iroha_config/src/parameters/defaults.rs",
+        "symbols": [
+          "BLOCKS_IN_MEMORY"
+        ],
+        "exprs": {
+          "BLOCKS_IN_MEMORY": "nonzero!(1024_usize)"
+        },
+        "term_of": {
+          "BLOCKS_IN_MEMORY": [
+            "crates/iroha_core/src/kura.rs: default_pipeline_sidecar_queue_cap"
+          ]
+        }
+      },
+      {
+        "reason": "Terms of excluded limits, defined in iroha_crypto's BFV code: the seed, bootstrap-key identifier, refresh-round and rotation-key ceilings, as which the refresh-transcript bounds of the Soracloud schema in the data model (excluded above) are defined. Each shares the reason of its limit: a bound of that product's envelopes.",
+        "path": "crates/iroha_crypto/src/fhe_bfv.rs",
+        "symbols": [
+          "BFV_DETERMINISTIC_SEED_MAX_BYTES",
+          "BFV_BOOTSTRAP_KEY_ID_MAX_BYTES",
+          "BFV_BOOTSTRAP_KEY_MAX_REFRESH_ROUNDS",
+          "BFV_EVALUATION_KEY_MAX_ROTATION_KEYS"
+        ],
+        "exprs": {
+          "BFV_DETERMINISTIC_SEED_MAX_BYTES": "64",
+          "BFV_BOOTSTRAP_KEY_ID_MAX_BYTES": "128",
+          "BFV_BOOTSTRAP_KEY_MAX_REFRESH_ROUNDS": "1",
+          "BFV_EVALUATION_KEY_MAX_ROTATION_KEYS": "64"
+        },
+        "term_of": {
+          "BFV_DETERMINISTIC_SEED_MAX_BYTES": [
+            "crates/iroha_data_model/src/soracloud.rs: BFV_REFRESH_TRANSCRIPT_SEED_MAX_BYTES"
+          ],
+          "BFV_BOOTSTRAP_KEY_ID_MAX_BYTES": [
+            "crates/iroha_data_model/src/soracloud.rs: BFV_REFRESH_TRANSCRIPT_BOOTSTRAP_KEY_ID_MAX_BYTES"
+          ],
+          "BFV_BOOTSTRAP_KEY_MAX_REFRESH_ROUNDS": [
+            "crates/iroha_data_model/src/soracloud.rs: BFV_REFRESH_TRANSCRIPT_MAX_BOOTSTRAP_REFRESH_ROUNDS"
+          ],
+          "BFV_EVALUATION_KEY_MAX_ROTATION_KEYS": [
+            "crates/iroha_data_model/src/soracloud.rs: BFV_REFRESH_TRANSCRIPT_MAX_ROTATION_TRANSCRIPTS"
+          ]
+        }
+      },
+      {
+        "reason": "Terms of excluded limits, defined in iroha_crypto: the committee size of the threshold-BLS profile (31 members, 3f + 1 with f = 10), as which the partial-slot count of the node's global beacon (excluded above) is defined. Committee-size geometry: a protocol structure bound, covered on the transport path by transport.max_committee_size.",
+        "path": "crates/iroha_crypto/src/threshold_bls.rs",
+        "symbols": [
+          "THRESHOLD_BLS_MAX_COMMITTEE_SIZE_V1"
+        ],
+        "exprs": {
+          "THRESHOLD_BLS_MAX_COMMITTEE_SIZE_V1": "31"
+        },
+        "term_of": {
+          "THRESHOLD_BLS_MAX_COMMITTEE_SIZE_V1": [
+            "crates/iroha_core/src/beacon.rs: GLOBAL_BEACON_PARTIAL_SLOTS"
+          ]
+        }
+      },
+      {
+        "reason": "Terms of excluded limits, defined in the shared API crate: the operation-status response ceiling of the KAGEMUSHA API, from which the record and status ceilings of the testnet mint journal of that product (excluded above) are defined. It bounds a response of that product, never a transaction.",
+        "path": "crates/iroha_torii_shared/src/kagemusha_api.rs",
+        "symbols": [
+          "KAGEMUSHA_OPERATION_STATUS_MAX_BYTES_V1"
+        ],
+        "exprs": {
+          "KAGEMUSHA_OPERATION_STATUS_MAX_BYTES_V1": "KAGEMUSHA_OPERATION_RESULT_MAX_BYTES_V1 + 256"
+        },
+        "term_of": {
+          "KAGEMUSHA_OPERATION_STATUS_MAX_BYTES_V1": [
+            "crates/iroha_core_zk/src/kagemusha_v1_recursion/testnet_mint_journal.rs: RECORD_MAX_BYTES",
+            "crates/iroha_core_zk/src/kagemusha_v1_recursion/testnet_mint_journal.rs: STATUS_MAX_BYTES"
+          ]
+        }
       }
     ],
     "literals": {
@@ -22934,12 +24400,6 @@
               "path": "crates/iroha_core/src/smartcontracts/isi/domain.rs",
               "sites": {
                 "generation >= 2": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core/src/smartcontracts/isi/kagemusha/ordinary_mint_publication.rs",
-              "sites": {
-                "height < 2": 1
               }
             },
             {
@@ -24215,12 +25675,6 @@
               }
             },
             {
-              "path": "crates/iroha_core/src/smartcontracts/isi/kagemusha/ordinary_mint_clock.rs",
-              "sites": {
-                "tip.height().saturating_sub(1).min(2)": 1
-              }
-            },
-            {
               "path": "crates/iroha_core/src/smartcontracts/isi/query.rs",
               "sites": {
                 "fetch_size.min(1024)": 2,
@@ -25028,14 +26482,8 @@
           ]
         },
         {
-          "reason": "Field ceilings and exact ranges of the KAGEMUSHA offline-cash product (data model, proof crate and node handler): the length of one original document, certificate, attestation, signature, token, account, package or identifier; the count of one list; a journal sequence, a history size and a tree depth. Each is checked where that record is decoded or admitted. They are shape limits of one product's own records, like its named constants excluded above. None is a transaction, block, frame or generic proof ceiling. Some are written as a named ceiling of the product with a fixed allowance: 1,024 bytes above a possession record for its archive, 64 KiB kept free below a Node Mint submission, 87 bytes added to a proof input before it is compared with the proof ceiling, a quarter of a frame for one of four clock originals, and 65,536-byte chunks of a journal. The named ceiling is excluded above; the allowance is pinned here.",
+          "reason": "Field ceilings and exact ranges of the KAGEMUSHA offline-cash product (data model and proof crate): the length of one original document, certificate, attestation, signature, token, account, package or identifier; the count of one list; a journal sequence, a history size and a tree depth. Each is checked where that record is decoded or admitted. They are shape limits of one product's own records, like its named constants excluded above. None is a transaction, block, frame or generic proof ceiling. Some are written as a named ceiling of the product with a fixed allowance: 1,024 bytes above a possession record for its archive, 64 KiB kept free below a Node Mint submission, 87 bytes added to a proof input before it is compared with the proof ceiling, a quarter of a frame for one of four clock originals, and 65,536-byte chunks of a journal. The named ceiling is excluded above; the allowance is pinned here.",
           "files": [
-            {
-              "path": "crates/iroha_core/src/smartcontracts/isi/kagemusha.rs",
-              "sites": {
-                "values.len() > 3": 1
-              }
-            },
             {
               "path": "crates/iroha_core_zk/src/kagemusha_v1_recursion/bootstrap_statement_binding.rs",
               "sites": {
@@ -25555,13 +27003,6 @@
               "sites": {
                 "first.len() > 64 * 1024": 1,
                 "second.len() > 64 * 1024": 1
-              }
-            },
-            {
-              "path": "crates/iroha_core/src/state/world_state_snapshot/ordinary_mint_issuer.rs",
-              "sites": {
-                "norito::canonical_frame_len(permissions).map_err(|e| e.to_string())? > 64 * 1024": 1,
-                "norito::canonical_frame_len(role).map_err(|e| e.to_string())? > 64 * 1024": 1
               }
             },
             {

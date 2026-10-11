@@ -54,6 +54,7 @@ use iroha_data_model::{
         SealedTransactionCommitmentPayload, SealedTransactionReveal,
         SignedSealedTransactionCommitment, compute_sealed_transaction_commitment,
     },
+    transaction::signed_attachments::{ActionOperationV1, SignedAttachmentErrorV1},
     transaction::{error::TransactionLimitError, signed::TransactionSignatureError},
 };
 use iroha_logger::{debug, error, warn};
@@ -196,6 +197,13 @@ pub(crate) fn execution_rejection_from_admission_failure(
 ) -> TransactionRejectionReason {
     match fail {
         AcceptTransactionFail::TransactionLimit(err) => TransactionRejectionReason::LimitCheck(err),
+        // The committed rejection keeps the class attachment shape failures
+        // always had; the typed violation is its deterministic reason text.
+        AcceptTransactionFail::SignedAttachments(violation) => {
+            TransactionRejectionReason::LimitCheck(TransactionLimitError {
+                reason: format!("Signed attachments rejected: {violation}"),
+            })
+        }
         AcceptTransactionFail::SignatureVerification(sig_fail) => {
             TransactionRejectionReason::Validation(iroha_data_model::ValidationFail::NotPermitted(
                 format!("signature verification failed: {}", sig_fail.detail),
@@ -235,48 +243,6 @@ pub(crate) fn execution_rejection_from_admission_failure(
     }
 }
 
-/// Enforce the signature-bound payer and admission intent of every native KAGEMUSHA V1 top-up.
-///
-/// Queue admission calls this before deriving an operation-id claim, while stateful validation
-/// repeats it as a deterministic last line of defence for block and replay execution paths.
-pub(crate) fn validate_kagemusha_top_up_admission_invariants_v1(
-    tx: &SignedTransaction,
-) -> Result<(), &'static str> {
-    fn is_top_up(instruction: &InstructionBox) -> bool {
-        instruction
-            .as_any()
-            .downcast_ref::<iroha_data_model::isi::kagemusha_v1::TopUpKagemushaV1>()
-            .is_some()
-    }
-    let contains_top_up = tx.instructions().explicit_instructions().any(is_top_up)
-        || matches!(
-            tx.instructions(),
-            Executable::IvmProved(proved) if proved.overlay.iter().any(is_top_up)
-        );
-    if !contains_top_up {
-        return Ok(());
-    }
-    let Executable::Instructions(instructions) = tx.instructions() else {
-        return Err(
-            "KAGEMUSHA V1 top-up cannot be carried by batch, proved, overlay, or opaque execution",
-        );
-    };
-    let [instruction] = instructions.as_ref() else {
-        return Err("a KAGEMUSHA V1 top-up must be the only instruction in its signed transaction");
-    };
-    let Some(top_up) = instruction
-        .as_any()
-        .downcast_ref::<iroha_data_model::isi::kagemusha_v1::TopUpKagemushaV1>()
-    else {
-        return Err("KAGEMUSHA V1 top-up carrier shape changed during validation");
-    };
-    let request = top_up.request();
-    if tx.authority() != &request.payer {
-        return Err("KAGEMUSHA V1 top-up authority must equal the embedded payer");
-    }
-
-    Ok(())
-}
 /// Project a hash known to identify an external signed transaction into its entrypoint identity.
 ///
 /// `TransactionEntrypoint::External` deliberately preserves the signed transaction's digest.
@@ -1003,6 +969,8 @@ impl SignatureVerificationFail {
 pub enum AcceptTransactionFail {
     /// Failure during limits check
     TransactionLimit(#[source] TransactionLimitError),
+    /// Signed attachment schema violation: {0}
+    SignedAttachments(#[source] SignedAttachmentErrorV1),
     /// Failure during signature verification
     SignatureVerification(#[source] SignatureVerificationFail),
     /// Transaction expired at `{expires_at_ms}` ms since Unix epoch (current time `{now_ms}` ms)
@@ -1209,8 +1177,6 @@ fn is_time_sensitive_instruction_type(type_id: TypeId) -> bool {
         };
     }
     matches_any_type!(
-        iroha_data_model::isi::kagemusha_v1::TopUpKagemushaV1,
-        iroha_data_model::isi::kagemusha_v1::RedeemKagemushaV1,
         iroha_data_model::isi::private_settlement::ActivatePrivateSettlementPoolV1,
         iroha_data_model::isi::private_settlement::RegisterAtomicPrivateSettlementPrepareV1,
         iroha_data_model::isi::private_settlement::AbortAtomicPrivateSettlementV1,
@@ -1327,27 +1293,45 @@ fn enforce_nts_health_for_entrypoint(
         TransactionEntrypoint::SealedCommitment(_) => Ok(()),
     }
 }
-fn validate_proof_attachment_shapes(tx: &SignedTransaction) -> Result<(), AcceptTransactionFail> {
-    let Some(attachments) = tx.attachments() else {
-        return Ok(());
-    };
-    if attachments.is_empty() {
-        return Err(AcceptTransactionFail::TransactionLimit(
-            TransactionLimitError {
-                reason: "Proof attachment list must not be empty".into(),
-            },
-        ));
+/// Whether an executor route consumes the attachments of this operation.
+///
+/// Registration of an instruction wire identifier does not establish support:
+/// an attachment-backed action is admitted only when a route verifies its
+/// statement and consumes its declared occurrences.
+pub(crate) const fn attachment_operation_is_supported(operation: &ActionOperationV1) -> bool {
+    match operation {
+        // The transaction-level carriers are preverified by the executor.
+        ActionOperationV1::TransactionProof | ActionOperationV1::IvmProvedExecution => true,
+        // TODO(I.2, I.3): no invocation-scoped attachment handle and no typed
+        // native bridge exist yet, so nothing would consume the declared
+        // occurrences of a native instruction action. Such a declaration is
+        // refused until those routes exist; deleting this refusal alone would
+        // admit declarations that are never consumed.
+        ActionOperationV1::NativeInstruction(_) => false,
     }
-    for (index, attachment) in attachments.as_slice().iter().enumerate() {
-        if let Some((field, message)) = attachment.structural_error() {
-            return Err(AcceptTransactionFail::TransactionLimit(
-                TransactionLimitError {
-                    reason: format!("Proof attachment {index} `{field}` {message}"),
-                },
-            ));
-        }
-    }
-    Ok(())
+}
+/// Refuse the first declared action whose operation has no consuming route.
+pub(crate) fn first_unsupported_attachment_operation(
+    tx: &SignedTransaction,
+) -> Option<SignedAttachmentErrorV1> {
+    tx.attachments()?
+        .actions()
+        .iter()
+        .find(|action| !attachment_operation_is_supported(&action.operation))
+        .map(|action| SignedAttachmentErrorV1::UnsupportedOperation {
+            action_index: action.action_index,
+        })
+}
+/// Validate the ordered intent descriptor and the signed attachment occurrences.
+///
+/// Type, index, length and hash of every occurrence, the reference–occurrence
+/// bijection, the closed operation rules, the invocation bindings, the wrapped
+/// proof carriers and the statement bindings are checked by the shared
+/// data-model predicate; this node additionally refuses an operation that no
+/// executor route consumes.
+fn validate_signed_attachments(tx: &SignedTransaction) -> Result<(), AcceptTransactionFail> {
+    tx.validate_signed_attachments_v1()?;
+    first_unsupported_attachment_operation(tx).map_or(Ok(()), |error| Err(error.into()))
 }
 impl<'tx> AcceptedTransaction<'tx> {
     fn from_entrypoint(entrypoint: Cow<'tx, TransactionEntrypoint>) -> Self {
@@ -2115,25 +2099,10 @@ impl<'tx> AcceptedTransaction<'tx> {
                 },
             ));
         }
-        validate_proof_attachment_shapes(tx)?;
-        let decompressed_len = tx.attachments().map_or(0usize, |attachments| {
-            attachments
-                .as_slice()
-                .iter()
-                .fold(0usize, |acc, attachment| {
-                    let mut subtotal = attachment.proof.bytes.len();
-                    if attachment.vk_commitment.is_some() {
-                        subtotal = subtotal.saturating_add(32);
-                    }
-                    if attachment.envelope_hash.is_some() {
-                        subtotal = subtotal.saturating_add(32);
-                    }
-                    if let Some(privacy) = &attachment.lane_privacy {
-                        subtotal = subtotal.saturating_add(privacy.encoded_len());
-                    }
-                    acc.saturating_add(subtotal)
-                })
-        });
+        validate_signed_attachments(tx)?;
+        let decompressed_len = tx
+            .attachments()
+            .map_or(0usize, |attachments| attachments.total_occurrence_bytes());
         let decompressed_len = u64::try_from(decompressed_len).unwrap_or(u64::MAX);
         let max_decompressed_bytes = limits.max_decompressed_bytes().get();
         if decompressed_len > max_decompressed_bytes {
@@ -2972,9 +2941,6 @@ impl StateBlock<'_> {
                 .map_err(reject_not_permitted)?;
         }
         let authority = tx.authority().clone();
-        validate_kagemusha_top_up_admission_invariants_v1(tx).map_err(|reason| {
-            TransactionRejectionReason::Validation(ValidationFail::NotPermitted(reason.to_owned()))
-        })?;
         if code::is_historical_contract_subject(&state_transaction.world, &authority) {
             warn!(
                 authority = %authority,
@@ -3747,11 +3713,10 @@ fn reject_lane_policy(alias: &str, reason: impl Into<String>) -> TransactionReje
 fn collect_lane_privacy_proofs(
     tx: &SignedTransaction,
 ) -> Vec<iroha_data_model::nexus::LanePrivacyProof> {
-    tx.attachments()
-        .into_iter()
-        .flat_map(|list| list.as_slice().iter())
-        .filter_map(|attachment| attachment.lane_privacy.clone())
-        .collect()
+    // Admission has validated every wrapped carrier. A transaction that
+    // bypassed it and holds a malformed carrier contributes no witness, so the
+    // lane policy that requires one refuses it.
+    tx.lane_privacy_proofs_v1().unwrap_or_default()
 }
 fn enforce_manifest_quorum(
     alias: &str,
@@ -5350,7 +5315,7 @@ pub mod tests {
             ManifestVersion, ParticipantSelector,
         },
         permission::Permissions,
-        proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+        proof::{ProofAttachment, ProofBox, VerifyingKeyId},
         role::{Role, RoleId},
         runtime::RuntimeUpgradeManifest,
         smart_contract::ContractArtifactId,
@@ -8802,10 +8767,8 @@ pub mod tests {
         assert!(super::is_time_sensitive_instruction(&boxed));
     }
     #[test]
-    fn time_sensitive_type_table_covers_offline_and_governance_operations() {
+    fn time_sensitive_type_table_covers_settlement_and_governance_operations() {
         let classified = [
-            TypeId::of::<iroha_data_model::isi::kagemusha_v1::TopUpKagemushaV1>(),
-            TypeId::of::<iroha_data_model::isi::kagemusha_v1::RedeemKagemushaV1>(),
             TypeId::of::<iroha_data_model::isi::private_settlement::ActivatePrivateSettlementPoolV1>(
             ),
             TypeId::of::<
@@ -9772,8 +9735,7 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_metadata_conflict_rejected_even_if_state_matches() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             smart_contract::manifest::ContractManifest,
             transaction::{Executable, TransactionBuilder},
@@ -9810,7 +9772,12 @@ pub mod tests {
                 error_types: None,
                 provenance: None,
             }
-            .try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &fixture.keypair).expect("sign bounded fixture manifest"),
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &fixture.keypair,
+            )
+            .expect("sign bounded fixture manifest"),
         );
         tx1.apply();
         let _ = block1.commit_world_overlay_for_testing();
@@ -9838,7 +9805,12 @@ pub mod tests {
             error_types: None,
             provenance: None,
         }
-        .try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &fixture.keypair).expect("sign bounded fixture manifest");
+        .try_signed(
+            manifest_signing.context(),
+            manifest_signing.max_frame_bytes(),
+            &fixture.keypair,
+        )
+        .expect("sign bounded fixture manifest");
         let mut md = Metadata::default();
         md.insert(
             "contract_manifest".parse::<Name>().unwrap(),
@@ -9870,8 +9842,7 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_abi_and_code_hash_match() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
         use nonzero_ext::nonzero;
         let fixture = IvmAdmissionFixture::new();
@@ -9901,7 +9872,12 @@ pub mod tests {
             error_types: None,
             provenance: None,
         }
-        .try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &fixture.keypair).expect("sign bounded fixture manifest");
+        .try_signed(
+            manifest_signing.context(),
+            manifest_signing.max_frame_bytes(),
+            &fixture.keypair,
+        )
+        .expect("sign bounded fixture manifest");
         let mut md = Metadata::default();
         md.insert(
             "contract_manifest".parse::<Name>().unwrap(),
@@ -9922,8 +9898,7 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_rejects_mismatched_hashes() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
         let fixture = IvmAdmissionFixture::new();
         let prog = minimal_ivm_contract_program();
@@ -9946,7 +9921,12 @@ pub mod tests {
             error_types: None,
             provenance: None,
         }
-        .try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &fixture.keypair).expect("sign bounded fixture manifest");
+        .try_signed(
+            manifest_signing.context(),
+            manifest_signing.max_frame_bytes(),
+            &fixture.keypair,
+        )
+        .expect("sign bounded fixture manifest");
         let mut md = Metadata::default();
         md.insert(
             "contract_manifest".parse::<Name>().unwrap(),
@@ -9964,8 +9944,7 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_rejects_mismatched_code_hash() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
         let fixture = IvmAdmissionFixture::new();
         let prog = minimal_ivm_contract_program();
@@ -9988,7 +9967,12 @@ pub mod tests {
             error_types: None,
             provenance: None,
         }
-        .try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &fixture.keypair).expect("sign bounded fixture manifest");
+        .try_signed(
+            manifest_signing.context(),
+            manifest_signing.max_frame_bytes(),
+            &fixture.keypair,
+        )
+        .expect("sign bounded fixture manifest");
         let mut md = Metadata::default();
         md.insert(
             "contract_manifest".parse::<Name>().unwrap(),
@@ -10006,8 +9990,7 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_state_conflict_rejected_even_if_metadata_matches() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::{
             smart_contract::manifest::ContractManifest,
             transaction::{Executable, TransactionBuilder},
@@ -10046,7 +10029,12 @@ pub mod tests {
                 error_types: None,
                 provenance: None,
             }
-            .try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &fixture.keypair).expect("sign bounded fixture manifest"),
+            .try_signed(
+                manifest_signing.context(),
+                manifest_signing.max_frame_bytes(),
+                &fixture.keypair,
+            )
+            .expect("sign bounded fixture manifest"),
         );
         tx1.apply();
         let _ = block1.commit_world_overlay_for_testing();
@@ -10072,7 +10060,12 @@ pub mod tests {
             error_types: None,
             provenance: None,
         }
-        .try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &fixture.keypair).expect("sign bounded fixture manifest");
+        .try_signed(
+            manifest_signing.context(),
+            manifest_signing.max_frame_bytes(),
+            &fixture.keypair,
+        )
+        .expect("sign bounded fixture manifest");
         let mut md = Metadata::default();
         md.insert(
             "contract_manifest".parse::<Name>().unwrap(),
@@ -10239,8 +10232,7 @@ pub mod tests {
     }
     #[test]
     fn validate_ivm_manifest_lookup_in_state() {
-        let manifest_signing =
-            crate::manifest_signing_test_support::ManifestSigningFixture::new();
+        let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
         use iroha_data_model::smart_contract::manifest::ContractManifest;
         use nonzero_ext::nonzero;
         let fixture = IvmAdmissionFixture::new();
@@ -10273,7 +10265,12 @@ pub mod tests {
             error_types: None,
             provenance: None,
         }
-        .try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &fixture.keypair).expect("sign bounded fixture manifest");
+        .try_signed(
+            manifest_signing.context(),
+            manifest_signing.max_frame_bytes(),
+            &fixture.keypair,
+        )
+        .expect("sign bounded fixture manifest");
         tx1.world.contract_manifests.insert(
             ContractArtifactId::new(DataSpaceId::UNIVERSAL, code_hash),
             manifest.clone(),
@@ -10747,6 +10744,414 @@ pub mod tests {
             other => panic!("expected TransactionLimit failure, got {other:?}"),
         }
     }
+    /// Wrap proof attachments as transaction-level carriers without checking them.
+    fn unvalidated_proof_carriers(
+        attachments: &[ProofAttachment],
+    ) -> iroha_data_model::transaction::SignedAttachmentsV1 {
+        use iroha_data_model::transaction::signed_attachments::PlannedActionV1;
+        let mut plan = iroha_data_model::transaction::SignedAttachmentPlanV1::new();
+        for attachment in attachments {
+            plan.push_action(
+                PlannedActionV1::transaction_proof_unvalidated(attachment)
+                    .expect("canonical wrapper"),
+            );
+        }
+        plan.declare()
+    }
+    fn carrier_attachment(name: &str, proof: Vec<u8>) -> ProofAttachment {
+        ProofAttachment::new_ref(
+            "halo2/ipa".into(),
+            ProofBox::new("halo2/ipa".into(), proof),
+            VerifyingKeyId::new("halo2/ipa", name),
+        )
+    }
+    /// A proof attachment whose canonical wrapper frame has exactly `target` bytes.
+    fn carrier_attachment_with_frame_len(target: usize) -> ProofAttachment {
+        let mut proof_len = target / 2;
+        loop {
+            let attachment = carrier_attachment("vk_ceiling", vec![0x5a; proof_len]);
+            let actual = norito::encode_canonical(&attachment)
+                .expect("canonical wrapper")
+                .len();
+            if actual == target {
+                return attachment;
+            }
+            proof_len = proof_len + target - actual;
+        }
+    }
+    fn admit(
+        tx: &SignedTransaction,
+        limits: TransactionParameters,
+    ) -> Result<(), AcceptTransactionFail> {
+        AcceptedTransaction::validate_with_now(
+            tx,
+            &test_network_id(),
+            std::time::Duration::from_secs(0),
+            limits,
+            &iroha_config::parameters::actual::Crypto::default(),
+            tx.creation_time(),
+        )
+    }
+    #[test]
+    fn signed_attachment_schema_violations_are_rejected_at_admission() {
+        use iroha_data_model::transaction::signed_attachments::{
+            ActionAuthorityBindingV1, ActionIntentV1, ActionInvocationBindingV1,
+            ActionPublicInputsDigestV1, ActionRoleV1, AttachmentKindV1, AttachmentRoleV1,
+            PlannedActionV1, PlannedAttachmentV1, SignedAttachmentOccurrenceV1,
+            SignedAttachmentPlanV1, SignedAttachmentsV1,
+        };
+        let (authority_id, kp) = gen_account_in("wonderland");
+        let limits = TransactionParameters::default();
+        let builder = || {
+            TransactionBuilder::new(
+                test_network_id(),
+                authority_id.clone(),
+                iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+            )
+            .with_instructions([Log::new(Level::INFO, "attachments".to_owned())])
+        };
+        let valid = builder()
+            .with_proof_attachments([
+                carrier_attachment("vk_a", vec![1, 2, 3]),
+                carrier_attachment("vk_b", vec![4, 5, 6, 7]),
+            ])
+            .expect("two carriers")
+            .sign(kp.private_key());
+        admit(&valid, limits).expect("valid carriers are admitted");
+
+        // Sign a payload exactly as given: nothing is rebound or repaired.
+        let sign = |payload: TransactionPayload| {
+            TransactionBuilder::from_payload(payload)
+                .expect("ordinary payload")
+                .sign(kp.private_key())
+        };
+        let tampered =
+            |change: &dyn Fn(&mut Vec<ActionIntentV1>, &mut Vec<SignedAttachmentOccurrenceV1>)| {
+                let mut payload = valid.payload().clone();
+                let (mut actions, mut occurrences) = payload
+                    .attachments
+                    .take()
+                    .expect("attachments")
+                    .into_parts();
+                change(&mut actions, &mut occurrences);
+                payload.attachments = Some(SignedAttachmentsV1::from_parts_unvalidated(
+                    actions,
+                    occurrences,
+                ));
+                sign(payload)
+            };
+        let rejection = |tx: &SignedTransaction| match admit(tx, limits) {
+            Err(AcceptTransactionFail::SignedAttachments(error)) => error,
+            other => panic!("expected a signed attachment rejection, got {other:?}"),
+        };
+
+        // Reorder.
+        assert_eq!(
+            rejection(&tampered(&|actions, _| actions.swap(0, 1))),
+            SignedAttachmentErrorV1::ActionOutOfOrder {
+                position: 0,
+                action_index: 1
+            }
+        );
+        assert_eq!(
+            rejection(&tampered(&|_, occurrences| occurrences.swap(0, 1))),
+            SignedAttachmentErrorV1::OccurrenceOutOfOrder {
+                position: 0,
+                index: 1
+            }
+        );
+        // Substitute: another wrapped proof in a declared slot.
+        let substitute = norito::encode_canonical(&carrier_attachment("vk_c", vec![9, 9, 9]))
+            .expect("canonical wrapper");
+        assert_eq!(
+            rejection(&tampered(&|_, occurrences| {
+                occurrences[0] = SignedAttachmentOccurrenceV1::new(
+                    0,
+                    AttachmentKindV1::Proof,
+                    substitute.clone(),
+                );
+            })),
+            SignedAttachmentErrorV1::ReferenceHashMismatch {
+                action_index: 0,
+                index: 0
+            }
+        );
+        // Bytes changed under an unchanged occurrence header.
+        assert_eq!(
+            rejection(&tampered(&|_, occurrences| occurrences[1].bytes[60] ^= 1)),
+            SignedAttachmentErrorV1::OccurrenceHashMismatch { index: 1 }
+        );
+        assert_eq!(
+            rejection(&tampered(&|_, occurrences| occurrences[1].bytes.push(0))),
+            SignedAttachmentErrorV1::OccurrenceLengthMismatch {
+                index: 1,
+                declared: u64::try_from(valid.attachments().unwrap().occurrences()[1].bytes.len())
+                    .unwrap(),
+                actual: valid.attachments().unwrap().occurrences()[1].bytes.len() + 1
+            }
+        );
+        // Omit.
+        assert_eq!(
+            rejection(&tampered(&|_, occurrences| {
+                occurrences.pop();
+            })),
+            SignedAttachmentErrorV1::MissingOccurrence {
+                action_index: 1,
+                index: 1
+            }
+        );
+        // Duplicate.
+        assert_eq!(
+            rejection(&tampered(&|actions, _| {
+                let first = actions[0].attachments[0];
+                actions[1].attachments[0] = first;
+            })),
+            SignedAttachmentErrorV1::DuplicateReference {
+                action_index: 1,
+                index: 0
+            }
+        );
+        let duplicated = builder()
+            .with_signed_attachments(unvalidated_proof_carriers(&[
+                carrier_attachment("vk_a", vec![1, 2, 3]),
+                carrier_attachment("vk_a", vec![1, 2, 3]),
+            ]))
+            .sign(kp.private_key());
+        assert_eq!(
+            rejection(&duplicated),
+            SignedAttachmentErrorV1::DuplicateProofContent {
+                first: 0,
+                second: 1
+            }
+        );
+        // Unused declaration.
+        assert_eq!(
+            rejection(&tampered(&|_, occurrences| {
+                occurrences.push(SignedAttachmentOccurrenceV1::new(
+                    2,
+                    AttachmentKindV1::Proof,
+                    vec![0xEE; 8],
+                ));
+            })),
+            SignedAttachmentErrorV1::UnreferencedOccurrence { index: 2 }
+        );
+        // Another declared type and role.
+        assert_eq!(
+            rejection(&tampered(&|actions, _| {
+                actions[0].attachments[0].kind = AttachmentKindV1::KeyMaterial;
+            })),
+            SignedAttachmentErrorV1::ReferenceKindMismatch {
+                action_index: 0,
+                index: 0
+            }
+        );
+        assert_eq!(
+            rejection(&tampered(&|actions, _| {
+                actions[0].attachments[0].role = AttachmentRoleV1::VerifyingKey;
+            })),
+            SignedAttachmentErrorV1::ReferenceRoleMismatch {
+                action_index: 0,
+                index: 0
+            }
+        );
+
+        // Replay of a signed descriptor: the same actions and occurrences under
+        // another nonce carry statement digests of another ordered intent.
+        let mut lifted = valid.payload().clone();
+        lifted.nonce = std::num::NonZeroU32::new(77);
+        let expected = lifted
+            .action_statement_digests_v1()
+            .expect("statement digests")[0];
+        assert_eq!(
+            rejection(&sign(lifted)),
+            SignedAttachmentErrorV1::StatementBindingMismatch {
+                action_index: 0,
+                expected,
+                actual: valid.attachments().unwrap().actions()[0].statement_digest,
+            }
+        );
+
+        // A native instruction action is well formed and bound, but no route
+        // consumes its attachments yet.
+        let log_wire_id = iroha_data_model::isi::instruction_wire_id(&InstructionBox::from(
+            Log::new(Level::INFO, "attachments".to_owned()),
+        ))
+        .expect("Log is registered")
+        .to_owned();
+        let mut plan = SignedAttachmentPlanV1::new();
+        plan.push_action(PlannedActionV1 {
+            operation: ActionOperationV1::NativeInstruction(log_wire_id),
+            role: ActionRoleV1::ProofEffect,
+            authority: ActionAuthorityBindingV1::TransactionAuthority,
+            invocation: ActionInvocationBindingV1::Direct {
+                instruction_index: 0,
+            },
+            public_inputs_digest: ActionPublicInputsDigestV1::new([0x5a; 32]),
+            attachments: vec![PlannedAttachmentV1 {
+                kind: AttachmentKindV1::Proof,
+                role: AttachmentRoleV1::ActionProof,
+                bytes: vec![0xAA; 48],
+            }],
+        });
+        let native = builder()
+            .with_attachment_plan(plan)
+            .expect("schema-valid native action")
+            .sign(kp.private_key());
+        native
+            .validate_signed_attachments_v1()
+            .expect("the shared predicate accepts the declaration");
+        assert_eq!(
+            rejection(&native),
+            SignedAttachmentErrorV1::UnsupportedOperation { action_index: 0 }
+        );
+        assert!(super::attachment_operation_is_supported(
+            &ActionOperationV1::TransactionProof
+        ));
+        assert!(super::attachment_operation_is_supported(
+            &ActionOperationV1::IvmProvedExecution
+        ));
+        assert_eq!(super::first_unsupported_attachment_operation(&valid), None);
+    }
+    #[test]
+    fn ceiling_sized_attachment_is_admitted_and_one_byte_over_is_rejected() {
+        use iroha_data_model::transaction::signed_attachments::SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1;
+        let (authority_id, kp) = gen_account_in("wonderland");
+        let signed_with = |attachment: &ProofAttachment| {
+            TransactionBuilder::new(
+                test_network_id(),
+                authority_id.clone(),
+                iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+            )
+            .with_instructions([Log::new(Level::INFO, "ceiling".to_owned())])
+            .with_signed_attachments(unvalidated_proof_carriers(std::slice::from_ref(attachment)))
+            .sign(kp.private_key())
+        };
+        // The committed defaults: a 10 MiB transaction and 10 MiB of attachment bytes.
+        let defaults = TransactionParameters::default();
+
+        let at_ceiling = signed_with(&carrier_attachment_with_frame_len(
+            SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1,
+        ));
+        let occurrence_bytes = at_ceiling
+            .attachments()
+            .expect("attachments")
+            .total_occurrence_bytes();
+        assert_eq!(occurrence_bytes, SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1);
+        let framed_len = norito::encode_canonical(&at_ceiling)
+            .expect("canonical frame")
+            .len();
+        assert!(
+            u64::try_from(framed_len).unwrap() <= defaults.max_tx_bytes().get(),
+            "a ceiling-sized occurrence must fit the transaction cap"
+        );
+        admit(&at_ceiling, defaults).expect("a ceiling-sized occurrence is admitted");
+
+        let one_over = signed_with(&carrier_attachment_with_frame_len(
+            SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1 + 1,
+        ));
+        assert_eq!(
+            admit(&one_over, defaults),
+            Err(AcceptTransactionFail::SignedAttachments(
+                SignedAttachmentErrorV1::OccurrenceTooLarge {
+                    index: 0,
+                    actual: SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1 + 1,
+                    maximum: SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1,
+                }
+            ))
+        );
+
+        // The complete framed transaction is measured against the committed cap.
+        let limits_with = |max_tx_bytes: usize, max_decompressed_bytes: usize| {
+            TransactionParameters::with_max_signatures(
+                defaults.max_signatures(),
+                defaults.max_instructions(),
+                defaults.ivm_bytecode_size(),
+                NonZeroU64::new(u64::try_from(max_tx_bytes).unwrap()).unwrap(),
+                NonZeroU64::new(u64::try_from(max_decompressed_bytes).unwrap()).unwrap(),
+                defaults.max_metadata_depth(),
+            )
+        };
+        admit(&at_ceiling, limits_with(framed_len, occurrence_bytes))
+            .expect("exactly the transaction cap and exactly the attachment byte budget");
+        match admit(&at_ceiling, limits_with(framed_len - 1, occurrence_bytes)) {
+            Err(AcceptTransactionFail::TransactionLimit(limit)) => {
+                assert!(limit.reason.contains("Transaction size"), "{limit:?}");
+            }
+            other => panic!("expected the transaction cap to refuse, got {other:?}"),
+        }
+        match admit(&at_ceiling, limits_with(framed_len, occurrence_bytes - 1)) {
+            Err(AcceptTransactionFail::TransactionLimit(limit)) => {
+                assert!(limit.reason.contains("attachments expand"), "{limit:?}");
+            }
+            other => panic!("expected the attachment byte budget to refuse, got {other:?}"),
+        }
+    }
+    #[test]
+    fn ceiling_sized_raw_native_proof_passes_every_size_check_and_lacks_only_a_route() {
+        use iroha_data_model::transaction::signed_attachments::{
+            ActionAuthorityBindingV1, ActionInvocationBindingV1, ActionPublicInputsDigestV1,
+            ActionRoleV1, AttachmentKindV1, AttachmentRoleV1, PlannedActionV1, PlannedAttachmentV1,
+            SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1, SignedAttachmentPlanV1,
+        };
+        let (authority_id, kp) = gen_account_in("wonderland");
+        let defaults = TransactionParameters::default();
+        let log = || Log::new(Level::INFO, "ceiling".to_owned());
+        let log_wire_id = iroha_data_model::isi::instruction_wire_id(&InstructionBox::from(log()))
+            .expect("Log is registered")
+            .to_owned();
+        // One native action whose single occurrence is a raw proof of exactly
+        // the 9,437,184-byte proof ceiling: no wrapper counts toward it.
+        let mut plan = SignedAttachmentPlanV1::new();
+        plan.push_action(PlannedActionV1 {
+            operation: ActionOperationV1::NativeInstruction(log_wire_id),
+            role: ActionRoleV1::ProofEffect,
+            authority: ActionAuthorityBindingV1::TransactionAuthority,
+            invocation: ActionInvocationBindingV1::Direct {
+                instruction_index: 0,
+            },
+            public_inputs_digest: ActionPublicInputsDigestV1::new([0x5a; 32]),
+            attachments: vec![PlannedAttachmentV1 {
+                kind: AttachmentKindV1::Proof,
+                role: AttachmentRoleV1::ActionProof,
+                bytes: vec![0x5a; SIGNED_ATTACHMENT_OCCURRENCE_MAX_BYTES_V1],
+            }],
+        });
+        let raw_ceiling = TransactionBuilder::new(
+            test_network_id(),
+            authority_id,
+            iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+        )
+        .with_instructions([log()])
+        .with_attachment_plan(plan)
+        .expect("a ceiling-sized raw proof is schema-valid")
+        .sign(kp.private_key());
+        assert_eq!(
+            raw_ceiling
+                .attachments()
+                .expect("attachments")
+                .total_occurrence_bytes(),
+            9_437_184
+        );
+        let framed_len = norito::encode_canonical(&raw_ceiling)
+            .expect("canonical frame")
+            .len();
+        assert!(
+            u64::try_from(framed_len).unwrap() <= defaults.max_tx_bytes().get(),
+            "a ceiling-sized raw proof must fit the 10 MiB transaction cap"
+        );
+        raw_ceiling
+            .validate_signed_attachments_v1()
+            .expect("the shared predicate accepts the ceiling-sized declaration");
+        // The transaction cap and the schema admit it. The node refuses it only
+        // because no executor route consumes a native instruction action yet
+        // (`attachment_operation_is_supported`, TODO(I.2, I.3)).
+        assert_eq!(
+            admit(&raw_ceiling, defaults),
+            Err(AcceptTransactionFail::SignedAttachments(
+                SignedAttachmentErrorV1::UnsupportedOperation { action_index: 0 }
+            ))
+        );
+    }
     #[test]
     fn attachments_decompressed_limit_enforced() {
         use std::time::Duration;
@@ -10754,15 +11159,15 @@ pub mod tests {
         let proof = ProofBox::new("halo2/ipa".into(), vec![0u8; 192]);
         let vk_id = VerifyingKeyId::new("halo2/ipa", "vk_limit");
         let attachment = ProofAttachment::new_ref("halo2/ipa".into(), proof, vk_id);
-        let attachments = ProofAttachmentList::try_from(vec![attachment])
-            .expect("one attachment is a valid bounded proof list");
+        let attachments = vec![attachment];
         let tx = TransactionBuilder::new(
             test_network_id(),
             authority_id.clone(),
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
         .with_instructions([Log::new(Level::INFO, "proof".to_string())])
-        .with_attachments(attachments)
+        .with_proof_attachments(attachments)
+        .expect("valid proof carriers")
         .sign(kp.private_key());
         let limits = TransactionParameters::with_max_signatures(
             NonZeroU64::new(1).unwrap(),
@@ -10820,56 +11225,55 @@ pub mod tests {
         forged_hash[0] ^= 0x80;
         forged_envelope_hash.envelope_hash = Some(forged_hash);
         assert!(matches!(
-            ProofAttachmentList::try_from(Vec::new()),
-            Err(iroha_data_model::proof::ProofAttachmentListError::Empty)
+            TransactionBuilder::new(
+                test_network_id(),
+                authority_id.clone(),
+                iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
+            )
+            .with_proof_attachments(Vec::new()),
+            Err(SignedAttachmentErrorV1::NoActions)
         ));
         let cases = [
             (
                 "proof-backend-mismatch",
-                ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+                vec![ProofAttachment::new_ref(
                     "halo2/ipa".into(),
                     ProofBox::new("stark/fri".into(), vec![1, 2, 3]),
                     VerifyingKeyId::new("halo2/ipa", "vk_admission"),
-                )])
-                .expect("one attachment is a valid bounded proof list"),
+                )],
                 "proof.backend",
             ),
             (
                 "nonportable-vk-ref-name",
-                ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+                vec![ProofAttachment::new_ref(
                     "halo2/ipa".into(),
                     ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
                     VerifyingKeyId::new("halo2/ipa", "VkAdmission"),
-                )])
-                .expect("one attachment is a valid bounded proof list"),
+                )],
                 "vk_ref",
             ),
             (
                 "empty-proof-bytes",
-                ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+                vec![ProofAttachment::new_ref(
                     "halo2/ipa".into(),
                     ProofBox::new("halo2/ipa".into(), Vec::new()),
                     VerifyingKeyId::new("halo2/ipa", "vk_admission"),
-                )])
-                .expect("one attachment is a valid bounded proof list"),
+                )],
                 "proof.bytes",
             ),
             (
                 "zero-vk-commitment",
-                ProofAttachmentList::try_from(vec![zero_vk_commitment])
-                    .expect("one attachment is a valid bounded proof list"),
+                vec![zero_vk_commitment],
                 "vk_commitment",
             ),
             (
                 "zero-envelope-hash",
-                ProofAttachmentList::try_from(vec![zero_envelope_hash])
-                    .expect("one attachment is a valid bounded proof list"),
+                vec![zero_envelope_hash],
                 "envelope_hash",
             ),
             (
                 "forged-envelope-hash",
-                ProofAttachmentList::try_from(vec![forged_envelope_hash])
-                    .expect("one attachment is a valid bounded proof list"),
+                vec![forged_envelope_hash],
                 "envelope_hash",
             ),
         ];
@@ -10880,7 +11284,7 @@ pub mod tests {
                 iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
             )
             .with_instructions([Log::new(Level::INFO, format!("proof-{label}"))])
-            .with_attachments(attachments)
+            .with_signed_attachments(unvalidated_proof_carriers(&attachments))
             .sign(kp.private_key());
             let err = AcceptedTransaction::validate_with_now(
                 &tx,
@@ -10892,14 +11296,17 @@ pub mod tests {
             )
             .expect_err("malformed proof attachment must be rejected at admission");
             match err {
-                AcceptTransactionFail::TransactionLimit(limit) => {
+                AcceptTransactionFail::SignedAttachments(
+                    SignedAttachmentErrorV1::MalformedProofCarrier { index: 0, reason },
+                ) => {
                     assert!(
-                        limit.reason.contains(expected_reason),
-                        "case {label}: expected reason to contain {expected_reason}, got {}",
-                        limit.reason
+                        reason.contains(expected_reason),
+                        "case {label}: expected reason to contain {expected_reason}, got {reason}"
                     );
                 }
-                other => panic!("case {label}: expected TransactionLimit failure, got {other:?}"),
+                other => {
+                    panic!("case {label}: expected a malformed proof carrier, got {other:?}")
+                }
             }
         }
     }
@@ -11881,10 +12288,8 @@ pub mod tests {
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
         .with_instructions([Log::new(Level::INFO, "noop".into())])
-        .with_attachments(
-            ProofAttachmentList::try_from(vec![attachment1, attachment2])
-                .expect("two attachments are a valid bounded proof list"),
-        )
+        .with_proof_attachments(vec![attachment1, attachment2])
+        .expect("valid proof carriers")
         .sign(keypair.private_key());
         let collected_proofs = super::collect_lane_privacy_proofs(&tx);
         let ids: BTreeSet<_> = collected_proofs

@@ -184,19 +184,16 @@ clock cannot replace the service's authenticated decision and state evidence.
 
 ## Native operation-12 structural evidence
 
-Every historical release additionally contains the bounded canonical operation-12
-sender payload, the exact output of the existing native sender decoder, and an
-independent threshold-approved observation with purpose
-`sender_release_structure`. The fixed observer policy must admit both
-`native-sender-command-parser` (actual executable SHA-256) and
-`native-sender-command-parser-source` (the exact local
-`crates/connect_norito_bridge/src/kagemusha_sender_release_evidence.rs` SHA-256)
-for `iroha.kagemusha_v1.sender_release_command_projection`. The binary pin is
-execution provenance; the local module pin does not claim to hash every decoder
-dependency. The Python checker never executes a candidate-supplied program.
+The current `connect_norito_bridge` manifest declares only the development
+binaries `soracloud_request_signer` and `swift_parity_regen`, both gated by
+`dev-tools`. The bridge has no declared operation-12 sender parser executable or
+`src/kagemusha_sender_release_evidence.rs` projection module. This procedure's
+native parser executable/source provenance pins therefore remain unavailable in
+the current candidate. A reviewed structural-evidence producer and its physical
+qualification remain outstanding. Observer signatures, a frame codec, or a host
+clock cannot replace actual native command validation and service-produced
+operation evidence.
 
-The development CLI `kagemusha_sender_release_parser` uses
-`SenderCommandV1::decode_canonical_exact` and existing shape/signature checks.
 The nested signed projection binds the exact command, retained operation,
 preparation/candidate, certificate/envelope, underlying terminal receipt,
 Release-purpose authorization, sender profile/credential/policy/VK and public

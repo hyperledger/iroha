@@ -15,7 +15,7 @@ use iroha_allocation::{AllocationBudget, AllocationReservation};
 pub(in crate::backend) fn verify(
     bytes: &[u8],
     expected: ExpectedExecutionEffects<'_>,
-    limits: ExecutionEffectVerificationLimits,
+    limits: &ExecutionEffectVerificationLimits,
     budget: &AllocationBudget,
     reservation: &mut AllocationReservation,
 ) -> Result<VerifiedArtifact, ArtifactError> {
@@ -62,7 +62,7 @@ pub(in crate::backend) fn verify(
             }
         }
         let checked = bundle::verify(
-            EffectVerificationInputs {
+            &EffectVerificationInputs {
                 statement: &view,
                 source: expected.source,
                 expected: expected.statement,

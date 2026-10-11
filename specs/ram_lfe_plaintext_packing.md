@@ -388,9 +388,13 @@ outputs. Scalars and immediates range over `0..256`. An output is a scalar, not
 a byte: never truncate 256. `Output` snapshots the source at that instruction;
 later writes cannot alter earlier outputs. Pack the ordered outputs in slots
 `0..output_count`, with all remaining slots zero, including slots 64..127.
-The opening authority must check this exact output encoding, declared count and
-context before hashing the opened scalar sequence. Its authenticated plaintext
-opening remains distinct from the execution proof and ciphertext commitment.
+The opening authority must check this exact output encoding and its context
+before hashing the opened scalar sequence. No output count is declared to it:
+under the [canonical V1 contract](ram_lfe_execution_proof.md#commitments) every
+opening commits the 64 output slots, the ordered output followed by zeros, and
+a trailing zero the tape emitted is indistinguishable from padding. Its
+authenticated plaintext opening remains distinct from the execution proof and
+ciphertext commitment.
 
 The existing outer request cap is 1 MiB; associated data is `0..512` bytes. The
 hidden tape owner reserves 12,288 instruction bytes and its explicit frame cap
@@ -487,6 +491,13 @@ The table's ranks are dependency depths, **not RNS modulus levels or noise
 budgets**. A physical level scheduler may map ranks to a reviewed chain only
 when its exact switching/rounding semantics and correctness bounds are supplied.
 Addition or plaintext multiplication can exhaust noise without changing rank.
+The canonical contract therefore does not evaluate a tape instruction by
+instruction: it requires the
+[normalizing lowering](ram_lfe_execution_proof.md#normalizing-lowering), which
+folds every run of plaintext instructions into reduced coefficients and keeps
+each `Mul` and `SelectEqZero` as one gate, under one fixed public schedule for
+each class profile. The rows above remain the arithmetic of a load, a gate and
+an output inside that lowering.
 The logical rank ceiling 16 is the `bounded.v1` class limit and the
 `refresh.v1` limit between refreshes. It is a recorded candidate, not a
 promise that any encryption profile supports that depth. The same rank rules
@@ -497,7 +508,9 @@ then one ciphertext multiplication by `Embed(1)` as in the source exponentiation
 schedule. Form `indicator = Embed(1) - powered`, `delta = z - n`, then
 `result = n + CMul(indicator, delta)`. This is ten ciphertext multiplications,
 two ciphertext subtractions, one ciphertext addition and two explicit one
-embeddings; constant folding is not part of this initial lowering. Squarings
+embeddings; constant folding is not part of this initial lowering. The
+normalizing lowering folds plaintext instructions of the tape, not this
+expansion: a `SelectEqZero` gate keeps all ten multiplications. Squarings
 require relinearization too. Aliasing dst with any source is safe only because
 all sources remain immutable until the result is complete. This expansion is
 correct only for scalar F257 inputs; the client admission and subsequent
@@ -539,6 +552,14 @@ selectors must not select a smaller public circuit, proof or key. Active-work
 counts alone therefore underestimate the fixed hidden-program relation. Native
 timing/allocation leakage needs a separately stated and qualified policy; this
 planner does not establish oblivious execution.
+
+Under the canonical contract the encrypted evaluation is not padded as 256
+universal instruction positions. It follows the
+[fixed public schedule](ram_lfe_execution_proof.md#fixed-public-schedule) of
+the normalizing lowering, padded to the largest normal form of the class:
+gates, refreshes and outputs, not instructions. The relation still constrains
+all 256 tape positions where it proves that the evaluated normal form is the
+normalization of the committed tape.
 
 The structurally valid worst cases are material: 255 independent selects followed
 by an output require 2,550 ciphertext multiplications even though each select

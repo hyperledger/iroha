@@ -142,6 +142,8 @@ pub mod parliament_types;
 pub mod peer;
 /// Permission token and grant model.
 pub mod permission;
+/// Provider-backed phone-control challenge, credential and provider policy.
+pub mod phone_control;
 /// Committed execution-limit policy: the typed chain parameter, its protocol default and validation.
 pub mod pipeline_validity_policy;
 /// Canonical protocol-bound privacy proof and activation types.

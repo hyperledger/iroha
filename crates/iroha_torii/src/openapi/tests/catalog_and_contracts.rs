@@ -871,6 +871,10 @@ fn ledger_executed_block_wire_cached_loading_is_safe_from_256_kib_callers() {
                         .and_then(Value::as_object)
                         .unwrap_or_else(|| panic!("{variant} OpenAPI paths"));
                     assert!(
+                        paths.contains_key("/v1/accounts/capabilities"),
+                        "app API capability route missing from {variant} OpenAPI",
+                    );
+                    assert!(
                         paths.contains_key(route_catalog::core::RESOURCE_NAMES_STATE.path()),
                         "ledger original carrier missing from {variant} OpenAPI",
                     );
@@ -1316,11 +1320,20 @@ fn openapi_authorities_retire_kagemusha_transport_and_proposal_inputs() {
                     .and_then(Value::as_str)
                     .is_none_or(|name| !name.eq_ignore_ascii_case("KAGEMUSHA")))
         );
+        let retired_product = ["line", "off"].into_iter().rev().collect::<String>();
+        for suffix in ["readiness", "top-up", "redeem", "operations/{operation_id}"] {
+            let retired_path = format!("/v1/{retired_product}/{suffix}");
+            assert!(
+                !paths.contains_key(&retired_path),
+                "retired product route remains in {variant}: {retired_path}"
+            );
+        }
         let schemas = component_schemas(&document);
         for retired in [
             "KagemushaReadinessV1",
             "KagemushaOperationStatusV1",
             "KagemushaAuthorityStateV1",
+            "KagemushaAuthorityStateRefV1",
             "OrdinaryWalletCurrentOriginalV1",
             "OrdinaryWalletCurrentRequestV1",
             "OrdinaryMintIssuerPurposeOriginalV1",
@@ -2759,17 +2772,16 @@ fn scoped_native_original_reads_match_canonical_media_and_resource_bounds() {
         ),
     ] {
         let operation = openapi_operation(&document, descriptor.path(), method);
-        if descriptor.stable_route_id().starts_with("ledger.") {
-            assert_eq!(
-                operation
-                    .get("tags")
-                    .and_then(Value::as_array)
-                    .map(|tags| tags.iter().filter_map(Value::as_str).collect::<Vec<_>>()),
-                Some(vec!["Ledger"]),
-                "{} is a generic ledger original carrier",
-                descriptor.path()
-            );
-        }
+        assert!(descriptor.stable_route_id().starts_with("ledger."));
+        assert_eq!(
+            operation
+                .get("tags")
+                .and_then(Value::as_array)
+                .map(|tags| tags.iter().filter_map(Value::as_str).collect::<Vec<_>>()),
+            Some(vec!["Ledger"]),
+            "{} is a generic ledger original carrier",
+            descriptor.path()
+        );
         assert_eq!(
             operation.get(TOOL_EFFECT_EXTENSION).and_then(Value::as_str),
             Some("read")

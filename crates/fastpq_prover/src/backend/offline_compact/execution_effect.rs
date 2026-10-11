@@ -27,6 +27,7 @@ pub struct ExpectedExecutionEffects<'a> {
 }
 
 /// Explicit complete-effect preparation and inherited whole-artifact proof/decode ceilings.
+/// Proving and verification borrow this read-only policy across the complete operation.
 #[derive(Debug, Clone, Copy)]
 pub struct ExecutionEffectVerificationLimits {
     /// Canonical model transport limits, including its complete opaque carrier.
@@ -54,7 +55,7 @@ impl Default for ExecutionEffectVerificationLimits {
 }
 impl ExecutionEffectVerificationLimits {
     /// Reuse only the physical proof/transport policy; transfer preparation is never called.
-    pub(in crate::backend) fn proof_policy(self) -> VerificationLimits {
+    pub(in crate::backend) fn proof_policy(&self) -> VerificationLimits {
         VerificationLimits {
             transport: self.transport,
             public_statement: PublicTransferLimits::default(),
@@ -63,7 +64,7 @@ impl ExecutionEffectVerificationLimits {
             total_decode: self.total_decode,
         }
     }
-    pub(in crate::backend) fn public_policy(self) -> ExecutionEffectLimits {
+    pub(in crate::backend) fn public_policy(&self) -> ExecutionEffectLimits {
         let fixed = ExecutionEffectLimits::default();
         ExecutionEffectLimits {
             max_effects: self.public_statement.max_effects.min(fixed.max_effects),
@@ -94,7 +95,7 @@ fn array_bytes<T>(count: usize) -> crate::Result<usize> {
 }
 fn count(
     effects: &FastpqExecutionEffectsV1,
-    policy: ExecutionEffectVerificationLimits,
+    policy: &ExecutionEffectVerificationLimits,
 ) -> crate::Result<usize> {
     let count = effects.effects.len();
     let max = policy
@@ -125,7 +126,7 @@ fn count(
 /// Rejects empty/over-limit tapes, malformed sizes and checked layout/arithmetic overflow.
 pub fn quantity_ordinary_verification_allocation_bytes(
     effects: &FastpqExecutionEffectsV1,
-    limits: ExecutionEffectVerificationLimits,
+    limits: &ExecutionEffectVerificationLimits,
 ) -> crate::Result<usize> {
     let count = count(effects, limits)?;
     add(
@@ -148,7 +149,7 @@ pub fn quantity_ordinary_verification_allocation_bytes(
 pub fn quantity_ordinary_allocation_bytes(
     effects: &FastpqExecutionEffectsV1,
     proving: ProvingLimits,
-    limits: ExecutionEffectVerificationLimits,
+    limits: &ExecutionEffectVerificationLimits,
 ) -> crate::Result<usize> {
     let count = count(effects, limits)?;
     let rows = count
@@ -209,7 +210,7 @@ pub fn prove_quantity_ordinary_artifact(
     statement: &SourceExecutionEffectStatement<'_>,
     expected: ExpectedExecutionEffects<'_>,
     proving: ProvingLimits,
-    verification: ExecutionEffectVerificationLimits,
+    verification: &ExecutionEffectVerificationLimits,
     budget: &AllocationBudget,
     reservation: &mut AllocationReservation,
 ) -> Result<ProducedExecutionEffectArtifact, ProvingError> {
@@ -233,7 +234,7 @@ pub fn prove_quantity_ordinary_artifact(
 pub fn verify_quantity_ordinary_artifact(
     bytes: &[u8],
     expected: ExpectedExecutionEffects<'_>,
-    limits: ExecutionEffectVerificationLimits,
+    limits: &ExecutionEffectVerificationLimits,
     budget: &AllocationBudget,
     reservation: &mut AllocationReservation,
 ) -> Result<VerifiedArtifact, VerificationError> {

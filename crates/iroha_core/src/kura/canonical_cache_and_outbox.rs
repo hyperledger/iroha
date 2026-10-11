@@ -424,26 +424,6 @@ impl TransactionEntrypointIndex {
         }
     }
 }
-#[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_core::kura::KagemushaMintOutboxEntryV1")]
-#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
-struct KagemushaMintOutboxEntryV1 {
-    version: u16,
-    operation_id: [u8; 32],
-    result: KagemushaTopUpResultV1,
-    result_wire_hash: Hash,
-    finality_proof_hash: HashOf<KagemushaOperationFinalityV1>,
-}
-#[derive(norito::NoritoSchema)]
-#[norito_schema(name = "iroha_core::kura::KagemushaMintAuthorityCheckpointEntryV1")]
-#[derive(Clone, Debug, PartialEq, Eq, Encode, Decode)]
-struct KagemushaMintAuthorityCheckpointEntryV1 {
-    version: u16,
-    release_id: [u8; 32],
-    authority_head: [u8; 32],
-    checkpoint: crate::zk::kagemusha_v1_recursion::KagemushaMintAuthorityCheckpointV1,
-    checkpoint_wire_hash: Hash,
-}
 #[derive(Clone, Copy, Debug)]
 enum FsyncTarget {
     Data,

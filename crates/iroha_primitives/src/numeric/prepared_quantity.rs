@@ -2,7 +2,7 @@
 //!
 //! This leaf is not a frame authenticator or an admission decision. The enclosing
 //! prepared record walker must preserve the advertised flags, decode scope and
-//! exact canonical frame check. Planning never constructs a BigInt or normalizes
+//! exact canonical frame check. Planning never constructs a `BigInt` or normalizes
 //! a mantissa; the final concrete owner has no Clone or safe extraction API.
 
 use core::convert::Infallible;

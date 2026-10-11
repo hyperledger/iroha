@@ -17,13 +17,15 @@ use super::{
     compact_public_batch::BatchContextLimits,
     compact_transfer_air::CompactTransferAir,
 };
+#[cfg(test)]
+use crate::gadgets::public_transfer_statement::execution_effect::preparation_allocation_bytes;
 use crate::{
     Error, Result, VerifyLimits,
     gadgets::{
         compact_smt_air::PublicStatement,
         public_transfer_statement::execution_effect::{
             ExecutionEffectExpectations, ExecutionEffectLimits, SourceExecutionEffectStatement,
-            preparation_allocation_bytes, prepare_source_execution_effect_view,
+            prepare_source_execution_effect_view,
         },
     },
 };
@@ -104,9 +106,11 @@ pub(super) struct ExecutionEffectBatch {
     max_statement_bytes: usize,
 }
 impl ExecutionEffectBatch {
-    /// Checked charge demand for public preparation, ports and the batch context.
+    /// Test-only exact demand oracle for public preparation, ports and context.
+    /// The facade reserves its conservative whole-operation demand once.
     /// This creates no backing and establishes no source or semantic authority.
     /// Bounded segment context/AIR Vec scratch is outside this demand.
+    #[cfg(test)]
     pub(super) fn allocation_bytes(
         statement: &SourceExecutionEffectStatement<'_>,
         source: &FastpqOrdinarySourceStatementLeafV1,

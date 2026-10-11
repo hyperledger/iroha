@@ -935,7 +935,7 @@ def _replace_propagated_refusal(commit: str, call: str, anchor: str) -> str:
     "duplicate_publisher", "early_telemetry", "missing_cfg",
     "hash_prepare_refusal", "commit_lock_early_drop", "commit_lock_after_prepare",
     "state_commit_unlock_before_publication", "effect_owner_declared_after_commit_lock",
-    "kagemusha_runtime_refusal", "kagemusha_certificate_check", "kagemusha_unowned_refusal",
+    "world_validation_removed", "world_validation_after_snapshot",
 ))
 def test_prepared_commit_rejects_refusal_publication_or_replay_regressions(
     mutation: str, monkeypatch: pytest.MonkeyPatch,
@@ -998,19 +998,14 @@ def test_prepared_commit_rejects_refusal_publication_or_replay_regressions(
         owner = "effect_cleanup: effect_publication::StateEffectLocks::new(state),"
         fence = "commit_fence: state.state_commit_lock.defer_notifications(),"
         changed = commit.replace(owner, "", 1).replace(fence, fence + "\n            " + owner, 1)
-    elif mutation == "kagemusha_runtime_refusal":
-        anchor = "return Err(TransactionsBlockError::KagemushaVerifierAuthority);"
-        assert commit.count(anchor) == 1
-        changed = commit.replace(anchor, "", 1)
-    elif mutation == "kagemusha_certificate_check":
-        anchor = "authorization.validate_for_state_commit("
-        assert commit.count(anchor) == 1
-        changed = commit.replace(anchor, "authorization.unchecked_commit(", 1)
-    elif mutation == "kagemusha_unowned_refusal":
-        anchor = "return Err(TransactionsBlockError::KagemushaGovernanceUnavailable);"
-        assert commit.count(anchor) == 2
-        offset = commit.rfind(anchor)
-        changed = commit[:offset] + commit[offset:].replace(anchor, "", 1)
+    elif mutation in ("world_validation_removed", "world_validation_after_snapshot"):
+        start = "        world_commit::PreparedWorldCommit::validate_prepared_overlay("
+        end = "        if tiered_snapshot.is_none() {"
+        validation = start + guard.section(commit, start, end, PUBLICATION_PATH)
+        changed = commit.replace(validation, "", 1)
+        if mutation == "world_validation_after_snapshot":
+            changed = changed.replace("        if !*effects_captured {",
+                                      validation + "        if !*effects_captured {", 1)
     elif mutation == "world_drop":
         changed = commit.replace("world.publish_prepared();", "drop(world);", 1)
     elif mutation == "hash_drop":
@@ -1720,16 +1715,16 @@ def test_block_start_due_execution_keeps_original_local_deferral(replacement: st
 
 
 @pytest.mark.parametrize("original,replacement", (
-    ("            .validate()\n            .map_err(str::to_owned)",
-     "            .unchecked_registry()\n            .map_err(str::to_owned)"),
-    ("validate_runtime_cache_for_publication(", "unchecked_runtime_cache("),
-    ("validate_runtime_cache_for_publication(\n                    verifier,\n                    state_ref.network_id,",
-     "validate_runtime_cache_for_publication(\n                    verifier,\n                    foreign_network,"),
+    ("validate_prepared_overlay(", "unchecked_prepared_overlay("),
+    ("validate_prepared_overlay(\n            world,",
+     "validate_prepared_overlay(\n            foreign_world,"),
+    ("validate_prepared_overlay(\n            world,\n            &state_ref.ivm_execution_budget(),",
+     "validate_prepared_overlay(\n            world,\n            &foreign_budget,"),
 ))
-def test_prepared_commit_independent_registry_and_cache_checks_are_owned(
+def test_prepared_commit_world_validation_uses_original_overlay_and_budget(
     original: str, replacement: str, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Canonical registry and structural local cache must both precede owned transition checks."""
+    """Publication validates its retained World with the original finite allocation budget."""
     state = guard.read(STATE_PATH)
     guard.require_parliament_commit_publication(state)
     publication = guard.read(PUBLICATION_PATH)

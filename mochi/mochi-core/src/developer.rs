@@ -416,8 +416,9 @@ impl DeveloperWorkspace {
         let installed = self.runtime.clone();
         DeploymentRuntime::new(config, self.root.join("deployments").join(name), cache_root)
             .with_build_registry_resolver(Arc::new(move || {
-                // Musubi calls this only after local resolution and exact authenticated cache
-                // hits cannot satisfy the graph. Selecting a private context does no parent I/O.
+                // External dependencies require the original registry binding before cache
+                // selection. Local-only graphs never call this; complete cache hits skip
+                // registry/provider reads after this binding and custody are resolved.
                 let deadline = Instant::now() + Duration::from_secs(60);
                 let store = ManagedStore::open(&registry_root)?;
                 Ok(store.build_registry(&installed, &registry_context, deadline)?)

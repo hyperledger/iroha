@@ -93,8 +93,6 @@ criteria).
 | `ram_lfe_*` (`#[cfg(test)]`) | halo2-axiom | P | None | Owner: re-express or delete |
 | `kaigi_*_v1_tests.rs` (in `iroha_core_zk`) | halo2-axiom | P V | Test | M2(b) |
 | `iroha_core` Kaigi: `isi/kaigi/privacy{,/authorization_v1,/proof_fixture_v1}.rs`, `privacy_release_evidence/kaigi.rs`, `tests/kaigi_privacy.rs` | halo2-axiom | V | Kaigi VKs are references in the committed `zk_validity_policy_v1` parameter (`proofs.kaigi_authorization_vk`, `proofs.kaigi_usage_vk`), unset in the Taira genesis template. Live: unknown | M2(b) |
-| `iroha_core` `isi/kagemusha.rs` (halo2-base `BaseCircuitParams` from the artifact profile) | halo2-base | T | KAGEMUSHA settlement, when configured | M5 (native descriptors) |
-| `iroha_core` `isi/kagemusha/kagemusha_v1_reserve.rs` | halo2-axiom; snark-verifier `IpaAccumulator` (dev) | V | KAGEMUSHA reserve decide | M5 (`iroha_plonk` decide) |
 | `iroha_core` vote tally and tooling: `tests/zk_vote_tally_audit.rs`, `tests/zk_testkit.rs`, `benches/zk_poseidon.rs`; feature `circuit-params = ["halo2_proofs/circuit-params"]` | halo2-axiom | P V | Test | M2(d). Remove the feature forward |
 | `kaigi_zk` (7 files; Poseidon from `poseidon-primitives` `Spec` over Pasta `Fp`) | halo2-axiom | P V H | Through `iroha_core` `zk-halo2` | M2(b). Keep VK bytes, bump IDs (critique). TODO: RP56 KATs |
 | `sorafs_manifest::pop_credentials::zk` (own `poseidon-primitives` Poseidon, `zk.rs:100-115`) | halo2-axiom | P V H | SoraFS PoP credentials (irohad runtime provider). Live: unknown | M2(a). TODO: PoP Poseidon KATs |
@@ -122,12 +120,16 @@ criteria).
 | Consumer | What it reaches | Live exposure | Milestone |
 | --- | --- | --- | --- |
 | `irohad`, `iroha_torii` (`zk_prover.rs`, routing), `iroha_cli` (`zk.rs`), `iroha_kagami` (genesis, `kagemusha.rs`), `iroha_test_network` | Verify dispatch, mint finality, KAGEMUSHA, confidential | All nodes and operators | M2 (dispatch), M5 (KAGEMUSHA); mint finality retained |
-| `iroha` client SDK (`client/ordinary_native*`; `iroha_core_zk` with default features off) | KAGEMUSHA ordinary-native prover | Wallet apps | M5 |
-| `iroha_musubi_service`, `musubi`, `iroha_wallet` (through `iroha`) | `iroha_core_zk` and `iroha_zkp_halo2` | Musubi service and wallet. `ci/dependency_budget.json` `musubi-service-default.package_contracts` pins the path `iroha_musubi_service -> iroha -> iroha_core_zk (-> iroha_zkp_halo2)` and the `iroha_core_zk` (none) and `iroha_zkp_halo2` features | M2/M5; update the budget contract in the same change |
 | `iroha_deploy` (`localnet.rs` registers confidential VK records; `genesis/staging.rs`) | Confidential VKs | Localnet, staging | M2(c) fixtures |
 | `connect_norito_bridge` (50 files; 41 on `kagemusha_v1_state`; `confidential_prover_ffi`) | State hashing, confidential and KAGEMUSHA provers | iOS and Android apps (staticlib/cdylib) | Step 3, M2(c), M5; reseal and size report |
 | `iroha_python_rs` (`confidential_wallet.rs`), `iroha_js_host` | Confidential wallet | PyPI wheels, npm | M2(c) |
 | `integration_tests` (dev) | Proof fixtures, `queries/proof.rs` | Test | M2 (4-peer cutover tests) |
+
+The retired Core pooled-reserve execution and runtime verifier owners, and the
+SDK ordinary-native tools, are removed. The SDK and its consumers no longer
+admit `iroha_core_zk` through a dependency-budget exception; all configured
+forbidden layers apply directly. The selected wallet's node integration
+remains part of M5.
 
 ## SDKs and tools
 
@@ -155,8 +157,10 @@ criteria).
   - Unknown offline: registered VKs by backend label, stored proofs, shielded commitment and nullifier counts, Kaigi sessions, PoP credentials, installed KAGEMUSHA releases and mint-finality epochs.
 - **Minamoto:** no checked-in config, and the skill lists no ZK surface. Everything is unknown offline; stay read-only.
 
-A read-only MCP inventory of both networks must gate the M2 cutover and the M7
-deletion (spec §9: old-format value keeps its verifier until holders exit).
+Deployment qualification for M2 and M7 requires a current read-only inventory
+of the target network and the final release candidate. This first release
+removes retired formats and verifier implementations directly; no compatibility
+decoder or parallel verifier is retained.
 
 ## Corrections applied to the judge plan
 

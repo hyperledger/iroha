@@ -350,6 +350,14 @@
           "role": "source"
         },
         {
+          "path": "crates/iroha_crypto/src/ram_lfe/phone_control.rs",
+          "role": "source"
+        },
+        {
+          "path": "crates/iroha_crypto/src/ram_lfe/phone_control_tests.rs",
+          "role": "test"
+        },
+        {
           "path": "crates/iroha_data_model/src/confidential/spentness.rs",
           "role": "source"
         },

@@ -67,7 +67,7 @@ use super::{
         SharedCrypto,
         traits::{BlockStore as _, Executor as _},
     },
-    executor::{ExecutorContext, StateExecutor, attestation_required},
+    executor::{ExecutorContext, StateExecutor},
     node::root_instance,
     payload::{self, Assembly},
     startup::{self, GENESIS_HEIGHT},
@@ -1240,8 +1240,7 @@ impl CertifiedTestChain {
             payload_len: u32::try_from(payload_bytes.len()).expect("payload fits"),
             proposer: 0,
             skipped_leaders: Vec::new(),
-            attest: attestation_required(&proposal)
-                || height == scheduled.epoch.authorization.last_height,
+            attest: height == scheduled.epoch.authorization.last_height,
         };
         let block = self.author_payload(header, payload_bytes);
         let block_hash = block.hash(&*self.crypto);

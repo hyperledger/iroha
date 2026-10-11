@@ -8,10 +8,10 @@
 //! mode flags, an optional logical vector length, and a cycle limit.
 mod literal_table;
 mod manifest_projection;
-mod section_decode;
 #[cfg(test)]
 #[path = "metadata/native_allocation_tests.rs"]
 mod native_allocation_tests;
+mod section_decode;
 pub use literal_table::{LiteralDirectory, ValidatedLiteral};
 
 use crate::error::VMError;

@@ -43,10 +43,7 @@ struct Original {
 impl Original {
     fn select(authority: &ServiceAuthority, fees: Fees) -> Result<Self> {
         let policies = GeneratedServicePolicies::select(authority)?;
-        let plans = authority
-            .prepared
-            .provider_service_plans()?
-            .ok_or_else(|| invalid("service bootstrap requires original provider plans"))?;
+        let plans = authority.provider_plans()?;
         let original = Self {
             network: authority.config.network_id,
             genesis: *authority.genesis.genesis.hash().as_ref(),
@@ -62,10 +59,7 @@ impl Original {
         encode(self, MAX_ORIGINAL_BYTES)?;
         self.fees.validate()?;
         self.policies.validate(authority)?;
-        let plans = authority
-            .prepared
-            .provider_service_plans()?
-            .ok_or_else(|| invalid("service bootstrap requires original provider plans"))?;
+        let plans = authority.provider_plans()?;
         if self.network != authority.config.network_id
             || self.genesis != *authority.genesis.genesis.hash().as_ref()
         {

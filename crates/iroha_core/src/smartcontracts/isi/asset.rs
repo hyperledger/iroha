@@ -199,8 +199,7 @@ pub mod isi {
             // Custody, usage, privacy, and scope admission are separate gates.
             let (enforce_debit_controls, enforce_credit_controls) = match control_policy {
                 NumericAssetTransferControlPolicy::Enforce => (true, true),
-                NumericAssetTransferControlPolicy::KagemushaRedemption
-                | NumericAssetTransferControlPolicy::OraclePenalty
+                NumericAssetTransferControlPolicy::OraclePenalty
                 | NumericAssetTransferControlPolicy::OracleDisputeResolution
                 | NumericAssetTransferControlPolicy::StakingUnbond
                 | NumericAssetTransferControlPolicy::GovernanceSlash
@@ -707,20 +706,6 @@ pub mod isi {
         if matches!(policy_mode, ConfidentialPolicyMode::ShieldedOnly) {
             return Err(InstructionExecutionError::InvariantViolation(
                 violation_message.into(),
-            ));
-        }
-        Ok(())
-    }
-    fn ensure_not_kagemusha_reserve_source(
-        state_transaction: &StateTransaction<'_, '_>,
-        source_id: &AssetId,
-    ) -> Result<(), Error> {
-        if crate::smartcontracts::isi::kagemusha::is_kagemusha_reserve_source_asset(
-            state_transaction,
-            source_id,
-        )? {
-            return Err(InstructionExecutionError::InvariantViolation(
-                "direct transfer from Kagemusha reserve account is not allowed; use Kagemusha settlement instructions".into(),
             ));
         }
         Ok(())
@@ -1760,7 +1745,6 @@ pub mod isi {
         SorafsReserveCustody,
         FxEscrowRelease,
         FeeSponsorCustody,
-        KagemushaReserveCustody,
         OracleReward,
         OraclePenalty,
         OracleDisputeResolution,
@@ -1808,7 +1792,6 @@ pub mod isi {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     enum NumericAssetTransferControlPolicy {
         Enforce,
-        KagemushaRedemption,
         OraclePenalty,
         OracleDisputeResolution,
         StakingUnbond,
@@ -2066,13 +2049,6 @@ pub mod isi {
     enum EmbeddedNumericAssetMovementPurpose {
         /// Charge the payer while admitting an implicit account.
         AccountAdmissionFee(Vec<u8>),
-        /// Reserve an authenticated Kagemusha V1 top-up in pooled custody.
-        KagemushaTopUp {
-            /// Authority whose signature authorizes the source debit.
-            source_authority: AccountId,
-            /// Exact operation binding.
-            binding: Vec<u8>,
-        },
         /// Reserve an Oracle dispute bond.
         OracleDisputeBond(Vec<u8>),
         /// Reserve a public moderation challenge bond.
@@ -2124,8 +2100,6 @@ pub mod isi {
     /// Closed set of retained-state protocol movement purposes.
     #[derive(Debug)]
     enum RetainedNumericAssetMovementPurpose {
-        /// Release authenticated Kagemusha reserve.
-        KagemushaRedemption(Vec<u8>),
         /// Pay an Oracle reward from the configured pool.
         OracleReward(Vec<u8>),
         /// Apply a mandatory Oracle penalty.
@@ -2248,14 +2222,6 @@ pub mod isi {
                     "account-admission-fee",
                     binding,
                 ),
-                EmbeddedNumericAssetMovementPurpose::KagemushaTopUp {
-                    source_authority,
-                    binding,
-                } => (
-                    NumericMovementDebitAuthorization::ExactUser(source_authority),
-                    "kagemusha-top-up",
-                    binding,
-                ),
                 EmbeddedNumericAssetMovementPurpose::OracleDisputeBond(binding) => (
                     NumericMovementDebitAuthorization::ExactUser(submitting_authority.clone()),
                     "oracle-dispute-bond",
@@ -2372,12 +2338,6 @@ pub mod isi {
             purpose: RetainedNumericAssetMovementPurpose,
         ) -> Self {
             let (tag, binding, source_policy, control_policy) = match purpose {
-                RetainedNumericAssetMovementPurpose::KagemushaRedemption(binding) => (
-                    "kagemusha-redemption",
-                    binding,
-                    NumericAssetTransferSourcePolicy::KagemushaReserveCustody,
-                    NumericAssetTransferControlPolicy::KagemushaRedemption,
-                ),
                 RetainedNumericAssetMovementPurpose::OracleReward(binding) => (
                     "oracle-reward",
                     binding,
@@ -2647,9 +2607,6 @@ pub mod isi {
                 NumericAssetTransferSourcePolicy::FeeSponsorCustody => {
                     ("FeeSponsorCustody", SourceDetail::Empty)
                 }
-                NumericAssetTransferSourcePolicy::KagemushaReserveCustody => {
-                    ("KagemushaReserveCustody", SourceDetail::Empty)
-                }
                 NumericAssetTransferSourcePolicy::OracleReward => {
                     ("OracleReward", SourceDetail::Empty)
                 }
@@ -2707,7 +2664,6 @@ pub mod isi {
             };
             let control = match self.control_policy {
                 NumericAssetTransferControlPolicy::Enforce => "Enforce",
-                NumericAssetTransferControlPolicy::KagemushaRedemption => "KagemushaRedemption",
                 NumericAssetTransferControlPolicy::OraclePenalty => "OraclePenalty",
                 NumericAssetTransferControlPolicy::OracleDisputeResolution => {
                     "OracleDisputeResolution"
@@ -2800,9 +2756,6 @@ pub mod isi {
                 NumericAssetTransferSourcePolicy::FeeSponsorCustody => {
                     ("FeeSponsorCustody", Vec::new())
                 }
-                NumericAssetTransferSourcePolicy::KagemushaReserveCustody => {
-                    ("KagemushaReserveCustody", Vec::new())
-                }
                 NumericAssetTransferSourcePolicy::OracleReward => ("OracleReward", Vec::new()),
                 NumericAssetTransferSourcePolicy::OraclePenalty => ("OraclePenalty", Vec::new()),
                 NumericAssetTransferSourcePolicy::OracleDisputeResolution => {
@@ -2846,7 +2799,6 @@ pub mod isi {
             };
             let control = match self.control_policy {
                 NumericAssetTransferControlPolicy::Enforce => "Enforce",
-                NumericAssetTransferControlPolicy::KagemushaRedemption => "KagemushaRedemption",
                 NumericAssetTransferControlPolicy::OraclePenalty => "OraclePenalty",
                 NumericAssetTransferControlPolicy::OracleDisputeResolution => {
                     "OracleDisputeResolution"
@@ -3337,7 +3289,6 @@ pub mod isi {
                     authority,
                     &source_id,
                 )?;
-                ensure_not_kagemusha_reserve_source(state_transaction, &source_id)?;
                 ensure_not_native_escrow_source(state_transaction, &source_id)?;
                 ensure_not_sorafs_reserve_custody_source(state_transaction, &source_id)?;
                 ensure_not_sccp_escrow_source(state_transaction, &source_id)?;
@@ -3353,7 +3304,6 @@ pub mod isi {
                         "fee sponsor burn source does not match configured custody".into(),
                     ));
                 }
-                ensure_not_kagemusha_reserve_source(state_transaction, &source_id)?;
                 ensure_not_native_escrow_source(state_transaction, &source_id)?;
                 ensure_not_sorafs_reserve_custody_source(state_transaction, &source_id)?;
                 ensure_not_sccp_escrow_source(state_transaction, &source_id)?;
@@ -3932,75 +3882,6 @@ pub mod isi {
             NumericAssetMovementAuthorization::retained(
                 &transcript_authority,
                 RetainedNumericAssetMovementPurpose::SocialEscrow(binding),
-            ),
-        )
-    }
-    /// Consume a one-shot Kagemusha V1 top-up capability.
-    pub(in crate::smartcontracts::isi) fn execute_verified_kagemusha_top_up_transfer_v1(
-        state_transaction: &mut StateTransaction<'_, '_>,
-        authorization: crate::smartcontracts::isi::kagemusha::VerifiedKagemushaTopUpDebitV1,
-    ) -> Result<(), Error> {
-        let (source_authority, operation_id, source_id, destination_id, amount) =
-            authorization.into_parts();
-        if source_id.account() != &source_authority
-            || !crate::smartcontracts::isi::kagemusha::is_kagemusha_reserve_source_asset(
-                state_transaction,
-                &destination_id,
-            )?
-        {
-            return Err(InstructionExecutionError::InvariantViolation(
-                "Kagemusha V1 top-up capability does not match its payer and pooled reserve".into(),
-            ));
-        }
-        let binding = canonical_numeric_movement_binding(&(
-            operation_id,
-            source_id.clone(),
-            destination_id.clone(),
-            amount.clone(),
-        ))?;
-        execute_numeric_asset_movement(
-            state_transaction,
-            source_id,
-            destination_id,
-            amount,
-            NumericAssetMovementAuthorization::embedded_user(
-                &source_authority,
-                EmbeddedNumericAssetMovementPurpose::KagemushaTopUp {
-                    source_authority: source_authority.clone(),
-                    binding,
-                },
-            ),
-        )
-    }
-    /// Consume a one-shot Kagemusha V1 redemption capability.
-    pub(in crate::smartcontracts::isi) fn execute_verified_kagemusha_redemption_transfer_v1(
-        state_transaction: &mut StateTransaction<'_, '_>,
-        authorization: crate::smartcontracts::isi::kagemusha::VerifiedKagemushaRedemptionDebitV1,
-    ) -> Result<(), Error> {
-        let (operation_id, source_id, destination_id, amount) = authorization.into_parts();
-        if !crate::smartcontracts::isi::kagemusha::is_kagemusha_reserve_source_asset(
-            state_transaction,
-            &source_id,
-        )? {
-            return Err(InstructionExecutionError::InvariantViolation(
-                "Kagemusha V1 redemption capability source is not the pooled reserve".into(),
-            ));
-        }
-        let transcript_authority = destination_id.account().clone();
-        let binding = canonical_numeric_movement_binding(&(
-            operation_id,
-            source_id.clone(),
-            destination_id.clone(),
-            amount.clone(),
-        ))?;
-        execute_numeric_asset_movement(
-            state_transaction,
-            source_id,
-            destination_id,
-            amount,
-            NumericAssetMovementAuthorization::retained(
-                &transcript_authority,
-                RetainedNumericAssetMovementPurpose::KagemushaRedemption(binding),
             ),
         )
     }
@@ -5745,8 +5626,7 @@ pub mod isi {
                         &amount,
                     )?,
                 ),
-                NumericAssetTransferControlPolicy::KagemushaRedemption
-                | NumericAssetTransferControlPolicy::OraclePenalty
+                NumericAssetTransferControlPolicy::OraclePenalty
                 | NumericAssetTransferControlPolicy::OracleDisputeResolution
                 | NumericAssetTransferControlPolicy::StakingUnbond
                 | NumericAssetTransferControlPolicy::StakingSlash
@@ -7154,11 +7034,9 @@ pub mod isi {
             | NumericAssetTransferSourcePolicy::RetailMonetary(_)
             | NumericAssetTransferSourcePolicy::PrivacyPoolBridge(_)
             | NumericAssetTransferSourcePolicy::GameSessionFunding => {
-                ensure_not_kagemusha_reserve_source(state_transaction, &source_id)?;
                 ensure_not_native_escrow_source(state_transaction, &source_id)?;
             }
             NumericAssetTransferSourcePolicy::FxEscrowDeposit => {
-                ensure_not_kagemusha_reserve_source(state_transaction, &source_id)?;
                 ensure_not_native_escrow_source(state_transaction, &source_id)?;
                 if !is_fx_corridor_escrow_asset(state_transaction, &destination_id)? {
                     return Err(InstructionExecutionError::InvariantViolation(
@@ -7187,7 +7065,6 @@ pub mod isi {
                         "SoraFS reserve withdrawal source is not active protocol custody".into(),
                     ));
                 }
-                ensure_not_kagemusha_reserve_source(state_transaction, &source_id)?;
                 ensure_not_native_escrow_source(state_transaction, &source_id)?;
             }
             NumericAssetTransferSourcePolicy::FxEscrowRelease => {
@@ -7197,7 +7074,6 @@ pub mod isi {
                     )
                     .into());
                 }
-                ensure_not_kagemusha_reserve_source(state_transaction, &source_id)?;
                 ensure_not_native_escrow_source(state_transaction, &source_id)?;
             }
             NumericAssetTransferSourcePolicy::FeeSponsorCustody => {
@@ -7213,7 +7089,6 @@ pub mod isi {
                     )
                     .into());
                 }
-                ensure_not_kagemusha_reserve_source(state_transaction, &source_id)?;
                 ensure_not_native_escrow_source(state_transaction, &source_id)?;
             }
             NumericAssetTransferSourcePolicy::OracleReward
@@ -7230,18 +7105,6 @@ pub mod isi {
             | NumericAssetTransferSourcePolicy::GovernanceRestitution
             | NumericAssetTransferSourcePolicy::GovernanceUnlock
             | NumericAssetTransferSourcePolicy::CitizenshipRelease => {
-                ensure_not_kagemusha_reserve_source(state_transaction, &source_id)?;
-                ensure_not_native_escrow_source(state_transaction, &source_id)?;
-            }
-            NumericAssetTransferSourcePolicy::KagemushaReserveCustody => {
-                if !crate::smartcontracts::isi::kagemusha::is_kagemusha_reserve_source_asset(
-                    state_transaction,
-                    &source_id,
-                )? {
-                    return Err(InstructionExecutionError::InvariantViolation(
-                        "Kagemusha redemption source is not configured Kagemusha custody".into(),
-                    ));
-                }
                 ensure_not_native_escrow_source(state_transaction, &source_id)?;
             }
             NumericAssetTransferSourcePolicy::SccpEscrowLock => {
@@ -7250,7 +7113,6 @@ pub mod isi {
                         "SCCP escrow lock destination is not a registered route escrow".into(),
                     ));
                 }
-                ensure_not_kagemusha_reserve_source(state_transaction, &source_id)?;
                 ensure_not_native_escrow_source(state_transaction, &source_id)?;
             }
             NumericAssetTransferSourcePolicy::SccpEscrowRelease => {
@@ -7853,7 +7715,6 @@ pub mod isi {
                 )],
                 Some(&quantity),
             )?;
-            ensure_not_kagemusha_reserve_source(state_transaction, &resolved_asset_id)?;
             ensure_not_native_escrow_source(state_transaction, &resolved_asset_id)?;
             ensure_not_fx_corridor_escrow_source(state_transaction, &resolved_asset_id)?;
             ensure_not_sorafs_reserve_custody_source(state_transaction, &resolved_asset_id)?;
@@ -8064,7 +7925,6 @@ pub mod isi {
             )],
             Some(&quantity),
         )?;
-        ensure_not_kagemusha_reserve_source(state_transaction, &asset_id)?;
         ensure_not_native_escrow_source(state_transaction, &asset_id)?;
         ensure_not_fx_corridor_escrow_source(state_transaction, &asset_id)?;
         ensure_not_sorafs_reserve_custody_source(state_transaction, &asset_id)?;
@@ -10277,6 +10137,9 @@ pub mod query {
         include!("asset/core_numeric_mutation_tests.rs");
         include!("asset/retail_daily_limit_tests.rs");
         include!("asset/privacy_public_reserve_tests.rs");
+        mod privacy_economic_invariant_tests {
+            include!("asset/privacy_economic_invariant_tests.rs");
+        }
         mod prepared_independent_occurrence_tests {
             include!("asset/prepared_independent_occurrence_tests.rs");
         }

@@ -5,16 +5,12 @@ This launcher is shared by the Apple, Android, and host-JNI build gates.  Its
 profiles are deliberately closed inventories: a caller must provide every
 declared variable and cannot add undeclared variables.  In particular, ambient
 Cargo/Rust compiler flags and wrapper variables never reach the child process.
-Android admits the two exact public hardware and ordinary compiled originals.
-Their held inodes and complete SHA256 remain unchanged across Cargo; neither
-an original nor this launcher creates runtime, hardware or financial authority.
+The launcher creates no runtime, hardware or financial authority.
 """
 
 from __future__ import annotations
 
 import argparse
-import contextlib
-import hashlib
 import stat
 import os
 import pathlib
@@ -52,8 +48,6 @@ APPLE_CARGO_ENVIRONMENT = SERIALIZED_CARGO_ENVIRONMENT | {
 ANDROID_CARGO_ENVIRONMENT = SERIALIZED_CARGO_ENVIRONMENT | {
     "ANDROID_NDK_HOME",
     "ANDROID_NDK_ROOT",
-    "MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE",
-    "MOBILE_SDK_ORDINARY_CONTEXT_COMPILED_BINDING_FILE",
 }
 GRADLE_JVM_ENVIRONMENT = frozenset(
     {
@@ -193,106 +187,6 @@ def authenticate_regular_file(name: str, candidate: pathlib.Path) -> tuple[pathl
         resolved_metadata.st_mtime_ns,
     )
     return resolved, identity
-
-
-def compiled_binding_identity(metadata: os.stat_result) -> tuple[int, ...]:
-    """Pin the complete held public inode, including custody metadata and nanosecond clocks."""
-    return (
-        metadata.st_dev, metadata.st_ino, metadata.st_mode, metadata.st_nlink,
-        metadata.st_uid, metadata.st_gid, metadata.st_size,
-        metadata.st_mtime_ns, metadata.st_ctime_ns,
-    )
-
-
-class HeldPublicCompiledBinding:
-    """Hold only the fixed public helper output across the actual Cargo child."""
-
-    def __init__(self, raw: str, target_raw: str, *, filename: str,
-                 label: str, minimum: int, maximum: int) -> None:
-        self.label = label
-        self.path = pathlib.Path(raw)
-        if (
-            not self.path.is_absolute()
-            or self.path != pathlib.Path(os.path.abspath(self.path))
-            or self.path.name != filename
-        ):
-            raise RuntimeError(f"{self.label} requires its canonical absolute public original")
-        if pathlib.Path.cwd() in self.path.parents or pathlib.Path(target_raw) in self.path.parents:
-            raise RuntimeError(f"{self.label} must remain outside source/target")
-        before = self.path.lstat()
-        if (
-            not stat.S_ISREG(before.st_mode)
-            or self.path.resolve(strict=True) != self.path
-            or before.st_mode & 0o022
-            or before.st_nlink != 1
-            or not minimum <= before.st_size <= maximum
-        ):
-            raise RuntimeError(f"{self.label} original custody/size rejected")
-        self.fd = os.open(self.path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK)
-        try:
-            self.identity = compiled_binding_identity(before)
-            if compiled_binding_identity(os.fstat(self.fd)) != self.identity:
-                raise RuntimeError(f"{self.label} original changed before intake")
-            self.sha256 = self.digest()
-            self.recheck()
-        except BaseException:
-            os.close(self.fd)
-            raise
-
-    def digest(self) -> bytes:
-        digest = hashlib.sha256()
-        offset = 0
-        while offset < self.identity[6]:
-            chunk = os.pread(self.fd, min(8192, self.identity[6] - offset), offset)
-            if not chunk:
-                raise RuntimeError(f"{self.label} original short read")
-            digest.update(chunk)
-            offset += len(chunk)
-        if os.pread(self.fd, 1, offset):
-            raise RuntimeError(f"{self.label} original grew")
-        return digest.digest()
-
-    def recheck(self) -> None:
-        if (
-            self.path.resolve(strict=True) != self.path
-            or compiled_binding_identity(self.path.lstat()) != self.identity
-            or compiled_binding_identity(os.fstat(self.fd)) != self.identity
-            or self.digest() != self.sha256
-            or compiled_binding_identity(os.fstat(self.fd)) != self.identity
-        ):
-            raise RuntimeError(f"{self.label} original changed during the hermetic Cargo invocation")
-
-    def __enter__(self) -> "HeldPublicCompiledBinding":
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        os.close(self.fd)
-
-
-class HeldHardwareCompiledBinding(HeldPublicCompiledBinding):
-    """The sole fixed hardware original; independent hardware admission is unchanged."""
-
-    def __init__(self, raw: str, target_raw: str) -> None:
-        super().__init__(raw, target_raw, filename="hardware-compiled-binding.norito",
-                         label="hardware compiled binding", minimum=1, maximum=192 * 1024)
-
-
-class HeldOrdinaryCompiledBinding(HeldPublicCompiledBinding):
-    """The sole 76-byte public common SDK role/source/ABI compile original."""
-
-    def __init__(self, raw: str, target_raw: str) -> None:
-        super().__init__(raw, target_raw, filename="common-sdk-compiled-root.bin",
-                         label="ordinary compiled binding", minimum=76, maximum=76)
-        try:
-            original = os.pread(self.fd, 76, 0)
-            if (len(original) != 76 or original[:8] != b"KGMROOT1"
-                    or not any(original[8:40]) or not any(original[40:72])
-                    or int.from_bytes(original[72:76], "little") != 25):
-                raise RuntimeError("ordinary compiled binding exact public root/source/ABI shape rejected")
-            self.recheck()
-        except BaseException:
-            os.close(self.fd)
-            raise
 
 
 def authenticate_cargo_environment(
@@ -563,71 +457,56 @@ def main() -> int:
         )
         invocation_directory = invocation_observation[0]
 
-    with contextlib.ExitStack() as original_custody:
-        bindings = []
-        if args.profile == "android-cargo":
-            bindings.append(original_custody.enter_context(HeldHardwareCompiledBinding(
-                environment["MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE"],
-                environment["CARGO_TARGET_DIR"],
-            )))
-            bindings.append(original_custody.enter_context(HeldOrdinaryCompiledBinding(
-                environment["MOBILE_SDK_ORDINARY_CONTEXT_COMPILED_BINDING_FILE"],
-                environment["CARGO_TARGET_DIR"],
-            )))
-        authenticated_tools: dict[str, tuple[pathlib.Path, tuple[int, ...]]] = {}
-        authenticated_files: dict[str, tuple[pathlib.Path, tuple[int, ...]]] = {}
-        build_configuration = {}
-        if args.profile in AUTHENTICATED_CARGO_PROFILES:
-            build_configuration = authenticate_build_cargo_configuration(
-                invocation_directory, pathlib.Path(environment["CARGO_HOME"])
-            )
-        if args.profile in AUTHENTICATED_CARGO_PROFILES:
-            authenticated_tools = authenticate_cargo_environment(environment)
-        if args.profile == "android-cargo":
-            authenticated_files["Android root Cargo.lock"] = authenticate_android_cargo_arguments(
-                args.command
-            )
-
-        executable = pathlib.Path(args.command[0])
-        if not executable.is_absolute():
-            raise RuntimeError(f"hermetic command executable must be absolute: {executable}")
-        resolved = executable.resolve(strict=True)
-        if not resolved.is_file() or not os.access(resolved, os.X_OK):
-            raise RuntimeError(f"hermetic command executable is not a regular executable: {resolved}")
-        if (
-            args.profile in AUTHENTICATED_CARGO_PROFILES
-            and resolved != authenticated_tools["CARGO"][0]
-        ):
-            raise RuntimeError(
-                "Cargo command does not match the authenticated CARGO executable"
-            )
-
-        for binding in bindings:
-            binding.recheck()
-        if invocation_observation is not None:
-            recheck_cargo_invocation_directory(source_root, invocation_observation)
-
-        completed = subprocess.run(
-            [str(resolved), *args.command[1:]],
-            env=environment,
-            close_fds=True,
-            check=False,
-            cwd=invocation_directory,
+    authenticated_tools: dict[str, tuple[pathlib.Path, tuple[int, ...]]] = {}
+    authenticated_files: dict[str, tuple[pathlib.Path, tuple[int, ...]]] = {}
+    build_configuration = {}
+    if args.profile in AUTHENTICATED_CARGO_PROFILES:
+        build_configuration = authenticate_build_cargo_configuration(
+            invocation_directory, pathlib.Path(environment["CARGO_HOME"])
         )
-        if invocation_observation is not None:
-            recheck_cargo_invocation_directory(source_root, invocation_observation)
-        recheck_build_cargo_configuration(build_configuration)
-        for name, (path, expected_identity) in authenticated_tools.items():
-            _, current_identity = authenticate_regular_executable(name, str(path))
-            if current_identity != expected_identity:
-                raise RuntimeError(f"{name} changed during the hermetic Cargo invocation")
-        for name, (path, expected_identity) in authenticated_files.items():
-            _, current_identity = authenticate_regular_file(name, path)
-            if current_identity != expected_identity:
-                raise RuntimeError(f"{name} changed during the hermetic Cargo invocation")
-        for binding in bindings:
-            binding.recheck()
-        return completed.returncode
+    if args.profile in AUTHENTICATED_CARGO_PROFILES:
+        authenticated_tools = authenticate_cargo_environment(environment)
+    if args.profile == "android-cargo":
+        authenticated_files["Android root Cargo.lock"] = authenticate_android_cargo_arguments(
+            args.command
+        )
+
+    executable = pathlib.Path(args.command[0])
+    if not executable.is_absolute():
+        raise RuntimeError(f"hermetic command executable must be absolute: {executable}")
+    resolved = executable.resolve(strict=True)
+    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+        raise RuntimeError(f"hermetic command executable is not a regular executable: {resolved}")
+    if (
+        args.profile in AUTHENTICATED_CARGO_PROFILES
+        and resolved != authenticated_tools["CARGO"][0]
+    ):
+        raise RuntimeError(
+            "Cargo command does not match the authenticated CARGO executable"
+        )
+
+    if invocation_observation is not None:
+        recheck_cargo_invocation_directory(source_root, invocation_observation)
+
+    completed = subprocess.run(
+        [str(resolved), *args.command[1:]],
+        env=environment,
+        close_fds=True,
+        check=False,
+        cwd=invocation_directory,
+    )
+    if invocation_observation is not None:
+        recheck_cargo_invocation_directory(source_root, invocation_observation)
+    recheck_build_cargo_configuration(build_configuration)
+    for name, (path, expected_identity) in authenticated_tools.items():
+        _, current_identity = authenticate_regular_executable(name, str(path))
+        if current_identity != expected_identity:
+            raise RuntimeError(f"{name} changed during the hermetic Cargo invocation")
+    for name, (path, expected_identity) in authenticated_files.items():
+        _, current_identity = authenticate_regular_file(name, path)
+        if current_identity != expected_identity:
+            raise RuntimeError(f"{name} changed during the hermetic Cargo invocation")
+    return completed.returncode
 
 
 if __name__ == "__main__":

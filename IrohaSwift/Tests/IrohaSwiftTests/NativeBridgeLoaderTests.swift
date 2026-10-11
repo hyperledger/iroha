@@ -48,6 +48,16 @@ final class NativeBridgeLoaderTests: XCTestCase {
     }
     #endif
 
+    func testRetiredKagemushaExportsAreNotRequiredForAdmission() {
+        XCTAssertTrue(NoritoBridgeLoader.hasRequiredExports(resolving: { symbol in
+            !symbol.hasPrefix("connect_norito_kagemusha_")
+        }))
+    }
+
+    func testRetiredKagemushaStatusIsUnknown() {
+        XCTAssertEqual(NativeBridgeError.fromStatus(-311), .unknown(-311))
+    }
+
     func testEveryCurrentMlDsaExportIsRequiredForAdmission() {
         XCTAssertEqual(NoritoBridgeLoader.mldsaRequiredSymbols, [
             "soranet_mldsa_parameters",
@@ -76,6 +86,16 @@ final class NativeBridgeLoaderTests: XCTestCase {
         }
         let required = Set(NoritoBridgeLoader.accelerationRequiredSymbols)
         XCTAssertFalse(NoritoBridgeLoader.hasRequiredExports(resolving: { !required.contains($0) }))
+    }
+
+    func testAdmissionRequiresNoRetiredKagemushaBridgeExport() {
+        // The bridge exports no KAGEMUSHA symbol, so a fresh bridge that lacks
+        // every connect_norito_kagemusha_* export must still pass admission.
+        XCTAssertTrue(NoritoBridgeLoader.hasRequiredExports(resolving: { symbol in
+            !symbol.hasPrefix("connect_norito_kagemusha_")
+        }))
+        // The bridge no longer defines status -311, so it maps to an unknown status.
+        XCTAssertEqual(NativeBridgeError.fromStatus(-311), .unknown(-311))
     }
 
     func testExpectedBridgeAbiVersionIsTwentyFiveForPackagedArtifacts() {

@@ -636,6 +636,9 @@ impl KagemushaWalletRetainedInputV1 {
 /// only by digest, and `Λ_send` checks the fee terms against it (§§3.2, 6.2). Load retains the
 /// voucher's `LoadAuthorization` certificate with the voucher, because `Λ_load` verifies the
 /// voucher signature under it (§3.2) and the voucher names it only by digest.
+// TODO(owner): interim choices kept as is until the owner decides: a Send capsule retains the
+// whole Request message, and no Load or Unload capsule retains a ChargeQuote because `Λ_load`
+// and `Λ_unload` do not verify ChargeQuote signatures (wire record §7).
 const fn required_retained_roles_v1(
     kind: KagemushaWalletOperationKindV1,
 ) -> &'static [KagemushaWalletRetainedInputRoleV1] {

@@ -10,7 +10,7 @@ use super::*;
 /// Exact role labels in declaration order. The values a step relation computes or opens
 /// (`credit_id`, `proof_digest`, the Payment digest, the blacklist and quota-window trees) are
 /// Poseidon values, not SHA roles (owner answers Q1, Q2 and Q9).
-const ROLE_LABELS: [&str; 55] = [
+const ROLE_LABELS: [&str; 34] = [
     "scheme",
     "relation",
     "provider-contract",
@@ -20,50 +20,29 @@ const ROLE_LABELS: [&str; 55] = [
     "enrollment-id",
     "enrollment-key-binding",
     "wallet-id",
-    "certificate-body",
     "certificate",
     "certificate-set",
-    "credential-body",
     "credential",
-    "scheme-policy-body",
     "scheme-policy",
-    "fee-schedule-body",
     "fee-schedule",
-    "blacklist-body",
     "blacklist",
-    "quota-share-body",
     "quota-share",
-    "time-anchor-body",
     "time-anchor",
-    "offer-body",
-    "session-control-body",
-    "request-body",
     "request",
     "statement",
-    "lineage",
-    "receipt-body",
     "receipt",
     "package",
-    "credit-opening",
-    "credit-status",
-    "credited",
     "operation-id",
     "output",
     "capsule",
     "marker",
     "completion",
     "fold",
-    "voucher-body",
     "voucher",
     "unload-nullifier",
-    "ledger-control-body",
-    "renewal-challenge",
-    "renewal-key-binding",
     "renewal-assertion",
-    "artifact-manifest-body",
     "artifact-manifest",
     "verifying-key-set",
-    "charge-quote-body",
     "charge-quote",
     "evidence",
 ];
@@ -111,8 +90,22 @@ fn key(seed: u8) -> (SigningKey, KagemushaDevicePublicKeyV1) {
     (signing, public)
 }
 
-fn sign(signing: &SigningKey, role: KagemushaWalletDigestRoleV1, body: &[u8]) -> P256Signature {
-    signing.sign(&kagemusha_wallet_preimage_v1(role, body))
+fn sign(signing: &SigningKey, message: &[u8; 32]) -> P256Signature {
+    signing.sign(message)
+}
+
+/// Independent test oracle for the retained H transcript; no public signing/preimage API.
+fn hash_transcript(role: KagemushaWalletDigestRoleV1, body: &[u8]) -> Vec<u8> {
+    let mut bytes = KAGEMUSHA_WALLET_DIGEST_PREFIX_V1.to_vec();
+    bytes.extend_from_slice(role.as_str().as_bytes());
+    bytes.push(0);
+    bytes.extend_from_slice(
+        &u64::try_from(body.len())
+            .expect("body length")
+            .to_le_bytes(),
+    );
+    bytes.extend_from_slice(body);
+    bytes
 }
 
 fn low_and_high(signature: &P256Signature) -> ([u8; 64], [u8; 64]) {
@@ -156,6 +149,14 @@ fn kagemusha_wallet_v1_role_labels_are_pinned_unique_and_ascii() {
         "blacklist-node",
         "quota-window",
         "quota-node",
+        "certificate-body",
+        "credential-body",
+        "renewal-challenge",
+        "renewal-key-binding",
+        "lineage",
+        "credit-opening",
+        "credit-status",
+        "credited",
     ] {
         assert!(!labels.contains(label), "{label}");
     }
@@ -167,7 +168,7 @@ fn kagemusha_wallet_v1_role_labels_are_pinned_unique_and_ascii() {
 
 #[test]
 fn kagemusha_wallet_v1_preimage_layout_and_pinned_digests() {
-    let empty = kagemusha_wallet_preimage_v1(KagemushaWalletDigestRoleV1::Scheme, &[]);
+    let empty = hash_transcript(KagemushaWalletDigestRoleV1::Scheme, &[]);
     assert_eq!(
         hex::encode(&empty),
         "69726f68613a6b6167656d757368613a77616c6c65743a76313a736368656d65000000000000000000"
@@ -180,7 +181,7 @@ fn kagemusha_wallet_v1_preimage_layout_and_pinned_digests() {
         "90882608a8e8892521a2661be1e81c3fbfca0f8773e621000daed362a37485a5"
     );
     let body = [0_u8, 1, 2, 3];
-    let credential = kagemusha_wallet_preimage_v1(KagemushaWalletDigestRoleV1::Credential, &body);
+    let credential = hash_transcript(KagemushaWalletDigestRoleV1::Credential, &body);
     assert_eq!(
         hex::encode(&credential),
         "69726f68613a6b6167656d757368613a77616c6c65743a76313a63726564656e7469616c000400000000000000\
@@ -195,7 +196,7 @@ fn kagemusha_wallet_v1_preimage_layout_and_pinned_digests() {
     );
     let mut digests = BTreeSet::new();
     for role in KagemushaWalletDigestRoleV1::ALL {
-        let preimage = kagemusha_wallet_preimage_v1(role, &body);
+        let preimage = hash_transcript(role, &body);
         let label = role.as_str().as_bytes();
         let prefix = KAGEMUSHA_WALLET_DIGEST_PREFIX_V1.len();
         assert_eq!(&preimage[..prefix], KAGEMUSHA_WALLET_DIGEST_PREFIX_V1);
@@ -215,10 +216,11 @@ fn kagemusha_wallet_v1_preimage_layout_and_pinned_digests() {
 #[test]
 fn kagemusha_wallet_v1_signed_object_digest_hashes_body_digest_then_signature() {
     let (signing, _) = key(7);
-    let role = KagemushaWalletDigestRoleV1::CertificateBody;
-    let (low, _) = low_and_high(&sign(&signing, role, b"body"));
+    let domain = KagemushaWalletSigningDomainV1::Certificate;
+    let transcript = vec![0x42; domain.transcript_bytes()];
+    let e = kagemusha_wallet_signing_message_v1(domain, &transcript);
+    let (low, _) = low_and_high(&sign(&signing, &e));
     let signature = KagemushaDeviceSignatureV1::from_raw_bytes(&low).expect("low-S");
-    let e = kagemusha_wallet_digest_v1(role, b"body");
     let mut body = e.to_vec();
     body.extend_from_slice(&low);
     assert_eq!(
@@ -238,11 +240,7 @@ fn kagemusha_wallet_v1_signed_object_digest_hashes_body_digest_then_signature() 
 #[test]
 fn kagemusha_wallet_v1_transcript_builder_writes_fixed_widths() {
     let (signing, public) = key(9);
-    let (low, _) = low_and_high(&sign(
-        &signing,
-        KagemushaWalletDigestRoleV1::Statement,
-        b"x",
-    ));
+    let (low, _) = low_and_high(&sign(&signing, &[0x78; 32]));
     let signature = KagemushaDeviceSignatureV1::from_raw_bytes(&low).expect("low-S");
     let transcript = WalletTranscriptV1::with_capacity(0)
         .u8(0xab)
@@ -278,9 +276,9 @@ fn kagemusha_wallet_v1_transcript_builder_writes_fixed_widths() {
 #[test]
 fn kagemusha_wallet_v1_freeze_normalizes_der_and_raw_high_s() {
     let (signing, public) = key(7);
-    let role = KagemushaWalletDigestRoleV1::CredentialBody;
-    let body = b"credential transcript";
-    let signature = sign(&signing, role, body);
+    let role = KagemushaWalletSigningDomainV1::Credential;
+    let body = kagemusha_wallet_signing_message_v1(role, &vec![0x43; role.transcript_bytes()]);
+    let signature = sign(&signing, &body);
     let (low, high) = low_and_high(&signature);
     let der = signature.to_der();
     for output in [
@@ -289,15 +287,15 @@ fn kagemusha_wallet_v1_freeze_normalizes_der_and_raw_high_s() {
         KagemushaWalletSignerOutputV1::Der(der.as_bytes()),
     ] {
         let frozen =
-            kagemusha_wallet_freeze_signature_v1(&public, role, body, output).expect("freeze");
+            kagemusha_wallet_freeze_signature_v1(&public, role, &body, output).expect("freeze");
         assert_eq!(frozen.as_raw_bytes(), &low);
-        kagemusha_wallet_verify_signature_v1(&public, role, body, &frozen).expect("verify");
+        kagemusha_wallet_verify_signature_v1(&public, role, &body, &frozen).expect("verify");
     }
     let high_der = P256Signature::from_slice(&high).expect("high twin parses");
     let frozen = kagemusha_wallet_freeze_signature_v1(
         &public,
         role,
-        body,
+        &body,
         KagemushaWalletSignerOutputV1::Der(high_der.to_der().as_bytes()),
     )
     .expect("freeze high-S DER");
@@ -308,9 +306,9 @@ fn kagemusha_wallet_v1_freeze_normalizes_der_and_raw_high_s() {
 fn kagemusha_wallet_v1_freeze_rejects_invalid_or_unbound_output() {
     let (signing, public) = key(7);
     let (_, other) = key(8);
-    let role = KagemushaWalletDigestRoleV1::RequestBody;
-    let body = b"request transcript";
-    let signature = sign(&signing, role, body);
+    let role = KagemushaWalletSigningDomainV1::Request;
+    let body = kagemusha_wallet_signing_message_v1(role, &vec![0x44; role.transcript_bytes()]);
+    let signature = sign(&signing, &body);
     let (low, _) = low_and_high(&signature);
     let rejected =
         |result: Result<KagemushaDeviceSignatureV1, KagemushaWalletValidationErrorV1>| {
@@ -321,18 +319,18 @@ fn kagemusha_wallet_v1_freeze_rejects_invalid_or_unbound_output() {
         };
     let raw_output = KagemushaWalletSignerOutputV1::Raw(low);
     assert!(rejected(kagemusha_wallet_freeze_signature_v1(
-        &other, role, body, raw_output
+        &other, role, &body, raw_output
     )));
     assert!(rejected(kagemusha_wallet_freeze_signature_v1(
         &public,
-        KagemushaWalletDigestRoleV1::OfferBody,
-        body,
+        KagemushaWalletSigningDomainV1::Offer,
+        &kagemusha_wallet_signing_message_v1(KagemushaWalletSigningDomainV1::Offer, &[0x44; 194]),
         raw_output
     )));
     assert!(rejected(kagemusha_wallet_freeze_signature_v1(
         &public,
         role,
-        b"other transcript",
+        &kagemusha_wallet_signing_message_v1(role, &vec![0x46; role.transcript_bytes()]),
         raw_output
     )));
     let mut der = signature.to_der().as_bytes().to_vec();
@@ -340,7 +338,7 @@ fn kagemusha_wallet_v1_freeze_rejects_invalid_or_unbound_output() {
     assert!(rejected(kagemusha_wallet_freeze_signature_v1(
         &public,
         role,
-        body,
+        &body,
         KagemushaWalletSignerOutputV1::Der(&der)
     )));
     let order = bytes32(ORDER);
@@ -358,7 +356,7 @@ fn kagemusha_wallet_v1_freeze_rejects_invalid_or_unbound_output() {
         assert!(rejected(kagemusha_wallet_freeze_signature_v1(
             &public,
             role,
-            body,
+            &body,
             KagemushaWalletSignerOutputV1::Raw(invalid)
         )));
     }
@@ -368,19 +366,30 @@ fn kagemusha_wallet_v1_freeze_rejects_invalid_or_unbound_output() {
 fn kagemusha_wallet_v1_verify_rejects_high_s_and_wrong_bindings() {
     let (signing, public) = key(7);
     let (_, other) = key(8);
-    let role = KagemushaWalletDigestRoleV1::ReceiptBody;
-    let body = b"receipt transcript";
-    let (low, high) = low_and_high(&sign(&signing, role, body));
+    let role = KagemushaWalletSigningDomainV1::Receipt;
+    let body = kagemusha_wallet_signing_message_v1(role, &vec![0x45; role.transcript_bytes()]);
+    let (low, high) = low_and_high(&sign(&signing, &body));
     assert!(KagemushaDeviceSignatureV1::from_raw_bytes(&high).is_err());
     let signature = KagemushaDeviceSignatureV1::from_raw_bytes(&low).expect("low-S");
-    assert!(kagemusha_wallet_verify_signature_v1(&public, role, body, &signature).is_ok());
+    assert!(kagemusha_wallet_verify_signature_v1(&public, role, &body, &signature).is_ok());
     for (key, role, body) in [
-        (&other, role, &body[..]),
-        (&public, KagemushaWalletDigestRoleV1::Receipt, &body[..]),
-        (&public, role, &b"tampered"[..]),
+        (&other, role, body),
+        (
+            &public,
+            KagemushaWalletSigningDomainV1::Certificate,
+            kagemusha_wallet_signing_message_v1(
+                KagemushaWalletSigningDomainV1::Certificate,
+                &[0x45; 108],
+            ),
+        ),
+        (
+            &public,
+            role,
+            kagemusha_wallet_signing_message_v1(role, &vec![0x46; role.transcript_bytes()]),
+        ),
     ] {
         assert!(matches!(
-            kagemusha_wallet_verify_signature_v1(key, role, body, &signature),
+            kagemusha_wallet_verify_signature_v1(key, role, &body, &signature),
             Err(KagemushaWalletValidationErrorV1::InvalidSignature { .. })
         ));
     }
@@ -414,12 +423,49 @@ fn kagemusha_wallet_v1_signature_boundary_scalars() {
     assert!(matches!(
         kagemusha_wallet_freeze_signature_v1(
             &public,
-            KagemushaWalletDigestRoleV1::Statement,
-            b"",
+            KagemushaWalletSigningDomainV1::Receipt,
+            &[0; 32],
             KagemushaWalletSignerOutputV1::Raw(raw(&one, &half_plus_one))
         ),
         Err(KagemushaWalletValidationErrorV1::InvalidSignature {
-            role: KagemushaWalletDigestRoleV1::Statement
+            domain: KagemushaWalletSigningDomainV1::Receipt
         })
     ));
+}
+
+#[test]
+fn kagemusha_wallet_v1_signing_domains_are_exact_and_messages_use_poseidon() {
+    let labels = [
+        "kgwcert1", "kgwcred1", "kgwrnch1", "kgwrnkb1", "kgwartf1", "kgwrcpt1", "kgwspol1",
+        "kgwfsch1", "kgwblst1", "kgwqshr1", "kgwtanc1", "kgwchgq1", "kgwoffr1", "kgwsctl1",
+        "kgwrqst1", "kgwvchr1", "kgwlctl1",
+    ];
+    let lengths = [
+        108, 476, 130, 163, 290, 338, 142, 191, 118, 190, 138, 219, 194, 197, 418, 250, 211,
+    ];
+    let mut seen = BTreeSet::new();
+    for ((domain, label), length) in KagemushaWalletSigningDomainV1::ALL
+        .into_iter()
+        .zip(labels)
+        .zip(lengths)
+    {
+        assert_eq!(domain.as_str(), label);
+        assert_eq!(domain.transcript_bytes(), length);
+        assert_eq!(
+            domain.domain().to_le_bytes(),
+            *label.as_bytes().first_chunk::<8>().expect("domain")
+        );
+        let transcript = vec![0x47; length];
+        let message = kagemusha_wallet_signing_message_v1(domain, &transcript);
+        assert_eq!(message.len(), 32);
+        assert_eq!(
+            message,
+            super::super::poseidon::kagemusha_wallet_poseidon_bytes_v1(
+                domain.domain(),
+                &transcript
+            )
+        );
+        assert!(kagemusha_wallet_is_canonical_field_v1(&message));
+        assert!(seen.insert(message));
+    }
 }

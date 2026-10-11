@@ -220,6 +220,29 @@ unchanged. The pinned history was written under the protocol defaults and
 replays unchanged; this cutover does not regenerate it. No live network was
 changed.
 
+Declared cutover, 2026-10-06 (ZK delivery plan task I.1): surface `wire`,
+cutover `fresh_genesis`. The ninth field of the signed transaction payload,
+`attachments`, changed its type in place from the optional proof-attachment
+list to the optional ordered intent descriptor with signed inline attachment
+occurrences (`SignedAttachmentsV1`, layout in `norito.md`, "Signed attachments
+and ordered intent"). The payload still has nine fields and a transaction
+without attachments still encodes the field as the single `None` byte, so
+every attachment-free transaction, the signed genesis and every block that
+holds only such transactions keep their bytes, hashes and signatures. A
+transaction that carries the former list no longer decodes: there is no second
+decoder, version dispatch or alias, and the payload has a single decoder that
+also checks the descriptor against the rest of the payload. A history that
+holds an attachment-bearing transaction therefore does not replay in this
+binary and takes a fresh genesis; a history without one replays unchanged.
+The pinned history holds no attachment and replays unchanged
+(`pinned_history_of_an_earlier_build_replays_to_its_pinned_state`); this
+cutover does not regenerate it, and the other artifacts of the `wire` surface
+were checked through their tests and are byte-identical. New shared vectors
+for the layout are `fixtures/zk/signed_attachments_v1/vectors.json`. An SDK
+that still encodes the former list produces transactions every node refuses at
+decode. No live network was changed. The inventory has no key for this
+declaration yet; the guard checks only the `abi` one.
+
 Classify by effect on the stored history, not by intent. When unsure, run the
 pinned-history test and the read-only probes against a store written by the
 previous build.

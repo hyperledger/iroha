@@ -224,6 +224,10 @@ def test_independent_mirror_reproduces_identity_without_mutating_candidate_git(
                     original_object.stat().st_ino,
                 )
         (sealed / "Cargo.lock").write_bytes((repository / "Cargo.lock").read_bytes())
+        # Git reproduces executable identity, while the seal also authenticates full modes.
+        # Restore each original mode explicitly when a private umask narrowed checkout.
+        for member in (".gitignore", "runner.sh", "Cargo.lock"):
+            shutil.copymode(repository / member, sealed / member)
         reproduced = manifest.release_source_identity(sealed)
         assert reproduced == candidate
         assert git_file_state() == original_git_state

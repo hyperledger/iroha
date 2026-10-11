@@ -7653,10 +7653,6 @@ fn validate_domain_endorsement_index(world: &World) -> Result<(), json::Error> {
 #[path = "deserialize_world_domain_endorsement_tests.rs"]
 mod domain_endorsement_persistence_tests;
 
-#[cfg(test)]
-#[path = "deserialize_world_kagemusha_registry_tests.rs"]
-mod kagemusha_registry_persistence_tests;
-
 /// A decoded snapshot is quarantined canonical data until same-pool admission and the
 /// separately authenticated current/revert chain cuts validate its authority graph.
 #[derive(norito::derive::JsonSerialize, norito::derive::JsonDeserialize)]
@@ -8241,17 +8237,6 @@ fn decode_world_fields(
             }
         }
     }
-    let kagemusha_verifier_registry: Cell<
-        iroha_data_model::kagemusha::KagemushaGovernedVerifierRegistryV1,
-    > = take_required(&mut map, "kagemusha_verifier_registry")?;
-    kagemusha_verifier_registry
-        .view()
-        .get()
-        .validate()
-        .map_err(|error| json::Error::InvalidField {
-            field: "world.kagemusha_verifier_registry".to_owned(),
-            message: format!("invalid current verifier authority: {error}"),
-        })?;
     let tx_sequences: Storage<AccountId, u64> = take_required(&mut map, "tx_sequences")?;
     let triggers_value = map
         .remove("triggers")
@@ -8578,14 +8563,6 @@ fn decode_world_fields(
     let global_beacon_pulses = take_required(&mut map, "global_beacon_pulses")?;
     let repo_agreements = take_required(&mut map, "repo_agreements")?;
     let settlement_receipts = take_required(&mut map, "settlement_receipts")?;
-    let kagemusha_reserve_pools: Storage<
-        [u8; 32],
-        crate::smartcontracts::isi::kagemusha::kagemusha_v1_reserve::KagemushaReservePoolV1,
-    > = take_required(&mut map, "kagemusha_reserve_pools")?;
-    let kagemusha_reserve_operations: Storage<
-        [u8; 32],
-        crate::smartcontracts::isi::kagemusha::kagemusha_v1_reserve::KagemushaReserveOperationRecordV1,
-    > = take_required(&mut map, "kagemusha_reserve_operations")?;
     let kagemusha_mint_credit_operations = map
         .remove("kagemusha_mint_credit_operations")
         .ok_or_else(|| json::MapVisitor::missing_field("kagemusha_mint_credit_operations"))?
@@ -8614,35 +8591,6 @@ fn decode_world_fields(
             ivm_seed.operation_index_budget.clone(),
             ivm_seed.operation_index_refusal,
         )?;
-    {
-        let pools = kagemusha_reserve_pools.view();
-        let operations = kagemusha_reserve_operations.view();
-        let mint_credits = kagemusha_mint_credit_operations.view();
-        let issuances = kagemusha_issuance_operations.view();
-        let redemptions = kagemusha_redemption_id_operations.view();
-        let nullifiers = kagemusha_terminal_nullifier_operations.view();
-        crate::smartcontracts::isi::kagemusha::kagemusha_v1_reserve::validate_persisted_reserve_entries_v1(
-            pools.iter(),
-            operations.iter(),
-            mint_credits.iter(),
-            issuances.iter(),
-            redemptions.iter(),
-            nullifiers.iter(),
-        )
-        .map_err(|error| json::Error::InvalidField {
-            field: "kagemusha_reserve_pools".to_owned(),
-            message: format!("invalid Kagemusha V1 reserve snapshot: {error}"),
-        })?;
-        let assets = assets.view();
-        crate::smartcontracts::isi::kagemusha::kagemusha_v1_reserve::validate_persisted_reserve_custody_v1(
-            pools.iter().map(|(_, pool)| pool),
-            assets.iter(),
-        )
-        .map_err(|error| json::Error::InvalidField {
-            field: "kagemusha_reserve_pools".to_owned(),
-            message: format!("invalid Kagemusha V1 reserve custody snapshot: {error}"),
-        })?;
-    }
     let manifest_aliases = take_required(&mut map, "manifest_aliases")?;
     validate_musubi_location_reverse_indices(
         &musubi_archives,
@@ -8779,7 +8727,6 @@ fn decode_world_fields(
         axt_spend_nonce_ledger,
         axt_source_transfer_replay_ledger,
         axt_handle_budget_ledger,
-        kagemusha_verifier_registry,
         tx_sequences,
         triggers,
         executor,
@@ -8910,8 +8857,6 @@ fn decode_world_fields(
         repo_agreements_by_counterparty: Storage::default(),
         repo_agreements_by_custodian: Storage::default(),
         settlement_receipts,
-        kagemusha_reserve_pools,
-        kagemusha_reserve_operations,
         kagemusha_mint_credit_operations,
         kagemusha_issuance_operations,
         kagemusha_redemption_id_operations,
@@ -9023,15 +8968,6 @@ fn parse_world(
             }
         },
     )?;
-    world
-        .try_block_and_revert(execution_budget)?
-        .kagemusha_verifier_registry
-        .get()
-        .validate()
-        .map_err(|error| json::Error::InvalidField {
-            field: "world.kagemusha_verifier_registry".to_owned(),
-            message: format!("invalid predecessor verifier authority: {error}"),
-        })?;
     validate_domain_endorsement_index(&world)?;
     validate_da_pin_persistence(&world)?;
     validator_committee::validate_persisted_progress(&world.view()).map_err(|message| {
@@ -9782,13 +9718,6 @@ fn build_state(
         gov: default_governance(),
         content: default_content_cfg(),
         settlement: iroha_config::parameters::actual::Settlement::default(),
-        kagemusha_v1_runtime_verifier: PublicationRwLock::<
-            Arc<dyn crate::smartcontracts::isi::kagemusha::KagemushaV1RuntimeVerifier>,
-        >::try_new(
-            Arc::new(crate::smartcontracts::isi::kagemusha::RejectAllKagemushaV1RuntimeVerifier),
-            &execution_budget,
-        )
-        .map_err(StateStorageAdmissionError::World)?,
         settlement_engine: SettlementEngine::new_roadmap_default(),
         chain_id,
         network_id,

@@ -1620,13 +1620,32 @@ fn fee_enabled_non_increasing_sequence_rejects_before_transfer_or_fee() {
     nexus.fees.fee_asset_id = fee_asset_definition_id.to_string();
     nexus.fees.fee_sink_account_id = sink_id.to_string();
     let state = configured_component_state(world, chain_id.clone(), nexus);
+    let native_chain = component_chain_with_genesis_parameters(
+        state,
+        vec![iroha_data_model::parameter::Parameter::Transaction(
+            iroha_data_model::parameter::system::TransactionParameter::RequireSequence(true),
+        )],
+    );
+    let state = native_chain.state();
+    assert!(
+        state
+            .view()
+            .world()
+            .parameters()
+            .transaction()
+            .require_sequence,
+        "the original signed genesis must retain the requested sequence policy"
+    );
+    assert_eq!(
+        state.view().world().tx_sequences.get(&payer_id),
+        Some(&5),
+        "original signed genesis must retain the independently seeded previous sequence"
+    );
     let (max_clock_drift, tx_limits) = {
         let state_view = state.world.view();
         let params = state_view.parameters();
         (params.sumeragi().max_clock_drift(), params.transaction())
     };
-    let native_chain = component_chain(state);
-    let state = native_chain.state();
     let latest_signed = state
         .view()
         .latest_block()

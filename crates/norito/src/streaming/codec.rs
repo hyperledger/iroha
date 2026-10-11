@@ -464,7 +464,18 @@ pub fn load_bundle_tables_from_toml<P: AsRef<Path>>(
     path: P,
 ) -> Result<Arc<BundleAnsTables>, BundleTableError> {
     let contents = fs::read_to_string(path)?;
-    let toml_value: TomlValue = toml::from_str(&contents)?;
+    parse_bundle_tables_from_toml(&contents)
+}
+/// Parse supplied signed rANS table TOML through the canonical table validator.
+///
+/// This function reads no files and does not resolve paths or include other inputs.
+///
+/// # Errors
+/// Refuses malformed TOML, unknown fields, invalid table groups, or a mismatched checksum.
+pub fn parse_bundle_tables_from_toml(
+    contents: &str,
+) -> Result<Arc<BundleAnsTables>, BundleTableError> {
+    let toml_value: TomlValue = toml::from_str(contents)?;
     let json_value = toml_to_norito_value(&toml_value)?;
     let signed: SignedRansTablesV1 = json::from_value(json_value)?;
     let tables = BundleAnsTables::from_signed(&signed)?;

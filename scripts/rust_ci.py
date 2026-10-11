@@ -478,7 +478,7 @@ def validate_manifest(
 def reverse_dependencies(
     metadata: dict[str, Any], packages: dict[str, WorkspacePackage]
 ) -> dict[str, set[str]]:
-    """Build a workspace-only reverse graph from Cargo's resolved dependency graph."""
+    """Project Cargo's reverse graph onto workspace owners, keeping external paths."""
 
     by_id = {package.package_id: package.name for package in packages.values()}
     reverse: dict[str, set[str]] = {name: set() for name in packages}
@@ -487,14 +487,24 @@ def reverse_dependencies(
         raise ClassificationError(
             "full Cargo metadata with a dependency resolve graph is required"
         )
+    resolved_reverse: dict[str, set[str]] = defaultdict(set)
     for node in resolve["nodes"]:
-        dependent = by_id.get(node.get("id"))
-        if dependent is None:
-            continue
         for dependency in node.get("deps", ()):
-            dependency_name = by_id.get(dependency.get("pkg"))
-            if dependency_name is not None:
-                reverse[dependency_name].add(dependent)
+            resolved_reverse[dependency["pkg"]].add(node["id"])
+    for package_id, name in by_id.items():
+        visited = {package_id}
+        queue = deque(sorted(resolved_reverse.get(package_id, ())))
+        while queue:
+            dependent_id = queue.popleft()
+            if dependent_id in visited:
+                continue
+            visited.add(dependent_id)
+            dependent_name = by_id.get(dependent_id)
+            if dependent_name is not None:
+                reverse[name].add(dependent_name)
+                # The classifier's workspace closure continues from this owner.
+                continue
+            queue.extend(sorted(resolved_reverse.get(dependent_id, ())))
     return reverse
 
 

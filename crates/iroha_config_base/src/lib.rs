@@ -2,6 +2,7 @@
 #![deny(missing_docs)]
 pub mod attach;
 pub mod env;
+pub mod file_source;
 pub mod read;
 pub mod toml;
 pub mod util;

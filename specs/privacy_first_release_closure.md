@@ -14,6 +14,15 @@ resource limits and source-bound deployment qualification remain mandatory.
   prohibited. Final V1 interfaces have no compatibility aliases or decoders.
 - One ordered Exact12 catalog, one V1 proof envelope, exact protocol/proof-system/
   engine tuples, and one weakest-composition security model per protocol.
+- One native path for every Exact12 role. `PrivacyProofEnvelopeV1::bind_v1` is
+  the only assembler of an envelope and derives the protocol, proof system,
+  engine, artifact identities and statement digest from the typed statement.
+  `SubmitPrivacyProofV1` is the only instruction that carries an envelope. Its
+  handler resolves the one role of the envelope (`PrivacyActionRoleV1`,
+  thirteen roles), calls the single verifier dispatch and applies the one
+  effect sealed for that role. A role without a complete native verifier
+  returns a typed `UnsupportedOperation` error from the dispatch; it never
+  succeeds and does not depend on an activation record.
 - Privacy STARK outer commitments and transcripts use SHA3-384 with one
   checked byte frame and opaque 48-byte digests. Fp4 values retain four canonical
   coefficients and an exact 32-byte encoding. Compiled privacy tuples admit
@@ -61,7 +70,14 @@ independent audit, SDK, hardware, and deployment evidence. The
 arm, native verifier, compiled-profile arm, ledger effect and named tests
 against the source, and records for each protocol separately whether it is
 registered, verified, effective and delivered, and whether a test that runs
-by default calls its verifier.
+by default calls its verifier. Its `exact12.roles` list repeats the typed
+dispatch registry (`PRIVACY_ROLE_DISPATCH_TABLE_V1`) role by role, and
+`exact12.single_route` fails the check when a second assembler, instruction,
+dispatch call, native-verifier caller or effect consumer appears. The
+[economic invariant matrix](zk_economic_invariants.json) records, for each
+value-bearing row, the ledger checks that hold whatever its verifier returns,
+what stays exposed when a proof is accepted wrongly, and the open defects of
+its issuance, exits and suspension switches.
 
 | Protocol | Current source observation | Remaining outcome |
 | --- | --- | --- |

@@ -247,16 +247,6 @@ capture_world_table_once!(
     "world.settlement_receipts"
 );
 capture_world_table_once!(
-    pub(super) capture_kagemusha_reserve_pools_once,
-    kagemusha_reserve_pools,
-    "world.kagemusha_reserve_pools"
-);
-capture_world_table_once!(
-    pub(super) capture_kagemusha_reserve_operations_once,
-    kagemusha_reserve_operations,
-    "world.kagemusha_reserve_operations"
-);
-capture_world_table_once!(
     pub(super) capture_kagemusha_mint_credit_operations_once,
     kagemusha_mint_credit_operations,
     "world.kagemusha_mint_credit_operations"

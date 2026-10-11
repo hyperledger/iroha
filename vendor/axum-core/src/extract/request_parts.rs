@@ -174,10 +174,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use axum::{extract::Extension, routing::get, test_helpers::*, Router};
+    use super::{FromRequestParts, Parts, Request};
+    use crate::{body::Body, response::IntoResponse};
     use http::{Method, StatusCode};
 
-    #[crate::test]
+    #[tokio::test]
     async fn extract_request_parts() {
         #[derive(Clone)]
         struct Ext;
@@ -190,9 +191,22 @@ mod tests {
             parts.extensions.get::<Ext>().unwrap();
         }
 
-        let client = TestClient::new(Router::new().route("/", get(handler)).layer(Extension(Ext)));
+        let request = Request::builder()
+            .method(Method::GET)
+            .uri("/")
+            .version(http::Version::HTTP_11)
+            .header("x-foo", "123")
+            .extension(Ext)
+            .body(Body::empty())
+            .unwrap();
+        let (mut parts, _) = request.into_parts();
+        let extracted = Parts::from_request_parts(&mut parts, &()).await.unwrap();
 
-        let res = client.get("/").header("x-foo", "123").await;
+        // Extracting the owned clone must retain the original request parts.
+        assert_eq!(parts.headers["x-foo"], "123");
+        parts.extensions.get::<Ext>().unwrap();
+
+        let res = handler(extracted).await.into_response();
         assert_eq!(res.status(), StatusCode::OK);
     }
 }

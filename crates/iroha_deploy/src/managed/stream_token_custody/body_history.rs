@@ -366,6 +366,8 @@ impl BodyHistory {
     // Consuming transitions keep all original Files live until the same parser has rebuilt
     // and authenticated fresh metadata. Only previously absent paths are opened anew.
     pub(super) fn reopen(self, owner: &ManagedStreamTokenCustody) -> Result<Self> {
+        #[cfg(test)]
+        let _timing = crate::custody_timing::Span::enter(crate::custody_timing::Category::Reopen);
         self.read_current(owner)
     }
 
@@ -481,6 +483,8 @@ impl BodyHistory {
         reference: Option<Reference>,
         retained: Option<&Self>,
     ) -> Result<Self> {
+        #[cfg(test)]
+        let _timing = crate::custody_timing::Span::enter(crate::custody_timing::Category::Read);
         check_names(
             &root,
             &["original.nrt", "anchor.nrt", "bodies", "epochs"],
@@ -1203,6 +1207,9 @@ impl BodyHistory {
         turn: &SigningTurn<'_>,
         deadline: Instant,
     ) -> Result<Self> {
+        #[cfg(test)]
+        let _timing =
+            crate::custody_timing::Span::enter(crate::custody_timing::Category::Initialize);
         if Self::open(owner, purpose)?.is_some() {
             return Err(invalid("enrollment operation already selected"));
         }
@@ -1310,6 +1317,9 @@ impl BodyHistory {
         owner: &ManagedStreamTokenCustody,
         current: &VerifiedStreamTokenCustodyStateV1,
     ) -> Result<()> {
+        #[cfg(test)]
+        let _timing =
+            crate::custody_timing::Span::enter(crate::custody_timing::Category::FreshPredecessor);
         self.selection.validate(owner, self.purpose)?;
         let selected = owner.selection(&self.selection.predecessor.binding, current)?;
         if !same(&selected, &self.selection.predecessor, 64 * 1024)? {
@@ -1447,6 +1457,8 @@ impl BodyHistory {
         deadline: Instant,
         reads: &impl EnrollmentReads,
     ) -> Result<Self> {
+        #[cfg(test)]
+        let _timing = crate::custody_timing::Span::enter(crate::custody_timing::Category::Finish);
         turn.check(&self.selection, deadline)?;
         self.verify_fresh_predecessor(owner, current)?;
         if !self.reference_present {
@@ -1563,8 +1575,12 @@ impl BodyHistory {
                     Some(attempts::semantic_digest(&unused, MAX_SELECTION_BYTES)?)
                 }
             };
-            // Reopen after lower History changes; only outer records participate in this CAS.
-            self = self.reopen(owner)?;
+            // The first reservation has no predecessor work between the full reparse above
+            // and this activation. Reparse again only after predecessor retirement; those
+            // lower History/unused records changed and must be authenticated before the CAS.
+            if previous_retirement.is_some() {
+                self = self.reopen(owner)?;
+            }
             let pending = self
                 .anchor
                 .pending
@@ -1608,6 +1624,8 @@ impl BodyHistory {
         deadline: Instant,
         reads: &impl EnrollmentReads,
     ) -> Result<Self> {
+        #[cfg(test)]
+        let _timing = crate::custody_timing::Span::enter(crate::custody_timing::Category::Sign);
         if matches!(turn, SigningTurn::RenewalSelection(_)) {
             return Err(invalid("renewal selection does not grant attester signing"));
         }

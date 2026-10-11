@@ -21,8 +21,6 @@ const NATIVE_EXECUTION_HISTORY_SOURCE: &str = "Original native height, Iroha has
 const NATIVE_EXECUTION_HISTORY_AUTHENTICATION: &str = "Original worker verified exact quorum and output seal, or original signed-genesis execution; restore verifies the actual certified native prefix and configured chain/network before accepting snapshot claims";
 const NATIVE_WORLD_CUT_HISTORY_SOURCE: &str = "Original pre-tail World root, count and native journal differences bound to the execution tip and publication generation";
 const NATIVE_WORLD_CUT_HISTORY_AUTHENTICATION: &str = "Original completed executor captures R; frozen publication reconstructs that exact root and count from the complete native tail journal; restoration must replay original execution rather than decode a caller-supplied cut";
-#[path = "complete/governed_registry_source.rs"]
-mod governed_registry_source;
 #[path = "complete/native_capture.rs"]
 mod native_capture;
 pub(crate) use native_capture::{
@@ -510,21 +508,6 @@ mod tests {
             substituted.root(),
             "same-key value substitution"
         );
-    }
-
-    #[test]
-    fn actual_inventory_admits_governed_authority_without_local_runtime_artifacts() {
-        assert_eq!(require_complete_state_inventory(), Ok(()));
-        assert!(matches!(
-            find_identity(STATE_FIELDS, "world.kagemusha_verifier_registry")
-                .unwrap()
-                .role,
-            Role::Canonical(Canonical::Cell(Schema::Norito { .. }))
-        ));
-        let local = find_identity(STATE_FIELDS, "state.kagemusha_v1_runtime_verifier").unwrap();
-        assert!(matches!(local.role, Role::Local(_)));
-        assert_eq!(local.disclosure, Disclosure::NotApplicable);
-        // This checks only static identities and schemas. No State owner was captured.
     }
 
     #[test]

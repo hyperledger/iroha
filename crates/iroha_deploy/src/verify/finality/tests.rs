@@ -2308,3 +2308,186 @@ fn checkpoint_npos_refusal_follows_a_completed_original_binary_read() {
     .unwrap();
     assert_eq!(retried.checkpoint(), &checkpoint);
 }
+
+#[test]
+fn verified_tip_memo_is_shared_by_clones_without_changing_equality_or_advancement() {
+    let chain = Chain::constant(4, 3);
+    let verifier = chain.verifier_at(2);
+    let mut cloned = verifier.clone();
+    let independent = FinalityVerifier::from_checkpoint(
+        verifier.checkpoint().clone(),
+        chain.anchor.network_id,
+        CHAIN,
+    )
+    .unwrap();
+    assert!(Arc::ptr_eq(&verifier.verified_tip, &cloned.verified_tip));
+    assert!(!Arc::ptr_eq(
+        &verifier.verified_tip,
+        &independent.verified_tip
+    ));
+    assert!(verifier.verified_tip.get().is_none());
+    assert_eq!(verifier, independent);
+    let verified = verifier.verified_tip().unwrap();
+    assert_eq!(
+        verified.block().encode_wire().unwrap(),
+        chain.proof(2).block_wire
+    );
+    assert!(cloned.verified_tip.get().is_some());
+    assert!(independent.verified_tip.get().is_none());
+    assert_eq!(verifier, independent);
+    assert_eq!(
+        cloned.verified_tip().unwrap().context_id(),
+        verified.context_id()
+    );
+    cloned
+        .advance(&Source::new(&chain), chain.proof(3))
+        .unwrap();
+    assert!(!Arc::ptr_eq(&verifier.verified_tip, &cloned.verified_tip));
+    assert!(cloned.verified_tip.get().is_none());
+    assert_eq!(cloned.verified_tip().unwrap().height(), 3);
+    assert_eq!(verifier.verified_tip().unwrap().height(), 2);
+    assert_eq!(verifier, independent);
+    assert_ne!(verifier, cloned);
+}
+
+#[test]
+fn verified_tip_memo_is_replaced_by_catch_up_and_successful_observation() {
+    let chain = Chain::constant(4, 5);
+    let source = Source::new(&chain);
+    let mut verifier = chain.verifier_at(2);
+    assert_eq!(verifier.verified_tip().unwrap().height(), 2);
+    let original = verifier.clone();
+    assert_eq!(verifier.catch_up(&source, nz(4)).unwrap(), 4);
+    assert!(!Arc::ptr_eq(&verifier.verified_tip, &original.verified_tip));
+    assert!(verifier.verified_tip.get().is_none());
+    assert_eq!(verifier.verified_tip().unwrap().height(), 4);
+    let caught_up = verifier.clone();
+    let report = verifier.observe(&source, &CHALLENGE).unwrap();
+    assert_eq!((report.height.get(), report.verified()), (5, 4));
+    assert!(!Arc::ptr_eq(
+        &verifier.verified_tip,
+        &caught_up.verified_tip
+    ));
+    assert!(verifier.verified_tip.get().is_none());
+    let verified = verifier.verified_tip().unwrap();
+    assert_eq!(verified.height(), 5);
+    assert_eq!(verified.header().hash(), chain.proof(5).block_header.hash());
+    assert_eq!(caught_up.verified_tip().unwrap().height(), 4);
+    assert_eq!(original.verified_tip().unwrap().height(), 2);
+}
+
+#[test]
+fn verified_tip_memo_keeps_pending_progress_separate_until_explicit_promotion() {
+    let chain = Chain::constant(4, 5);
+    let mut verifier = chain.verifier_at(2);
+    assert_eq!(verifier.verified_tip().unwrap().height(), 2);
+    let original = verifier.clone();
+    let result = verifier.observe_with_budget(
+        &Source::new(&chain),
+        &CHALLENGE,
+        &mut Budget {
+            proofs: 1,
+            bytes: MAX_ADVANCE_BYTES,
+        },
+    );
+    assert!(
+        matches!(
+            result,
+            Err(FinalityError::CatchingUp {
+                verified: 3,
+                claimed: 5
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(verifier.checkpoint(), original.checkpoint());
+    assert_eq!(verifier.pending.as_ref().unwrap().height(), 3);
+    assert!(Arc::ptr_eq(&verifier.verified_tip, &original.verified_tip));
+    assert_eq!(verifier.verified_tip().unwrap().height(), 2);
+    assert_ne!(verifier, original);
+    let pending = verifier.clone();
+    assert_eq!(verifier, pending);
+    assert!(verifier.promote_verified_progress());
+    assert!(!Arc::ptr_eq(&verifier.verified_tip, &pending.verified_tip));
+    assert!(verifier.verified_tip.get().is_none());
+    assert!(verifier.pending.is_none());
+    assert_eq!(verifier.verified_tip().unwrap().height(), 3);
+    assert_eq!(pending.verified_tip().unwrap().height(), 2);
+    assert_eq!(pending.pending.as_ref().unwrap().height(), 3);
+    let promoted = Arc::clone(&verifier.verified_tip);
+    assert!(!verifier.promote_verified_progress());
+    assert!(Arc::ptr_eq(&verifier.verified_tip, &promoted));
+}
+
+#[test]
+fn verified_tip_memo_keeps_failures_retryable_and_rechecks_new_certificate_witnesses() {
+    let chain = Chain::constant(4, 3);
+    let mut verifier = chain.verifier_at(2);
+    let no_allocation = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 64);
+    for _ in 0..2 {
+        let refusal = norito::with_decode_limits_scope(no_allocation, || verifier.verified_tip());
+        assert!(
+            matches!(refusal, Err(FinalityError::DecodeResource(_))),
+            "{refusal:?}"
+        );
+        assert!(verifier.verified_tip.get().is_none());
+    }
+    assert_eq!(verifier.verified_tip().unwrap().height(), 2);
+    let memo = Arc::clone(&verifier.verified_tip);
+    let checkpoint = verifier.checkpoint().clone();
+    let mut alternate = chain.alternate(2);
+    let member = &chain.epoch(2).keys[0];
+    let mut attestation = chain.attest(member, 2);
+    attestation.body.finality_proof = alternate.clone();
+    resign(&mut attestation, member);
+    assert!(
+        verifier
+            .verify_attestation(&CHALLENGE, &attestation)
+            .is_ok()
+    );
+    assert_eq!(
+        verifier.advance(&Source::new(&chain), &alternate).unwrap(),
+        0
+    );
+    let mut qc = commit_qc(&alternate);
+    qc.agg_sig.0[0] ^= 1;
+    let header = core(&alternate);
+    let execution = result(&alternate);
+    replace_certificate(&mut alternate, &header, &qc, &execution);
+    assert_eq!(alternate.block_header, chain.proof(2).block_header);
+    assert!(matches!(
+        verifier.advance(&Source::new(&chain), &alternate),
+        Err(FinalityError::Native(_))
+    ));
+    attestation.body.finality_proof = alternate;
+    resign(&mut attestation, member);
+    // The fresh outer signature is valid; the newly supplied certificate witness is not.
+    attestation
+        .signature
+        .verify_hash(member.public_key(), attestation.body.signing_hash())
+        .unwrap();
+    assert!(matches!(
+        verifier.verify_attestation(&CHALLENGE, &attestation),
+        Err(FinalityError::Native(_))
+    ));
+    let mut successor = chain.proof(3).clone();
+    let mut qc = commit_qc(&successor);
+    qc.agg_sig.0[0] ^= 1;
+    let header = core(&successor);
+    let execution = result(&successor);
+    replace_certificate(&mut successor, &header, &qc, &execution);
+    assert!(matches!(
+        verifier.advance(&Source::new(&chain), &successor),
+        Err(FinalityError::Native(_))
+    ));
+    let mut stale = chain.attest(member, 2);
+    stale.body.challenge = [0x5A; 32];
+    resign(&mut stale, member);
+    assert!(matches!(
+        verifier.verify_attestation(&CHALLENGE, &stale),
+        Err(FinalityError::StaleChallenge)
+    ));
+    assert_eq!(verifier.checkpoint(), &checkpoint);
+    assert!(Arc::ptr_eq(&verifier.verified_tip, &memo));
+    assert_eq!(verifier.verified_tip().unwrap().height(), 2);
+}

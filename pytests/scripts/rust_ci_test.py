@@ -86,6 +86,28 @@ def test_checked_in_manifest_exhaustively_maps_locked_workspace() -> None:
     assert len(packages) == sum(len(packages) for packages in manifest.lanes.values())
 
 
+@pytest.mark.parametrize("package", ("axum-core", "bytes", "http-body-util"))
+@pytest.mark.parametrize("relative_path", ("src/lib.rs", "Cargo.toml"))
+def test_vendored_foundation_owner_selects_real_http_consumers(
+    package: str, relative_path: str,
+) -> None:
+    """Vendored HTTP primitives select their consumers through package ownership."""
+
+    metadata = rust_ci.load_cargo_metadata(root=ROOT)
+    manifest = rust_ci.load_lane_manifest()
+    assert manifest.package_lane[package] == "foundation"
+    result = rust_ci.classify_paths(
+        [f"vendor/{package}/{relative_path}"],
+        metadata=metadata, manifest=manifest, root=ROOT,
+    )
+    assert result.changed_packages == (package,)
+    assert result.foundation_only and not result.full
+    assert {package, "iroha_torii", "irohad_lib", "irohad"} <= set(result.impacted_packages)
+    assert package in result.lane_packages["foundation"]
+    assert "iroha_torii" in result.lane_packages["node"]
+    assert {"irohad_lib", "irohad"} <= set(result.deferred_packages)
+
+
 def test_native_filesystem_owner_selects_real_custody_consumers() -> None:
     """A native custody change selects its actual deployment and storage consumers."""
 
@@ -166,6 +188,38 @@ def test_package_change_expands_reverse_dependency_closure(tmp_path: Path) -> No
     assert result.impacted_packages == ("base", "integration", "node")
     assert list(result.lane_packages) == ["foundation", "node", "integration"]
     assert result.full is False
+
+
+def test_package_change_reaches_consumers_through_registry_dependencies(
+    tmp_path: Path,
+) -> None:
+    """External adapters retain workspace consumers and package ID identity."""
+
+    metadata = _metadata(tmp_path)
+    base_id = metadata["workspace_members"][0]
+    first_adapter = "registry+https://example.test/index#adapter@1.0.0"
+    second_adapter = "registry+https://example.test/index#base@2.0.0"
+    metadata["packages"].extend((
+        {"id": first_adapter, "name": "adapter"},
+        {"id": second_adapter, "name": "base"},
+    ))
+    metadata["resolve"]["nodes"][1]["deps"] = [
+        {"name": "adapter", "pkg": first_adapter},
+    ]
+    metadata["resolve"]["nodes"].extend((
+        {"id": first_adapter, "deps": [{"name": "base", "pkg": second_adapter}]},
+        {"id": second_adapter, "deps": [{"name": "base", "pkg": base_id}]},
+    ))
+    result = rust_ci.classify_paths(
+        ["crates/base/src/lib.rs"],
+        metadata=metadata, manifest=_manifest(), root=tmp_path,
+    )
+    assert result.changed_packages == ("base",)
+    assert result.impacted_packages == ("base", "integration", "node")
+    assert result.lane_packages == {
+        "foundation": ("base",), "node": ("node",), "integration": ("integration",),
+    }
+    assert result.foundation_only and not result.full
 
 
 def test_deepest_nested_package_owns_path(tmp_path: Path) -> None:

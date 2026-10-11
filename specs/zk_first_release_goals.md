@@ -83,6 +83,17 @@ uses it, whatever its name:
   that list;
 - a limit-named function without parameters that returns an integer, an
   `Option` of one or a `Result` of one;
+- an integer constant that another source of the workspace defines and the
+  code of the four crates names: in a compared position, bare or behind a
+  module path (also under the name a `use` of the file gives it), or in the
+  defining expression of a scanned limit. The name stands for every integer
+  constant of that name in a production source the naming crate can reach: any
+  item of its own crate, and a `pub` item of a workspace crate it depends on,
+  directly or through other workspace crates. The constant is scanned where it
+  is defined: it is a listed bound or is excluded with a pinned expression, its
+  terms are followed from its own source, and `--mutate` changes it. The
+  resolution is by name, so each reachable crate that defines the name is
+  scanned;
 - a literal comparison: a comparison, capping call or tested range of those
   kinds that holds an integer literal of 2 or more. The literal may be a whole
   operand (`len > 4096`), a part of one (`len > MAX + 1024`,
@@ -131,13 +142,18 @@ No textual scan sees the following, and the contract does not claim them:
   characters from the operator of its relational comparison (no comparison of
   the four crates is that long);
 - for an excluded limit, what its expression names besides the integer
-  constants of the four crates: an associated constant of a type
-  (`Header::SIZE`), a constant of a crate that is not compared and a value a
+  constants of the workspace: an associated constant of a type
+  (`Header::SIZE`), a constant of a crate outside the workspace and a value a
   function computes. An exclusion pins the text of the expression and its
   terms. A listed bound has no such gap, because its expression is resolved
   through other listed bounds;
-- in the consensus core, the IVM and its ABI and the P2P layer, every limit
-  that its name does not mark: those crates are scanned by name only.
+- of the constants other crates define: an associated constant of a type of
+  another crate (`Shape::SIZE`) that the four crates compare, a constant
+  another crate re-exports under a new name (`pub use a::ROWS as B_ROWS;`),
+  and the root of a binary target, whose items no other crate can name;
+- in the consensus core, the IVM and its ABI and the P2P layer, and in every
+  other crate, a limit that its name does not mark and the four crates do not
+  name: those sources are scanned by name, or for the named constants only.
 
 The proof ceilings of single products (the confidential-asset proof, the
 execution-proof envelope, the Soracloud FHE envelopes, the private-dataspace
@@ -184,9 +200,16 @@ Facts it records about the current tree:
 - A default block carries at most eleven of its own transactions, not 512: the
   proposer selects up to the Network input cap of the committed FASTPQ source
   policy.
-- The proof attachment list of a signed transaction is at most 16 attachments
-  and 8 MiB of canonical frame, below the 9,437,184-byte proof ceiling. A
-  ceiling-sized proof cannot travel as an attachment today.
+- A signed transaction carries proofs and admitted key material as signed
+  inline attachment occurrences next to an ordered intent descriptor
+  (`SignedAttachmentsV1`, layout in `norito.md`): at most 16 occurrences of at
+  most 9,437,184 bytes each, 16 declared actions and 9,502,720 bytes of
+  canonical frame. A ceiling-sized proof is one occurrence and its signed
+  transaction is within the 10 MiB cap. Only the transaction-level proof
+  carriers are consumed today: a declared native instruction action is refused
+  at admission until invocation-scoped handles and the typed bridge exist. The
+  8 MiB proof attachment list remains the body of Torii's non-consensus prover
+  API and is no longer a transaction field.
 - The privacy action bound equals the proof ceiling, so an action carrying a
   ceiling-sized proof is rejected as too large; two maximum actions per block
   do not fit any payload limit.
@@ -429,6 +452,27 @@ Facts it records about the current tree:
   refuses the compiled profile of ZK-ACE, ZK-AMS, Vega and ZK-X509 and
   constructs the other eight, which a default test asserts. The effects of
   all twelve are behind the activation and all-twelve qualification records.
+- The twelve protocols have thirteen typed roles (`PrivacyActionRoleV1`;
+  ZK-AMS has two actions). `exact12.roles` records, for each role and as
+  separate facts, whether the dispatch runs a native verifier for it, which
+  ledger-effect class it hands to the state executor and whether that effect
+  is applied, and that the operation is not delivered. The typed registry
+  `PRIVACY_ROLE_DISPATCH_TABLE_V1` in `iroha_core_privacy` is authoritative;
+  a Rust test compares the inventory rows with it. Five roles of four
+  protocols are refused by the dispatch itself with a typed
+  `UnsupportedOperation` error that names the role and its concrete
+  limitation, so the refusal does not depend on an activation record.
+- `exact12.single_route` is the guard of the single path. The envelope is
+  assembled only by `PrivacyProofEnvelopeV1::bind_v1`, which derives every
+  identity and the statement digest from the typed statement; builders and
+  adapters supply a statement and a proof. `SubmitPrivacyProofV1` is the only
+  instruction that carries an envelope; its handler resolves the role once,
+  calls the dispatch once and applies the sealed effect once. The action
+  driver builds a transaction for one role and returns it only when it is
+  that single canonical instruction. Generic verification and contract or
+  proved executables are recorded as routes that refuse an Exact12
+  submission. The check fails when a second assembler, carrier, dispatch
+  call, native-verifier caller or effect consumer appears.
 - A typed refusal stands where a relation is missing for the proved IVM
   executable, RAM-LFE proof mode, both BFV backends, every SoraCloud FHE job,
   standalone ZK ballots and tallies, and bridge proofs. Two more refusals
@@ -471,10 +515,76 @@ Facts it records about the current tree:
   a Cargo feature decides whether a SoraCloud key payload is validated, and
   atomic settlement needs a node-configured activation.
 
+## Economic invariant matrix
+
+The [economic invariant matrix](zk_economic_invariants.json) classifies every
+operation of the operation inventory as moving value or not, and records each
+economic effect of the value-bearing products as one row: its class (private
+issuance, transparent supply change, deposit, withdrawal, reserve movement,
+settlement, inter-pool movement), handler, the ledger invariants that hold
+whatever the proof verifier returns with their enforcement sites, who may issue
+the units, what stays exposed when a proof is accepted wrongly, and the tests
+that mutate it. Hidden inflation, reserve theft and transparent minting are
+three separate answers per row. Per protocol it records how retained state
+stays readable, how an effect is cancelled or expires, how a failure rolls
+back, and how assets leave under key revocation, policy revocation and
+correction.
+
+An invariant recorded as `enforced` says that a named site refuses a named
+mutation. It is not a statement about any proof relation: a reserve balance
+bounds what can leave a pool and shows nothing about what is inside it, and
+every such row lists proof soundness and hidden conservation as not
+established.
+
+What the matrix records about the tree, each pinned by the checker:
+
+- Two protocols may own a public reserve: Orchard and private-IVM notes
+  (`PRIVACY_PUBLIC_RESERVE_PROTOCOLS_V1`). A reserve is debited only by the
+  exact verified bridge of its own pool, by exactly the credited amount and
+  never below zero; a deposit moves units the depositor holds. With
+  verification forced to succeed in a test-only harness, a withdrawal cannot
+  exceed the reserve, cannot reach another pool, asset, balance scope or
+  ordinary balance, and mints nothing. The same harness shows the exposure
+  that remains: the whole reserve of the one pool is paid out.
+- FCMP++, PQ-MASP, Anonymous PGC and atomic-settlement pools are closed: no
+  instruction moves a transparent unit for them. A wrongly accepted proof is
+  hidden inflation confined to the pool.
+- No pool has a turnstile counter or a committed supply cap. The genesis
+  notes of a private-IVM pool are matched by no reserve deposit. The supply of
+  an FCMP++, PQ-MASP or settlement pool is the hidden value of a genesis set
+  governance supplies, and the total supply of an Anonymous PGC pool is bound
+  to no asset. A ZK-ACE policy carries no amount. Cross-pool conservation of a
+  settlement is checked by the committee off the ledger only.
+- Confidential assets have committed pool state and no shield, transfer or
+  unshield instruction. An anchored AXT spend is refused and its replay
+  reservation is not connected.
+- Root publication and history follow the committed root policy, with one
+  class of exception: the protocol lifecycle (Proposed, Suspended, Retired),
+  the lifecycle read in generic root publication and the node-configured
+  settlement activation each stop effects, roots or exits. In a suspended or
+  retired protocol an unshield is refused, and Retired is terminal, so
+  shielded value has no exit. No path carries a pool to a corrected relation.
+  These are recorded as open defects with their owners, not as accepted
+  behaviour.
+
+`python3 scripts/check_zk_economic_invariants.py` fails when an operation of
+the operation inventory is not classified, a value-bearing operation has no
+row, the handler of an operation recorded as moving no value starts to name a
+ledger-value identifier, a closed list the matrix mirrors changes (the twelve
+protocols, the ledger-effect classes, the reserve owners, the root roles, the
+lifecycle states, the value-balance directions), a cited handler, enforcement
+site or test is gone or no longer names what the row says, a closed pool's
+apply code starts to name an asset movement, a bound is described as
+soundness, or a gap has no open defect with an owning task. `--show` prints
+one line per effect and `--defects` one per open defect. The reading is
+textual and the tests are not run by the script; its documentation states the
+limits.
+
 ## Primitive and workload specification
 
 The [primitive and workload specification](zk_primitive_workloads.json) is the
-delivery-plan task H.1 output. `python3 scripts/check_zk_primitive_workloads.py`
+delivery-plan task H.1 output, and its `semantic_profiles` section is the task
+H.2 output. `python3 scripts/check_zk_primitive_workloads.py`
 checks it against the source and fails when a file of the proof, privacy, FHE,
 IVM and primitive-owner scope starts to name a digest, or a listed wrapper of
 one, that is not listed for it, and when a production function of the catalog,
@@ -486,12 +596,26 @@ performance. What it records:
   spentness tree and the MKHE proof digest all hash today with the six-lane
   `GoldilocksDigest384V1`, which
   [the digest boundary](fastpq_compact_digest_security.md) records as
-  unqualified. The H.1 candidate for commitments that are hashed natively and
-  never recomputed in a relation is raw BLAKE3-256 over one canonical byte
-  frame, conditional on each role accepting a generic quantum collision
-  estimate near 85 bits; SHAKE256 with 48 bytes of output is the comparator
-  where 128 bits are required. H.2 freezes the choice and F.5 implements it.
-  `iroha_crypto::Hash` stays the ledger identity hash.
+  unqualified. H.2 selected raw BLAKE3-256 over one canonical byte frame as the
+  canonical native commitment for the moving roles other than the spentness
+  tree, and records the required property and the accepted level of each role:
+  about 128 bits against classical and about 85 bits against quantum collision
+  search in the query model, so no composition that binds one of these digests
+  may be labelled 128 bits against quantum collision search. The spentness
+  tree is selected with the State commitment in G.3 and never stays on the
+  six-lane digest. F.5 implements the selection. `iroha_crypto::Hash` stays the
+  ledger identity hash.
+- H.2 froze the shared backend transcript: the FIPS 202-based atomic
+  whole-tape transcript of the committed q77 engine, whose every hash input now
+  absorbs one complete typed profile descriptor in place of a legacy
+  parameter-set name and a hand-written identity string. Each frozen profile
+  has a SHA3-256 identity computed from its declared parameters only; workloads
+  name those identities and a measurement taken under another identity is
+  inapplicable. The transcript's classical random-oracle claim is conditional
+  on B.2's exact-geometry reduction, its quantum claim and complete hiding are
+  open, and no numerical soundness level is established. The in-circuit
+  Goldilocks digest of ZK-ACE and of the RAM-LFE phone-control relation is
+  blocked: no analysed replacement of the six-lane digest exists.
 - Every native commitment that moves is bound into a proof, so none can be
   re-hashed on its own. The catalog commitment is the catalog field of every
   frame of the privacy STARK substrate, of the generic native STARK verifier
@@ -519,8 +643,13 @@ performance. What it records:
   instantiation uses 57, so no constant is shared with it. The width-six table
   is one partial round below the paper's margin rule as evaluated here (a
   margin-rule defect candidate, not an attack). The two- and six-input helpers
-  are single permutations without capacity or domain separation. F.5 owns the
-  correction; the parameters are unchanged.
+  are single permutations without capacity or domain separation. H.2 froze the
+  corrections: the published width-three instantiation with 57 partial rounds,
+  width six with 8 full and 60 partial rounds (the deployed circomlib table
+  values; equality of the generated table with that table is not yet checked),
+  and fixed-arity sponges with one tagged capacity coordinate, the six-input
+  hash over two rate-5 blocks. F.5 implements them with I.5; the parameters in
+  the tree are unchanged until then.
 - Post-quantum: `Cargo.lock` holds no pre-standard package. ML-KEM-512/768/1024
   and ML-DSA-44/65/87 reproduce the official known-answer response and the
   identities that separate FIPS 203 and FIPS 204 from the round-three
@@ -528,9 +657,14 @@ performance. What it records:
   configuration keys and telemetry, and ACVP vectors are not covered. The
   Falcon-512 trapdoor arithmetic of the Bootle Lantern issuer is adapted in
   tree from a pre-standard implementation and is invisible to a lockfile audit.
-- Exploratory workloads for the shared backend and the product roles, and the
-  requirements a shared transcript must meet, are inputs to H.2 and H.3. The
-  one recorded measurement is a single exploratory run.
+  H.2 froze it as a Falcon-512-derived Lantern trapdoor profile, never labelled
+  FN-DSA, and the ML-KEM and ML-DSA profiles as the final FIPS 203 and FIPS 204
+  parameter sets; the known answers for the adaptation and ACVP coverage are
+  F.5 and P.13 work.
+- Exploratory workloads for the shared backend and the product roles name the
+  frozen profiles they depend on and the selections they still wait for; H.3
+  measures only those whose selections are complete. Every recorded
+  measurement is a single exploratory run.
 
 ## Current implementation and evidence
 
@@ -632,10 +766,11 @@ are applied without blanket unused-code allowances or capability changes; fresh
 compiler/native replay and the remaining lifecycle/relation work are required.
 Two genuine native captures execute all 107 owner/wire printers each, with
 identical output. The applied fixture correction preserves all 105 prior owners
-and all 395 prior wire assignments, adding only the reserve-policy owner and
-verifier-release retirement instruction. Current paired captures have 106 typed
-owners and 1,559 nominal identities; these component passes do not establish
-integrated, physical-device or release qualification.
+and all 395 prior wire assignments and adds the reserve-policy owner. The
+KAGEMUSHA verifier-governance owners and instructions are removed, so the current
+paired captures have 105 typed owners and 1,551 nominal identities; these
+component passes do not establish integrated, physical-device or release
+qualification.
 
 The earlier seventeen-target Core/Kagami compilation passes with stock Rust 1.93.1 on
 its recorded inputs. The rebuilt aggregate Core library and group04 artifact now
@@ -663,8 +798,8 @@ not rewrite those outcomes. All four lane time-floor/build-count regressions pas
 The fresh lifetime compile-fail doctest passes; the separate Primitives 333 and
 Norito derive 59 unit, 17 strict-JSON and 32 compiler cases in four UI tests pass.
 Full Mint/Guard/receiver, genuine proof/export and full-State authority remain
-incomplete. The separate current fixture captures 106 typed codec owners and 1,559 nominal
-identities, preserving the 1,551 still-active historical hashes. Its new ordinary,
+incomplete. The separate current fixture captures 105 typed codec owners and 1,551 nominal
+identities, preserving every still-active historical hash. Its new ordinary,
 publication and reduced-feature controls remain pending; the preceding capture
 and native component runs do not qualify the merged candidate.
 
@@ -822,6 +957,18 @@ The [canonical V1 contract](ram_lfe_execution_proof.md#canonical-v1-contract)
 (roles, leakage bound and lifetime query limit, three classes, function identity,
 policy, receipt, opening and cleartext reference) is implemented as types,
 commitments and tests; no evaluator, relation or Core path consumes it yet.
+It requires a proved normalizing lowering under one fixed public schedule for
+each class profile, because instruction-by-instruction evaluation of the
+RNS-BGV starting candidates does not hold the maximum shape. That lowering is
+specified with a cleartext oracle; no encrypted normalizer, schedule or proof
+of it exists.
+
+The [provider-backed phone-control contract](ram_lfe_execution_proof.md#provider-backed-phone-control)
+(challenge, credential, provider key policy and a hiding number commitment over
+the unqualified six-lane Goldilocks digest) is implemented as types and tests.
+Nothing consumes it: phone claims still name the pinned canonicality attestor
+and still refuse, and the private relation, State enforcement and the one-call
+flow are open.
 
 The candidate [packing](ram_lfe_plaintext_packing.md) and
 [semantic](ram_lfe_semantic_commitments.md) interfaces preserve private length,

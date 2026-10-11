@@ -448,7 +448,7 @@ fn kagemusha_wallet_v1_scheme_policy_sign_verify_decode() {
         policy.scheme_policy_digest(),
         kagemusha_wallet_signed_object_digest_v1(
             Role::SchemePolicy,
-            &kagemusha_wallet_digest_v1(Role::SchemePolicyBody, &expected),
+            &kagemusha_wallet_signing_message_v1(Domain::SchemePolicy, &expected),
             &policy.signature
         )
     );
@@ -505,7 +505,7 @@ fn kagemusha_wallet_v1_scheme_policy_sign_verify_decode() {
             raw_output(&f.time_signer, &body.signing_message()),
         ),
         Err(KagemushaWalletValidationErrorV1::InvalidSignature {
-            role: Role::SchemePolicyBody
+            domain: Domain::SchemePolicy
         })
     ));
 }

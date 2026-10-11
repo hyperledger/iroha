@@ -16,7 +16,6 @@ enum NativeBridgeError: Error, Equatable {
     case proofAttachment
     case invalidNullifiers
     case invalidRootHint
-    case kagemushaV1
     case unsupportedAlgorithm
     case metadataTarget
     case metadataKey
@@ -74,7 +73,6 @@ enum NativeBridgeError: Error, Equatable {
         case -29: return .hex
         case -30: return .accountList
         case -34: return .feePayment
-        case -311: return .kagemushaV1
         case -402: return .multisigSpec
         case -406: return .identifierReceipt
         case -408: return .accountOnboardingBody

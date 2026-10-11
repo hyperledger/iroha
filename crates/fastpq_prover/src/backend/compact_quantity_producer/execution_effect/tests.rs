@@ -96,7 +96,7 @@ fn original_credit_and_complete_expectations_refuse_before_private_expansion() {
         source: &source,
         statement: facts,
     };
-    assert_eq!(preflight(&view, expected, proving, limits).unwrap(), n);
+    assert_eq!(preflight(&view, expected, proving, &limits).unwrap(), n);
     let mut wrong = facts;
     wrong.statement_digest = Hash::new(b"substituted statement");
     assert!(matches!(
@@ -107,13 +107,13 @@ fn original_credit_and_complete_expectations_refuse_before_private_expansion() {
                 statement: wrong
             },
             proving,
-            limits
+            &limits
         ),
         Err(Error::PublicIoMismatch {
             field: "compact_public_statement_digest"
         })
     ));
-    let demand = quantity_ordinary_allocation_bytes(&statement.effects, proving, limits).unwrap();
+    let demand = quantity_ordinary_allocation_bytes(&statement.effects, proving, &limits).unwrap();
     let budget = AllocationBudget::new(demand);
     let foreign = AllocationBudget::new(demand);
     let mut foreign_credit = foreign.try_reserve_bytes(demand).unwrap();
@@ -122,7 +122,7 @@ fn original_credit_and_complete_expectations_refuse_before_private_expansion() {
             &view,
             expected,
             proving,
-            limits,
+            &limits,
             &budget,
             &mut foreign_credit
         ),
@@ -139,7 +139,7 @@ fn original_credit_and_complete_expectations_refuse_before_private_expansion() {
                 statement: wrong
             },
             proving,
-            invalid_policy,
+            &invalid_policy,
             &budget,
             &mut foreign_credit
         ),
@@ -150,7 +150,7 @@ fn original_credit_and_complete_expectations_refuse_before_private_expansion() {
     assert_eq!(foreign.reserved_bytes(), 0);
     let mut insufficient = budget.try_reserve_bytes(demand - 1).unwrap();
     assert!(
-        matches!(prove(&view, expected, proving, limits, &budget, &mut insufficient),
+        matches!(prove(&view, expected, proving, &limits, &budget, &mut insufficient),
         Err(ProvingError::Prove(Error::AllocationReservation(error)))
             if error.requested_bytes == demand && error.remaining_bytes == demand - 1)
     );
@@ -160,7 +160,7 @@ fn original_credit_and_complete_expectations_refuse_before_private_expansion() {
     let _held = hold_producer_for_test();
     let mut credit = budget.try_reserve_bytes(demand).unwrap();
     assert!(matches!(
-        prove(&view, expected, proving, limits, &budget, &mut credit),
+        prove(&view, expected, proving, &limits, &budget, &mut credit),
         Err(ProvingError::Busy)
     ));
     assert_eq!(credit.remaining_bytes(), demand);
@@ -189,10 +189,10 @@ fn complete_effect_native_producer_self_verifies_and_binds_every_source_field() 
         statement: expected(&statement),
     };
     let proof_credit =
-        quantity_ordinary_allocation_bytes(&statement.effects, proving, policy).unwrap();
+        quantity_ordinary_allocation_bytes(&statement.effects, proving, &policy).unwrap();
     let verify_credit = crate::offline_compact::quantity_ordinary_verification_allocation_bytes(
         &statement.effects,
-        policy,
+        &policy,
     )
     .unwrap();
     let budget = AllocationBudget::new(proof_credit + verify_credit);
@@ -203,7 +203,7 @@ fn complete_effect_native_producer_self_verifies_and_binds_every_source_field() 
         &view,
         expected,
         proving,
-        policy,
+        &policy,
         &budget,
         &mut reservation,
     )
@@ -223,7 +223,7 @@ fn complete_effect_native_producer_self_verifies_and_binds_every_source_field() 
     assert_eq!(bytes.as_ptr(), bytes_pointer);
     assert_eq!(producer_verified.air_row_roots().as_ptr(), roots_pointer);
     let checked =
-        verify_quantity_ordinary_artifact(&bytes, expected, policy, &budget, &mut reservation)
+        verify_quantity_ordinary_artifact(&bytes, expected, &policy, &budget, &mut reservation)
             .unwrap();
     assert_eq!(checked, producer_verified);
     assert_eq!(checked.segments(), n);
@@ -250,7 +250,7 @@ fn complete_effect_native_producer_self_verifies_and_binds_every_source_field() 
                 source: &other,
                 ..expected
             },
-            policy,
+            &policy,
             &budget,
             &mut credit
         ),
@@ -273,7 +273,7 @@ fn complete_effect_native_producer_self_verifies_and_binds_every_source_field() 
     let changed = norito::encode_canonical(&model).unwrap();
     let mut credit = budget.try_reserve_bytes(verify_credit).unwrap();
     assert!(
-        verify_quantity_ordinary_artifact(&changed, expected, policy, &budget, &mut credit)
+        verify_quantity_ordinary_artifact(&changed, expected, &policy, &budget, &mut credit)
             .is_err()
     );
     drop(credit);

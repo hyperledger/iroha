@@ -189,20 +189,9 @@ whose marker appears on another route is replaced by the ordinary typed
 envelope. Errors after a stream has started follow that stream's terminal
 framing instead of the finite HTTP envelope.
 
-`GET /v1/kagemusha/readiness` is the canonical universal KAGEMUSHA-wallet
-capability discovery route. It does not evaluate a validator, asset,
-domain, dataspace, escrow account, verifier catalog, or deployment profile.
-Every app-API build returns the same asset-neutral KAGEMUSHA V1
-`kagemusha_handoff_v1` contract. Its only fields are `kagemusha_handoff_capability`,
-`wire_version`, `device_lifecycle_version`, and `ready`; both versions are
-exactly `1` and `ready` is always true. No hop, ancestry, input, or history
-limit is advertised. Clients must not use this response, `/health`,
-or `/readyz` as an offline-feature admission gate.
-
-Proof, authority, balance, release, replay, and reserve errors belong to the
-specific top-up or redemption command that references them. Such an error uses the
-ordinary typed error-envelope contract and cannot make the process or node
-unready. Torii has no per-asset readiness response or selector query.
+Torii serves no `/v1/kagemusha/*` routes. Clients must not use `/health` or
+`/readyz` as a wallet-feature admission gate, and Torii has no per-asset
+readiness response or selector query.
 
 Every HTTP response carries `X-Request-Id`. A client may supply an identifier
 containing 1–128 ASCII letters, digits, `-`, `_`, `.`, or `:`; Torii echoes it.

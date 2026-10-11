@@ -417,6 +417,6 @@ pub(crate) mod kagemusha_top_up_admission_tests {
         ));
         builder.push_transaction(signed);
         let block = builder.build(iroha_data_model::block::BlockSignatures::default());
-        assert!(crate::sumeragi::executor::attestation_required(&block));
+        assert!(crate::sumeragi::executor::proposal_requires_attestation(&block, u64::MAX));
     }
 }

@@ -9,7 +9,7 @@ use iroha_data_model::{
     NetworkId,
     account::{MultisigMember, MultisigPolicy},
     block::BlockHeader,
-    proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+    proof::{ProofAttachment, ProofBox, VerifyingKeyId},
     transaction::{FeePaymentIntent, TransactionDomain, TransactionPayload},
 };
 use iroha_primitives::json::Json;
@@ -148,14 +148,13 @@ fn account_envelope_preflight_rejects_other_authorization_profiles_and_builder_f
     );
     failures.push(altered);
     let mut altered = original.clone();
-    altered.attachments = Some(
-        ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+    altered
+        .set_proof_attachments_v1(&[ProofAttachment::new_ref(
             "halo2/ipa".into(),
             ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
             VerifyingKeyId::new("halo2/ipa", "vk_1"),
         )])
-        .unwrap(),
-    );
+        .unwrap();
     failures.push(altered);
     let mut altered = original.clone();
     altered.domain = TransactionDomain::Genesis;
@@ -219,14 +218,13 @@ fn native_signed_envelope_owner_rejects_sidecars_extras_signatures_and_other_ent
         .unwrap()
         .build_with_signature(Signature::from_bytes(&[0; 64]));
     let mut attached_payload = original.clone();
-    attached_payload.attachments = Some(
-        ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
+    attached_payload
+        .set_proof_attachments_v1(&[ProofAttachment::new_ref(
             "halo2/ipa".into(),
             ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
             VerifyingKeyId::new("halo2/ipa", "vk_1"),
         )])
-        .unwrap(),
-    );
+        .unwrap();
     let attached = TransactionBuilder::from_payload(attached_payload)
         .unwrap()
         .try_sign(key(4).private_key())

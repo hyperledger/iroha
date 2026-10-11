@@ -15,10 +15,10 @@ use super::{
     KAGEMUSHA_WALLET_VERSION_V1, KagemushaWalletValidationErrorV1, WalletResult, WalletVersionsV1,
     decode_frame_v1,
     digest::{
-        KagemushaWalletDigestRoleV1 as Role, KagemushaWalletSignerOutputV1, WalletTranscriptV1,
-        kagemusha_wallet_digest_v1, kagemusha_wallet_freeze_signature_v1,
-        kagemusha_wallet_preimage_v1, kagemusha_wallet_signed_object_digest_v1,
-        kagemusha_wallet_verify_signature_v1,
+        KagemushaWalletDigestRoleV1 as Role, KagemushaWalletSignerOutputV1,
+        KagemushaWalletSigningDomainV1 as Domain, WalletTranscriptV1, kagemusha_wallet_digest_v1,
+        kagemusha_wallet_freeze_signature_v1, kagemusha_wallet_signed_object_digest_v1,
+        kagemusha_wallet_signing_message_v1, kagemusha_wallet_verify_signature_v1,
     },
     encode_frame_v1, invalid_v1,
     keys::{KagemushaDevicePublicKeyV1, KagemushaDeviceSignatureV1},
@@ -472,7 +472,7 @@ impl KagemushaWalletSignerRoleV1 {
     }
 }
 
-/// Body of a signer certificate, signed by the scheme root under `certificate-body`.
+/// Body of a signer certificate, signed by the scheme root under `kgwcert1`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletSignerCertificateBodyV1"
@@ -503,16 +503,10 @@ impl KagemushaWalletSignerCertificateBodyV1 {
             .finish()
     }
 
-    /// Signed body digest `e = H("certificate-body", transcript)`.
+    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
     #[must_use]
-    pub fn body_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_digest_v1(Role::CertificateBody, &self.transcript())
-    }
-
-    /// Exact ECDSA message the scheme root signs.
-    #[must_use]
-    pub fn signing_message(&self) -> Vec<u8> {
-        kagemusha_wallet_preimage_v1(Role::CertificateBody, &self.transcript())
+    pub fn signing_message(&self) -> [u8; 32] {
+        kagemusha_wallet_signing_message_v1(Domain::Certificate, &self.transcript())
     }
 
     /// Validate the body's fields.
@@ -539,7 +533,7 @@ impl KagemushaWalletSignerCertificateBodyV1 {
 pub struct KagemushaWalletSignerCertificateV1 {
     /// Signed body.
     pub body: KagemushaWalletSignerCertificateBodyV1,
-    /// Scheme-root signature over `certificate-body`.
+    /// Scheme-root signature over the `kgwcert1` signing message.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -564,19 +558,19 @@ impl KagemushaWalletSignerCertificateV1 {
         )?;
         let signature = kagemusha_wallet_freeze_signature_v1(
             &scheme.scheme_root_key,
-            Role::CertificateBody,
-            &body.transcript(),
+            Domain::Certificate,
+            &body.signing_message(),
             signer_output,
         )?;
         Ok(Self { body, signature })
     }
 
-    /// Certificate digest `H("certificate", e || signature)`.
+    /// Certificate digest `H("certificate", m || signature)`.
     #[must_use]
     pub fn certificate_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
             Role::Certificate,
-            &self.body.body_digest(),
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -607,8 +601,8 @@ impl KagemushaWalletSignerCertificateV1 {
         )?;
         kagemusha_wallet_verify_signature_v1(
             &scheme.scheme_root_key,
-            Role::CertificateBody,
-            &self.body.transcript(),
+            Domain::Certificate,
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -1260,7 +1254,7 @@ impl KagemushaWalletRegulatoryPolicyV1 {
     }
 }
 
-/// Body of a wallet credential, signed by an Enrollment-role key under `credential-body`.
+/// Body of a wallet credential, signed by an Enrollment-role key under `kgwcred1`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletCredentialBodyV1"
@@ -1331,16 +1325,10 @@ impl KagemushaWalletCredentialBodyV1 {
             .finish()
     }
 
-    /// Signed body digest `e = H("credential-body", transcript)`.
+    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
     #[must_use]
-    pub fn body_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_digest_v1(Role::CredentialBody, &self.transcript())
-    }
-
-    /// Exact ECDSA message the Enrollment-role signer signs.
-    #[must_use]
-    pub fn signing_message(&self) -> Vec<u8> {
-        kagemusha_wallet_preimage_v1(Role::CredentialBody, &self.transcript())
+    pub fn signing_message(&self) -> [u8; 32] {
+        kagemusha_wallet_signing_message_v1(Domain::Credential, &self.transcript())
     }
 
     /// Validate the body's self-contained rules (§2.4, design C5).
@@ -1400,7 +1388,7 @@ impl KagemushaWalletCredentialBodyV1 {
 pub struct KagemushaWalletCredentialV1 {
     /// Signed body.
     pub body: KagemushaWalletCredentialBodyV1,
-    /// Enrollment-role signature over `credential-body`.
+    /// Enrollment-role signature over the `kgwcred1` signing message.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -1431,19 +1419,19 @@ impl KagemushaWalletCredentialV1 {
         )?;
         let signature = kagemusha_wallet_freeze_signature_v1(
             &issuer_certificate.body.key,
-            Role::CredentialBody,
-            &body.transcript(),
+            Domain::Credential,
+            &body.signing_message(),
             signer_output,
         )?;
         Ok(Self { body, signature })
     }
 
-    /// Credential digest `H("credential", e || signature)`.
+    /// Credential digest `H("credential", m || signature)`.
     #[must_use]
     pub fn credential_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
             Role::Credential,
-            &self.body.body_digest(),
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -1488,8 +1476,8 @@ impl KagemushaWalletCredentialV1 {
         issuer_certificate.verify_role(scheme, KagemushaWalletSignerRoleV1::Enrollment)?;
         kagemusha_wallet_verify_signature_v1(
             &issuer_certificate.body.key,
-            Role::CredentialBody,
-            &self.body.transcript(),
+            Domain::Credential,
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -1644,7 +1632,7 @@ pub enum KagemushaWalletRenewalEvidenceV1 {
     Android {
         /// Newly generated attested key.
         new_attested_key: KagemushaDevicePublicKeyV1,
-        /// Payment-key signature over `renewal-key-binding`.
+        /// Payment-key signature over the `kgwrnkb1` signing message.
         key_binding_signature: KagemushaDeviceSignatureV1,
         /// Original attestation chain, leaf first.
         chain: Vec<KagemushaWalletDerCertificateV1>,
@@ -1676,12 +1664,15 @@ impl KagemushaWalletRenewalEvidenceV1 {
         }
         let key_binding_signature = kagemusha_wallet_freeze_signature_v1(
             &credential.body.payment_key,
-            Role::RenewalKeyBinding,
-            &kagemusha_wallet_renewal_key_binding_transcript_v1(
-                &credential.body.scheme_id,
-                &credential.body.wallet_id,
-                challenge,
-                &new_attested_key,
+            Domain::RenewalKeyBinding,
+            &kagemusha_wallet_signing_message_v1(
+                Domain::RenewalKeyBinding,
+                &kagemusha_wallet_renewal_key_binding_transcript_v1(
+                    &credential.body.scheme_id,
+                    &credential.body.wallet_id,
+                    challenge,
+                    &new_attested_key,
+                ),
             ),
             key_binding_output,
         )?;
@@ -1795,7 +1786,7 @@ pub struct KagemushaWalletRenewalRequestV1 {
     pub credential_digest: [u8; 32],
     /// Fresh issuer renewal challenge.
     pub challenge: [u8; 32],
-    /// Payment-key signature over `renewal-challenge`.
+    /// Payment-key signature over the `kgwrnch1` signing message.
     pub possession_signature: KagemushaDeviceSignatureV1,
     /// Fresh platform evidence.
     pub evidence: KagemushaWalletRenewalEvidenceV1,
@@ -1817,12 +1808,15 @@ impl KagemushaWalletRenewalRequestV1 {
         let credential_digest = credential.credential_digest();
         let possession_signature = kagemusha_wallet_freeze_signature_v1(
             &credential.body.payment_key,
-            Role::RenewalChallenge,
-            &kagemusha_wallet_renewal_challenge_transcript_v1(
-                &credential.body.scheme_id,
-                &credential.body.wallet_id,
-                &credential_digest,
-                &challenge,
+            Domain::RenewalChallenge,
+            &kagemusha_wallet_signing_message_v1(
+                Domain::RenewalChallenge,
+                &kagemusha_wallet_renewal_challenge_transcript_v1(
+                    &credential.body.scheme_id,
+                    &credential.body.wallet_id,
+                    &credential_digest,
+                    &challenge,
+                ),
             ),
             possession_output,
         )?;
@@ -1899,8 +1893,11 @@ impl KagemushaWalletRenewalRequestV1 {
         let payment_key = &credential.body.payment_key;
         kagemusha_wallet_verify_signature_v1(
             payment_key,
-            Role::RenewalChallenge,
-            &self.possession_transcript(),
+            Domain::RenewalChallenge,
+            &kagemusha_wallet_signing_message_v1(
+                Domain::RenewalChallenge,
+                &self.possession_transcript(),
+            ),
             &self.possession_signature,
         )?;
         match (&self.evidence, credential.body.evidence_kind.is_android()) {
@@ -1913,12 +1910,15 @@ impl KagemushaWalletRenewalRequestV1 {
                 true,
             ) => kagemusha_wallet_verify_signature_v1(
                 payment_key,
-                Role::RenewalKeyBinding,
-                &kagemusha_wallet_renewal_key_binding_transcript_v1(
-                    &self.scheme_id,
-                    &self.wallet_id,
-                    &self.challenge,
-                    new_attested_key,
+                Domain::RenewalKeyBinding,
+                &kagemusha_wallet_signing_message_v1(
+                    Domain::RenewalKeyBinding,
+                    &kagemusha_wallet_renewal_key_binding_transcript_v1(
+                        &self.scheme_id,
+                        &self.wallet_id,
+                        &self.challenge,
+                        new_attested_key,
+                    ),
                 ),
                 key_binding_signature,
             ),
@@ -2010,16 +2010,10 @@ impl KagemushaWalletArtifactManifestBodyV1 {
         .finish()
     }
 
-    /// Signed body digest `e = H("artifact-manifest-body", transcript)`.
+    /// Canonical 32-byte signing message `m = P_bytes(d, transcript)` (§8).
     #[must_use]
-    pub fn body_digest(&self) -> [u8; 32] {
-        kagemusha_wallet_digest_v1(Role::ArtifactManifestBody, &self.transcript())
-    }
-
-    /// Exact ECDSA message the Artifact-role signer signs.
-    #[must_use]
-    pub fn signing_message(&self) -> Vec<u8> {
-        kagemusha_wallet_preimage_v1(Role::ArtifactManifestBody, &self.transcript())
+    pub fn signing_message(&self) -> [u8; 32] {
+        kagemusha_wallet_signing_message_v1(Domain::ArtifactManifest, &self.transcript())
     }
 
     /// Relation identity recomputed from this body's bindings.
@@ -2099,7 +2093,7 @@ impl KagemushaWalletArtifactManifestBodyV1 {
     }
 }
 
-/// Artifact manifest signed by an Artifact-role key under `artifact-manifest-body`.
+/// Artifact manifest signed by an Artifact-role key under `kgwartf1`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Decode, Encode, IntoSchema, norito::NoritoSchema)]
 #[norito_schema(
     name = "iroha_data_model::kagemusha::kagemusha_wallet_v1::KagemushaWalletArtifactManifestV1"
@@ -2107,7 +2101,7 @@ impl KagemushaWalletArtifactManifestBodyV1 {
 pub struct KagemushaWalletArtifactManifestV1 {
     /// Signed body.
     pub body: KagemushaWalletArtifactManifestBodyV1,
-    /// Artifact-role signature over `artifact-manifest-body`.
+    /// Artifact-role signature over the `kgwartf1` signing message.
     pub signature: KagemushaDeviceSignatureV1,
 }
 
@@ -2133,19 +2127,19 @@ impl KagemushaWalletArtifactManifestV1 {
         }
         let signature = kagemusha_wallet_freeze_signature_v1(
             &signer_certificate.body.key,
-            Role::ArtifactManifestBody,
-            &body.transcript(),
+            Domain::ArtifactManifest,
+            &body.signing_message(),
             signer_output,
         )?;
         Ok(Self { body, signature })
     }
 
-    /// Manifest digest `H("artifact-manifest", e || signature)`.
+    /// Manifest digest `H("artifact-manifest", m || signature)`.
     #[must_use]
     pub fn manifest_digest(&self) -> [u8; 32] {
         kagemusha_wallet_signed_object_digest_v1(
             Role::ArtifactManifest,
-            &self.body.body_digest(),
+            &self.body.signing_message(),
             &self.signature,
         )
     }
@@ -2181,8 +2175,8 @@ impl KagemushaWalletArtifactManifestV1 {
         signer_certificate.verify_role(scheme, KagemushaWalletSignerRoleV1::Artifact)?;
         kagemusha_wallet_verify_signature_v1(
             &signer_certificate.body.key,
-            Role::ArtifactManifestBody,
-            &self.body.transcript(),
+            Domain::ArtifactManifest,
+            &self.body.signing_message(),
             &self.signature,
         )
     }

@@ -17,11 +17,11 @@ wire bytes, advertised flags, complete field consumption and enclosing logical
 limit causes remain mandatory. Logical codec-work quotas do not fund physical
 storage, and prepared custody does not authenticate finality.
 
-TODO: physically fund the complete SignedBlock payload, transactions, results,
+TODO: physically fund the complete `SignedBlock` payload, transactions, results,
 DA, witnesses and execution/private-authority contexts, plus the decoded
 certificate header/QC/result/availability semantic graphs. `NativeFinalitySource` preserves an opaque borrow of the actual charged source
 and its canonically validated frame span. The native reader rejects a foreign
 prepared source pool before block decoding or control admission. Its nested
-SignedBlock decoder still owns unfunded payload/result/DA graphs; this source
+`SignedBlock` decoder still owns unfunded payload/result/DA graphs; this source
 provenance establishes no complete native proof funding. Whole-node, 31-seat, restart and network
 qualification remain open.

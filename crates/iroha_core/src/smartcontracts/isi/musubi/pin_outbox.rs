@@ -162,9 +162,8 @@ fn encode_owned_frame<T: norito::NoritoSerialize>(
     if length > maximum {
         return Err(norito::Error::LengthMismatch);
     }
-    // Precharge the exact retained frame to the inherited cumulative owner, then use the
-    // fixed-capacity fallible encoder. The subsequent owned decode spends the same scope.
-    norito::core::reserve_decode_allocation(length)?;
+    // The exact destination encoder charges its physical frame once to the inherited
+    // cumulative owner. The subsequent owned decode spends the same unchanged scope.
     norito::core::to_bytes_bounded(value, length).map_err(|error| match error {
         norito::core::BoundedEncodeError::Serialization(error) => error,
         norito::core::BoundedEncodeError::AllocationFailed { bytes } => {

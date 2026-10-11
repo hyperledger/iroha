@@ -30,6 +30,7 @@ use std::{
 use tokio::sync::mpsc;
 /// Capture optional local diagnostic records without changing execution admission.
 /// All four overlay producers use this same original-pool ownership path.
+#[cfg(any(test, feature = "iroha-core-tests"))]
 pub(crate) fn capture_and_submit(
     vm: &ivm::IVM,
     budget: &iroha_allocation::AllocationBudget,

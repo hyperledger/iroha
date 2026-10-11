@@ -752,7 +752,7 @@ fn expansion_refuses_equivalent_foreign_state_and_changed_publication() {
 fn merged_rejection_event_retains_the_original_native_proposal_header() {
     use crate::{
         block::{BlockValidationError, ValidBlock},
-        sumeragi::{executor::attestation_required, network_topology::Topology, schedule},
+        sumeragi::{network_topology::Topology, schedule},
     };
     use iroha_data_model::{
         block::error::BlockRejectionReason,
@@ -800,8 +800,7 @@ fn merged_rejection_event_retains_the_original_native_proposal_header() {
         payload_len: u32::try_from(bytes.len()).unwrap(),
         proposer: 0,
         skipped_leaders: Vec::new(),
-        attest: attestation_required(&proposal)
-            || height == scheduled.epoch.authorization.last_height,
+        attest: height == scheduled.epoch.authorization.last_height,
         control_witness: Default::default(),
     };
     // The negative changes only the global cadence; availability uses the original

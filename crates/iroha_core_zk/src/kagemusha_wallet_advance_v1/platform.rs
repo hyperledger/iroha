@@ -16,7 +16,7 @@
 //!   `kagemusha_wallet_sign_receipt_body_v1` (module-private; it needs a Selected-marker
 //!   capability and re-reads that marker on disk immediately before signing) and
 //!   [`kagemusha_wallet_sign_role_v1`] (which refuses the receipt roles). The platform's
-//!   [`KagemushaWalletPlatformV1::key_sign`] takes a [`KagemushaWalletSignPreimageV1`] that only
+//!   [`KagemushaWalletPlatformV1::key_sign`] takes a [`KagemushaWalletSigningMessageV1`] that only
 //!   these signers can construct, so code holding a platform object cannot reach the key with
 //!   arbitrary bytes through this trait. The raw signer output is frozen with
 //!   `kagemusha_wallet_freeze_signature_v1`: normalized to low S and verified under the
@@ -25,9 +25,9 @@
 use std::io;
 
 use iroha_data_model::kagemusha::{
-    KagemushaDevicePublicKeyV1, KagemushaDeviceSignatureV1, KagemushaWalletDigestRoleV1,
-    KagemushaWalletSignerOutputV1, kagemusha_wallet_freeze_signature_v1,
-    kagemusha_wallet_preimage_v1,
+    KagemushaDevicePublicKeyV1, KagemushaDeviceSignatureV1, KagemushaWalletSignerOutputV1,
+    KagemushaWalletSigningDomainV1, kagemusha_wallet_freeze_signature_v1,
+    kagemusha_wallet_signing_message_v1,
 };
 
 use super::{
@@ -434,22 +434,29 @@ impl KagemushaWalletAnchorPolicyV1 {
     }
 }
 
-/// Exact digest preimage handed to [`KagemushaWalletPlatformV1::key_sign`].
+/// Exact 32-byte signing message handed to [`KagemushaWalletPlatformV1::key_sign`].
 ///
-/// Only the provider's role-checked signers construct it, so the platform key is reached with
-/// a receipt body only under a current Selected marker and with other bodies only under a
-/// permitted role.
+/// Only the provider's role-checked signers construct it. A receipt requires a current
+/// Selected marker; other bodies require a permitted payment-key signing domain. The domain
+/// is explicit context for the platform adapter, never an additional byte in the message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct KagemushaWalletSignPreimageV1<'a> {
-    bytes: &'a [u8],
+pub struct KagemushaWalletSigningMessageV1<'a> {
+    domain: KagemushaWalletSigningDomainV1,
+    bytes: &'a [u8; 32],
 }
 
-impl KagemushaWalletSignPreimageV1<'_> {
-    /// The preimage bytes; the platform signs `SHA-256(bytes)` (`SHA256withECDSA`,
-    /// `CryptoKit` `signature(for:)`).
+impl KagemushaWalletSigningMessageV1<'_> {
+    /// The canonical `P_bytes(domain, transcript)` message. The platform signs
+    /// `SHA-256(bytes)` with its ordinary ECDSA-P256-SHA256 API.
     #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8; 32] {
         self.bytes
+    }
+
+    /// Authenticated signing context, carried separately from the exact message bytes.
+    #[must_use]
+    pub const fn domain(&self) -> KagemushaWalletSigningDomainV1 {
+        self.domain
     }
 }
 
@@ -473,8 +480,9 @@ pub trait KagemushaWalletPlatformV1: Send + Sync {
         request: &KagemushaWalletKeyGenerationRequestV1,
     ) -> KagemushaWalletKeyGenerationV1;
 
-    /// Sign `preimage` (the exact digest preimage; the platform hashes it with SHA-256) with
-    /// the payment key of `slot`. Only the role-checked signers can construct the preimage.
+    /// Sign the exact 32 bytes of `message` with ECDSA-P256-SHA256 and the payment key of
+    /// `slot`. Only the role-checked signers construct this handoff; the domain is context
+    /// for the adapter and must not be prepended to, or substituted for, these bytes.
     ///
     /// # Errors
     ///
@@ -482,7 +490,7 @@ pub trait KagemushaWalletPlatformV1: Send + Sync {
     fn key_sign(
         &self,
         slot: &KagemushaWalletSlotIdV1,
-        preimage: KagemushaWalletSignPreimageV1<'_>,
+        message: KagemushaWalletSigningMessageV1<'_>,
     ) -> Result<KagemushaWalletPlatformSignatureV1, KagemushaWalletUnavailableV1>;
 
     /// Delete the payment key of `slot` (custody deletion step D3 only).
@@ -646,6 +654,9 @@ pub enum KagemushaWalletSignErrorV1 {
     /// The role is not a payment-key role, or is the receipt role outside a capability.
     #[error("role not permitted for the payment key")]
     RoleNotPermitted,
+    /// The body does not have the exact transcript length of its signing domain.
+    #[error("signing transcript length does not match its domain")]
+    InvalidTranscript,
     /// The capability's Selected marker is no longer current on disk, or the marker could not
     /// be read; the key was not reached.
     #[error("receipt capability not current: {0}")]
@@ -662,35 +673,37 @@ impl From<KagemushaWalletSignErrorV1> for KagemushaWalletProviderErrorV1 {
             KagemushaWalletSignErrorV1::RoleNotPermitted => Self::Invalid {
                 field: "signer role",
             },
+            KagemushaWalletSignErrorV1::InvalidTranscript => Self::Invalid {
+                field: "signer transcript",
+            },
             KagemushaWalletSignErrorV1::Custody(error) => error,
         }
     }
 }
 
-/// Roles the payment key may sign outside a provider receipt (spec §2.3).
-pub const KAGEMUSHA_WALLET_PAYMENT_KEY_ROLES_V1: [KagemushaWalletDigestRoleV1; 6] = [
-    KagemushaWalletDigestRoleV1::OfferBody,
-    KagemushaWalletDigestRoleV1::RequestBody,
-    KagemushaWalletDigestRoleV1::SessionControlBody,
-    KagemushaWalletDigestRoleV1::LedgerControlBody,
-    KagemushaWalletDigestRoleV1::RenewalChallenge,
-    KagemushaWalletDigestRoleV1::RenewalKeyBinding,
+/// Signing domains the payment key may use outside a provider receipt (spec §2.3).
+pub const KAGEMUSHA_WALLET_PAYMENT_KEY_SIGNING_DOMAINS_V1: [KagemushaWalletSigningDomainV1; 6] = [
+    KagemushaWalletSigningDomainV1::Offer,
+    KagemushaWalletSigningDomainV1::Request,
+    KagemushaWalletSigningDomainV1::SessionControl,
+    KagemushaWalletSigningDomainV1::LedgerControl,
+    KagemushaWalletSigningDomainV1::RenewalChallenge,
+    KagemushaWalletSigningDomainV1::RenewalKeyBinding,
 ];
 
 /// Sign one provider receipt body under a durable Selected-marker capability (A7).
 ///
 /// The capability's marker is re-read from `store` immediately before the key is reached, so a
 /// capability kept after its marker was superseded (or derived from a marker that is not on
-/// disk) never signs. `receipt_body` is the exact `receipt-body` transcript; the provider stays
-/// generic over its layout, and the caller derives it from the capsule whose digest the
-/// capability binds. The platform signs the `H("receipt-body", ·)` preimage and the output is
-/// frozen with `kagemusha_wallet_freeze_signature_v1` under the capability's payment key.
+/// disk) never signs. `receipt_body` is the exact 338-byte canonical receipt transcript;
+/// the transition owner derives it from the capsule whose digest the capability binds. The platform signs the exact `P_bytes(kgwrcpt1, receipt_body)` message;
+/// `kagemusha_wallet_freeze_signature_v1` verifies its output under the capability's key.
 ///
 /// # Errors
 ///
 /// `Custody` when the marker is no longer current or cannot be read, `Unavailable` when the
-/// platform cannot sign and `KeyUnusable` when its output is malformed or does not verify;
-/// nothing is written in any case.
+/// platform cannot sign, `InvalidTranscript` for a wrong body length, and `KeyUnusable` when
+/// its output is malformed or does not verify; nothing is written in any case.
 pub(super) fn kagemusha_wallet_sign_receipt_body_v1<F, P>(
     store: &KagemushaWalletDurableStoreV1<F>,
     platform: &P,
@@ -708,12 +721,12 @@ where
         platform,
         capability.slot(),
         capability.payment_key(),
-        KagemushaWalletDigestRoleV1::ReceiptBody,
+        KagemushaWalletSigningDomainV1::Receipt,
         receipt_body,
     )
 }
 
-/// Sign one non-receipt payment-key body (`role` in [`KAGEMUSHA_WALLET_PAYMENT_KEY_ROLES_V1`]).
+/// Sign one non-receipt payment-key body (`role` in [`KAGEMUSHA_WALLET_PAYMENT_KEY_SIGNING_DOMAINS_V1`]).
 ///
 /// # Errors
 ///
@@ -723,10 +736,10 @@ pub fn kagemusha_wallet_sign_role_v1<P: KagemushaWalletPlatformV1 + ?Sized>(
     platform: &P,
     slot: &KagemushaWalletSlotIdV1,
     payment_key: &KagemushaDevicePublicKeyV1,
-    role: KagemushaWalletDigestRoleV1,
+    role: KagemushaWalletSigningDomainV1,
     body: &[u8],
 ) -> Result<KagemushaDeviceSignatureV1, KagemushaWalletSignErrorV1> {
-    if !KAGEMUSHA_WALLET_PAYMENT_KEY_ROLES_V1.contains(&role) {
+    if !KAGEMUSHA_WALLET_PAYMENT_KEY_SIGNING_DOMAINS_V1.contains(&role) {
         return Err(KagemushaWalletSignErrorV1::RoleNotPermitted);
     }
     sign_with_key(platform, slot, payment_key, role, body)
@@ -736,14 +749,23 @@ fn sign_with_key<P: KagemushaWalletPlatformV1 + ?Sized>(
     platform: &P,
     slot: &KagemushaWalletSlotIdV1,
     payment_key: &KagemushaDevicePublicKeyV1,
-    role: KagemushaWalletDigestRoleV1,
+    role: KagemushaWalletSigningDomainV1,
     body: &[u8],
 ) -> Result<KagemushaDeviceSignatureV1, KagemushaWalletSignErrorV1> {
-    let preimage = kagemusha_wallet_preimage_v1(role, body);
+    if body.len() != role.transcript_bytes() {
+        return Err(KagemushaWalletSignErrorV1::InvalidTranscript);
+    }
+    let message = kagemusha_wallet_signing_message_v1(role, body);
     let output = platform
-        .key_sign(slot, KagemushaWalletSignPreimageV1 { bytes: &preimage })
+        .key_sign(
+            slot,
+            KagemushaWalletSigningMessageV1 {
+                domain: role,
+                bytes: &message,
+            },
+        )
         .map_err(KagemushaWalletSignErrorV1::Unavailable)?;
-    kagemusha_wallet_freeze_signature_v1(payment_key, role, body, output.as_signer_output())
+    kagemusha_wallet_freeze_signature_v1(payment_key, role, &message, output.as_signer_output())
         .map_err(|_| KagemushaWalletSignErrorV1::KeyUnusable)
 }
 

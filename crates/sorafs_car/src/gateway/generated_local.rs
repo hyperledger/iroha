@@ -147,8 +147,8 @@ impl GeneratedLocalProviderTransportV1 {
             {
                 return Err(fail());
             }
-            // Canonical bounded ownership uses the shared codec, with one aggregate decode scope.
-            norito::core::reserve_decode_allocation(length).map_err(|_| fail())?;
+            // The shared encoder charges its exact frame once; the retained decoded graph
+            // is separately charged to the same unchanged aggregate scope.
             let bytes = norito::core::to_bytes_bounded(material, length).map_err(|_| fail())?;
             let material = norito::decode_canonical_with_limits(&bytes, MATERIAL_LIMITS)
                 .map_err(|_| fail())?;

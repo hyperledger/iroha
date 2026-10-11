@@ -384,7 +384,7 @@ def test_public_torii_cors_matches_runtime_policy_and_browser_sdk_headers() -> N
     assert "*" not in allowed_headers
     assert (
         "idempotency-key" in allowed_headers
-    ), "browser KAGEMUSHA V1 top-up and redemption require Idempotency-Key"
+    ), "browser SoraFS gateway-compliance commands require Idempotency-Key"
     for header in (
         "accept",
         "content-type",

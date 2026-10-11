@@ -4810,7 +4810,7 @@ mod detached_transaction_scaffold_tests {
     use super::*;
     use iroha_data_model::{
         asset::AssetId,
-        proof::{ProofAttachment, ProofAttachmentList, ProofBox, VerifyingKeyId},
+        proof::{ProofAttachment, ProofBox, VerifyingKeyId},
         smart_contract::ContractAddress,
         transaction::{
             executable::{ContractArgumentRecord, ContractInvocation, IvmBytecode},
@@ -5145,14 +5145,12 @@ mod detached_transaction_scaffold_tests {
             iroha_data_model::transaction::FeePaymentIntent::authority(Vec::new(), None),
         )
         .with_executable(contract)
-        .with_attachments(
-            ProofAttachmentList::try_from(vec![ProofAttachment::new_ref(
-                "halo2/ipa".into(),
-                ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
-                VerifyingKeyId::new("halo2/ipa", "detached-scaffold-vk"),
-            )])
-            .expect("one attachment is a valid bounded proof list"),
-        )
+        .with_proof_attachments(vec![ProofAttachment::new_ref(
+            "halo2/ipa".into(),
+            ProofBox::new("halo2/ipa".into(), vec![1, 2, 3]),
+            VerifyingKeyId::new("halo2/ipa", "detached-scaffold-vk"),
+        )])
+        .expect("valid proof carriers")
         .try_sign(keypair.private_key())
         .unwrap();
         assert!(

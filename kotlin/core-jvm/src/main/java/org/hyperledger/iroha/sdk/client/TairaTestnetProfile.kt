@@ -15,14 +15,14 @@ object TairaTestnetProfile {
     /** Canonical I105 address discriminant for Taira. */
     const val I105_DISCRIMINANT: Int = 369
 
-    /** Canonical Digital Shekel asset-definition ID used by KAGEMUSHA V1 on Taira. */
-    const val KAGEMUSHA_ASSET_DEFINITION_ID: String = "7ZepsJTHCVLKsrFFNZGSRGZgvBhv"
+    /** Canonical Digital Shekel asset-definition ID on Taira. */
+    const val DIGITAL_SHEKEL_ASSET_DEFINITION_ID: String = "7ZepsJTHCVLKsrFFNZGSRGZgvBhv"
 
-    /** Canonical Digital Shekel alias used by KAGEMUSHA V1 on Taira. */
-    const val KAGEMUSHA_ASSET_ALIAS: String = "ds#boi.is"
+    /** Canonical Digital Shekel alias on Taira. */
+    const val DIGITAL_SHEKEL_ASSET_ALIAS: String = "ds#boi.is"
 
-    /** Canonical Digital Shekel fixed-point scale used by KAGEMUSHA V1 on Taira. */
-    const val KAGEMUSHA_ASSET_SCALE: Int = 2
+    /** Canonical Digital Shekel fixed-point scale on Taira. */
+    const val DIGITAL_SHEKEL_ASSET_SCALE: Int = 2
 
     /** Public Taira XOR asset-definition ID used for transaction fees. */
     const val XOR_ASSET_DEFINITION_ID: String = "6TEAJqbb8oEPmLncoNiMRbLEK6tw"

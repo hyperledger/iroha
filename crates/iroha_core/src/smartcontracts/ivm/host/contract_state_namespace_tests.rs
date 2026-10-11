@@ -583,6 +583,9 @@ fn state_get_reserves_exact_available_gas_for_base_overlay_miss_and_tombstone() 
         .chunks_exact(4)
         .map(|word| ivm::gas::cost_of(u32::from_le_bytes(word.try_into().unwrap())).unwrap())
         .sum::<u64>();
+    // The authenticated fixture returns one Unit table slot. Its schema node and
+    // word validation are charged separately from the emitted JALR instruction.
+    let return_table_gas = ivm::call_gas::NODE + ivm::call_gas::WORD;
     let root_table_gas = authenticated_test_probe_setup_gas()
         - authenticated_test_probe_prologue()
             .into_iter()
@@ -593,7 +596,7 @@ fn state_get_reserves_exact_available_gas_for_base_overlay_miss_and_tombstone() 
             let present = matches!(source, "base" | "overlay");
             let actual = test_state_value_gas(&path, if present { value.len() } else { 0 });
             let limit = if affordable {
-                root_table_gas + instruction_gas + actual + 7
+                root_table_gas + instruction_gas + return_table_gas + actual + 7
             } else {
                 authenticated_test_probe_setup_gas() + ivm::gas::cost_of(syscall).unwrap() + actual
                     - 1

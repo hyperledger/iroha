@@ -49,7 +49,7 @@ impl BlockHeader {
     /// a standalone decoded header nor a nullable hash grants custody authority.
     ///
     /// # Errors
-    /// Returns the original NonZero, Option, marked-hash, child/field/depth limit
+    /// Returns the original `NonZero`, Option, marked-hash, child/field/depth limit
     /// or complete-consumption failure without reclassifying a local refusal.
     pub fn decode_inline_payload(bytes: &[u8]) -> Result<Self, Error> {
         let (

@@ -9,7 +9,7 @@
   "F.1": "per-operation digest audit by role and consumer key",
   "H.2": "transcript requirements, candidate and profiles to freeze",
   "F.5": "consumers that change, BN254 Poseidon and post-quantum findings",
-  "H.3": "final measurements of the workloads frozen by H.2",
+  "H.3": "final measurements of the workloads on the profiles frozen by H.2 (semantic_profiles)",
   "B.2": "transcript and commitment requirements of the shared engine"
  },
  "key_stability": "Primitive ids, role keys, consumer keys, defect ids and workload ids are stable identifiers. A renamed or removed key is a deliberate change that its referring artifacts follow.",
@@ -847,7 +847,7 @@
     "extensions": [".rs", ".kt", ".kts", ".java", ".swift", ".ts", ".js", ".mjs", ".cjs", ".py", ".cs", ".json", ".b64", ".norito", ".toml", ".yaml", ".yml", ".txt", ".tsv"],
     "exclude_prefixes": ["specs/", "scripts/", "docs/", "dist/"],
     "scope_note": "Identifier forms of the Exact12 catalog commitment field and type in code, fixtures and configuration. Documentation, plan ledgers and tooling are not carriers. The phrase with a space names Nexus lane catalogs and is not matched.",
-    "type_files": ["IrohaSwift/Sources/IrohaSwift/PrivacyExact12CapabilityManifestV1.swift", "IrohaSwift/Sources/IrohaSwift/PrivacyExact12FixtureBundle.swift", "IrohaSwift/Tests/IrohaSwiftTests/PrivacyExact12CapabilityManifestV1Tests.swift", "artifacts/openapi/torii.json", "artifacts/openapi/versions/current/torii.json", "configs/soranexus/taira/privacy_rollout_plan_v1.json", "crates/connect_norito_bridge/src/privacy_capability_ffi_tests.rs", "crates/iroha_core/src/executor.rs", "crates/iroha_core/src/privacy_release_evidence.rs", "crates/iroha_core/src/privacy_release_evidence/network_actions.rs", "crates/iroha_core/src/privacy_release_evidence/network_actions/retained.rs", "crates/iroha_core/src/privacy_release_evidence/vega.rs", "crates/iroha_core/src/privacy_release_evidence/zk_x509.rs", "crates/iroha_core/src/smartcontracts/isi/privacy.rs", "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/proof.rs", "crates/iroha_core_privacy/src/privacy_engines/jindo.rs", "crates/iroha_core_privacy/src/privacy_engines/transparent_stark.rs", "crates/iroha_core_privacy/src/privacy_engines/vega.rs", "crates/iroha_core_privacy/src/privacy_engines/zk_ams.rs", "crates/iroha_core_privacy/src/privacy_verifier.rs", "crates/iroha_core_zk/src/stark.rs", "crates/iroha_crypto/src/privacy.rs", "crates/iroha_data_model/src/isi/privacy.rs", "crates/iroha_data_model/src/privacy.rs", "crates/iroha_data_model/src/privacy/proofs.rs", "crates/iroha_data_model/src/privacy/protocol.rs", "crates/iroha_data_model/src/privacy/release_manifest.rs", "crates/iroha_data_model/src/privacy/tests/protocol_and_proofs.rs", "crates/iroha_data_model/src/privacy/tests/release_manifest.rs", "crates/iroha_data_model/src/transaction/signed_model_tests.rs", "crates/iroha_data_model/tests/fixtures/manual_protocol_identity_frames.json", "crates/iroha_data_model/tests/manual_frame_identity/protocol.rs", "crates/iroha_kagami/src/privacy_bootstrap/release.rs", "crates/iroha_torii/assets/openapi/torii.json", "crates/iroha_torii/src/openapi/tests.rs", "crates/iroha_torii/src/openapi/tests/privacy_release_qualification.rs", "crates/iroha_zkp_halo2/src/vega/zk_ams/mkhe/rns_native_proof_hash.rs", "crates/zk_ace_prover/src/lib.rs", "csharp/src/Hyperledger.Iroha.Sdk/Privacy/PrivacyExact12CapabilityManifestV1.cs", "csharp/tests/Hyperledger.Iroha.Sdk.Tests/PrivacyExact12CapabilityManifestV1Tests.cs", "integration_tests/tests/privacy_exact12_zk_ams_vega_network.rs", "javascript/iroha_js/privacy-capabilities.d.ts", "javascript/iroha_js/src/norito.js", "javascript/iroha_js/src/privacyCapabilities.js", "javascript/iroha_js/test/privacyExact12CapabilityManifest.test.js", "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyCapabilitiesV1.kt", "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyExact12CapabilityManifestV1.kt", "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/privacy/PrivacyExact12CapabilityManifestV1Test.kt", "python/iroha_python/iroha_python_rs/src/privacy_capability_manifest.rs", "python/iroha_python/iroha_python_rs/src/privacy_native_actions.rs", "python/iroha_python/src/iroha_python/privacy_exact12.py", "python/iroha_python/tests/privacy_exact12_fixture_test.py"],
+    "type_files": ["IrohaSwift/Sources/IrohaSwift/PrivacyExact12CapabilityManifestV1.swift", "IrohaSwift/Sources/IrohaSwift/PrivacyExact12FixtureBundle.swift", "IrohaSwift/Tests/IrohaSwiftTests/PrivacyExact12CapabilityManifestV1Tests.swift", "artifacts/openapi/torii.json", "artifacts/openapi/versions/current/torii.json", "configs/soranexus/taira/privacy_rollout_plan_v1.json", "crates/connect_norito_bridge/src/privacy_capability_ffi_tests.rs", "crates/iroha_core/src/executor.rs", "crates/iroha_core/src/smartcontracts/isi/privacy.rs", "crates/iroha_core_privacy/src/privacy_engines/transparent_stark.rs", "crates/iroha_core_privacy/src/privacy_verifier.rs", "crates/iroha_core_zk/src/stark.rs", "crates/iroha_crypto/src/privacy.rs", "crates/iroha_data_model/src/isi/privacy.rs", "crates/iroha_data_model/src/privacy.rs", "crates/iroha_data_model/src/privacy/action_role.rs", "crates/iroha_data_model/src/privacy/proofs.rs", "crates/iroha_data_model/src/privacy/protocol.rs", "crates/iroha_data_model/src/privacy/release_manifest.rs", "crates/iroha_data_model/src/privacy/tests/protocol_and_proofs.rs", "crates/iroha_data_model/src/privacy/tests/release_manifest.rs", "crates/iroha_data_model/src/transaction/signed_model_tests.rs", "crates/iroha_data_model/tests/fixtures/manual_protocol_identity_frames.json", "crates/iroha_data_model/tests/manual_frame_identity/protocol.rs", "crates/iroha_kagami/src/privacy_bootstrap/release.rs", "crates/iroha_torii/assets/openapi/torii.json", "crates/iroha_torii/src/openapi/tests.rs", "crates/iroha_torii/src/openapi/tests/privacy_release_qualification.rs", "crates/iroha_zkp_halo2/src/vega/zk_ams/mkhe/rns_native_proof_hash.rs", "csharp/src/Hyperledger.Iroha.Sdk/Privacy/PrivacyExact12CapabilityManifestV1.cs", "csharp/tests/Hyperledger.Iroha.Sdk.Tests/PrivacyExact12CapabilityManifestV1Tests.cs", "integration_tests/tests/privacy_exact12_zk_ams_vega_network.rs", "javascript/iroha_js/privacy-capabilities.d.ts", "javascript/iroha_js/src/norito.js", "javascript/iroha_js/src/privacyCapabilities.js", "javascript/iroha_js/test/privacyExact12CapabilityManifest.test.js", "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyCapabilitiesV1.kt", "kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/privacy/PrivacyExact12CapabilityManifestV1.kt", "kotlin/core-jvm/src/test/kotlin/org/hyperledger/iroha/sdk/privacy/PrivacyExact12CapabilityManifestV1Test.kt", "python/iroha_python/src/iroha_python/privacy_exact12.py", "python/iroha_python/tests/privacy_exact12_fixture_test.py"],
     "sdk_owners": [
      {
       "path": "crates/iroha_data_model/src/privacy.rs",
@@ -887,11 +887,6 @@
      {
       "path": "python/iroha_python/src/iroha_python/privacy_exact12.py",
       "symbol": "_CATALOG_COMMITMENT_V1: Final = bytes.fromhex(",
-      "sdk": "python"
-     },
-     {
-      "path": "python/iroha_python/iroha_python_rs/src/privacy_capability_manifest.rs",
-      "symbol": "catalog_commitment: Default::default(),",
       "sdk": "python"
      },
      {
@@ -2192,6 +2187,28 @@
    }
   },
   {
+   "key": "ram-lfe.phone-number-commitment-digest384",
+   "consumer": "ram-lfe",
+   "role": "Hiding commitment to the canonical E.164 number of a provider phone-control credential. The provider signs it and the private phone-control relation recomputes it.",
+   "family": "in-circuit",
+   "primitive": "digest384",
+   "output_bytes": 48,
+   "domain_separation": "GoldilocksDigestDomainV1 frame: catalog iroha-privacy-exact12-v1, protocol iroha.ram_lfe.v1.phone_control, profile goldilocks-digest384-v1, role number-commitment, empty phase, level, index and counter zero, then two payload fields: the 16-byte zero-padded number and the 32-byte blinding.",
+   "sites": [
+    {
+     "path": "crates/iroha_crypto/src/ram_lfe/phone_control.rs",
+     "symbol": "pub const PHONE_CONTROL_V1_NUMBER_COMMITMENT_PROTOCOL: &str = \"iroha.ram_lfe.v1.phone_control\";",
+     "literals": ["pub const PHONE_CONTROL_V1_NUMBER_COMMITMENT_ROLE: &str = \"number-commitment\";", "Self::GoldilocksDigest384V1 => \"goldilocks-digest384-v1\",", "PhoneNumberCommitmentDigestV1::GoldilocksDigest384V1 => hash_bytes_384_v1("],
+     "compiled": "production"
+    }
+   ],
+   "canonical_native": {
+    "decision": "proof-internal",
+    "security_model": "unqualified; see specs/fastpq_compact_digest_security.md",
+    "note": "Recomputed inside the private phone-control relation of R.2; follows the in-circuit profile H.2 freezes. One typed digest identity is accepted. A replacement replaces the identity and its pinned vector together and never adds a second."
+   }
+  },
+  {
    "key": "state.lthash16-accumulator",
    "consumer": "state-commitment",
    "role": "Incremental multiset hash of every canonical State entry.",
@@ -3323,6 +3340,11 @@
      "note": "Private-preimage commitments.",
      "roles": ["ram-lfe.private-commitment-blake3"]
     },
+    "digest384": {
+     "class": "role",
+     "note": "Number commitment of a provider phone-control credential.",
+     "roles": ["ram-lfe.phone-number-commitment-digest384"]
+    },
     "hkdf": {
      "class": "role",
      "note": "PRF backend.",
@@ -3336,6 +3358,10 @@
     "poseidon": {
      "class": "test-or-tooling",
      "note": "Test-only Pasta Poseidon circuit candidate."
+    },
+    "sha2-512": {
+     "class": "test-or-tooling",
+     "note": "Only a phone-control test names it: it rebuilds the Ed25519 challenge hash to build a signature with a small-order R, which strict provider-signature verification must refuse."
     },
     "sha3": {
      "class": "kdf-or-mac",
@@ -4422,6 +4448,8 @@
    "crates/fastpq_isi/src/poseidon.rs": ["poseidon"],
    "crates/fastpq_isi/src/poseidon_digest384.rs": ["digest384", "keccak", "poseidon", "sha3", "shake"],
    "crates/fastpq_isi/src/poseidon_digest384_prefix.rs": ["digest384", "poseidon"],
+   "crates/fastpq_isi/src/semantic_profile.rs": ["keccak", "sha3"],
+   "crates/fastpq_isi/src/semantic_profile/tests.rs": ["sha3"],
    "crates/fastpq_prover/cuda/fastpq_cuda.cu": ["digest384", "poseidon"],
    "crates/fastpq_prover/metal/kernels/bn254.metal": ["poseidon"],
    "crates/fastpq_prover/metal/kernels/digest384.metal": ["digest384", "poseidon"],
@@ -4462,9 +4490,11 @@
    "crates/fastpq_prover/src/backend/compact_smt_quotient.rs": ["blake2b", "iroha-hash"],
    "crates/fastpq_prover/src/backend/compact_transfer_air.rs": ["iroha-hash"],
    "crates/fastpq_prover/src/backend/deep_binding.rs": ["keccak", "sha3", "shake"],
+   "crates/fastpq_prover/src/backend/deep_binding/frozen_tests.rs": ["keccak", "sha3", "shake"],
    "crates/fastpq_prover/src/backend/deep_binding/tests.rs": ["keccak", "shake"],
    "crates/fastpq_prover/src/backend/deep_coefficient_commitment.rs": ["keccak", "sha3"],
    "crates/fastpq_prover/src/backend/deep_engine.rs": ["keccak", "sha3"],
+   "crates/fastpq_prover/src/backend/deep_fixture/frozen_tests.rs": ["keccak", "sha3"],
    "crates/fastpq_prover/src/backend/deep_fixture/retirement_tests.rs": ["iroha-hash"],
    "crates/fastpq_prover/src/backend/deep_geometry/tests.rs": ["iroha-hash"],
    "crates/fastpq_prover/src/backend/deep_leaf_batch.rs": ["keccak", "sha3"],
@@ -4490,6 +4520,8 @@
    "crates/fastpq_prover/src/backend/offline_compact/execution_effect/tests.rs": ["iroha-hash"],
    "crates/fastpq_prover/src/backend/phased_trace.rs": ["digest384"],
    "crates/fastpq_prover/src/backend/tests.rs": ["digest384", "poseidon"],
+   "crates/fastpq_prover/src/backend/transcript_profile.rs": ["sha3", "shake"],
+   "crates/fastpq_prover/src/backend/transcript_profile/tests.rs": ["sha2-256", "sha3"],
    "crates/fastpq_prover/src/bin/fastpq_cuda_bench.rs": ["digest384", "poseidon"],
    "crates/fastpq_prover/src/bin/fastpq_fixture_rebind.rs": ["poseidon"],
    "crates/fastpq_prover/src/bin/fastpq_json.rs": ["iroha-hash", "poseidon", "sha2-256"],
@@ -4663,6 +4695,7 @@
    "crates/iroha_core/src/smartcontracts/isi/asset/core_numeric_mutation_tests.rs": ["iroha-hash", "poseidon"],
    "crates/iroha_core/src/smartcontracts/isi/asset/prepared_independent_occurrence_tests.rs": ["iroha-hash", "poseidon"],
    "crates/iroha_core/src/smartcontracts/isi/asset/prepared_source_additional_owner_tests.rs": ["iroha-hash", "poseidon"],
+   "crates/iroha_core/src/smartcontracts/isi/asset/privacy_economic_invariant_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/isi/asset/privacy_public_reserve_tests.rs": ["iroha-hash"],
    "crates/iroha_core/src/smartcontracts/isi/escrow.rs": ["iroha-hash", "poseidon"],
    "crates/iroha_core/src/smartcontracts/isi/identifier.rs": ["iroha-hash", "poseidon"],
@@ -4775,6 +4808,7 @@
    "crates/iroha_core/src/state/transfer_transcript_tests.rs": ["iroha-hash", "poseidon", "sha2-256"],
    "crates/iroha_core/src/state/zk_asset_state_tests.rs": ["poseidon"],
    "crates/iroha_core/src/zk_validity_policy.rs": ["pedersen", "poseidon"],
+   "crates/iroha_core/src/zk_validity_policy_feature_parity_tests.rs": ["iroha-hash"],
    "crates/iroha_core/tests/confidential_params_registry.rs": ["pedersen", "poseidon"],
    "crates/iroha_core/tests/confidential_policy_gates.rs": ["iroha-hash", "pedersen", "poseidon"],
    "crates/iroha_core/tests/fastpq_transfer_batch.rs": ["iroha-hash", "poseidon"],
@@ -5383,6 +5417,8 @@
    "crates/iroha_crypto/src/ram_lfe/class_tests.rs": ["blake3", "iroha-hash"],
    "crates/iroha_crypto/src/ram_lfe/initialization.rs": ["blake3", "iroha-hash"],
    "crates/iroha_crypto/src/ram_lfe/initialization_tests.rs": ["blake2b", "blake3", "iroha-hash"],
+   "crates/iroha_crypto/src/ram_lfe/phone_control.rs": ["blake2b", "digest384", "iroha-hash"],
+   "crates/iroha_crypto/src/ram_lfe/phone_control_tests.rs": ["blake2b", "digest384", "iroha-hash", "sha2-512"],
    "crates/iroha_crypto/src/ram_lfe/policy_secret.rs": ["blake2b", "blake3", "hkdf", "sha3"],
    "crates/iroha_crypto/src/ram_lfe/program.rs": ["iroha-hash"],
    "crates/iroha_crypto/src/ram_lfe/program_tests.rs": ["blake3"],
@@ -5532,6 +5568,7 @@
    "crates/iroha_data_model/tests/join_kaigi_decode.rs": ["iroha-hash"],
    "crates/iroha_data_model/tests/kaigi_events_roundtrip.rs": ["iroha-hash"],
    "crates/iroha_data_model/tests/manual_frame_identity/protocol.rs": ["digest384", "poseidon"],
+   "crates/iroha_data_model/tests/phone_control_v1.rs": ["digest384", "iroha-hash"],
    "crates/iroha_data_model/tests/privacy_generated_schema_identity.rs": ["digest384", "poseidon"],
    "crates/iroha_data_model/tests/ram_lfe_canonical_v1.rs": ["iroha-hash"],
    "crates/iroha_data_model/tests/soracloud_manifest_fixtures.rs": ["iroha-hash"],
@@ -6267,7 +6304,7 @@
    "crates/iroha_core_timed_ovn#other": ["iroha-hash", "sha2-256"],
    "crates/iroha_data_model#other": ["blake2b", "blake3", "hkdf", "hmac", "iroha-hash", "keccak", "lthash", "sha2-256", "sha3", "sm3"],
    "crates/iroha_deploy#other": ["blake3", "iroha-hash", "scrypt", "sha2-256"],
-   "crates/iroha_executor_data_model#other": ["iroha-hash", "sha2-256"],
+   "crates/iroha_executor_data_model#other": ["iroha-hash"],
    "crates/iroha_genesis#other": ["blake2b", "iroha-hash", "sm3"],
    "crates/iroha_js_codec#other": ["blake2b", "iroha-hash"],
    "crates/iroha_js_host#other": ["iroha-hash"],
@@ -7054,7 +7091,7 @@
  },
  "canonical_native_commitment": {
   "candidate": "Raw BLAKE3-256: the 32-byte default output of unkeyed BLAKE3 over one canonical byte frame.",
-  "status": "H.1 candidate, conditional on the security requirement of every role that moves. H.2 freezes the selection and the cross-SDK vectors; F.5 implements it. Nothing in the tree uses the frame yet.",
+  "status": "Selected and frozen by H.2 as the profile native.commitment.blake3-256.frame-v1 for the moving roles other than the spentness tree (semantic_profiles); F.5 implements it. Nothing in the tree uses the frame yet.",
   "applies_to": "Commitments that are hashed natively and never recomputed inside a proof relation: the catalog commitment, the Kaigi authorization identities, the statement, parameter, release and receipt identities of MKHE and of the privacy model, and, provisionally, the confidential spentness tree, with their schemas, SDKs and fixtures.",
   "decision_rule": ["If every changing role accepts a generic quantum collision estimate near 85 bits, the canonical native commitment is raw BLAKE3-256.", "If any changing role requires at least 128 bits against quantum collision search, that role, or all of them for uniformity, uses an analysed 384-bit sponge: SHAKE256 with 48 bytes of output over the same frame. The tree already holds a byte-framed SHA3-384 owner for the privacy STARK substrate.", "GoldilocksDigest384V1 is not the native default: it is slower natively by orders of magnitude and specs/fastpq_compact_digest_security.md records it as unqualified. It stays only where a Goldilocks relation recomputes it.", "The existing 48-byte wire width is not a reason to keep a digest.", "A digest that is recomputed inside a relation keeps a native-field algebraic hash; every bridge between a native commitment and an in-circuit digest is specified explicitly, and an unconstrained native digest is never treated as equal to the bytes it commits to.", "A native commitment whose value is a domain field, a seed or a public input of a proof moves only in the same cutover as that proof profile (decision `changes-with-profile`); the transcript-seed check of each role records which case holds."],
   "security_rationale": {
@@ -7181,7 +7218,7 @@
    },
    "semantics": ["Every position is always encoded. An empty byte string has length zero and is distinct from any other value; the frame has no way to omit a field.", "Level, index and counter are zero where a role has no tree or counter coordinate.", "Field boundaries are part of the preimage: two fields `abc` and `def` differ from one field `abcdef`, and a trailing empty field differs from its absence.", "All eight domain values of the existing GoldilocksDigestDomainV1 are kept, so a role moves by changing its profile value and its hash, not its domain.", "The digest is the unkeyed hash of the whole frame; keyed and derive-key modes are not used."],
    "vectors": "crates/iroha_crypto/src/hash_native_candidate_vectors.txt",
-   "vectors_status": "Provisional H.1 examples with stand-in payloads; they exercise the layout and are not goldens of any role. The BLAKE3-256 column is computed by scripts/zk_blake3_reference.py and recomputed by the Rust test with the blake3 crate. H.2 freezes the cross-SDK vectors.",
+   "vectors_status": "Frozen layout: the frame version, magic, tags, widths, bounds and semantics are parameters of the frozen profile native.commitment.blake3-256.frame-v1, whose identity changes with any of them. The example payloads are stand-ins that exercise the layout; they are not goldens of a role. F.5 adds the per-role cross-SDK goldens with the production encoder. The BLAKE3-256 column is computed by scripts/zk_blake3_reference.py and recomputed by the Rust test with the blake3 crate.",
    "reference_encoder_test": "crates/iroha_crypto/src/hash_native_candidate_tests.rs",
    "examples": [
     {
@@ -7429,7 +7466,7 @@
    {
     "id": "fastpq-stark",
     "family": "Hash-based STARK commitments and transcripts over Goldilocks",
-    "roles": ["fastpq.digest384", "fastpq.sha3-256-commitment", "fastpq.transcript-shake256", "privacy-substrate.outer-sha3-384", "mkhe.proof-digest", "zk-ace.identity-digest384", "notes.sha256-in-circuit", "zk-ams.admission-sha256"],
+    "roles": ["fastpq.digest384", "fastpq.sha3-256-commitment", "fastpq.transcript-shake256", "privacy-substrate.outer-sha3-384", "mkhe.proof-digest", "zk-ace.identity-digest384", "ram-lfe.phone-number-commitment-digest384", "notes.sha256-in-circuit", "zk-ams.admission-sha256"],
     "reason": "Proof-internal; H.2 freezes the shared commitment hash, transcript and in-circuit profiles."
    },
    {
@@ -7497,7 +7534,9 @@
      "goldilocks_digest384": [481424, 676417, 1453773, 4604762]
     },
     "reading": "On this run the six-lane digest costs about 6,000 times the candidate at 64 bytes and about 1,900 times at 4,096 bytes. A 384-bit sponge costs about 2 to 4 times the candidate (SHA3-384: 248 against 77 ns at 64 bytes, 8,855 against 2,430 ns at 4,096 bytes); the SHAKE256 reader figure at 64 bytes is higher for the reason stated under conditions. The byte-oriented digests are within a small factor of each other, so the choice among them rests on the security requirement, not on native cost.",
-    "not_covered": "Other platforms and SDK runtimes, percentiles, multi-threading, the canonical frame encoding cost and every in-circuit cost."
+    "not_covered": "Other platforms and SDK runtimes, percentiles, multi-threading, the canonical frame encoding cost and every in-circuit cost.",
+    "profile_identities": {},
+    "profile_binding": "none: taken before the freeze on bare primitives without the canonical frame; it describes no frozen profile and cannot be reused as a measurement of one"
    }
   ],
   "consumer_readings": {
@@ -8035,7 +8074,10 @@
      "platforms": ["Rust host", "Kotlin/JVM", "Android", "Swift/iOS", "JavaScript", "Python", "C#"]
     },
     "measured": ["nanoseconds per digest at p50, p95 and p99", "bytes per second", "allocation count", "digest and frame bytes"],
-    "phases": ["native_digest_flow", "frame_encode", "digest"]
+    "phases": ["native_digest_flow", "frame_encode", "digest"],
+    "profiles": ["native.commitment.blake3-256.frame-v1"],
+    "profiles_not_frozen": ["confidential.spentness-tree"],
+    "profile_set_identity": "3b07d799aa351c5ac6e8e9bbec745f1d828c438f9c016ac7d9b3bd5b8a1775e3"
    },
    {
     "id": "h1.native-digest.role-replay",
@@ -8059,7 +8101,10 @@
      "mkhe": "the release manifest digest and the digests it nests, at their fixed sizes"
     },
     "measured": ["time per operation", "witness and instruction bytes", "storage bytes per entry"],
-    "phases": ["native_role_flow", "canonical_encode", "frame_encode", "digest", "path_verify", "path_update"]
+    "phases": ["native_role_flow", "canonical_encode", "frame_encode", "digest", "path_verify", "path_update"],
+    "profiles": ["native.commitment.blake3-256.frame-v1"],
+    "profiles_not_frozen": ["confidential.spentness-tree"],
+    "profile_set_identity": "3b07d799aa351c5ac6e8e9bbec745f1d828c438f9c016ac7d9b3bd5b8a1775e3"
    },
    {
     "id": "h1.in-circuit-digest.air-cost",
@@ -8078,7 +8123,10 @@
     },
     "measured": ["rows, columns and maximum constraint degree per invocation", "witness generation time", "contribution to proof bytes and proving time at the shared-backend shapes"],
     "phases": ["air_cost_flow", "witness_build", "trace_build", "constraint_eval"],
-    "note": "Candidate Goldilocks sponge profiles (Poseidon2, RPO, Monolith, Tip5, Anemoi) are prototyped by G.2; this workload measures them for product roles only after G.2 publishes them."
+    "note": "Candidate Goldilocks sponge profiles (Poseidon2, RPO, Monolith, Tip5, Anemoi) are prototyped by G.2; this workload measures them for product roles only after G.2 publishes them.",
+    "profiles": ["retained.fastpq.smt-blake2b-gadget", "retained.notes.sha256-in-circuit", "retained.ivm.opcode-sha256block", "bn254.poseidon.x5-t3.v1", "bn254.poseidon.x5-t6.v1", "retained.ivm.syscall-sha256-hash", "retained.ivm.syscall-sha3-256-hash", "retained.ivm.syscall-blake2b256-hash", "retained.ivm.syscall-keccak256-hash", "retained.ivm.syscall-sm3-hash", "retained.ivm.syscall-iroha-hash", "retained.ivm.syscall-memory-merkle", "retained.x509.certificate-sha2"],
+    "profiles_not_frozen": ["proof-internal.six-lane-and-sha3-384-transcripts", "goldilocks.in-circuit-digest"],
+    "profile_set_identity": "9660933ebca5e0743eb0f632afb88dfa6a36869e60b091f2a0a64f2fe5d3bad4"
    },
    {
     "id": "h1.shared-backend.ordinary-effects",
@@ -8093,7 +8141,9 @@
     },
     "measured": ["inclusive and exclusive wall and CPU time per phase", "trace rows, columns and constraint degree as work counters", "proof, public-input and transaction bytes", "peak RSS and scoped allocation counters", "worker count and its provenance", "unattributed share of the root phase"],
     "phases": ["prove_flow", "trace_build", "trace_commit", "composition", "deep", "fri_commit", "grinding", "query_open", "proof_frame_encode", "verify_flow", "proof_frame_decode", "verify"],
-    "note": "Canonical engine today."
+    "note": "Canonical engine today.",
+    "profiles": ["fastpq.transcript.q77.v1"],
+    "profile_set_identity": "bfb562bb5f9b2c66103aeb4dfbf98b274ea9da5abbabe65e8cc6e79cf52ce225"
    },
    {
     "id": "h1.shared-backend.axt",
@@ -8108,7 +8158,9 @@
     },
     "measured": ["inclusive and exclusive wall and CPU time per phase", "trace rows, columns and constraint degree as work counters", "proof, public-input and transaction bytes", "peak RSS and scoped allocation counters", "worker count and its provenance", "unattributed share of the root phase"],
     "phases": ["prove_flow", "trace_build", "trace_commit", "composition", "deep", "fri_commit", "grinding", "query_open", "proof_frame_encode", "verify_flow", "proof_frame_decode", "verify"],
-    "note": "Canonical engine today."
+    "note": "Canonical engine today.",
+    "profiles": ["fastpq.transcript.q77.v1"],
+    "profile_set_identity": "bfb562bb5f9b2c66103aeb4dfbf98b274ea9da5abbabe65e8cc6e79cf52ce225"
    },
    {
     "id": "h1.shared-backend.race-v1",
@@ -8123,7 +8175,9 @@
     },
     "measured": ["inclusive and exclusive wall and CPU time per phase", "trace rows, columns and constraint degree as work counters", "proof, public-input and transaction bytes", "peak RSS and scoped allocation counters", "worker count and its provenance", "unattributed share of the root phase"],
     "phases": ["prove_flow", "trace_build", "trace_commit", "composition", "deep", "fri_commit", "grinding", "query_open", "proof_frame_encode", "verify_flow", "proof_frame_decode", "verify"],
-    "note": "Runs on the execution fork until B.3."
+    "note": "Runs on the execution fork until B.3.",
+    "profiles": ["fastpq.transcript.q77.v1"],
+    "profile_set_identity": "bfb562bb5f9b2c66103aeb4dfbf98b274ea9da5abbabe65e8cc6e79cf52ce225"
    },
    {
     "id": "h1.shared-backend.classed-race-v1",
@@ -8138,7 +8192,9 @@
     },
     "measured": ["inclusive and exclusive wall and CPU time per phase", "trace rows, columns and constraint degree as work counters", "proof, public-input and transaction bytes", "peak RSS and scoped allocation counters", "worker count and its provenance", "unattributed share of the root phase"],
     "phases": ["prove_flow", "trace_build", "trace_commit", "composition", "deep", "fri_commit", "grinding", "query_open", "proof_frame_encode", "verify_flow", "proof_frame_decode", "verify"],
-    "note": "Runs on the execution fork until B.3."
+    "note": "Runs on the execution fork until B.3.",
+    "profiles": ["fastpq.transcript.q77.v1"],
+    "profile_set_identity": "bfb562bb5f9b2c66103aeb4dfbf98b274ea9da5abbabe65e8cc6e79cf52ce225"
    },
    {
     "id": "h1.shared-backend.ivm-step-chips",
@@ -8153,7 +8209,9 @@
     },
     "measured": ["inclusive and exclusive wall and CPU time per phase", "trace rows, columns and constraint degree as work counters", "proof, public-input and transaction bytes", "peak RSS and scoped allocation counters", "worker count and its provenance", "unattributed share of the root phase"],
     "phases": ["prove_flow", "trace_build", "trace_commit", "composition", "deep", "fri_commit", "grinding", "query_open", "proof_frame_encode", "verify_flow", "proof_frame_decode", "verify"],
-    "note": "Shapes are fixed by M.1 to M.3."
+    "note": "Shapes are fixed by M.1 to M.3.",
+    "profiles": ["fastpq.transcript.q77.v1"],
+    "profile_set_identity": "bfb562bb5f9b2c66103aeb4dfbf98b274ea9da5abbabe65e8cc6e79cf52ce225"
    },
    {
     "id": "h1.shared-backend.generic-semantic-verification",
@@ -8168,7 +8226,9 @@
     },
     "measured": ["inclusive and exclusive wall and CPU time per phase", "trace rows, columns and constraint degree as work counters", "proof, public-input and transaction bytes", "peak RSS and scoped allocation counters", "worker count and its provenance", "unattributed share of the root phase"],
     "phases": ["prove_flow", "trace_build", "trace_commit", "composition", "deep", "fri_commit", "grinding", "query_open", "proof_frame_encode", "verify_flow", "proof_frame_decode", "verify"],
-    "note": "Verifier-side workload."
+    "note": "Verifier-side workload.",
+    "profiles": ["fastpq.transcript.q77.v1"],
+    "profile_set_identity": "bfb562bb5f9b2c66103aeb4dfbf98b274ea9da5abbabe65e8cc6e79cf52ce225"
    },
    {
     "id": "h1.shared-backend.soracloud-vk-bfv",
@@ -8183,7 +8243,9 @@
     },
     "measured": ["inclusive and exclusive wall and CPU time per phase", "trace rows, columns and constraint degree as work counters", "proof, public-input and transaction bytes", "peak RSS and scoped allocation counters", "worker count and its provenance", "unattributed share of the root phase"],
     "phases": ["prove_flow", "trace_build", "trace_commit", "composition", "deep", "fri_commit", "grinding", "query_open", "proof_frame_encode", "verify_flow", "proof_frame_decode", "verify"],
-    "note": "Shapes follow C.6 and C.8."
+    "note": "Shapes follow C.6 and C.8.",
+    "profiles": ["fastpq.transcript.q77.v1"],
+    "profile_set_identity": "bfb562bb5f9b2c66103aeb4dfbf98b274ea9da5abbabe65e8cc6e79cf52ce225"
    },
    {
     "id": "h1.shared-backend.x509-main-ca",
@@ -8198,7 +8260,9 @@
     },
     "measured": ["inclusive and exclusive wall and CPU time per phase", "trace rows, columns and constraint degree as work counters", "proof, public-input and transaction bytes", "peak RSS and scoped allocation counters", "worker count and its provenance", "unattributed share of the root phase"],
     "phases": ["prove_flow", "trace_build", "trace_commit", "composition", "deep", "fri_commit", "grinding", "query_open", "proof_frame_encode", "verify_flow", "proof_frame_decode", "verify"],
-    "note": "The byte bound is fixed separately by the resource contract."
+    "note": "The byte bound is fixed separately by the resource contract.",
+    "profiles": ["fastpq.transcript.q77.v1"],
+    "profile_set_identity": "bfb562bb5f9b2c66103aeb4dfbf98b274ea9da5abbabe65e8cc6e79cf52ce225"
    },
    {
     "id": "h1.shared-backend.ivm-private-notes",
@@ -8213,7 +8277,9 @@
     },
     "measured": ["inclusive and exclusive wall and CPU time per phase", "trace rows, columns and constraint degree as work counters", "proof, public-input and transaction bytes", "peak RSS and scoped allocation counters", "worker count and its provenance", "unattributed share of the root phase"],
     "phases": ["prove_flow", "trace_build", "trace_commit", "composition", "deep", "fri_commit", "grinding", "query_open", "proof_frame_encode", "verify_flow", "proof_frame_decode", "verify"],
-    "note": "Uses the SHA-256 note AIR today."
+    "note": "Uses the SHA-256 note AIR today.",
+    "profiles": ["fastpq.transcript.q77.v1"],
+    "profile_set_identity": "bfb562bb5f9b2c66103aeb4dfbf98b274ea9da5abbabe65e8cc6e79cf52ce225"
    },
    {
     "id": "h1.shared-backend.pq-masp",
@@ -8228,7 +8294,9 @@
     },
     "measured": ["inclusive and exclusive wall and CPU time per phase", "trace rows, columns and constraint degree as work counters", "proof, public-input and transaction bytes", "peak RSS and scoped allocation counters", "worker count and its provenance", "unattributed share of the root phase"],
     "phases": ["prove_flow", "trace_build", "trace_commit", "composition", "deep", "fri_commit", "grinding", "query_open", "proof_frame_encode", "verify_flow", "proof_frame_decode", "verify"],
-    "note": "Uses the SHA-256 note AIR today."
+    "note": "Uses the SHA-256 note AIR today.",
+    "profiles": ["fastpq.transcript.q77.v1"],
+    "profile_set_identity": "bfb562bb5f9b2c66103aeb4dfbf98b274ea9da5abbabe65e8cc6e79cf52ce225"
    },
    {
     "id": "h1.shared-backend.atomic-private-settlement",
@@ -8243,7 +8311,9 @@
     },
     "measured": ["inclusive and exclusive wall and CPU time per phase", "trace rows, columns and constraint degree as work counters", "proof, public-input and transaction bytes", "peak RSS and scoped allocation counters", "worker count and its provenance", "unattributed share of the root phase"],
     "phases": ["prove_flow", "trace_build", "trace_commit", "composition", "deep", "fri_commit", "grinding", "query_open", "proof_frame_encode", "verify_flow", "proof_frame_decode", "verify"],
-    "note": ""
+    "note": "",
+    "profiles": ["fastpq.transcript.q77.v1"],
+    "profile_set_identity": "bfb562bb5f9b2c66103aeb4dfbf98b274ea9da5abbabe65e8cc6e79cf52ce225"
    },
    {
     "id": "h1.shared-backend.zk-ace",
@@ -8258,7 +8328,9 @@
     },
     "measured": ["inclusive and exclusive wall and CPU time per phase", "trace rows, columns and constraint degree as work counters", "proof, public-input and transaction bytes", "peak RSS and scoped allocation counters", "worker count and its provenance", "unattributed share of the root phase"],
     "phases": ["prove_flow", "trace_build", "trace_commit", "composition", "deep", "fri_commit", "grinding", "query_open", "proof_frame_encode", "verify_flow", "proof_frame_decode", "verify"],
-    "note": "Includes device classes; device numbers are projections until run on a device."
+    "note": "Includes device classes; device numbers are projections until run on a device.",
+    "profiles": ["fastpq.transcript.q77.v1"],
+    "profile_set_identity": "bfb562bb5f9b2c66103aeb4dfbf98b274ea9da5abbabe65e8cc6e79cf52ce225"
    },
    {
     "id": "h1.shared-backend.zk-ams-qpcs",
@@ -8273,7 +8345,9 @@
     },
     "measured": ["inclusive and exclusive wall and CPU time per phase", "trace rows, columns and constraint degree as work counters", "proof, public-input and transaction bytes", "peak RSS and scoped allocation counters", "worker count and its provenance", "unattributed share of the root phase"],
     "phases": ["prove_flow", "trace_build", "trace_commit", "composition", "deep", "fri_commit", "grinding", "query_open", "proof_frame_encode", "verify_flow", "proof_frame_decode", "verify"],
-    "note": "Applies only if C.5 selects the FASTPQ backend as its PCS."
+    "note": "Applies only if C.5 selects the FASTPQ backend as its PCS.",
+    "profiles": ["fastpq.transcript.q77.v1"],
+    "profile_set_identity": "bfb562bb5f9b2c66103aeb4dfbf98b274ea9da5abbabe65e8cc6e79cf52ce225"
    },
    {
     "id": "h1.family.halo2-ipa",
@@ -8290,7 +8364,9 @@
      "pasta_partial_rounds": [56, 57]
     },
     "measured": ["proving and verification time by phase", "proof and verifying-key bytes", "rows and Poseidon invocations"],
-    "phases": ["prove_flow", "witness_build", "commit", "transcript", "ipa_open", "verify_flow", "verify"]
+    "phases": ["prove_flow", "witness_build", "commit", "transcript", "ipa_open", "verify_flow", "verify"],
+    "profiles": ["retained.halo2.transcript-blake2b", "retained.halo2.pasta-poseidon", "retained.kaigi.relation-poseidon", "retained.confidential.note-poseidon", "retained.halo2.pasta-poseidon-rp56-candidate", "retained.sorafs.pop-credential-poseidon"],
+    "profile_set_identity": "81b4c7d08487ed24f72760f325356df42942c4b68d53848ef572741a15e56eab"
    },
    {
     "id": "h1.family.bulletproofs",
@@ -8306,7 +8382,9 @@
      "vector_lengths": "each product's maximum"
     },
     "measured": ["proving and verification time", "proof bytes", "multi-scalar multiplication sizes"],
-    "phases": ["prove_flow", "commit", "transcript", "inner_product", "verify_flow", "verify"]
+    "phases": ["prove_flow", "commit", "transcript", "inner_product", "verify_flow", "verify"],
+    "profiles": ["retained.bulletproofs.fcmp-transcript-blake2b", "retained.vega.transcript-keccak"],
+    "profile_set_identity": "a1c34758cd892f2b1fded9a10653559565b7835ed0b4f446f8405c8a6299958d"
    },
    {
     "id": "h1.family.lattice-pcs",
@@ -8320,7 +8398,8 @@
      "polynomial_sizes": "the pinned parameter manifest"
     },
     "measured": ["commit, open and verify time", "commitment and opening bytes"],
-    "phases": ["commit_flow", "crs_expand", "commit", "open", "verify"]
+    "phases": ["commit_flow", "crs_expand", "commit", "open", "verify"],
+    "profiles": []
    },
    {
     "id": "h1.family.spartan-nova",
@@ -8336,7 +8415,9 @@
      "sizes": "each relation's maximum"
     },
     "measured": ["proving and verification time by phase", "proof bytes", "peak RSS"],
-    "phases": ["prove_flow", "witness_build", "sumcheck", "fold", "hyrax_open", "verify_flow", "verify"]
+    "phases": ["prove_flow", "witness_build", "sumcheck", "fold", "hyrax_open", "verify_flow", "verify"],
+    "profiles": ["retained.vega.transcript-keccak", "retained.vega.xof-shake256"],
+    "profile_set_identity": "9bb88b78869c072150a2494f02234713bef905b5e7b3cd14c8d65f524df6a90f"
    },
    {
     "id": "h1.transcript.candidates",
@@ -8353,7 +8434,35 @@
      "absorbed_bytes": [48, 4096, 65536]
     },
     "measured": ["time per challenge", "time per grinding search at each difficulty", "hash invocations"],
-    "phases": ["transcript_flow", "absorb", "challenge", "grinding"]
+    "phases": ["transcript_flow", "absorb", "challenge", "grinding"],
+    "profiles": ["fastpq.transcript.q77.v1"],
+    "profiles_not_frozen": ["proof-internal.six-lane-and-sha3-384-transcripts"],
+    "profile_set_identity": "bfb562bb5f9b2c66103aeb4dfbf98b274ea9da5abbabe65e8cc6e79cf52ce225",
+    "exploratory_measurements": [
+     {
+      "id": "h1.transcript.candidates/2026-10-06/frozen-q77/host",
+      "workload": "h1.transcript.candidates",
+      "label": "exploratory",
+      "qualification": false,
+      "profile_identities": {
+       "fastpq.transcript.q77.v1": "b1b3be0bc1b548e32fa6f949500c0de43c8f7412a5586623c4d3f1ca705f945b"
+      },
+      "source_commit": "13343a33c18948d36250820c851bb545f93165fa with the uncommitted working tree of task H.2",
+      "hardware": "Apple M1 Ultra, 20 cores, 128 GiB, macOS 27.0.1",
+      "toolchain": "rustc 1.93.1, release profile",
+      "command": "cargo test --release -p fastpq_prover --lib -- --ignored --nocapture --test-threads=1 backend::deep_binding::frozen_tests::exploratory_cost_of_one_complete_transcript",
+      "conditions": "Two runs on a machine shared with many other builds (load average near 100): the recorded figure is from the build of the final transcript sources, the earlier figure from a build that differs from it by formatting and test structure only; one thread; best of five batches of 200 complete transcripts; warm caches; thermal state not recorded; std::time::Instant, not the iroha_measurement harness. One complete transcript is ten atomic SHAKE256 tapes, the out-of-domain commitment over 604 answers and nine SHA3-256 chain commitments, each over the complete prefix; the statement has 46 bytes. The candidates this workload also names (the SHA3-384 frame transcript and the six-lane transcript) were not timed: they get no frozen profile.",
+      "results": {
+       "unit": "nanoseconds per complete transcript",
+       "nanoseconds_per_transcript": 423967,
+       "earlier_build_nanoseconds_per_transcript": 416153,
+       "tape_bytes": 30920,
+       "statement_bytes": 46
+      },
+      "reading": "Guidance only: the transcript itself is a negligible part of proving and of bounded verification, whose costs are dominated by Merkle hashing and field arithmetic. The figure is taken under heavy foreign load and is an upper indication, not a bound.",
+      "not_covered": "Other platforms, percentiles, a quiet machine, the SIMD and Metal hash paths, grinding (the frozen profile has none), and every proving or verification cost."
+     }
+    ]
    },
    {
     "id": "h1.pq.kem-dsa",
@@ -8368,7 +8477,9 @@
      "message_bytes": [32, 1024, 65536]
     },
     "measured": ["key generation, encapsulation, decapsulation, signing and verification time", "key, ciphertext and signature bytes"],
-    "phases": ["pq_flow", "keygen", "encapsulate", "decapsulate", "sign", "verify"]
+    "phases": ["pq_flow", "keygen", "encapsulate", "decapsulate", "sign", "verify"],
+    "profiles": ["pq.ml-kem.fips203.v1", "pq.ml-dsa.fips204.v1"],
+    "profile_set_identity": "a673c35ac15b9cc8d069a38cc65fc34a2dfb21313641ef88791a584d2287dab4"
    },
    {
     "id": "h1.bn254-poseidon.rounds",
@@ -8387,7 +8498,9 @@
      }
     },
     "measured": ["nanoseconds per permutation on CPU, SIMD and CUDA paths", "rows per permutation in the consuming circuits"],
-    "phases": ["poseidon_flow", "permute", "sponge"]
+    "phases": ["poseidon_flow", "permute", "sponge"],
+    "profiles": ["bn254.poseidon.x5-t3.v1", "bn254.poseidon.x5-t6.v1"],
+    "profile_set_identity": "73eb24ffa4640620712955ab41b4536217141db713ea16aca015d337ce079503"
    },
    {
     "id": "h1.ram-lfe.digests",
@@ -8404,7 +8517,9 @@
     },
     "measured": ["time per commitment", "bytes committed", "in-circuit openings required per class"],
     "phases": ["ram_lfe_digest_flow", "canonical_encode", "digest"],
-    "note": "RAM-LFE has no proof engine today; the in-circuit part is a requirement list until R.2 and R.3 define the relations."
+    "note": "RAM-LFE has no proof engine today; the in-circuit part is a requirement list until R.2 and R.3 define the relations.",
+    "profiles": ["retained.ram-lfe.private-commitment-blake3", "retained.ram-lfe.public-commitment-blake2b", "retained.ram-lfe.prf-hkdf-sha3-512"],
+    "profile_set_identity": "a90e53804ec0cd01ce8578fa8163e0d8e6a2cc7efaad3c031fbea2efb9565db1"
    }
   ],
   "kinds": {
@@ -8417,7 +8532,7 @@
  },
  "shared_transcript_requirements": {
   "consumed_by": "H.2",
-  "status": "Requirements for the shared backend transcript. H.2 selects the transcript from them and from the security design; no proof byte of an existing transcript is preserved for compatibility.",
+  "status": "Requirements for the shared backend transcript. H.2 selected and froze the transcript against them (semantic_profiles.shared_transcript); no proof byte of a superseded transcript is preserved for compatibility.",
   "candidate": "A domain-separated SHAKE256 transcript with canonical framing and rejection sampling, chosen independently of the State tree hash. The committed q77 engine already derives its challenges from SHAKE256 tapes and commits with SHA3-256.",
   "framing": ["Every absorbed object is framed with a role tag and an exact length; no two objects share a prefix-free ambiguity.", "Field and extension-field challenges are decoded by rejection sampling from the output stream with a bounded retry count; a failed draw is a rejection, not a reduction.", "Every challenge names its purpose in the frame, and its derivation covers the whole preceding transcript.", "The requested output length is part of the input frame, so two lengths never share a prefix."],
   "binding_order": [
@@ -8448,7 +8563,7 @@
    },
    {
     "order": 6,
-    "binds": "The terminal polynomial and the grinding nonce.",
+    "binds": "The terminal polynomial and, for a profile with nonzero grinding, the grinding nonce.",
     "before": "query positions"
    },
    {
@@ -8458,10 +8573,10 @@
    }
   ],
   "invariant": "No challenge is derived before the commitments it tests.",
-  "grinding": ["The grinding predicate covers the whole preceding transcript and one frozen difficulty per profile.", "A difficulty of d bits costs about 2^d classical hash evaluations and about 2^(d/2) quantum oracle steps under idealized search; neither figure is a soundness bound, and work-security is accounted separately from algebraic and FRI error.", "The nonce width and the search bound are fixed, so a prover cannot grind across statement variants."],
+  "grinding": ["A profile with nonzero grinding binds a nonce whose predicate covers the whole preceding transcript, at one frozen difficulty. A profile with zero grinding bits has no nonce and claims no work-security term.", "A difficulty of d bits costs about 2^d classical hash evaluations and about 2^(d/2) quantum oracle steps under idealized search; neither figure is a soundness bound, and work-security is accounted separately from algebraic and FRI error.", "The nonce width and the search bound are fixed, so a prover cannot grind across statement variants."],
   "security_claims": {
    "classical_rom": "A classical random-oracle claim needs the round-by-round soundness of the interactive protocol and the query budget; algebraic and FRI error sums alone do not establish Fiat-Shamir security or hiding.",
-   "qrom": "A quantum random-oracle claim needs its own reduction for a multi-round STARK. Results for specific protocol classes do not transfer automatically; until such a reduction is supplied the claim stays open and the label is not pq-qrom on the strength of the hash alone.",
+   "qrom": "A quantum random-oracle claim needs its own reduction for a multi-round STARK. In Chiesa-Manohar-Spooner, ordinary round-by-round soundness supports the modified chain that contains verifier messages; their section 8.6 property concerns original BCS messages generated outside the chain. The exact mapping of a concrete transcript remains necessary; until it is supplied the claim stays open and the label is not pq-qrom on the strength of the hash alone.",
    "separation": "Interactive algebraic and FRI error, Fiat-Shamir loss, commitment binding, grinding and hiding are stated separately and the claimed level is the weakest of them."
   },
   "also_required": ["Byte-identical semantics on CPU, ARM, Metal and CUDA paths, with a deterministic scalar path.", "Bounded verifier work and allocation derived from the profile, independent of proof contents.", "Cleared sponge state and scratch on success, error and unwind where a private witness can reach them."],
@@ -8541,5 +8656,3113 @@
   "engine_inventory": "specs/fastpq/shared_backend_inventory.json",
   "current_implementations_note": "One entry per engine of the B.1 inventory; the check fails when the two lists differ or when own_transcript disagrees with the transcript component the inventory records."
  },
- "not_established": ["Cryptographic qualification of any digest, parameter set, transcript or composition.", "Final performance: every measurement here is exploratory and H.3 repeats measurements on the frozen profile.", "The State tree and hash: measured by G.2 and frozen by G.3.", "ACVP conformance of ML-KEM and ML-DSA beyond the first known-answer response.", "The original Poseidon round-number script's output for these parameters.", "Path, symbol, domain separation and output length for digest uses outside the roles and outside the producer ledger scopes: those uses are listed per file with their primitives and classified per consumer only.", "A per-digest decision for the SHA-256 record identities of the privacy model (privacy.record-digest-sha256).", "The function-level pairing of the test-only MKHE domain strings with their hashes: the ledger counts test-only producers per file and lists production producers only."]
+ "not_established": ["Cryptographic qualification of any digest, parameter set, transcript or composition.", "Final performance: every measurement here is exploratory and H.3 repeats measurements on the frozen profile.", "The State tree and hash: measured by G.2 and frozen by G.3.", "ACVP conformance of ML-KEM and ML-DSA beyond the first known-answer response.", "The original Poseidon round-number script's output for these parameters.", "Path, symbol, domain separation and output length for digest uses outside the roles and outside the producer ledger scopes: those uses are listed per file with their primitives and classified per consumer only.", "A per-digest decision for the SHA-256 record identities of the privacy model (privacy.record-digest-sha256).", "The function-level pairing of the test-only MKHE domain strings with their hashes: the ledger counts test-only producers per file and lists production producers only."],
+ "semantic_profiles": {
+  "task": "H.2",
+  "scope": "Selections and frozen semantic identities of task H.2. A frozen identity fixes what a measurement describes; it is not cryptographic qualification, a soundness level or permission to run anything.",
+  "decision_record": "Plan-author decisions 1-11 of scratchpad codex/H.2-q1.md (2026-10-06), recorded in the H.2 report.",
+  "identity": {
+   "algorithm": "SHA3-256 of the canonical profile frame",
+   "frame": {
+    "magic_ascii": "iroha:semantic-profile:v1",
+    "layout": ["the 25 ASCII bytes of magic_ascii and one zero byte", "kind label, then profile name: u32 little-endian byte length and the bytes", "parameter count: u32 little-endian", "per parameter in declared order: key (length and bytes), one type byte, the value"],
+    "value_types": {
+     "u64": "type 1: u64 little-endian",
+     "text": "type 2: u32 little-endian length and UTF-8 bytes",
+     "bytes": "type 3: u32 little-endian length and bytes; recorded here as lower-case hexadecimal",
+     "u64-list": "type 4: u32 little-endian count and that many u64 little-endian"
+    },
+    "kinds": ["transcript", "native-commitment", "in-circuit-digest", "standard-primitive", "key-derivation", "lattice-trapdoor"],
+    "bounds": {
+     "parameters": 255,
+     "label_bytes": 96,
+     "value_bytes": 65536
+    },
+    "label_grammar": "lower-case ASCII letters and digits in words joined by single `.`, `-` or `_`",
+    "noncanonical": "A decoder accepts only a frame equal to its own re-encoding: wrong magic, unknown kind or type byte, label outside the grammar, repeated key, text that is not UTF-8, a length beyond a bound, truncation and trailing bytes are refused."
+   },
+   "rust_owner": {
+    "path": "crates/fastpq_isi/src/semantic_profile.rs",
+    "symbol": "pub struct SemanticProfileV1 {"
+   },
+   "rust_tests": {
+    "path": "crates/fastpq_isi/src/semantic_profile/tests.rs",
+    "test": "canonical_frame_and_identity_match_independent_vectors"
+   },
+   "reference": "scripts/zk_semantic_profile_reference.py",
+   "excluded_inputs": ["source file digests", "build, binary and toolchain digests", "measurement results", "qualification or review status", "caller ceilings and admission policy"],
+   "authority": "None. An identity is evidence metadata of a measurement and committed-profile data of a proof descriptor; it selects no verifier and enables nothing at run time."
+  },
+  "statuses": {
+   "frozen": "Selected by H.2 with a recorded justification; the identity is computed from the declared parameters.",
+   "retained": "A role of a mathematically distinct family or of an external standard that H.2 does not change; its identity is derived from the role record (role, primitive, algorithm, output length, domain separation), so a change of any of them is a new identity.",
+   "blocked": "No profile is frozen because a security justification is missing; `missing` says what.",
+   "deferred": "Selected by another task after its measurements; H.2 selects nothing.",
+   "retired-at-migration": "Proof-internal digest of an engine the shared backend replaces; it gets no frozen profile."
+  },
+  "profiles": [
+   {
+    "name": "fastpq.transcript.q77.v1",
+    "kind": "transcript",
+    "status": "frozen",
+    "identity": "b1b3be0bc1b548e32fa6f949500c0de43c8f7412a5586623c4d3f1ca705f945b",
+    "summary": "FIPS 202-based atomic whole-tape transcript, version 1, as the committed q77 engine instantiates it: SHA3-256 for every commitment, one atomic SHAKE256 tape per verifier message, the complete typed descriptor and the complete statement context in every hash input.",
+    "typed_owner": {
+     "path": "crates/fastpq_prover/src/backend/transcript_profile.rs",
+     "symbol": "pub(super) fn profile() -> &'static SemanticProfileV1 {"
+    },
+    "public_accessor": {
+     "path": "crates/fastpq_prover/src/backend/air/q77.rs",
+     "symbol": "pub fn transcript_profile() -> &'static fastpq_isi::semantic_profile::SemanticProfileV1 {"
+    },
+    "implemented_by": "H.2",
+    "parameters": [
+     {
+      "key": "descriptor_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "construction",
+      "type": "text",
+      "value": "fips202-atomic-whole-tape-transcript-v1"
+     },
+     {
+      "key": "framing_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "prefix_frame",
+      "type": "text",
+      "value": "fastpq_prover::compact_sha3::ProfileContextV1"
+     },
+     {
+      "key": "body_frame",
+      "type": "text",
+      "value": "fastpq_prover::compact_sha3::BodyV1"
+     },
+     {
+      "key": "context_frame",
+      "type": "text",
+      "value": "fastpq_prover::deep::StatementContextV1"
+     },
+     {
+      "key": "body_kinds",
+      "type": "text",
+      "value": "leaf=1,parent=2,chain=3,tape=4"
+     },
+     {
+      "key": "oracle_tags",
+      "type": "text",
+      "value": "row=1,quotient+mask=3,fri=4:round0-4,terminal=4:round5,ood=5"
+     },
+     {
+      "key": "commitment_hash",
+      "type": "text",
+      "value": "FIPS202:SHA3-256:suffix06"
+     },
+     {
+      "key": "commitment_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "challenge_xof",
+      "type": "text",
+      "value": "FIPS202:SHAKE256:suffix1f"
+     },
+     {
+      "key": "challenge_mode",
+      "type": "text",
+      "value": "atomic-whole-tape:one-tape-per-verifier-message:prefix+body"
+     },
+     {
+      "key": "field_modulus",
+      "type": "u64",
+      "value": 18446744069414584321
+     },
+     {
+      "key": "base_encoding",
+      "type": "text",
+      "value": "canonical-u64-le"
+     },
+     {
+      "key": "extension_degree",
+      "type": "u64",
+      "value": 4
+     },
+     {
+      "key": "extension_nonresidue",
+      "type": "u64",
+      "value": 7
+     },
+     {
+      "key": "extension_basis",
+      "type": "text",
+      "value": "polynomial-basis:1,u,u^2,u^3:u^4=nonresidue"
+     },
+     {
+      "key": "extension_encoding",
+      "type": "text",
+      "value": "four-canonical-u64-le-coefficients:constant-first"
+     },
+     {
+      "key": "extension_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "trace_rows",
+      "type": "u64",
+      "value": 65536
+     },
+     {
+      "key": "trace_root",
+      "type": "u64",
+      "value": 13716644274834916935
+     },
+     {
+      "key": "evaluation_rows",
+      "type": "u64",
+      "value": 8388608
+     },
+     {
+      "key": "evaluation_root",
+      "type": "u64",
+      "value": 3874312337651805880
+     },
+     {
+      "key": "coset_offset",
+      "type": "u64",
+      "value": 18234628462282205510
+     },
+     {
+      "key": "columns",
+      "type": "u64",
+      "value": 342
+     },
+     {
+      "key": "committed_columns",
+      "type": "u64",
+      "value": 301
+     },
+     {
+      "key": "public_columns",
+      "type": "u64",
+      "value": 41
+     },
+     {
+      "key": "constraints",
+      "type": "u64",
+      "value": 923
+     },
+     {
+      "key": "trace_mask_coefficients",
+      "type": "u64",
+      "value": 162
+     },
+     {
+      "key": "quotient_mask_coefficients",
+      "type": "u64",
+      "value": 78
+     },
+     {
+      "key": "composition_mask_coefficients",
+      "type": "u64",
+      "value": 131072
+     },
+     {
+      "key": "quotient_split",
+      "type": "text",
+      "value": "q=q0+x^n*q1:masked-pair(q0+x^n*t,q1-t):joined-leaf(q0,q1,mask)"
+     },
+     {
+      "key": "ood_points",
+      "type": "text",
+      "value": "z,trace-root*z"
+     },
+     {
+      "key": "ood_answers",
+      "type": "u64",
+      "value": 604
+     },
+     {
+      "key": "ood_answer_order",
+      "type": "text",
+      "value": "current-row,next-row,quotient-low,quotient-high"
+     },
+     {
+      "key": "deep_components",
+      "type": "u64",
+      "value": 606
+     },
+     {
+      "key": "deep_component_order",
+      "type": "text",
+      "value": "per-committed-column(h,x^2*h),then(t0,x*t0,t1,x*t1)"
+     },
+     {
+      "key": "deep_weights",
+      "type": "text",
+      "value": "composition-mask=1,component-k=lambda^k:k=1..components"
+     },
+     {
+      "key": "fri_arities",
+      "type": "u64-list",
+      "value": [16, 16, 8, 8, 4]
+     },
+     {
+      "key": "fri_lengths",
+      "type": "u64-list",
+      "value": [8388608, 524288, 32768, 4096, 512, 128]
+     },
+     {
+      "key": "fri_degree_bounds",
+      "type": "u64-list",
+      "value": [131072, 8192, 512, 64, 8, 2]
+     },
+     {
+      "key": "fri_fiber_order",
+      "type": "text",
+      "value": "strided:fiber-j-holds-positions-j+k*(length/arity)"
+     },
+     {
+      "key": "fiber_encoding",
+      "type": "text",
+      "value": "arity-tag:omit-smallest-known-incoming-coordinate"
+     },
+     {
+      "key": "terminal_values",
+      "type": "u64",
+      "value": 128
+     },
+     {
+      "key": "terminal_degree_bound",
+      "type": "u64",
+      "value": 2
+     },
+     {
+      "key": "terminal_commitment",
+      "type": "text",
+      "value": "single-leaf-all-values:duplicated-child-parent"
+     },
+     {
+      "key": "merkle_addressing",
+      "type": "text",
+      "value": "binary:leaf(oracle,round,position):parent(oracle,round,level>=1,index):left-then-right"
+     },
+     {
+      "key": "queries",
+      "type": "u64",
+      "value": 77
+     },
+     {
+      "key": "query_candidates",
+      "type": "u64",
+      "value": 87
+     },
+     {
+      "key": "query_raw_words",
+      "type": "u64",
+      "value": 93
+     },
+     {
+      "key": "word_sampler",
+      "type": "text",
+      "value": "u64-le-words:reject-ge-modulus:no-reduction:no-extra-squeeze"
+     },
+     {
+      "key": "ood_sampler",
+      "type": "text",
+      "value": "first-four-accepted-words:base-field-point-aborts"
+     },
+     {
+      "key": "query_sampler",
+      "type": "text",
+      "value": "all-candidates-first:reject-ge-largest-multiple-of-evaluation-rows:mod-evaluation-rows:first-distinct:ascending"
+     },
+     {
+      "key": "tape_bytes",
+      "type": "u64-list",
+      "value": [32, 29584, 80, 80, 80, 80, 80, 80, 80, 744]
+     },
+     {
+      "key": "schedule",
+      "type": "text",
+      "value": "1:dummy>row-root;2:alphas>quotient+mask-root;3:ood-point>ood-answers;4:lambda>fri-root-0;5:beta>fri-root-1;6:beta>fri-root-2;7:beta>fri-root-3;8:beta>fri-root-4;9:beta>terminal-root;10:queries"
+     },
+     {
+      "key": "chain",
+      "type": "text",
+      "value": "zero-anchor:tape=g(prefix,tape-body(round,extent,predecessor)):next=h(prefix,chain-body(round,whole-tape,commitment))"
+     },
+     {
+      "key": "abort_rule",
+      "type": "text",
+      "value": "wrong-phase,exhaustion,malformed-message,base-ood:permanent-abort"
+     },
+     {
+      "key": "grinding_bits",
+      "type": "u64",
+      "value": 0
+     },
+     {
+      "key": "grinding_nonce",
+      "type": "text",
+      "value": "none"
+     },
+     {
+      "key": "proof_frame",
+      "type": "text",
+      "value": "fastpq_prover::deep_compact::Sha3MaskedCompositionProofV1"
+     },
+     {
+      "key": "max_relation_identity_bytes",
+      "type": "u64",
+      "value": 256
+     },
+     {
+      "key": "max_statement_bytes",
+      "type": "u64",
+      "value": 245760
+     },
+     {
+      "key": "max_context_bytes",
+      "type": "u64",
+      "value": 262144
+     },
+     {
+      "key": "max_frame_bytes",
+      "type": "u64",
+      "value": 500084
+     },
+     {
+      "key": "max_decode_allocation_charges",
+      "type": "u64",
+      "value": 8388608
+     },
+     {
+      "key": "max_sequence_elements",
+      "type": "u64",
+      "value": 1283
+     },
+     {
+      "key": "max_total_elements",
+      "type": "u64",
+      "value": 6182
+     },
+     {
+      "key": "max_decode_depth",
+      "type": "u64",
+      "value": 16
+     },
+     {
+      "key": "max_fri_layers",
+      "type": "u64",
+      "value": 6
+     },
+     {
+      "key": "max_merkle_path_levels",
+      "type": "u64",
+      "value": 23
+     },
+     {
+      "key": "max_fiber_values",
+      "type": "u64",
+      "value": 16
+     },
+     {
+      "key": "structural_work_accounting",
+      "type": "text",
+      "value": "v1:one-unit-per-enumerated-field-value-slot-and-numerator-evaluation-of-a-maximal-frame"
+     },
+     {
+      "key": "structural_work_charge",
+      "type": "u64",
+      "value": 29751
+     }
+    ]
+   },
+   {
+    "name": "native.commitment.blake3-256.frame-v1",
+    "kind": "native-commitment",
+    "status": "frozen",
+    "identity": "d758de9793685820992fc67569d0b2b54c5a9c8d58e4c88c2310b56f57f561e8",
+    "summary": "Canonical native commitment: unkeyed BLAKE3-256 of the canonical byte frame, version 1, of the H.1 specification.",
+    "typed_owner": null,
+    "typed_owner_pending": "F.5 adds the production encoder and must reproduce this identity from its typed code; until then the identity is computed from this record and the frame is exercised by the reference encoder test.",
+    "reference_encoder_test": "crates/iroha_crypto/src/hash_native_candidate_tests.rs",
+    "vectors": "crates/iroha_crypto/src/hash_native_candidate_vectors.txt",
+    "implemented_by": "F.5",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "BLAKE3:unkeyed:default-32-byte-output"
+     },
+     {
+      "key": "mode",
+      "type": "text",
+      "value": "plain-hash-of-the-whole-frame:no-key:no-derive-key"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "frame_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "frame_magic",
+      "type": "bytes",
+      "value": "69726f68613a6e61746976652d636f6d6d69746d656e743a6672616d653a763100"
+     },
+     {
+      "key": "frame_algorithm_field",
+      "type": "text",
+      "value": "blake3-256"
+     },
+     {
+      "key": "frame_profile_field",
+      "type": "text",
+      "value": "native-commitment-blake3-256-v1"
+     },
+     {
+      "key": "frame_layout",
+      "type": "text",
+      "value": "1:magic:magic;2:algorithm:bytes-u32-le:tag=1;3:catalog:bytes-u32-le:tag=2;4:protocol:bytes-u32-le:tag=3;5:profile:bytes-u32-le:tag=4;6:role:bytes-u32-le:tag=5;7:phase:bytes-u32-le:tag=6;8:level:u64-le:tag=7;9:index:u64-le:tag=8;10:counter:u64-le:tag=9;11:field_count:count-u32-le:tag=10;12:fields:each-bytes-u64-le:tag=11"
+     },
+     {
+      "key": "domain_field_max_bytes",
+      "type": "u64",
+      "value": 4096
+     },
+     {
+      "key": "payload_field_count_max",
+      "type": "u64",
+      "value": 65535
+     },
+     {
+      "key": "payload_field_max_bytes",
+      "type": "u64",
+      "value": 4294967295
+     },
+     {
+      "key": "absent_fields",
+      "type": "text",
+      "value": "every-position-encoded:empty-is-length-zero:no-omission"
+     }
+    ],
+    "security": {
+     "estimates": "Generic ideal-hash estimates, not qualification: about 128 bits against classical collision search, about 85 bits against quantum collision search in the query model (Brassard-Hoyer-Tapp), 256 bits classical and about 128 bits quantum against preimage and second-preimage search.",
+     "accepted_by": "Plan-author decision 8 of scratchpad codex/H.2-q1.md, per role; see role_dispositions for the required property and the accepted level of each role.",
+     "not_established": "A review of this composition; BLAKE3 has a reduced round count relative to BLAKE2."
+    }
+   },
+   {
+    "name": "bn254.poseidon.x5-t3.v1",
+    "kind": "in-circuit-digest",
+    "status": "frozen",
+    "identity": "de665d06b2fef0fff425e7efa19498b9d5b20fc4cbca06389db9c632f3c3d7f3",
+    "summary": "Correction of BN254-POSEIDON-D1 and of the two-input half of D3: the published x^5 width-3 instantiation (8 full, 57 partial rounds, Grain constants, first Cauchy MDS) with a fixed-arity domain tag in the capacity coordinate.",
+    "typed_owner": null,
+    "typed_owner_pending": "F.5 replaces the tables and helpers of crates/iroha_zkp_poseidon and must reproduce this identity; I.5 regenerates the ABI V1 outputs of the POSEIDON2 opcode.",
+    "implemented_by": "F.5",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "permutation",
+      "type": "text",
+      "value": "poseidon-hades:original:partial-sbox-on-coordinate-0"
+     },
+     {
+      "key": "field",
+      "type": "text",
+      "value": "bn254-scalar-field"
+     },
+     {
+      "key": "field_modulus_be",
+      "type": "bytes",
+      "value": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001"
+     },
+     {
+      "key": "sbox_exponent",
+      "type": "u64",
+      "value": 5
+     },
+     {
+      "key": "width",
+      "type": "u64",
+      "value": 3
+     },
+     {
+      "key": "rate",
+      "type": "u64",
+      "value": 2
+     },
+     {
+      "key": "capacity",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "full_rounds",
+      "type": "u64",
+      "value": 8
+     },
+     {
+      "key": "partial_rounds",
+      "type": "u64",
+      "value": 57
+     },
+     {
+      "key": "constant_generation",
+      "type": "text",
+      "value": "grain-lfsr-80:field=1:sbox=0:bits=254:width=3:full=8:partial=57:rejection-sampled-constants:first-cauchy-mds"
+     },
+     {
+      "key": "round_constants",
+      "type": "u64",
+      "value": 195
+     },
+     {
+      "key": "tables_sha3_256",
+      "type": "bytes",
+      "value": "0b0cf89e1a3de9b7ca6d0118c5f88c94f2b4fe5f53f08398865ad7694ba6b93a"
+     },
+     {
+      "key": "first_round_constant_be",
+      "type": "bytes",
+      "value": "0ee9a592ba9a9518d05986d656f40c2114c4993c11bb29938d21d47304cd8e6e"
+     },
+     {
+      "key": "element_encoding",
+      "type": "text",
+      "value": "canonical-32-byte-little-endian:reject-ge-modulus"
+     },
+     {
+      "key": "capacity_coordinate",
+      "type": "u64",
+      "value": 0
+     },
+     {
+      "key": "domain_tag",
+      "type": "text",
+      "value": "fixed-arity:capacity=arity*2^64"
+     },
+     {
+      "key": "absorption",
+      "type": "text",
+      "value": "add-rate-block-into-coordinates-1..rate:permute-after-each-block:no-padding-for-fixed-arity"
+     },
+     {
+      "key": "output",
+      "type": "text",
+      "value": "coordinate-1-after-the-last-permutation:one-field-element"
+     },
+     {
+      "key": "modes",
+      "type": "text",
+      "value": "hash2:arity=2:one-block:one-permutation"
+     },
+     {
+      "key": "vector_permutation_0_1_2_be",
+      "type": "bytes",
+      "value": "115cc0f5e7d690413df64c6b9662e9cf2a3617f2743245519e19607a4417189a"
+     },
+     {
+      "key": "vector_hash2_1_2_be",
+      "type": "bytes",
+      "value": "10187423b8cb737fdb60514f71a0c7014b5d184d139109db781dd15e1e6f63cc"
+     },
+     {
+      "key": "truncated_forms",
+      "type": "text",
+      "value": "low-64-bit-outputs-are-not-commitments"
+     }
+    ],
+    "security": {
+     "basis": "The published instantiation of the Poseidon authors for a 128-bit target; one BN254 field element of output and of capacity gives about 126.8 bits against classical collision search, not 128.",
+     "evidence": "scripts/zk_bn254_poseidon_reference.py generates the tables with the Grain procedure; for (3, 8, 57) and for (5, 8, 60) the permutation of (0, 1, 2) and of (0, .., 4) equals the published reference vectors recorded in `checks`. The published values were not fetched in this task.",
+     "not_established": "A review of the round numbers against cryptanalysis published after the instantiation; the output of the original round-number script."
+    },
+    "checks": {
+     "permutation_0_1_2_coordinate_0_be": "115cc0f5e7d690413df64c6b9662e9cf2a3617f2743245519e19607a4417189a",
+     "width_5_permutation_0_to_4_coordinate_0_be": "299c867db6c1fdd79dcefa40e4510b9837e60ebb1ce0663dbaa525df65250465"
+    }
+   },
+   {
+    "name": "bn254.poseidon.x5-t6.v1",
+    "kind": "in-circuit-digest",
+    "status": "frozen",
+    "identity": "8bcead265dfa201df79d9d9d92bc5a7aa7a1a17f2d3bc6be799e9555002523e1",
+    "summary": "Correction of BN254-POSEIDON-D2 and of the six-input half of D3: width 6 with 8 full and 60 partial rounds, the round numbers of the deployed circomlib width-6 table, generated by the same Grain procedure, and a six-input hash that is a rate-5, capacity-1 sponge over two permutations.",
+    "typed_owner": null,
+    "typed_owner_pending": "F.5 replaces the tables and helpers and must reproduce this identity and compare the generated table with the fetched circomlib table; I.5 regenerates the ABI V1 outputs of the POSEIDON6 opcode and its CPU, SIMD and CUDA paths.",
+    "implemented_by": "F.5",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "permutation",
+      "type": "text",
+      "value": "poseidon-hades:original:partial-sbox-on-coordinate-0"
+     },
+     {
+      "key": "field",
+      "type": "text",
+      "value": "bn254-scalar-field"
+     },
+     {
+      "key": "field_modulus_be",
+      "type": "bytes",
+      "value": "30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001"
+     },
+     {
+      "key": "sbox_exponent",
+      "type": "u64",
+      "value": 5
+     },
+     {
+      "key": "width",
+      "type": "u64",
+      "value": 6
+     },
+     {
+      "key": "rate",
+      "type": "u64",
+      "value": 5
+     },
+     {
+      "key": "capacity",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "full_rounds",
+      "type": "u64",
+      "value": 8
+     },
+     {
+      "key": "partial_rounds",
+      "type": "u64",
+      "value": 60
+     },
+     {
+      "key": "constant_generation",
+      "type": "text",
+      "value": "grain-lfsr-80:field=1:sbox=0:bits=254:width=6:full=8:partial=60:rejection-sampled-constants:first-cauchy-mds"
+     },
+     {
+      "key": "round_constants",
+      "type": "u64",
+      "value": 408
+     },
+     {
+      "key": "tables_sha3_256",
+      "type": "bytes",
+      "value": "62759a7b88fa98f474a9adcafa018f6547ff107535773d64bbc42821b1398deb"
+     },
+     {
+      "key": "first_round_constant_be",
+      "type": "bytes",
+      "value": "1448614598e00f98e7ae7dea45fbd83bd968653ef8390cde2e86b706ad40c651"
+     },
+     {
+      "key": "element_encoding",
+      "type": "text",
+      "value": "canonical-32-byte-little-endian:reject-ge-modulus"
+     },
+     {
+      "key": "capacity_coordinate",
+      "type": "u64",
+      "value": 0
+     },
+     {
+      "key": "domain_tag",
+      "type": "text",
+      "value": "fixed-arity:capacity=arity*2^64"
+     },
+     {
+      "key": "absorption",
+      "type": "text",
+      "value": "add-rate-block-into-coordinates-1..rate:permute-after-each-block:no-padding-for-fixed-arity"
+     },
+     {
+      "key": "output",
+      "type": "text",
+      "value": "coordinate-1-after-the-last-permutation:one-field-element"
+     },
+     {
+      "key": "modes",
+      "type": "text",
+      "value": "hash6:arity=6:two-rate-5-blocks(inputs-0..4,input-5):two-permutations"
+     },
+     {
+      "key": "vector_permutation_0_to_5_be",
+      "type": "bytes",
+      "value": "0dab9449e4a1398a15224c0b15a49d598b2174d305a316c918125f8feeb123c0"
+     },
+     {
+      "key": "vector_hash6_1_to_6_be",
+      "type": "bytes",
+      "value": "095727d66511b2835635063a9105785dc7737505b86e30cdea5537703da851ec"
+     },
+     {
+      "key": "truncated_forms",
+      "type": "text",
+      "value": "low-64-bit-outputs-are-not-commitments"
+     }
+    ],
+    "security": {
+     "basis": "The round numbers 8 and 60 are those of the deployed circomlib width-6 parameter table; they are selected as that table's values and are not presented as the minimum of the unavailable round-number script. They exceed the 57 partial rounds of the margin rule H.1 transcribed. About 126.8 bits against classical collision search.",
+     "evidence": "The generator that reproduces the published width-3 and width-5 vectors produces this table. Its equality with the circomlib width-6 table was not checked in this task: no download was made.",
+     "not_established": "Equality with the circomlib table until F.5 compares them; a review of the round numbers against later cryptanalysis."
+    }
+   },
+   {
+    "name": "pq.ml-kem.fips203.v1",
+    "kind": "standard-primitive",
+    "status": "frozen",
+    "identity": "b621dc84811173de3c8e7f13ff0dd5d6525580bfc220182285aa829bc63ca324",
+    "summary": "ML-KEM-512, ML-KEM-768 and ML-KEM-1024 exactly as FIPS 203 (2024) fixes them, through the derandomized entry points.",
+    "typed_owner": null,
+    "typed_owner_pending": "soranet_pq owns the implementation; F.5 corrects the superseded labels (PQ-D1), adds ACVP coverage (PQ-D2) and must reproduce this identity from a typed descriptor.",
+    "implemented_by": "F.5",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "standard",
+      "type": "text",
+      "value": "NIST FIPS 203 (13 August 2024): ML-KEM"
+     },
+     {
+      "key": "ml_kem_512_bytes",
+      "type": "u64-list",
+      "value": [800, 1632, 768, 32]
+     },
+     {
+      "key": "ml_kem_768_bytes",
+      "type": "u64-list",
+      "value": [1184, 2400, 1088, 32]
+     },
+     {
+      "key": "ml_kem_1024_bytes",
+      "type": "u64-list",
+      "value": [1568, 3168, 1568, 32]
+     },
+     {
+      "key": "encoded_sizes_order",
+      "type": "text",
+      "value": "public_key,secret_key,ciphertext,shared_secret"
+     },
+     {
+      "key": "modes",
+      "type": "text",
+      "value": "keygen-internal(d,z):encaps-internal(m):decaps-with-implicit-rejection:derandomized-entry-points"
+     },
+     {
+      "key": "input_checks",
+      "type": "text",
+      "value": "fips-203-section-7-input-checks-required:encapsulation-key-type-and-modulus:decapsulation-key-and-ciphertext-type"
+     },
+     {
+      "key": "errata",
+      "type": "text",
+      "value": "none-applied-beyond-the-13-august-2024-publication"
+     },
+     {
+      "key": "labels",
+      "type": "text",
+      "value": "ml-kem-512,ml-kem-768,ml-kem-1024:never-kyber"
+     }
+    ],
+    "security": {
+     "basis": "The standard itself. Conformance evidence in the tree is the first official known-answer response of each parameter set (H.1).",
+     "not_established": "ACVP conformance (PQ-D2): invalid encodings and further key and message sizes. NIST errata published after the standard were not reviewed in this task."
+    }
+   },
+   {
+    "name": "pq.ml-dsa.fips204.v1",
+    "kind": "standard-primitive",
+    "status": "frozen",
+    "identity": "5ed3bb463ebed880e6ed13bfc336a2f660cfd0411acffa3f6f8bd3a0359d4c95",
+    "summary": "ML-DSA-44, ML-DSA-65 and ML-DSA-87 exactly as FIPS 204 (2024) fixes them, pure mode with a context string.",
+    "typed_owner": null,
+    "typed_owner_pending": "soranet_pq owns the implementation; F.5 corrects the superseded labels (PQ-D1), adds ACVP coverage (PQ-D2) and must reproduce this identity from a typed descriptor.",
+    "implemented_by": "F.5",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "standard",
+      "type": "text",
+      "value": "NIST FIPS 204 (13 August 2024): ML-DSA"
+     },
+     {
+      "key": "ml_dsa_44_bytes",
+      "type": "u64-list",
+      "value": [1312, 2560, 2420]
+     },
+     {
+      "key": "ml_dsa_65_bytes",
+      "type": "u64-list",
+      "value": [1952, 4032, 3309]
+     },
+     {
+      "key": "ml_dsa_87_bytes",
+      "type": "u64-list",
+      "value": [2592, 4896, 4627]
+     },
+     {
+      "key": "encoded_sizes_order",
+      "type": "text",
+      "value": "public_key,secret_key,signature"
+     },
+     {
+      "key": "modes",
+      "type": "text",
+      "value": "pure-ml-dsa:domain-byte-0:context-string-0..255-bytes:no-pre-hash-mode"
+     },
+     {
+      "key": "signing",
+      "type": "text",
+      "value": "hedged-or-deterministic-per-the-standard:rnd-32-bytes"
+     },
+     {
+      "key": "errata",
+      "type": "text",
+      "value": "none-applied-beyond-the-13-august-2024-publication"
+     },
+     {
+      "key": "labels",
+      "type": "text",
+      "value": "ml-dsa-44,ml-dsa-65,ml-dsa-87:never-dilithium"
+     }
+    ],
+    "security": {
+     "basis": "The standard itself. Conformance evidence in the tree is the first official known-answer response of each parameter set (H.1).",
+     "not_established": "ACVP conformance (PQ-D2): context and pre-hash variants, invalid encodings. NIST errata published after the standard were not reviewed in this task."
+    }
+   },
+   {
+    "name": "lantern.trapdoor.falcon512-derived.v1",
+    "kind": "lattice-trapdoor",
+    "status": "frozen",
+    "identity": "1cca92edcff41cc8e4a6bee036373ca3bd1fe10ccab5eecef2dd8a57b8b2d0f7",
+    "summary": "Disposition of PQ-D3: the issuer trapdoor of Bootle Lantern is frozen as what the tree implements, a Falcon-512-derived NTRU trapdoor with arbitrary-target preimage sampling under fixed sampling caps and a mandatory equation and norm check. It is not FN-DSA and not a signature scheme.",
+    "typed_owner": {
+     "path": "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/falcon512/mod.rs",
+     "symbol": "pub(crate) const BOOTLE_LANTERN_FALCON512_PROFILE_DESCRIPTOR_V1: &[u8] ="
+    },
+    "typed_owner_pending": "The engine binds its own descriptor string today. F.5 with P.13 derives this identity from typed code, records the vendored provenance in a source-checked inventory and adds upstream and adaptation-specific known answers.",
+    "implemented_by": "F.5 with P.13",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "construction",
+      "type": "text",
+      "value": "falcon-512-derived-ntru-trapdoor:lazer-concrete-specialization:not-the-full-blns-reduction"
+     },
+     {
+      "key": "ring",
+      "type": "text",
+      "value": "Z_q[X]/(X^512+1)"
+     },
+     {
+      "key": "modulus",
+      "type": "u64",
+      "value": 12289
+     },
+     {
+      "key": "degree",
+      "type": "u64",
+      "value": 512
+     },
+     {
+      "key": "public_matrix",
+      "type": "text",
+      "value": "[1|h]"
+     },
+     {
+      "key": "equations",
+      "type": "text",
+      "value": "f*G-g*F=q;f*h=g;s1+h*s2=target"
+     },
+     {
+      "key": "target",
+      "type": "text",
+      "value": "arbitrary-element-of-the-ring:not-a-message-hash"
+     },
+     {
+      "key": "mapping",
+      "type": "text",
+      "value": "falcon512-ntru-r512-as-r64-rank8-interleaved"
+     },
+     {
+      "key": "keygen_candidates",
+      "type": "u64",
+      "value": 4096
+     },
+     {
+      "key": "keygen_parity_attempts",
+      "type": "u64",
+      "value": 128
+     },
+     {
+      "key": "preimage_prng",
+      "type": "text",
+      "value": "falcon-chacha20:56-byte-seed:word-major-8-block"
+     },
+     {
+      "key": "preimage_proposals_per_coefficient",
+      "type": "u64",
+      "value": 256
+     },
+     {
+      "key": "preimage_total_proposals",
+      "type": "u64",
+      "value": 262144
+     },
+     {
+      "key": "preimage_norm_squared_bound",
+      "type": "u64",
+      "value": 34034726
+     },
+     {
+      "key": "preimage_output",
+      "type": "text",
+      "value": "both-halves-s1-and-s2:raw-trapdoor-output:no-signature-encoding"
+     },
+     {
+      "key": "self_check",
+      "type": "text",
+      "value": "exact-equation-and-norm-before-release"
+     },
+     {
+      "key": "exhaustion",
+      "type": "text",
+      "value": "bounded-sampling:exhaustion-returns-no-key-or-no-preimage:no-unbounded-retry"
+     },
+     {
+      "key": "labels",
+      "type": "text",
+      "value": "falcon-512-derived-lantern-trapdoor:never-fn-dsa:never-fips-206"
+     }
+    ],
+    "evidence_metadata": {
+     "provenance": "rust-fn-dsa v0.3 workspace at daf14859b5aa3f8d75c42966ba7de83e6eb59997 (Unlicense), selectively vendored and adapted; a source revision is evidence metadata and is not part of the identity.",
+     "anchors": [
+      {
+       "path": "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/falcon512/mod.rs",
+       "contains": "preimage-proposals-per-coefficient=256|preimage-total-proposals=262144|signature-norm2<=34034726"
+      },
+      {
+       "path": "crates/iroha_core_privacy/src/privacy_engines/bootle_lantern/falcon512/mod.rs",
+       "contains": "pub(super) const MODULUS: u16 = 12_289;"
+      }
+     ]
+    },
+    "security": {
+     "basis": "The NTRU trapdoor, key generation and Gaussian sampling follow the round-three Falcon-512 design; the adaptation changes the target, the output and the sampling bounds.",
+     "not_established": "FN-DSA conformance (FIPS 206 is not final); the full Lantern security reduction; known answers for arbitrary-target preimages, sampling caps and exhaustion. Round-three signature vectors alone do not cover the adaptation."
+    }
+   }
+  ],
+  "retained_profiles": [
+   {
+    "name": "retained.kaigi.relation-poseidon",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "f8a21c09f21cec43f4d828a595a32779177ff85c6e487771d8beed3f88ddddab",
+    "role": "kaigi.relation-poseidon",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "kaigi.relation-poseidon"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "poseidon"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "Original Poseidon (Hades) permutations: BN254 x^5 widths 3 and 6 (56 partial rounds), Pasta x^5 width 3 in two parameterizations (57 partial rounds for the Axiom tables, 56 for P128Pow5T3), Goldilocks x^7 width 3 (57 partial rounds)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "P128Pow5T3 over Pasta Fp: width 3, rate 2, x^5, 8 full and 56 partial rounds; payloads are framed with their length before absorption."
+     }
+    ]
+   },
+   {
+    "name": "retained.confidential.note-poseidon",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "e51e6901e001f3432ba1543645e2fa1f918a22dd0c17da670fe38248e34e98df",
+    "role": "confidential.note-poseidon",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "confidential.note-poseidon"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "poseidon"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "Original Poseidon (Hades) permutations: BN254 x^5 widths 3 and 6 (56 partial rounds), Pasta x^5 width 3 in two parameterizations (57 partial rounds for the Axiom tables, 56 for P128Pow5T3), Goldilocks x^7 width 3 (57 partial rounds)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Axiom Pasta Poseidon: width 3, rate 2, x^5, 8 full and 57 partial rounds, MDS selector 0 (halo2-base OptimizedPoseidonSpec), with one 64-bit ASCII domain word per use (cfownr03, cfnote03, cfnull03, cfleaf03, cfnode03, cfasst03, cfnet_03). The public-input schema names it axiom_poseidon_t3_r2_rf8_rp57_mds0."
+     }
+    ]
+   },
+   {
+    "name": "retained.confidential.key-derivation",
+    "kind": "key-derivation",
+    "status": "retained",
+    "identity": "1dba0d124f806e616bc3a3b4686015467625d687856add1f663b9bb16d61cec6",
+    "role": "confidential.key-derivation",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "confidential.key-derivation"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "hkdf"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "HKDF (RFC 5869) over SHA-2 or SHA-3"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "HKDF over SHA3-512 with salt iroha:confidential:key-derivation:v1 and one info label per key."
+     }
+    ]
+   },
+   {
+    "name": "retained.confidential.shielded-commitment-leaf",
+    "kind": "native-commitment",
+    "status": "retained",
+    "identity": "7474a44bdce74894c3b5ef5c873f2590f1f6ee45ddab14232b3bbb537d42a115",
+    "role": "confidential.shielded-commitment-leaf",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "confidential.shielded-commitment-leaf"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "iroha-hash"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "iroha_crypto::Hash: BLAKE2b-256 with the low bit of the last byte forced to one, and its typed HashOf wrapper"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "iroha_crypto::Hash (marked BLAKE2b-256) of the tag iroha:zk:shield:cm:v1 with a trailing NUL followed by the commitment; the result is a leaf of the application Merkle scheme."
+     }
+    ]
+   },
+   {
+    "name": "retained.zk-ams.admission-sha256",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "54a14339f520410cdb67fb248a64d241b809a8682565b285f7ec02c4d4fa661d",
+    "role": "zk-ams.admission-sha256",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "zk-ams.admission-sha256"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "sha2-256"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SHA-256 (FIPS 180-4)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "SHA-256 over the tags iroha:privacy:zk-ams:phc:v1 and iroha:privacy:zk-ams:registry-transition:v1 and fixed-length fields, constrained by the SHA-256 gadget of the relation."
+     }
+    ]
+   },
+   {
+    "name": "retained.zk-ams.phase-v-sha3-512",
+    "kind": "transcript",
+    "status": "retained",
+    "identity": "880df01880226fceb44950c2708cdc48007ef30dc9e462f95172a2d6b64d4461",
+    "role": "zk-ams.phase-v-sha3-512",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "zk-ams.phase-v-sha3-512"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "sha3"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SHA3-256, SHA3-384 and SHA3-512 (FIPS 202)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 64
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "SHA3-512 with the suite strings iroha-zk-ams-v1:phase-v:lsag-ristretto255-sha3-512 and iroha-zk-ams-v1:batch-admission:seed-possession-schnorr-ristretto255-sha3-512 and labelled fields."
+     }
+    ]
+   },
+   {
+    "name": "retained.vega.transcript-keccak",
+    "kind": "transcript",
+    "status": "retained",
+    "identity": "bdff2f96990f8b9878103c70b54d5233b7c0dbba74aa570463b1a26718deea35",
+    "role": "vega.transcript-keccak",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "vega.transcript-keccak"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "keccak"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "Keccak-f[1600] with the original Keccak-256 padding, and files that name the Keccak permutation behind SHA-3"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Original Keccak-256 delimiter with per-argument labels; owners are zeroizing and forkable."
+     }
+    ]
+   },
+   {
+    "name": "retained.vega.xof-shake256",
+    "kind": "transcript",
+    "status": "retained",
+    "identity": "358037e40b34159ef49eebc7823f7e09afdc20ea963c0f80de64fa5965d26d2f",
+    "role": "vega.xof-shake256",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "vega.xof-shake256"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "shake"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SHAKE128 and SHAKE256 extendable-output functions (FIPS 202)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "SHAKE256 of a label and context; output length chosen by the caller."
+     }
+    ]
+   },
+   {
+    "name": "retained.fastpq.smt-blake2b-gadget",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "df1fa3d00c6af840fa7f3df043128ff01a90eb2414e847063b5e5a0b25b69626",
+    "role": "fastpq.smt-blake2b-gadget",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "fastpq.smt-blake2b-gadget"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "blake2b"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "BLAKE2b (RFC 7693), 256-bit and 512-bit outputs"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "The gadget reproduces the marked digest; its profile string names 512 physical rows and 310 columns per hash slot."
+     }
+    ]
+   },
+   {
+    "name": "retained.halo2.transcript-blake2b",
+    "kind": "transcript",
+    "status": "retained",
+    "identity": "e18b69110a8f756fdca748d76de74c77c0840c219ea716f2f7befb0475f6fccb",
+    "role": "halo2.transcript-blake2b",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "halo2.transcript-blake2b"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "blake2b"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "BLAKE2b (RFC 7693), 256-bit and 512-bit outputs"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 64
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "One BLAKE2b-512 state with the personalization Halo2-Transcript and prefix bytes per absorbed object; challenges are 255-bit reductions."
+     }
+    ]
+   },
+   {
+    "name": "retained.halo2.ipa-transcript-sha3",
+    "kind": "transcript",
+    "status": "retained",
+    "identity": "e99d9125c6b6435767cf6f702bfa7bbb8067067260e013d2ac2e33983ac5ed6a",
+    "role": "halo2.ipa-transcript-sha3",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "halo2.ipa-transcript-sha3"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "sha3"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SHA3-256, SHA3-384 and SHA3-512 (FIPS 202)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "SHA3-256 over the crate tag IROHA-ZK-HALO2-IPA-v1, the running state and a scope label; SHA3-512 for hash-to-group."
+     }
+    ]
+   },
+   {
+    "name": "retained.halo2.pasta-poseidon",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "91b68689fefb640f3b5929d21e1f99a93a6270206de3d8fd4f912ce6a1938f97",
+    "role": "halo2.pasta-poseidon",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "halo2.pasta-poseidon"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "poseidon"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "Original Poseidon (Hades) permutations: BN254 x^5 widths 3 and 6 (56 partial rounds), Pasta x^5 width 3 in two parameterizations (57 partial rounds for the Axiom tables, 56 for P128Pow5T3), Goldilocks x^7 width 3 (57 partial rounds)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Original Poseidon over Pasta Fp and Fq: width 3, rate 2, x^5, 8 full and 57 partial rounds, first Cauchy candidate (MDS selector 0); tables rp57_fp.bin and rp57_fq.bin, equal to halo2-base OptimizedPoseidonSpec::<F, 3, 2>::new::<8, 57, 0>()."
+     }
+    ]
+   },
+   {
+    "name": "retained.halo2.pasta-poseidon-rp56-candidate",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "9940b5b621868dcb0211eeca66b790355c0032e635db11996a7d92f0c4959a0e",
+    "role": "halo2.pasta-poseidon-rp56-candidate",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "halo2.pasta-poseidon-rp56-candidate"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "poseidon"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "Original Poseidon (Hades) permutations: BN254 x^5 widths 3 and 6 (56 partial rounds), Pasta x^5 width 3 in two parameterizations (57 partial rounds for the Axiom tables, 56 for P128Pow5T3), Goldilocks x^7 width 3 (57 partial rounds)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Original Poseidon over Pasta: width 3, rate 2, x^5, 8 full and 56 partial rounds; ConstantLength padding with the length times 2^64 in the capacity."
+     }
+    ]
+   },
+   {
+    "name": "retained.sorafs.pop-credential-poseidon",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "53c00cb1acff295d92400a8de72955de3aab4cbbd7085a60e0bcdcc6408f2ace",
+    "role": "sorafs.pop-credential-poseidon",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "sorafs.pop-credential-poseidon"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "poseidon"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "Original Poseidon (Hades) permutations: BN254 x^5 widths 3 and 6 (56 partial rounds), Pasta x^5 width 3 in two parameterizations (57 partial rounds for the Axiom tables, 56 for P128Pow5T3), Goldilocks x^7 width 3 (57 partial rounds)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Original Poseidon over Pasta: width 3, rate 2, 8 full and 56 partial rounds, with a small integer domain word per use."
+     }
+    ]
+   },
+   {
+    "name": "retained.bulletproofs.fcmp-transcript-blake2b",
+    "kind": "transcript",
+    "status": "retained",
+    "identity": "16fff764db04bc770d35587481cbb0a81a6ff54e23f6d1f66da544156675f30b",
+    "role": "bulletproofs.fcmp-transcript-blake2b",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "bulletproofs.fcmp-transcript-blake2b"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "blake2b"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "BLAKE2b (RFC 7693), 256-bit and 512-bit outputs"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 64
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "BLAKE2b-512 transcript adapter frozen by the compiled profile descriptor."
+     }
+    ]
+   },
+   {
+    "name": "retained.notes.sha256-in-circuit",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "207ac838a49a7b6833693cf41e74cfca395bbb7b29c84bc9012fd1cd18229fb0",
+    "role": "notes.sha256-in-circuit",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "notes.sha256-in-circuit"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "sha2-256"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SHA-256 (FIPS 180-4)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "FIPS 180-4 compression with fixed initial state and padding helpers; invocation roles are typed."
+     }
+    ]
+   },
+   {
+    "name": "retained.x509.certificate-sha2",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "36e119436c2bca3da9109f82ab7fa70c320f541efe540d2c77b1dcd6e330df94",
+    "role": "x509.certificate-sha2",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "x509.certificate-sha2"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "sha2-256"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SHA-256 (FIPS 180-4)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "FIPS 180-4 SHA-256 as the certificate signature algorithms fix it (RFC 5280); no domain separation is available. Each 32-bit word is stored once with a Boolean decomposition and bound by address-sorted grand products."
+     }
+    ]
+   },
+   {
+    "name": "retained.ram-lfe.private-commitment-blake3",
+    "kind": "native-commitment",
+    "status": "retained",
+    "identity": "19f50ffa442b742d243c1699ec62f4758920d6574f16e1d95454769049ab9b4b",
+    "role": "ram-lfe.private-commitment-blake3",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ram-lfe.private-commitment-blake3"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "blake3"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "BLAKE3 (default 256-bit output, 256-bit chaining value)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "BLAKE3 derive-key mode with one context string per record kind: iroha.ram_lfe.v1.function_commitment, .initializer_key, .memory_blinding, .initialized_memory, .ordered_output, and the initialization context."
+     }
+    ]
+   },
+   {
+    "name": "retained.ram-lfe.public-commitment-blake2b",
+    "kind": "native-commitment",
+    "status": "retained",
+    "identity": "772a4113d22e9dcd41d6558a21acec649a2644bb2861b1ac67e4507076023a29",
+    "role": "ram-lfe.public-commitment-blake2b",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ram-lfe.public-commitment-blake2b"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "iroha-hash"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "iroha_crypto::Hash: BLAKE2b-256 with the low bit of the last byte forced to one, and its typed HashOf wrapper"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "iroha_crypto::Hash (marked BLAKE2b-256) over one of thirteen prefix-free domain strings (iroha.ram_lfe.v1.*) followed by the canonical Norito frame."
+     }
+    ]
+   },
+   {
+    "name": "retained.ram-lfe.prf-hkdf-sha3-512",
+    "kind": "key-derivation",
+    "status": "retained",
+    "identity": "e137c28a58047c26000a530404af378e482ac777e57ef73468f775ff1d1ff71f",
+    "role": "ram-lfe.prf-hkdf-sha3-512",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ram-lfe.prf-hkdf-sha3-512"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "hkdf"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "HKDF (RFC 5869) over SHA-2 or SHA-3"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 64
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "HKDF over SHA3-512 with the backend label hkdf-sha3-512-prf-v1."
+     }
+    ]
+   },
+   {
+    "name": "retained.state.lthash16-accumulator",
+    "kind": "native-commitment",
+    "status": "retained",
+    "identity": "d7aa74e22697ce30907391e247835121428417e5c8cb94db897ebe2e5227f91b",
+    "role": "state.lthash16-accumulator",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "state.lthash16-accumulator"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "lthash"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "LtHash16 homomorphic multiset hash of the world State"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 2048
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Each entry maps to an element by BLAKE3 XOF in derive-key mode over the field path hash, a presence byte, the key hash and the value projection, truncated to 1,024 sixteen-bit lanes; the root is the ledger hash of a root tag, the schema binding, the entry count and the lanes."
+     }
+    ]
+   },
+   {
+    "name": "retained.ledger.identity-hash",
+    "kind": "native-commitment",
+    "status": "retained",
+    "identity": "d84b6cce763533a46a9d5a4a2810e58e0d4b363717835bd357c875660105f52d",
+    "role": "ledger.identity-hash",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ledger.identity-hash"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "iroha-hash"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "iroha_crypto::Hash: BLAKE2b-256 with the low bit of the last byte forced to one, and its typed HashOf wrapper"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "BLAKE2b-256 of the canonical bytes with the low bit of the last byte forced to one; typed through HashOf."
+     }
+    ]
+   },
+   {
+    "name": "retained.ledger.merkle-sha256",
+    "kind": "native-commitment",
+    "status": "retained",
+    "identity": "49a22b8c34b46bbebb3a65b157eeb72b392dee25b823c3209c7ec9c25340c4fd",
+    "role": "ledger.merkle-sha256",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ledger.merkle-sha256"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "sha2-256"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SHA-256 (FIPS 180-4)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Scheme 2 keeps SHA-256 leaf nodes as supplied and hashes parents with SHA-256. The lane-privacy tree hashes leaves and nodes with SHA-256 under versioned leaf and node domains and marks the result as a ledger hash."
+     }
+    ]
+   },
+   {
+    "name": "retained.ledger.merkle-application",
+    "kind": "native-commitment",
+    "status": "retained",
+    "identity": "07c7b38cd6aef950eb41448eddb7663c8de56b7442de4d87ad4924bfeae1d097",
+    "role": "ledger.merkle-application",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ledger.merkle-application"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "iroha-hash"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "iroha_crypto::Hash: BLAKE2b-256 with the low bit of the last byte forced to one, and its typed HashOf wrapper"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "iroha_crypto::Hash (marked BLAKE2b-256) with the leaf tag iroha:merkle:leaf:v1 and the internal tag iroha:merkle:internal:v1, each with a trailing NUL."
+     }
+    ]
+   },
+   {
+    "name": "retained.ivm.opcode-sha256block",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "d756c34eabf8ebecb511a1f178542bc019956207080fed9c885a78d5fc60ee25",
+    "role": "ivm.opcode-sha256block",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ivm.opcode-sha256block"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "sha2-256"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SHA-256 (FIPS 180-4)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Raw compression function; the contract owns padding and domain separation."
+     }
+    ]
+   },
+   {
+    "name": "retained.ivm.opcode-sha3block",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "45a576dbcde655f6511d533a27b19eee12dd618d77bfee52dac509380a659b1e",
+    "role": "ivm.opcode-sha3block",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ivm.opcode-sha3block"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "sha3"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SHA3-256, SHA3-384 and SHA3-512 (FIPS 202)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Raw permutation block; the contract owns padding and domain separation."
+     }
+    ]
+   },
+   {
+    "name": "retained.ivm.opcode-blake2s",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "8aa041359a41b12307f7af05ad7419ddd76c31143d25e126736ae4fc3a9b225d",
+    "role": "ivm.opcode-blake2s",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ivm.opcode-blake2s"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "blake2s"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "BLAKE2s-256 (RFC 7693)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 16
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "BLAKE2s-256 of a 64-byte input; the first 16 bytes are written to two registers."
+     }
+    ]
+   },
+   {
+    "name": "retained.ivm.syscall-sha256-hash",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "633025587a88e0164b34579ecf6e2152aeee5b0875b9874aabe8a2e2c5699d39",
+    "role": "ivm.syscall-sha256-hash",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ivm.syscall-sha256-hash"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "sha2-256"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SHA-256 (FIPS 180-4)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Plain FIPS 180-4 SHA-256 of the payload; the contract owns domain separation."
+     }
+    ]
+   },
+   {
+    "name": "retained.ivm.syscall-sha3-256-hash",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "c5f7887af0daafd824bd335596b43bf05df5343c66bf40953186144d22a09ee8",
+    "role": "ivm.syscall-sha3-256-hash",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ivm.syscall-sha3-256-hash"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "sha3"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SHA3-256, SHA3-384 and SHA3-512 (FIPS 202)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Plain FIPS 202 SHA3-256 of the payload; the contract owns domain separation."
+     }
+    ]
+   },
+   {
+    "name": "retained.ivm.syscall-blake2b256-hash",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "664f61f025e4ec0497730c013f585dabb1261bcb7d0fefdc6d3a29d46f9d24b9",
+    "role": "ivm.syscall-blake2b256-hash",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ivm.syscall-blake2b256-hash"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "blake2b"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "BLAKE2b (RFC 7693), 256-bit and 512-bit outputs"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Plain RFC 7693 BLAKE2b with a 32-byte output; not iroha_crypto::Hash."
+     }
+    ]
+   },
+   {
+    "name": "retained.ivm.syscall-keccak256-hash",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "3b30309a0c761e28a94aea7257727623a058332c4d0dbccbc2452493df5a4ede",
+    "role": "ivm.syscall-keccak256-hash",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ivm.syscall-keccak256-hash"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "keccak"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "Keccak-f[1600] with the original Keccak-256 padding, and files that name the Keccak permutation behind SHA-3"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Original Keccak-256; the contract owns domain separation."
+     }
+    ]
+   },
+   {
+    "name": "retained.ivm.syscall-sm3-hash",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "9c78288b45dcad2691e4097a540c13d8c2bff99b228769835cd1dc840e54a0c0",
+    "role": "ivm.syscall-sm3-hash",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ivm.syscall-sm3-hash"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "sm3"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SM3 (GB/T 32905-2016)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Plain GB/T 32905-2016 SM3 of the payload."
+     }
+    ]
+   },
+   {
+    "name": "retained.ivm.syscall-iroha-hash",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "ecabb61844b1bebef9fd131bb3aa06321a05ad7429553d0dbf9578e8d608be7c",
+    "role": "ivm.syscall-iroha-hash",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ivm.syscall-iroha-hash"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "iroha-hash"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "iroha_crypto::Hash: BLAKE2b-256 with the low bit of the last byte forced to one, and its typed HashOf wrapper"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "iroha_crypto::Hash::new: BLAKE2b-256 with the low bit of the last byte forced to one."
+     }
+    ]
+   },
+   {
+    "name": "retained.ivm.syscall-memory-merkle",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "3ae30eeaf66308cdc7e585728c37ec2f476d8cce098263d72b28d108845f3061",
+    "role": "ivm.syscall-memory-merkle",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ivm.syscall-memory-merkle"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "sha2-256"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SHA-256 (FIPS 180-4)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "SHA-256 scheme of the canonical Merkle type over 32-byte memory leaves; partial roots are computed with compute_partial_root_sha256."
+     }
+    ]
+   },
+   {
+    "name": "retained.ivm.syscall-private-numeric-valcom",
+    "kind": "in-circuit-digest",
+    "status": "retained",
+    "identity": "c383ac13af195fd718804bd97ed937ee4369c36c6a5506f43145ebed9cfc511f",
+    "role": "ivm.syscall-private-numeric-valcom",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "ivm.syscall-private-numeric-valcom"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "pedersen"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "Pedersen commitments and vector commitments over elliptic-curve groups (T256, ristretto255, Pasta, BLS12-381 G1)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 48
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "Projection: ledger hash of KOTODAMA_PRIVATE_NUMERIC_PROJECTION_V1 with a trailing NUL, the ABI version, the kind tag and the canonical envelope. Scalars: ledger hash of KOTODAMA_PRIVATE_NUMERIC_VALCOM_V1 with a trailing NUL, the ABI version, a role byte and the projection, reduced modulo the scalar order. The blinding generator is a fixed point equal to hash-to-curve under IROHA_IVM_PEDERSEN_G1_XMD:SHA-256_SSWU_RO_V1."
+     }
+    ]
+   },
+   {
+    "name": "retained.pq.labeled-hkdf",
+    "kind": "key-derivation",
+    "status": "retained",
+    "identity": "e2b57a0581f389308f7cdd0798f428e6ab30b9fbc5ace5bf5df20bb9c2ea506f",
+    "role": "pq.labeled-hkdf",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "pq.labeled-hkdf"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "hkdf"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "HKDF (RFC 5869) over SHA-2 or SHA-3"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "HKDF over SHA3-256 or SHA3-512 with a protocol domain label."
+     }
+    ]
+   },
+   {
+    "name": "retained.privacy.record-digest-sha256",
+    "kind": "native-commitment",
+    "status": "retained",
+    "identity": "33637227723c2063029ed68fa39c581e07346516c3f0caefb869ba7c067f8568",
+    "role": "privacy.record-digest-sha256",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "privacy.record-digest-sha256"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "sha2-256"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SHA-256 (FIPS 180-4)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "SHA-256 over a per-record domain tag, usually followed by a little-endian length and the canonical Norito bytes; the producer ledger lists each function with its tag."
+     }
+    ]
+   },
+   {
+    "name": "retained.privacy.evidence-digest-sha256",
+    "kind": "native-commitment",
+    "status": "retained",
+    "identity": "2ba758eebe3bc864569af5870ef42a27493f7e4306d1700bc65dfcef3fa94973",
+    "role": "privacy.evidence-digest-sha256",
+    "parameters": [
+     {
+      "key": "profile_version",
+      "type": "u64",
+      "value": 1
+     },
+     {
+      "key": "role",
+      "type": "text",
+      "value": "privacy.evidence-digest-sha256"
+     },
+     {
+      "key": "primitive",
+      "type": "text",
+      "value": "sha2-256"
+     },
+     {
+      "key": "algorithm",
+      "type": "text",
+      "value": "SHA-256 (FIPS 180-4)"
+     },
+     {
+      "key": "output_bytes",
+      "type": "u64",
+      "value": 32
+     },
+     {
+      "key": "domain_separation",
+      "type": "text",
+      "value": "SHA-256 of canonical Norito bytes or of a framed list; the producer ledger lists each function."
+     }
+    ]
+   }
+  ],
+  "not_frozen": [
+   {
+    "id": "confidential.spentness-tree",
+    "status": "deferred",
+    "roles": ["confidential.spentness-tree"],
+    "decided_by": ["G.3", "P.9", "P.18"],
+    "reason": "The spentness tree is selected with the State commitment: G.3 selects the State tree and hash after the G.2 measurements, and P.9/P.18 decide whether a private-note relation recomputes spentness paths. H.2 selects neither.",
+    "excluded": ["GoldilocksDigest384V1 (six-lane): it is recorded as unqualified and must not be the eventual selection"],
+    "candidates": ["native.commitment.blake3-256.frame-v1 if no relation opens the tree", "the algebraic State tree G.3 selects if a relation opens it, with equivalent spentness semantics and an authenticated root binding"],
+    "missing": ["the G.3 selection", "the P.9/P.18 decision on an in-circuit opening", "measured opening cost if a relation opens the tree"]
+   },
+   {
+    "id": "goldilocks.in-circuit-digest",
+    "status": "blocked",
+    "roles": ["ram-lfe.phone-number-commitment-digest384", "zk-ace.identity-digest384"],
+    "decided_by": ["P.15", "R.2", "G.3"],
+    "reason": "The relations over Goldilocks that recompute a digest have only the six-lane construction today: the identity commitment and replay nullifier of ZK-ACE (twelve outputs of two six-lane groups of width-3 sponges, not an analysed width-12 sponge) and the phone-number commitment of the RAM-LFE phone-control relation. specs/fastpq_compact_digest_security.md records the six-lane construction as unqualified, and no replacement has a security justification yet, so no in-circuit Goldilocks digest profile is frozen. A relation that ships before the replacement names the six-lane digest as an explicitly unqualified typed identity and replaces that identity and its vectors together; it never adds a second.",
+    "excluded": ["the six-lane GoldilocksDigest384V1 and the two six-lane groups of ZK-ACE as a frozen profile"],
+    "missing": ["a Goldilocks algebraic hash with a multi-element capacity and a sufficient output, with analysed parameters", "its domain and padding semantics", "the complete AIR constraints of the hash inside each consuming relation (P.15 for ZK-ACE, R.2 for phone control)", "a security justification: the G.2 prototype measurements of width-12 RPO and Poseidon2 are costs, not justification"]
+   },
+   {
+    "id": "proof-internal.six-lane-and-sha3-384-transcripts",
+    "status": "retired-at-migration",
+    "roles": ["fastpq.digest384", "mkhe.proof-digest", "privacy-substrate.outer-sha3-384"],
+    "decided_by": ["B.3", "A.4", "X.3", "C.5", "P.15"],
+    "reason": "These digests are the commitment, transcript and challenge hashes of proof engines that the shared backend replaces. Each engine adopts the frozen transcript construction with its own complete typed descriptor and its own security accounting when its callers migrate; the superseded six-lane and SHA3-384 frame transcripts get no frozen shared-backend profile.",
+    "excluded": ["a frozen profile for GoldilocksDigest384V1 in any role", "a compatibility branch that keeps a superseded transcript"],
+    "missing": ["the consumer-specific descriptor and accounting of each migrating engine (see shared_transcript.engines)"]
+   }
+  ],
+  "role_dispositions": {
+   "catalog.exact12-commitment": {
+    "disposition": "frozen-profile",
+    "profiles": ["native.commitment.blake3-256.frame-v1"],
+    "required_property": "second-preimage resistance against one pinned value; no caller chooses the preimage",
+    "accepted_level": "about 128 bits against quantum and 256 bits against classical second-preimage search",
+    "replaces": "GoldilocksDigest384V1 (six-lane, unqualified): replaced, not endorsed"
+   },
+   "kaigi.authorization-identity": {
+    "disposition": "frozen-profile",
+    "profiles": ["native.commitment.blake3-256.frame-v1"],
+    "required_property": "collision resistance: callers choose call, host and subject identifiers",
+    "accepted_level": "about 128 bits classical; about 85 bits in the quantum query model. The identities are public inputs of a Pasta discrete-logarithm relation, so the composition already has no post-quantum soundness and the commitment is not its weakest property",
+    "replaces": "GoldilocksDigest384V1 (six-lane, unqualified): replaced, not endorsed"
+   },
+   "kaigi.relation-poseidon": {
+    "disposition": "retained",
+    "profiles": ["retained.kaigi.relation-poseidon"]
+   },
+   "confidential.spentness-tree": {
+    "disposition": "deferred",
+    "not_frozen": "confidential.spentness-tree"
+   },
+   "confidential.note-poseidon": {
+    "disposition": "retained",
+    "profiles": ["retained.confidential.note-poseidon"]
+   },
+   "confidential.key-derivation": {
+    "disposition": "retained",
+    "profiles": ["retained.confidential.key-derivation"]
+   },
+   "confidential.shielded-commitment-leaf": {
+    "disposition": "retained",
+    "profiles": ["retained.confidential.shielded-commitment-leaf"]
+   },
+   "mkhe.proof-digest": {
+    "disposition": "retired-at-migration",
+    "not_frozen": "proof-internal.six-lane-and-sha3-384-transcripts"
+   },
+   "mkhe.payload-blake3": {
+    "disposition": "frozen-profile",
+    "profiles": ["native.commitment.blake3-256.frame-v1"],
+    "required_property": "collision resistance between payloads a participant chooses",
+    "accepted_level": "about 128 bits classical; about 85 bits in the quantum query model. Test-only today"
+   },
+   "mkhe.parameter-identity-keccak": {
+    "disposition": "frozen-profile",
+    "profiles": ["native.commitment.blake3-256.frame-v1"],
+    "required_property": "collision resistance between parameter sets a deployer can choose",
+    "accepted_level": "about 128 bits classical; about 85 bits in the quantum query model. The admission relation these identities seed is a classical T256 and Pasta composition"
+   },
+   "mkhe.release-identity-keccak": {
+    "disposition": "frozen-profile",
+    "profiles": ["native.commitment.blake3-256.frame-v1"],
+    "required_property": "collision resistance between release manifests a deployer can choose",
+    "accepted_level": "about 128 bits classical; about 85 bits in the quantum query model, inside the same classical admission composition"
+   },
+   "mkhe.source-receipt-identity-keccak": {
+    "disposition": "frozen-profile",
+    "profiles": ["native.commitment.blake3-256.frame-v1"],
+    "required_property": "collision resistance between source bindings and receipts a participant can choose",
+    "accepted_level": "about 128 bits classical; about 85 bits in the quantum query model, inside the same classical admission composition"
+   },
+   "mkhe.ceremony-identity-keccak": {
+    "disposition": "frozen-profile",
+    "profiles": ["native.commitment.blake3-256.frame-v1"],
+    "required_property": "collision resistance between ceremony rosters, contributions and receipts participants choose",
+    "accepted_level": "about 128 bits classical; about 85 bits in the quantum query model. Test-only today; C.5 restates the requirement when it builds the production ceremony"
+   },
+   "zk-ams.admission-sha256": {
+    "disposition": "retained",
+    "profiles": ["retained.zk-ams.admission-sha256"]
+   },
+   "zk-ams.phase-v-sha3-512": {
+    "disposition": "retained",
+    "profiles": ["retained.zk-ams.phase-v-sha3-512"]
+   },
+   "zk-ams.generator-digest-sha3-256": {
+    "disposition": "frozen-profile",
+    "profiles": ["native.commitment.blake3-256.frame-v1"],
+    "required_property": "second-preimage resistance against the fixed generator description",
+    "accepted_level": "about 128 bits against quantum and 256 bits against classical second-preimage search"
+   },
+   "vega.transcript-keccak": {
+    "disposition": "retained",
+    "profiles": ["retained.vega.transcript-keccak"]
+   },
+   "vega.xof-shake256": {
+    "disposition": "retained",
+    "profiles": ["retained.vega.xof-shake256"]
+   },
+   "fastpq.digest384": {
+    "disposition": "retired-at-migration",
+    "not_frozen": "proof-internal.six-lane-and-sha3-384-transcripts"
+   },
+   "fastpq.sha3-256-commitment": {
+    "disposition": "frozen-profile",
+    "profiles": ["fastpq.transcript.q77.v1"]
+   },
+   "fastpq.transcript-shake256": {
+    "disposition": "frozen-profile",
+    "profiles": ["fastpq.transcript.q77.v1"]
+   },
+   "fastpq.smt-blake2b-gadget": {
+    "disposition": "retained",
+    "profiles": ["retained.fastpq.smt-blake2b-gadget"]
+   },
+   "fastpq.bn254-poseidon-statement": {
+    "disposition": "frozen-profile",
+    "profiles": ["bn254.poseidon.x5-t3.v1"]
+   },
+   "axt.binding-poseidon": {
+    "disposition": "frozen-profile",
+    "profiles": ["bn254.poseidon.x5-t3.v1", "bn254.poseidon.x5-t6.v1"]
+   },
+   "halo2.transcript-blake2b": {
+    "disposition": "retained",
+    "profiles": ["retained.halo2.transcript-blake2b"]
+   },
+   "halo2.ipa-transcript-sha3": {
+    "disposition": "retained",
+    "profiles": ["retained.halo2.ipa-transcript-sha3"]
+   },
+   "halo2.pasta-poseidon": {
+    "disposition": "retained",
+    "profiles": ["retained.halo2.pasta-poseidon"]
+   },
+   "halo2.pasta-poseidon-rp56-candidate": {
+    "disposition": "retained",
+    "profiles": ["retained.halo2.pasta-poseidon-rp56-candidate"]
+   },
+   "sorafs.pop-credential-poseidon": {
+    "disposition": "retained",
+    "profiles": ["retained.sorafs.pop-credential-poseidon"]
+   },
+   "bulletproofs.fcmp-transcript-blake2b": {
+    "disposition": "retained",
+    "profiles": ["retained.bulletproofs.fcmp-transcript-blake2b"]
+   },
+   "privacy-substrate.outer-sha3-384": {
+    "disposition": "retired-at-migration",
+    "not_frozen": "proof-internal.six-lane-and-sha3-384-transcripts"
+   },
+   "notes.sha256-in-circuit": {
+    "disposition": "retained",
+    "profiles": ["retained.notes.sha256-in-circuit"]
+   },
+   "x509.certificate-sha2": {
+    "disposition": "retained",
+    "profiles": ["retained.x509.certificate-sha2"]
+   },
+   "zk-ace.identity-digest384": {
+    "disposition": "blocked",
+    "not_frozen": "goldilocks.in-circuit-digest"
+   },
+   "execution.catalog-identity-sha384": {
+    "disposition": "frozen-profile",
+    "profiles": ["native.commitment.blake3-256.frame-v1"],
+    "required_property": "second-preimage resistance against one fixed label; no caller chooses the preimage",
+    "accepted_level": "about 128 bits against quantum and 256 bits against classical second-preimage search"
+   },
+   "ram-lfe.private-commitment-blake3": {
+    "disposition": "retained",
+    "profiles": ["retained.ram-lfe.private-commitment-blake3"]
+   },
+   "ram-lfe.public-commitment-blake2b": {
+    "disposition": "retained",
+    "profiles": ["retained.ram-lfe.public-commitment-blake2b"]
+   },
+   "ram-lfe.prf-hkdf-sha3-512": {
+    "disposition": "retained",
+    "profiles": ["retained.ram-lfe.prf-hkdf-sha3-512"]
+   },
+   "ram-lfe.phone-number-commitment-digest384": {
+    "disposition": "blocked",
+    "not_frozen": "goldilocks.in-circuit-digest"
+   },
+   "state.lthash16-accumulator": {
+    "disposition": "retained",
+    "profiles": ["retained.state.lthash16-accumulator"]
+   },
+   "ledger.identity-hash": {
+    "disposition": "retained",
+    "profiles": ["retained.ledger.identity-hash"]
+   },
+   "ledger.merkle-sha256": {
+    "disposition": "retained",
+    "profiles": ["retained.ledger.merkle-sha256"]
+   },
+   "ledger.merkle-application": {
+    "disposition": "retained",
+    "profiles": ["retained.ledger.merkle-application"]
+   },
+   "ivm.opcode-sha256block": {
+    "disposition": "retained",
+    "profiles": ["retained.ivm.opcode-sha256block"]
+   },
+   "ivm.opcode-sha3block": {
+    "disposition": "retained",
+    "profiles": ["retained.ivm.opcode-sha3block"]
+   },
+   "ivm.opcode-poseidon2": {
+    "disposition": "frozen-profile",
+    "profiles": ["bn254.poseidon.x5-t3.v1"]
+   },
+   "ivm.opcode-poseidon6": {
+    "disposition": "frozen-profile",
+    "profiles": ["bn254.poseidon.x5-t6.v1"]
+   },
+   "ivm.opcode-blake2s": {
+    "disposition": "retained",
+    "profiles": ["retained.ivm.opcode-blake2s"]
+   },
+   "ivm.syscall-sha256-hash": {
+    "disposition": "retained",
+    "profiles": ["retained.ivm.syscall-sha256-hash"]
+   },
+   "ivm.syscall-sha3-256-hash": {
+    "disposition": "retained",
+    "profiles": ["retained.ivm.syscall-sha3-256-hash"]
+   },
+   "ivm.syscall-blake2b256-hash": {
+    "disposition": "retained",
+    "profiles": ["retained.ivm.syscall-blake2b256-hash"]
+   },
+   "ivm.syscall-keccak256-hash": {
+    "disposition": "retained",
+    "profiles": ["retained.ivm.syscall-keccak256-hash"]
+   },
+   "ivm.syscall-sm3-hash": {
+    "disposition": "retained",
+    "profiles": ["retained.ivm.syscall-sm3-hash"]
+   },
+   "ivm.syscall-iroha-hash": {
+    "disposition": "retained",
+    "profiles": ["retained.ivm.syscall-iroha-hash"]
+   },
+   "ivm.syscall-memory-merkle": {
+    "disposition": "retained",
+    "profiles": ["retained.ivm.syscall-memory-merkle"]
+   },
+   "ivm.syscall-private-numeric-valcom": {
+    "disposition": "retained",
+    "profiles": ["retained.ivm.syscall-private-numeric-valcom"]
+   },
+   "pq.mlkem-public-key-hash": {
+    "disposition": "frozen-profile",
+    "profiles": ["pq.ml-kem.fips203.v1"]
+   },
+   "pq.mldsa-shake": {
+    "disposition": "frozen-profile",
+    "profiles": ["pq.ml-dsa.fips204.v1"]
+   },
+   "pq.labeled-hkdf": {
+    "disposition": "retained",
+    "profiles": ["retained.pq.labeled-hkdf"]
+   },
+   "privacy.state-digest-blake3": {
+    "disposition": "frozen-profile",
+    "profiles": ["native.commitment.blake3-256.frame-v1"],
+    "required_property": "collision resistance between State descriptions an operation can produce",
+    "accepted_level": "about 128 bits classical; about 85 bits in the quantum query model"
+   },
+   "privacy.statement-digest-blake3": {
+    "disposition": "frozen-profile",
+    "profiles": ["native.commitment.blake3-256.frame-v1"],
+    "required_property": "collision resistance: a prover chooses statements, and every envelope, intent, receipt and proof transcript carries the digest",
+    "accepted_level": "about 128 bits classical; about 85 bits in the quantum query model. This is the accepted level of every protocol whose transcript binds a statement digest, including those labelled pq-qrom: their label must state it and must not claim 128 bits against quantum collision search"
+   },
+   "privacy.record-digest-blake3": {
+    "disposition": "frozen-profile",
+    "profiles": ["native.commitment.blake3-256.frame-v1"],
+    "required_property": "collision resistance between records a participant chooses",
+    "accepted_level": "about 128 bits classical; about 85 bits in the quantum query model, with the same label rule as the statement digest"
+   },
+   "privacy.record-digest-sha256": {
+    "disposition": "retained",
+    "profiles": ["retained.privacy.record-digest-sha256"]
+   },
+   "privacy.evidence-digest-sha256": {
+    "disposition": "retained",
+    "profiles": ["retained.privacy.evidence-digest-sha256"]
+   },
+   "bn254-poseidon.native-helpers": {
+    "disposition": "frozen-profile",
+    "profiles": ["bn254.poseidon.x5-t3.v1", "bn254.poseidon.x5-t6.v1"]
+   }
+  },
+  "defect_dispositions": [
+   {
+    "defect": "BN254-POSEIDON-D1",
+    "disposition": "corrected",
+    "profile": "bn254.poseidon.x5-t3.v1",
+    "correction": "Replace the width-3 table by the exact published instantiation: 8 full and 57 partial rounds with its complete constants and MDS matrix. The 56-round table is not endorsed.",
+    "implemented_by": ["F.5", "I.5"],
+    "vectors_required": "Independent vectors of the permutation and of the corrected two-input hash; regenerated ABI V1 outputs of POSEIDON2."
+   },
+   {
+    "defect": "BN254-POSEIDON-D2",
+    "disposition": "corrected",
+    "profile": "bn254.poseidon.x5-t6.v1",
+    "correction": "Replace the width-6 table by 8 full and 60 partial rounds with the complete constants and MDS matrix of the deployed circomlib width-6 table. The 56-round table is not endorsed.",
+    "implemented_by": ["F.5", "I.5"],
+    "vectors_required": "Comparison of the generated table with the fetched circomlib table; independent vectors; regenerated ABI V1 outputs of POSEIDON6 on the CPU, SIMD and CUDA paths."
+   },
+   {
+    "defect": "BN254-POSEIDON-D3",
+    "disposition": "corrected",
+    "profiles": ["bn254.poseidon.x5-t3.v1", "bn254.poseidon.x5-t6.v1"],
+    "correction": "Both helpers become fixed-arity sponges with one capacity coordinate that holds a distinct arity tag, exact absorption, no padding and one rate coordinate of output. The six-input hash absorbs two rate-5 blocks and has no zero-capacity mode. The 64-bit truncated forms are never commitments: a consumer that binds a value uses the full field element.",
+    "implemented_by": ["F.5", "I.5"],
+    "vectors_required": "Role and arity substitution tests on the actual consumers; vectors of both corrected helpers."
+   },
+   {
+    "defect": "PQ-D1",
+    "disposition": "corrected",
+    "profiles": ["pq.ml-kem.fips203.v1", "pq.ml-dsa.fips204.v1"],
+    "correction": "Every label names the standard algorithm (ML-KEM, ML-DSA); a superseded Kyber or Dilithium label never names bytes of the standard algorithms.",
+    "implemented_by": ["F.5"],
+    "vectors_required": "None beyond PQ-D2; the label scan of the H.1 record lists the files."
+   },
+   {
+    "defect": "PQ-D2",
+    "disposition": "evidence-pending",
+    "profiles": ["pq.ml-kem.fips203.v1", "pq.ml-dsa.fips204.v1"],
+    "correction": "The profiles are the final FIPS 203 and FIPS 204 parameter sets and modes. ACVP coverage is missing conformance evidence, not a missing security justification, and stays F.5 work.",
+    "implemented_by": ["F.5"],
+    "vectors_required": "NIST ACVP vectors for key generation, encapsulation and decapsulation with invalid encodings, and for signing and verification with context variants; they need a download that this task did not make."
+   },
+   {
+    "defect": "PQ-D3",
+    "disposition": "frozen-as-implemented-and-relabelled",
+    "profile": "lantern.trapdoor.falcon512-derived.v1",
+    "correction": "The issuer trapdoor is frozen as the Falcon-512-derived Lantern trapdoor the tree implements and is never labelled FN-DSA or FIPS 206. Its provenance becomes visible to an inventory instead of only to source comments.",
+    "implemented_by": ["F.5", "P.13"],
+    "vectors_required": "Upstream round-three known answers for the unchanged arithmetic and adaptation-specific known answers for arbitrary-target preimages, sampling caps, the equation and norm check and exhaustion."
+   },
+   {
+    "defect": "SIX-LANE-NATIVE-ROLES",
+    "disposition": "replaced-or-deferred",
+    "roles": {
+     "catalog.exact12-commitment": "native.commitment.blake3-256.frame-v1",
+     "kaigi.authorization-identity": "native.commitment.blake3-256.frame-v1",
+     "confidential.spentness-tree": "deferred: confidential.spentness-tree",
+     "mkhe.proof-digest": "retired-at-migration: proof-internal.six-lane-and-sha3-384-transcripts"
+    },
+    "correction": "The four roles H.1 found on the unqualified GoldilocksDigest384V1 leave it: two move to the canonical native commitment, the spentness tree is selected with the State commitment, and the MKHE proof digest follows the frozen transcript construction when its engine migrates. No role keeps the six-lane digest as a frozen profile.",
+    "implemented_by": ["F.5", "G.3", "C.5"],
+    "vectors_required": "Cross-SDK vectors of each moved role on the canonical frame."
+   }
+  ],
+  "exploratory_basis": [
+   {
+    "selection": "native.commitment.blake3-256.frame-v1",
+    "measurement": "h1.native-digest.frame/2026-10-05/host",
+    "use": "The byte-oriented digests are within a small factor of each other natively and the six-lane digest is three orders of magnitude slower, so the choice among the byte-oriented digests rests on each role's security requirement, not on cost. Guidance only; it is a single exploratory run and no qualification."
+   },
+   {
+    "selection": "fastpq.transcript.q77.v1",
+    "measurement": "h1.transcript.candidates/2026-10-06/frozen-q77/host",
+    "use": "One complete transcript costs a negligible part of proving and of bounded verification, so the construction is selected on its binding and domain separation, not on speed. Guidance only."
+   },
+   {
+    "selection": "bn254.poseidon.x5-t3.v1 and bn254.poseidon.x5-t6.v1",
+    "measurement": null,
+    "use": "No measurement was used: the corrections restore published and deployed parameter sets and a sponge mode with a capacity coordinate. The workload h1.bn254-poseidon.rounds defines what H.3 measures; the six-input hash costs two permutations instead of one."
+   },
+   {
+    "selection": "goldilocks.in-circuit-digest (blocked)",
+    "measurement": "specs/state_commitment_candidates.json (task G.2)",
+    "use": "The G.2 prototype measurements of width-12 Goldilocks sponges are costs only. They are not a security justification and select nothing here."
+   }
+  ],
+  "state_commitment": "The World State tree and hash are not selected here. G.2 measures the candidates and G.3 selects and freezes them; the retained identity of state.lthash16-accumulator describes what the tree computes today and is replaced by G.3.",
+  "shared_transcript": {
+   "profile": "fastpq.transcript.q77.v1",
+   "construction": "fips202-atomic-whole-tape-transcript-v1",
+   "selection": "The existing construction of the committed q77 engine is selected as the shared backend transcript. What changed is the identity it carries: the prefix now holds the construction name and the complete typed descriptor in place of the legacy parameter-set name and a hand-written token string. Every proof byte and both artifact profile ids changed; no old path is kept.",
+   "requirements": "shared_transcript_requirements",
+   "binding_order": [
+    {
+     "order": 1,
+     "bound": "The complete typed profile descriptor (construction, framing, primitives, field and encodings, domains, masking bounds, out-of-domain claims, DEEP composition, FRI schedule, sampling rules, message schedule, grinding, proof frame, declared envelope), the catalog, and the statement context (relation identity, public-column layout, geometry, complete statement).",
+     "how": "They form the prefix frame that begins every SHA3-256 and every SHAKE256 input, including the first leaf and the first tape. The statement carries the relation's public IO, State anchors, execution context and replay domain; its completeness is the relation owner's obligation.",
+     "tests": ["backend::deep_binding::frozen_tests::every_descriptor_parameter_is_bound_by_every_commitment_and_challenge", "backend::deep_binding::frozen_tests::statement_context_fields_are_bound_before_any_commitment"]
+    },
+    {
+     "order": 2,
+     "bound": "The row root of the 301 retained trace columns.",
+     "how": "Chained with the whole first tape before the 923 constraint coefficients are derived.",
+     "tests": ["backend::deep_binding::frozen_tests::each_commitment_changes_every_later_challenge_and_no_earlier_one"]
+    },
+    {
+     "order": 3,
+     "bound": "The joined root of both quotient chunks and the composition mask.",
+     "how": "Chained before the out-of-domain point.",
+     "tests": ["backend::deep_binding::frozen_tests::each_commitment_changes_every_later_challenge_and_no_earlier_one"]
+    },
+    {
+     "order": 4,
+     "bound": "All 604 out-of-domain answers, every coordinate, in current-row, next-row, quotient order.",
+     "how": "Hashed as one leaf and chained before the batching scalar.",
+     "tests": ["backend::deep_binding::frozen_tests::every_out_of_domain_answer_is_bound_before_the_batching_scalar"]
+    },
+    {
+     "order": 5,
+     "bound": "Each of the five FRI layer roots.",
+     "how": "Chained before its own folding challenge.",
+     "tests": ["backend::deep_binding::frozen_tests::each_commitment_changes_every_later_challenge_and_no_earlier_one"]
+    },
+    {
+     "order": 6,
+     "bound": "The complete terminal: the root of the single leaf holding all 128 values. The profile has zero grinding bits, so no nonce exists.",
+     "how": "Chained before the query tape.",
+     "tests": ["backend::deep_binding::frozen_tests::each_commitment_changes_every_later_challenge_and_no_earlier_one", "backend::deep_binding::frozen_tests::reordered_or_omitted_commitments_are_refused_or_change_the_queries"]
+    },
+    {
+     "order": 7,
+     "bound": "The complete bounded openings and their indices.",
+     "how": "The verifier derives every index from the query tape, authenticates each opened row, quotient leaf, fiber and the whole terminal against the committed roots under the same prefix, and rejects a missing, extra, reordered or altered opening.",
+     "tests": ["backend::deep_engine::tests::all_commitments_authenticate_under_their_exact_statement_and_role", "backend::deep_engine::tests::every_current_root_frontier_byte_and_extension_lane_is_authenticated", "backend::deep_fixture::frozen_tests::a_real_proof_fails_under_every_changed_reordered_or_omitted_bound_element"]
+    }
+   ],
+   "invariant": "No challenge is derived before the commitments it tests: a changed commitment changes every later tape and no earlier one.",
+   "domain_separation": ["SHA3-256 and SHAKE256 are separated by their FIPS 202 suffixes.", "Leaves, parents, chain commitments and tapes are separated by the body kind; oracles by tag and round; positions by level and index; the requested output length is part of every body.", "Statements, relations and profiles are separated by the complete prefix; no digest of the context replaces its bytes."],
+   "sampling": ["A tape is materialized once at its fixed extent. A word at or above the modulus is rejected, never reduced, and no rejection squeezes another byte.", "Rejected and unused words are part of the whole tape that the next chain commitment binds.", "A base-field out-of-domain point, exhaustion, a wrong phase and a malformed message abort the attempt permanently.", "The query tape must first yield all 87 accepted candidates; the first 77 distinct positions are used in ascending order."],
+   "grinding": {
+    "bits": 0,
+    "nonce": "none",
+    "statement": "The profile has zero grinding bits and the proof frame has no nonce field. No work-security term is claimed. The requirement to bind a nonce before the query positions applies only to a profile with nonzero grinding.",
+    "open": "B.2 counts repeated attempts and prover-controlled variation of statements and commitments in the adversary budget: permanent abort prevents further sampling inside one attempt, not adversarial retries."
+   },
+   "work_limits": {
+    "bound": "The profile's declared envelope: the relation identity, statement, context and frame byte ceilings, the decoder allocation, sequence and nesting bounds, the layer, path and fiber bounds, and the structural work charge with the version and unit of its accounting.",
+    "not_bound": "Caller ceilings (WorkLimits, VerifierLimits, ProducerLimits values). They are admission policy and must not change proof bytes; admission enforces committed-State policy separately, and the limit types alone do not show that a caller took its ceilings from State.",
+    "structural_work_charge": "29,751 units is a structural charge of a maximal frame under accounting version 1, not complete verification work. Complete resource accounting is B.2 and F.2 work."
+   },
+   "security_statement": {
+    "status": "Transcript semantics are frozen. Security qualification of the q77 profile is pending and no numerical error is established.",
+    "claim_form": "Any claim is an absolute error at a stated query budget, stated separately for the classical and the quantum random-oracle model. No work-normalized 128-bit claim is made.",
+    "commitments": "SHA3-256: generic collision search costs about 2^128 classical work and about 2^85 quantum queries (Brassard-Hoyer-Tapp); preimage search about 2^256 classical and 2^128 quantum. These are ideal-hash estimates.",
+    "challenges": "SHAKE256 with a 512-bit capacity; each verifier message is one oracle output of its exact extent.",
+    "classical_rom": "Conditional. It needs a round-by-round soundness bound for the actual q77 interactive oracle proof (blowup 128, arities 16, 16, 8, 8, 4, degree bound 2N, 77 queries, masked DEEP composition) and the mapping of this chained transcript and its Merkle commitments to the BCS compilation. Neither exists in the tree: the reviewed round-by-round argument is for the retired q375 binary profile. B.2 owns the exact-geometry reduction and the checked accounting.",
+    "qrom": "Open. In Chiesa-Manohar-Spooner, ordinary round-by-round soundness supports the modified chain that contains the verifier messages; the stronger property of their section 8.6 concerns original BCS messages generated outside the chain. The exact mapping of the q77 transcript to that compiler, with its query accounting, remains necessary and is not supplied.",
+    "hiding": "Only the honest-verifier algebraic answer view is argued (specs/fastpq_deep_hiding_construction.md). The adaptive Merkle and Fiat-Shamir simulator is open.",
+    "algebraic_error": "Algebraic and FRI error sums alone establish neither Fiat-Shamir soundness nor hiding.",
+    "tests_establish": "Implementation conformance with the frozen binding, not soundness.",
+    "invalidation": "A change of any descriptor parameter, including a query count or a FRI schedule that B.2's accounting requires, changes the identity and makes every measurement that names the previous identity inapplicable. No reviewer token is involved."
+   },
+   "known_answers": {
+    "fixture": "fixtures/fastpq/q77-transcript-profile.json",
+    "reference": "scripts/zk_semantic_profile_reference.py",
+    "rust_test": {
+     "path": "crates/fastpq_prover/src/backend/deep_binding/frozen_tests.rs",
+     "test": "frozen_transcript_matches_the_independent_known_answers"
+    },
+    "inputs": {
+     "catalog": "iroha-privacy-exact12-v1",
+     "relation": "fastpq:transcript:known-answer-relation:v1",
+     "layout": "fastpq:compact:smt-public-columns:v1:342-to-301:period512:rows65536:public32-35,53-63,276-301:node83:execute408",
+     "statement_hex": "66726f7a656e207472616e736372697074206b6e6f776e2d616e737765722073746174656d656e743a207075626c6963206279746573206f6e6c79",
+     "commitment_seed": "fastpq:transcript:known-answer-commitment:v1"
+    }
+   },
+   "goldens": {
+    "semantic_identity": {
+     "path": "crates/fastpq_prover/src/backend/transcript_profile/tests.rs",
+     "test": "frozen_identity_frame_and_artifact_profile_ids_are_pinned"
+    },
+    "artifact_profile_ids": {
+     "note": "FastpqCompactProfileIdV1 stays the separately defined artifact wire digest: SHA-256 of the canonical Norito artifact descriptor, which embeds the same transcript descriptor bytes.",
+     "quantity_axt": "4f0ece59b3f42d1c318f597b0df2f5af8b8db41bc95dfbb11974ddb285f20b0b",
+     "execution_effect": "e4b83c36dca6915f908d6509ef43511ae6da1b8254cb2724b2b6fe00918779b8"
+    },
+    "descriptor_pin": "fixtures/fastpq/q77-quantity-profile.json",
+    "proof_pins": ["fixtures/fastpq/q77-frozen-transcript-proof.json", "fixtures/fastpq/q77-quantity-ordinary-single.json", "fixtures/fastpq/q77-quantity-axt-single.json"],
+    "proof_pin_tests": {
+     "producer": "backend::deep_fixture::frozen_tests::seeded_proof_under_the_frozen_transcript_is_built_and_retained",
+     "binding": "backend::deep_fixture::frozen_tests::a_real_proof_fails_under_every_changed_reordered_or_omitted_bound_element",
+     "note": "The producer builds the seeded proof and retains its bytes under target/; the binding test checks the retained bytes against the tracked pin and proves nothing. Both are ignored by default because the proof is expensive."
+    }
+   },
+   "removed": ["The hand-written profile identity string of the transcript (`deep_binding::IDENTITY`).", "The legacy parameter-set name `fastpq-state-transition-stark-v1` as the transcript's protocol tag."],
+   "engines": [
+    {
+     "engine": "fastpq-q77",
+     "disposition": "frozen",
+     "owner_tasks": ["H.2"],
+     "note": "The engine of the frozen profile."
+    },
+    {
+     "engine": "fastpq-isi-parameters",
+     "disposition": "frozen",
+     "owner_tasks": ["H.2"],
+     "note": "Owns the raw tapes, the bounded decoders and the semantic profile identity type of the frozen profile."
+    },
+    {
+     "engine": "fastpq-legacy-replay",
+     "disposition": "retired-at-migration",
+     "owner_tasks": ["A.4", "B.3"],
+     "note": "Test and dev-tools replay driver with a six-lane transcript; deleted when its remaining utility importers move. It has no frozen profile."
+    },
+    {
+     "engine": "privacy-execution-fork",
+     "disposition": "adopts-at-migration",
+     "owner_tasks": ["B.3"],
+     "note": "Adopts the frozen construction with its own complete descriptor and accounting; its six-lane frames have no frozen profile."
+    },
+    {
+     "engine": "privacy-substrate",
+     "disposition": "adopts-at-migration",
+     "owner_tasks": ["B.3", "X.3", "P.18", "P.19", "P.20"],
+     "note": "Adopts the frozen construction with a descriptor per relation; its SHA3-384 frame transcript has no frozen shared-backend profile."
+    },
+    {
+     "engine": "zk-ace-stark",
+     "disposition": "adopts-at-migration",
+     "owner_tasks": ["B.3", "P.15"],
+     "note": "Adopts the frozen construction; its in-circuit digest is blocked separately (goldilocks.in-circuit-digest)."
+    },
+    {
+     "engine": "zk-x509-driver",
+     "disposition": "adopts-at-migration",
+     "owner_tasks": ["X.3", "B.3"],
+     "note": "Drives the privacy substrate transcript today; adopts the frozen construction with the X509 descriptor. Its query count and query-dependent parameters change only with an explicit joint reduction (REQ-083)."
+    },
+    {
+     "engine": "core-zk-native-stark",
+     "disposition": "adopts-at-migration",
+     "owner_tasks": ["B.3"],
+     "note": "Generic verifier with a six-lane transcript replay; adopts the frozen construction, no frozen profile for the replay."
+    },
+    {
+     "engine": "soracloud-bfv-native-stark",
+     "disposition": "adopts-at-migration",
+     "owner_tasks": ["C.9", "B.3"],
+     "note": "Proof material whose transcript label the generic verifier consumes; follows that verifier's migration."
+    },
+    {
+     "engine": "zk-ams-rns-qpcs",
+     "disposition": "conditional",
+     "owner_tasks": ["C.5"],
+     "note": "If C.5 selects the FASTPQ backend as the PCS, the qPCS adopts the frozen construction with its own descriptor over its fields; otherwise it stays a distinct family with its own analysed transcript. Its six-lane proof digest is not frozen either way."
+    }
+   ],
+   "engines_note": "One entry per engine of specs/fastpq/shared_backend_inventory.json. H.2 deletes no engine: each implementation is removed when its actual callers migrate, with its behavioural coverage and without a compatibility branch."
+  },
+  "measurement_binding": {
+   "rule": "Every workload names the profiles it depends on (`profiles`) and the selections it still waits for (`profiles_not_frozen`). Every recorded measurement names the identity of each profile it measured (`profile_identities`). A measurement that names an identity other than the current one of that profile is inapplicable: the check fails until it is re-measured or moved to `inapplicable_measurements` with the identity it was taken under. A measurement taken on no frozen profile says so in `profile_binding`.",
+   "final_measurements": "H.3 measures only workloads whose `profiles_not_frozen` is empty, and binds each record to these identities through the profile field of the measurement identity.",
+   "harness_field": "A workload's `profile_set_identity` is the SHA3-256 of `iroha:semantic-profile-set:v1`, a zero byte, the profile count as a u32 little-endian and the 32-byte identities of its `profiles` in order (fastpq_isi::semantic_profile::semantic_profile_set_id_v1). A measurement record of crates/iroha_measurement names it in the `profile` field of its identity as `semantic=<profile_set_identity>+<build profile>`, which is within the identity text grammar of crates/iroha_measurement/src/text.rs.",
+   "no_reviewer_token": "Invalidation is a comparison of identities by the check. No signature, approval or runtime switch is involved.",
+   "inapplicable_measurements": []
+  }
+ }
 }

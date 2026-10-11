@@ -100,10 +100,7 @@ impl Intent {
         validate_gateway_label_bound(labels)?;
         let mut expected = Vec::with_capacity(3);
         for provider in &authority.manifest.providers {
-            let plan = authority
-                .prepared
-                .gateway_compliance_plan(provider.provider_id)?
-                .ok_or_else(|| invalid("original provider compliance plan is absent"))?;
+            let plan = authority.gateway_compliance_plan(provider.provider_id)?;
             let label = plan.gateway_label().to_owned();
             let id = derive_stream_token_gateway_id_v1(&authority.config.network_id, &label)
                 .map_err(|_| invalid("invalid original compliance gateway label"))?;
@@ -370,10 +367,7 @@ pub(super) fn explicit(
         None => Terms::new(utc, options)?,
     };
     attempts::initial(
-        directory,
-        purpose,
-        original.digest()?,
-        &crate::managed::native_operation::attempts::HistoryScope::FixedBody,
+        history,
         terms,
         Observation::ordinary(),
         options.deadline,

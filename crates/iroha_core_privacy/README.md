@@ -7,6 +7,17 @@ or the P2P runtime. Core owns world-state storage, transaction authority,
 admission, and application of the returned effects; this crate never opens or
 commits a node's world state.
 
+`privacy_verifier::verify_privacy_envelope_v1` is the single dispatch of the
+thirteen action roles of the twelve registered protocols. It resolves the one
+role of an envelope, asks the typed registry in `privacy_dispatch`
+(`PRIVACY_ROLE_DISPATCH_TABLE_V1`) whether that role is verified, runs the
+role's native verifier and seals only an effect of that role. A role the
+registry records as unsupported returns the typed
+`PrivacyVerificationErrorV1::UnsupportedOperation` with its concrete
+limitation; it never succeeds. The registry keeps verification, the effect
+class, whether the effect is reachable, and delivery as separate facts, and no
+role is recorded as delivered.
+
 The implementation uses `ivm` for prepared-contract execution diagnostics and
 the IVM step relation, alongside `ivm_abi` for ABI constants. It uses
 `fastpq_prover` for accelerated Goldilocks transforms and `fastpq_isi` for the

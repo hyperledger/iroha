@@ -293,13 +293,13 @@ internal class TestKeyStoreV1 : KagemushaWalletAndroidKeyStoreV1 {
         return entries.values.first { it.key === key }.facts
     }
 
-    override fun sign(key: PrivateKey, preimage: ByteArray): ByteArray {
+    override fun sign(key: PrivateKey, message: ByteArray): ByteArray {
         signCalls += 1
         signFailure?.let { throw it }
         val delegate = (key as TestNonExportableKeyV1).delegate
         return Signature.getInstance("SHA256withECDSA").run {
             initSign(delegate)
-            update(preimage)
+            update(message)
             sign()
         }
     }

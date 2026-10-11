@@ -64,7 +64,7 @@ fn preflight(
     statement: &SourceExecutionEffectStatement<'_>,
     expected: ExpectedExecutionEffects<'_>,
     proving: ProvingLimits,
-    limits: ExecutionEffectVerificationLimits,
+    limits: &ExecutionEffectVerificationLimits,
 ) -> Result<usize> {
     let count = statement.effects().effects.len();
     let public = limits.public_policy();
@@ -112,7 +112,7 @@ pub(super) fn preflight_for_test(
     statement: &SourceExecutionEffectStatement<'_>,
     expected: ExpectedExecutionEffects<'_>,
     proving: ProvingLimits,
-    limits: ExecutionEffectVerificationLimits,
+    limits: &ExecutionEffectVerificationLimits,
 ) -> Result<usize> {
     preflight(statement, expected, proving, limits)
 }
@@ -122,7 +122,7 @@ pub(super) fn encode_artifact(
     statement: &SourceExecutionEffectStatement<'_>,
     source: &FastpqOrdinarySourceStatementLeafV1,
     bundle: &[u8],
-    limits: ExecutionEffectVerificationLimits,
+    limits: &ExecutionEffectVerificationLimits,
 ) -> Result<Vec<u8>> {
     check(
         "max_compact_producer_bundle_bytes",
@@ -142,7 +142,7 @@ pub(in crate::backend) fn prove(
     statement: &SourceExecutionEffectStatement<'_>,
     expected: ExpectedExecutionEffects<'_>,
     proving: ProvingLimits,
-    limits: ExecutionEffectVerificationLimits,
+    limits: &ExecutionEffectVerificationLimits,
     budget: &AllocationBudget,
     reservation: &mut AllocationReservation,
 ) -> std::result::Result<(Vec<u8>, crate::offline_compact::VerifiedArtifact), ProvingError> {

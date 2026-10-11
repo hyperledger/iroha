@@ -1,13 +1,19 @@
 //! Exhaustive native privacy proof verification boundary.
 //!
 //! An admitted envelope must pass the locally compiled governance manifest,
-//! intrinsic typed validation, execution-context binding, strict native wire
-//! decoding, and the protocol's cryptographic verifier in that order. Only
-//! this module can construct [`VerifiedPrivacyEffectsV1`], so state handlers
-//! cannot derive ledger effects from unverified caller-controlled bytes.
+//! intrinsic typed validation, execution-context binding, the typed dispatch
+//! registry, strict native wire decoding, and the role's cryptographic verifier
+//! in that order. [`verify_privacy_envelope_v1`] is the single dispatch of all
+//! Exact12 roles: it resolves the one role of the envelope, refuses a role the
+//! registry (`crate::privacy_dispatch`) records as unsupported with a typed
+//! error, runs that role's one native verifier and seals only an effect of
+//! that role. Only this module can construct [`VerifiedPrivacyEffectsV1`], so
+//! state handlers cannot derive ledger effects from unverified
+//! caller-controlled bytes.
 #[cfg(feature = "zk-stark")]
 use crate::privacy_engines::zk_ace::{ZkAceNativeErrorV1, verify_zk_ace_privacy_v1};
 use crate::{
+    privacy_dispatch::{PrivacyUnsupportedOperationV1, require_supported_privacy_action_role_v1},
     privacy_engines::{
         anonymous_pgc::{
             AnonymousPgcError, AnonymousPgcParametersV1, AnonymousPgcPoolInvariantV1,
@@ -75,7 +81,7 @@ use iroha_data_model::{
         BootleLanternIssuerPolicyV1, IrohaBootleLanternAnoncredStatementV1,
         IrohaIvmPrivateNoteStarkStatementV1, IrohaJindoPolynomialCommitmentStatementV1,
         IrohaZkAmsStatementV1, MoneroFcmpPlusPlusStatementV1, OrchardHalo2ActionsStatementV1,
-        PqMaspStarkStatementV1, PrivacyCommitmentV1, PrivacyConsensusLimitsV1,
+        PqMaspStarkStatementV1, PrivacyActionRoleV1, PrivacyCommitmentV1, PrivacyConsensusLimitsV1,
         PrivacyFcmpKeyImageV1, PrivacyFcmpOutputTupleV1, PrivacyNamespaceV1,
         PrivacyNativeConsensusBindingV1, PrivacyNativeConsensusBindingValidationErrorV1,
         PrivacyNullifierV1, PrivacyP256CiphertextV1, PrivacyP256PointV1,
@@ -506,6 +512,7 @@ pub enum VerifiedPrivacyLedgerEffectsV1 {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct VerifiedPrivacyEffectsV1 {
+    role: PrivacyActionRoleV1,
     protocol_id: PrivacyProtocolIdV1,
     statement_digest: PrivacyStatementDigestV1,
     action_index: u32,
@@ -513,6 +520,38 @@ pub struct VerifiedPrivacyEffectsV1 {
     ledger: VerifiedPrivacyLedgerEffectsV1,
 }
 impl VerifiedPrivacyEffectsV1 {
+    /// Seal the effect of one verified role.
+    ///
+    /// This is the only constructor. It refuses a ledger effect that is not the
+    /// registered effect of `role`, so every value of this type carries an
+    /// effect its own role may hand to the state executor.
+    fn seal_v1(
+        role: PrivacyActionRoleV1,
+        statement_digest: PrivacyStatementDigestV1,
+        action_index: u32,
+        encoded_action_bytes: u64,
+        ledger: VerifiedPrivacyLedgerEffectsV1,
+    ) -> Result<Self, PrivacyVerificationErrorV1> {
+        if !ledger.discharges_role_v1(role) {
+            return Err(PrivacyVerificationErrorV1::EffectRoleMismatch(Box::new(
+                PrivacyEffectRoleMismatchFailureV1 { role },
+            )));
+        }
+        Ok(Self {
+            role,
+            protocol_id: role.protocol_id(),
+            statement_digest,
+            action_index,
+            encoded_action_bytes,
+            ledger,
+        })
+    }
+    /// Return the one Exact12 role that was verified.
+    #[must_use]
+    #[inline]
+    pub const fn role(&self) -> PrivacyActionRoleV1 {
+        self.role
+    }
     /// Return the cryptographically verified protocol.
     #[must_use]
     #[inline]
@@ -553,15 +592,19 @@ impl VerifiedPrivacyEffectsV1 {
 }
 /// Verify one envelope and derive its exact atomic effects.
 ///
+/// This is the single dispatch of every Exact12 role. No other function selects
+/// a native verifier for an envelope.
+///
 /// # Errors
 ///
 /// Rejects a missing/altered compiled profile, malformed or inactive
-/// activation, envelope inconsistency, wrong execution context, unsupported
-/// engine, non-canonical native wire value, or failed proof equation.
+/// activation, envelope inconsistency, wrong execution context, a role the
+/// dispatch registry records as unsupported, non-canonical native wire value,
+/// or failed proof equation.
 ///
 /// Failure precedence is consensus-critical: compiled activation is checked first, governed and
 /// intrinsic envelope validity second, trusted execution context third, canonical byte charging
-/// fourth, and the selected native verifier last.
+/// fourth, the typed dispatch registry fifth, and the selected native verifier last.
 #[doc(hidden)]
 pub fn verify_privacy_envelope_v1(
     envelope: &PrivacyProofEnvelopeV1,
@@ -635,8 +678,16 @@ fn verify_privacy_envelope_after_compiled_activation_v1(
             ))
         })?;
     // Envelope admission above established an exact protocol match between the envelope, statement,
-    // and proof (including the ZK-AMS action tag). Route only on the closed statement enum so
-    // adding a protocol cannot compile until this dispatcher has an explicit native-verifier arm.
+    // and proof (including the ZK-AMS action tag); the single resolver names the one role.
+    let role = envelope.action_role_v1().map_err(|source| {
+        PrivacyVerificationErrorV1::Envelope(Box::new(PrivacyEnvelopeFailureV1 { source }))
+    })?;
+    // A role without usable verification is refused here with its typed limitation, before any
+    // proof byte is examined. This refusal does not depend on an activation record.
+    require_supported_privacy_action_role_v1(role)
+        .map_err(|source| PrivacyVerificationErrorV1::UnsupportedOperation(Box::new(source)))?;
+    // Route only on the closed statement enum so adding a protocol cannot compile until this
+    // dispatcher has an explicit native-verifier arm.
     let proof = envelope.proof.bytes();
     let ledger = match &envelope.statement {
         #[cfg(feature = "zk-stark")]
@@ -668,10 +719,11 @@ fn verify_privacy_envelope_after_compiled_activation_v1(
         }
         #[cfg(not(feature = "zk-stark"))]
         PrivacyStatementV1::ZkAcePqAuthorizationV1(_) => {
-            return Err(PrivacyVerificationErrorV1::EngineUnavailable(Box::new(
-                PrivacyEngineUnavailableFailureV1 {
-                    protocol_id: envelope.protocol_id,
-                },
+            return Err(PrivacyVerificationErrorV1::UnsupportedOperation(Box::new(
+                PrivacyUnsupportedOperationV1::new(
+                    role,
+                    crate::privacy_dispatch::PrivacyRoleLimitationV1::NativeEngineNotCompiled,
+                ),
             )));
         }
         PrivacyStatementV1::AnonymousPgcKOutOfNV1(statement) => {
@@ -755,13 +807,13 @@ fn verify_privacy_envelope_after_compiled_activation_v1(
         }
     };
     let _trusted_block_timestamp_ms = context.block_timestamp_ms;
-    Ok(VerifiedPrivacyEffectsV1 {
-        protocol_id: envelope.protocol_id,
-        statement_digest: envelope.statement_digest,
-        action_index: context.expected_action_index,
+    VerifiedPrivacyEffectsV1::seal_v1(
+        role,
+        envelope.statement_digest,
+        context.expected_action_index,
         encoded_action_bytes,
         ledger,
-    })
+    )
 }
 fn verify_zk_x509_certificate_v1(
     statement: &iroha_data_model::privacy::IrohaZkX509StarkP256StatementV1,
@@ -1796,10 +1848,15 @@ pub enum PrivacyVerificationErrorV1 {
     /// Typed envelope or governed lifecycle validation failed.
     #[error(transparent)]
     Envelope(Box<PrivacyEnvelopeFailureV1>),
-    /// The selected protocol has no complete native verifier.
-    #[cfg(not(feature = "zk-stark"))]
+    /// The selected role has no usable native verification in this source tree.
+    ///
+    /// This typed refusal carries the role and its concrete limitation. It is
+    /// returned before any proof byte is examined and is never a success.
     #[error(transparent)]
-    EngineUnavailable(Box<PrivacyEngineUnavailableFailureV1>),
+    UnsupportedOperation(Box<PrivacyUnsupportedOperationV1>),
+    /// A native verifier returned the ledger effect of another role.
+    #[error(transparent)]
+    EffectRoleMismatch(Box<PrivacyEffectRoleMismatchFailureV1>),
     /// Native VeRange decoding or verification failed.
     #[error(transparent)]
     NativeVeRange(Box<PrivacyVeRangeVerificationFailureV1>),
@@ -1908,11 +1965,12 @@ pub struct PrivacyCompiledActivationFailureV1 {
 pub struct PrivacyEnvelopeFailureV1 {
     source: PrivacyProofEnvelopeValidationError,
 }
-#[derive(Debug, Error, Clone, Copy)]
-#[cfg(not(feature = "zk-stark"))]
-#[error("native privacy engine for {protocol_id:?} is not available")]
-pub struct PrivacyEngineUnavailableFailureV1 {
-    protocol_id: PrivacyProtocolIdV1,
+/// Internal dispatch fault: a verified ledger effect did not belong to its role.
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+#[error("native privacy verifier returned an effect that does not belong to role {role}")]
+pub struct PrivacyEffectRoleMismatchFailureV1 {
+    /// The role whose verifier produced the foreign effect.
+    pub role: PrivacyActionRoleV1,
 }
 #[derive(Debug, Error, Clone, Copy)]
 #[error("native VeRange verification failed: {source}")]
@@ -5850,6 +5908,7 @@ mod tests {
         ));
     }
     include!("privacy_verifier/governed_binding_tests.rs");
+    include!("privacy_verifier/role_dispatch_tests.rs");
 }
 
 #[cfg(any(test, feature = "test-utils"))]

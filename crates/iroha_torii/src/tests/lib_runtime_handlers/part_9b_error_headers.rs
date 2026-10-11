@@ -52,23 +52,14 @@ fn accept_transaction_nts_unhealthy_sets_header_code() {
     );
 }
 #[test]
-fn kagemusha_reason_query_error_sets_reject_code_header() {
-    use iroha_data_model::{
-        kagemusha::KAGEMUSHA_V1_REJECTION_REASON_PREFIX,
-        query::error::QueryExecutionFail,
-    };
-    let message = format!(
-        "{KAGEMUSHA_V1_REJECTION_REASON_PREFIX}invalid_proof:recursive proof is invalid"
-    );
+fn query_conversion_error_does_not_infer_a_reject_code_header() {
+    use iroha_data_model::query::error::QueryExecutionFail;
     let err = super::Error::Query(iroha_data_model::ValidationFail::QueryFailed(
-        QueryExecutionFail::Conversion(message),
+        QueryExecutionFail::Conversion("invalid_proof:recursive proof is invalid".to_owned()),
     ));
     let response = err.into_response();
-    assert_eq!(
-        response
-            .headers()
-            .get("x-iroha-reject-code")
-            .and_then(|v| v.to_str().ok()),
-        Some("invalid_proof")
+    assert!(
+        response.headers().get("x-iroha-reject-code").is_none(),
+        "conversion messages never carry a protocol-specific reject code"
     );
 }

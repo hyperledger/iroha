@@ -57,7 +57,7 @@ use iroha_data_model::{
         BootleLanternDisclosedAttributeV1, BootleLanternIssuerPolicyLifecycleV1,
         IrohaBootleLanternAnoncredStatementV1, PrivacyConsensusLimitsV1, PrivacyProofBytesV1,
         PrivacyProofEnvelopeV1, PrivacyProofV1, PrivacyProtocolIdV1, PrivacyStatementContextV1,
-        PrivacyStatementDigestV1, PrivacyStatementV1, PrivacyTransactionIntentDigestV1,
+        PrivacyStatementV1, PrivacyTransactionIntentDigestV1,
     },
     transaction::{
         Executable, FeePaymentIntent, TransactionBuilder, signed::TransactionSignatureError,
@@ -1749,26 +1749,14 @@ fn bootle_lantern_presentation_transaction_payload_v1(
 }
 #[cfg(test)]
 fn bootle_lantern_presentation_envelope_v1(
-    profile: crate::privacy_profiles::CompiledPrivacyProfileV1,
     statement: IrohaBootleLanternAnoncredStatementV1,
-    statement_digest: PrivacyStatementDigestV1,
     proof: Vec<u8>,
 ) -> PrivacyProofEnvelopeV1 {
-    PrivacyProofEnvelopeV1 {
-        wire_magic: Default::default(),
-        catalog_commitment: Default::default(),
-        protocol_id: profile.protocol_id,
-        proof_system_id: profile.proof_system_id,
-        engine_id: profile.engine_id,
-        parameter_id: profile.parameter_id,
-        parameter_digest: profile.parameter_digest,
-        verifier_digest: profile.verifier_digest,
-        statement_schema_digest: profile.statement_schema_digest,
-        engine_manifest_digest: profile.engine_manifest_digest,
-        statement_digest,
-        statement: PrivacyStatementV1::IrohaBootleLanternAnoncredV1(statement),
-        proof: PrivacyProofV1::IrohaBootleLanternAnoncredV1(PrivacyProofBytesV1::new(proof)),
-    }
+    PrivacyProofEnvelopeV1::bind_v1(
+        PrivacyStatementV1::IrohaBootleLanternAnoncredV1(statement),
+        PrivacyProofV1::IrohaBootleLanternAnoncredV1(PrivacyProofBytesV1::new(proof)),
+    )
+    .expect("a Bootle/Lantern statement binds its own proof variant")
 }
 #[cfg(test)]
 fn bootle_lantern_statement_matches_policy_v1(
@@ -1816,12 +1804,7 @@ pub fn prepare_bootle_lantern_presentation_transaction_intent_v1(
         policy,
         disclosures,
     );
-    let projection = bootle_lantern_presentation_envelope_v1(
-        profile,
-        statement.clone(),
-        PrivacyStatementDigestV1::new([0; 32]),
-        Vec::new(),
-    );
+    let projection = bootle_lantern_presentation_envelope_v1(statement.clone(), Vec::new());
     let transaction_intent_digest =
         bootle_lantern_presentation_transaction_payload_v1(context, projection)?
             .privacy_transaction_intent_digest_v1()
@@ -1866,15 +1849,10 @@ pub fn validate_bootle_lantern_presentation_transaction_intent_v1(
     typed_statement
         .validate(&PrivacyConsensusLimitsV1::taira_default())
         .map_err(|_| BootleLanternPresentationPrivacyActionIntentErrorV1::StatementValidation)?;
-    let statement_digest = typed_statement
+    typed_statement
         .digest()
         .map_err(|_| BootleLanternPresentationPrivacyActionIntentErrorV1::StatementDigest)?;
-    let projection = bootle_lantern_presentation_envelope_v1(
-        profile,
-        statement.clone(),
-        statement_digest,
-        Vec::new(),
-    );
+    let projection = bootle_lantern_presentation_envelope_v1(statement.clone(), Vec::new());
     let validated = bootle_lantern_presentation_transaction_payload_v1(context, projection)?
         .validate_privacy_transaction_intent_binding_v1()
         .map_err(|_| BootleLanternPresentationPrivacyActionIntentErrorV1::FinalIntentBinding)?;
@@ -2070,12 +2048,10 @@ fn finalize_bootle_lantern_prepared_presentation_privacy_action_v1(
     }
     let proof_bytes = u32::try_from(proof_encoding.len())
         .map_err(|_| BootleLanternPresentationPrivacyActionBuildErrorV1::EncodedLengthOverflow)?;
-    let final_envelope = bootle_lantern_presentation_envelope_v1(
-        profile,
-        statement,
-        statement_digest,
-        proof_encoding,
-    );
+    let final_envelope = bootle_lantern_presentation_envelope_v1(statement, proof_encoding);
+    if !profile.matches_envelope_v1(&final_envelope) {
+        return Err(BootleLanternPresentationPrivacyActionBuildErrorV1::EnvelopeValidation);
+    }
     final_envelope
         .validate_with_limits(&PrivacyConsensusLimitsV1::taira_default())
         .map_err(|_| BootleLanternPresentationPrivacyActionBuildErrorV1::EnvelopeValidation)?;

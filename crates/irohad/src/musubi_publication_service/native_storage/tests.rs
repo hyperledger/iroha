@@ -259,3 +259,38 @@ fn read_only_call_window_can_outlive_original_effects_without_authorizing_new_wo
         .is_err()
     );
 }
+
+#[test]
+fn operation_identity_charges_one_canonical_publisher_frame_without_renewal() {
+    let original = request();
+    let expected = operation_id(&original).unwrap();
+    let length = norito::canonical_frame_len(&original.publisher).unwrap();
+    let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, length, 128);
+    norito::with_decode_limits_scope(limits, || {
+        assert_eq!(operation_id(&original).unwrap(), expected);
+        let error = operation_id(&original).unwrap_err();
+        assert!(matches!(error.downcast_ref::<norito::Error>(),
+            Some(norito::Error::TotalAllocationExceeded { .. })));
+    });
+}
+
+#[test]
+fn storage_copy_charges_one_frame_and_its_independently_measured_decoded_graph() {
+    let source = vec![0x37_u8; 64];
+    let frame = norito::encode_canonical(&source).unwrap();
+    let budget = 65536;
+    let limits = norito::DecodeLimits::new(65536, 65536, 65536, budget, 128);
+    let decoded_bytes = norito::with_decode_limits_scope(limits, || {
+        assert_eq!(norito::decode_canonical::<Vec<u8>>(&frame).unwrap(), source);
+        let norito::Error::TotalAllocationExceeded { attempted, .. } =
+            norito::core::reserve_decode_allocation(budget + 1).unwrap_err()
+        else { panic!("allocation usage probe must refuse without charging"); };
+        attempted as usize - budget - 1
+    });
+    let exact = frame.len() + decoded_bytes;
+    let limits = norito::DecodeLimits::new(65536, 65536, 65536, exact, 128);
+    norito::with_decode_limits_scope(limits, || {
+        assert_eq!(bounded_copy(&source).unwrap(), source);
+        assert!(bounded_copy(&source).is_err(), "copy cannot renew inherited allowance");
+    });
+}

@@ -195,32 +195,6 @@ def test_private_settlement_rejects_each_missing_kotlin_jni_endpoint() -> None:
                 raise AssertionError("native probe accepted missing settlement endpoint")
 
 
-def test_kagami_consumes_the_same_native_artifact_inventory() -> None:
-    source = (REPO_ROOT / "crates/iroha_kagami/src/kagemusha.rs").read_text()
-    declaration = re.search(
-        r"const REQUIRED_C_JNI_SYMBOLS_V1: \[&str; (\d+)\] = \[(.*?)\n\];",
-        source,
-        re.DOTALL,
-    )
-    assert declaration is not None
-    symbols = re.findall(r'"([A-Za-z0-9_]+)"', declaration.group(2))
-    assert len(symbols) == int(declaration.group(1))
-    assert tuple(symbols) == MODULE.REQUIRED_SYMBOLS["c-jni"]
-
-
-def test_kagami_consumes_the_same_privacy_export_inventory() -> None:
-    source = (REPO_ROOT / "crates/iroha_kagami/src/kagemusha.rs").read_text()
-    declaration = re.search(
-        r"const REQUIRED_PRIVACY_C_EXPORTS_V1: \[&str; (\d+)\] = \[(.*?)\n\];",
-        source,
-        re.DOTALL,
-    )
-    assert declaration is not None
-    symbols = re.findall(r'"([A-Za-z0-9_]+)"', declaration.group(2))
-    assert len(symbols) == int(declaration.group(1))
-    assert tuple(symbols) == MODULE.APPROVED_PRIVACY_C_EXPORTS
-
-
 def test_native_c_probe_rejects_each_missing_current_c_export() -> None:
     for sdk in ("c-jni", "csharp"):
         required = MODULE.REQUIRED_SYMBOLS[sdk]

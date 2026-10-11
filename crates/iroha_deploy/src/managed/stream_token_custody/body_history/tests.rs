@@ -1122,3 +1122,140 @@ fn expired_reserved_successor_keeps_one_claim_per_turn_and_later_fresh_turn_prog
     assert!(third.current_history().unwrap().last().is_none());
     assert_eq!(fixture.native.chain.height(), 4);
 }
+
+#[test]
+fn first_reservation_refuses_changed_original_before_activation_and_preserves_exact_prefix() {
+    let _guard = crate::managed::native_test_guard();
+    let fixture = Fixture::enrolled(4_000);
+    wait_until(
+        fixture.initial.issued_at_unix_ms + 2_000,
+        Duration::from_secs(4),
+    );
+    let peers =
+        crate::managed::native_operation::test_support::UnavailablePeers::start(&fixture.prepared);
+    let mut turn = fixture.renewal_turn();
+    let unsigned = fresh_unsigned(&fixture);
+    let unsigned_bytes = encode(&unsigned, MAX_BODY_BYTES).unwrap();
+    let (_, current) = fixture.current();
+    let history = BodyHistory::initialize(
+        &fixture.owner,
+        CustodyPurpose::Renewal(2),
+        unsigned,
+        &Fees::from_options(&fixture.options).unwrap(),
+        &SigningTurn::RenewalSelection(&turn),
+        fixture.options.deadline,
+    )
+    .unwrap();
+    assert_eq!(history.anchor.highest, 1);
+    assert!(history.anchor.active.is_none());
+    assert!(history.anchor.completed.is_none());
+    assert!(history.bodies.is_empty());
+    let authorization = turn
+        .authorize_retained(&fixture.owner, &history, fixture.options.deadline)
+        .unwrap();
+    let anchor = history.root.read("anchor.nrt", MAX_BODY_BYTES).unwrap();
+    let reservation = encode(history.anchor.pending.as_ref().unwrap(), MAX_BODY_BYTES).unwrap();
+    let reference = fixture
+        .owner
+        .authority
+        .directory
+        .read(
+            reference_name(CustodyPurpose::Renewal(2)).unwrap(),
+            MAX_SELECTION_BYTES,
+        )
+        .unwrap();
+    let container = history.root.ensure_child("bodies").unwrap();
+    let mut changed = reservation.clone();
+    *changed.last_mut().unwrap() ^= 1;
+    let body = private_parent(&container)
+        .unwrap()
+        .publish_private_child("0001", &[("reserved.nrt", changed.as_slice())])
+        .unwrap();
+    let root = Arc::clone(&history.root);
+    let reads = NativeEnrollmentReads(&fixture.native);
+    let error = match history.finish_pending_with_reads(
+        &fixture.owner,
+        &current,
+        &SigningTurn::Generated(authorization),
+        fixture.options.deadline,
+        &reads,
+    ) {
+        Ok(_) => panic!("changed original reservation must refuse before activation"),
+        Err(error) => error,
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("retained body reservation changed")
+    );
+    assert_eq!(root.read("anchor.nrt", MAX_BODY_BYTES).unwrap(), anchor);
+    assert!(!container.path().join("0001-activation.nrt").exists());
+    assert!(!container.path().join("0001-unused.nrt").exists());
+    assert_eq!(
+        body.entries(2).unwrap(),
+        vec![std::ffi::OsString::from("reserved.nrt")]
+    );
+    assert_eq!(fixture.native.chain.height(), 4);
+    assert!(peers.requests.lock().unwrap().is_empty());
+
+    body.write_atomic("reserved.nrt", &reservation, PublishMode::Replace)
+        .unwrap();
+    let restored = BodyHistory::open(&fixture.owner, CustodyPurpose::Renewal(2))
+        .unwrap()
+        .unwrap();
+    let completed = restored
+        .finish_pending_with_reads(
+            &fixture.owner,
+            &current,
+            &SigningTurn::Generated(authorization),
+            fixture.options.deadline,
+            &reads,
+        )
+        .unwrap();
+    assert_eq!(completed.anchor.highest, 1);
+    assert_eq!(completed.anchor.active, Some(1));
+    assert!(completed.anchor.pending.is_none());
+    assert_eq!(
+        completed.anchor.completed,
+        Some(completed.original().unwrap().unwrap().digest().unwrap())
+    );
+    let retained = &completed.bodies[0];
+    assert_eq!(
+        encode(&retained.reservation.unsigned, MAX_BODY_BYTES).unwrap(),
+        unsigned_bytes
+    );
+    assert_eq!(
+        retained
+            .directory
+            .read("reserved.nrt", MAX_BODY_BYTES)
+            .unwrap()
+            .as_slice(),
+        reservation
+    );
+    assert!(
+        retained
+            .activation
+            .as_ref()
+            .unwrap()
+            .preceding_retirement
+            .is_none()
+    );
+    assert!(retained.unused.is_none());
+    assert_eq!(
+        fixture
+            .owner
+            .authority
+            .directory
+            .read(
+                reference_name(CustodyPurpose::Renewal(2)).unwrap(),
+                MAX_SELECTION_BYTES
+            )
+            .unwrap(),
+        reference
+    );
+    assert!(completed.current_history().unwrap().last().is_none());
+    assert!(!retained.directory.path().join("dispatch.nrt").exists());
+    assert!(!retained.directory.path().join("attempts").exists());
+    assert_eq!(fixture.native.chain.height(), 4);
+    assert!(peers.requests.lock().unwrap().is_empty());
+}

@@ -620,3 +620,137 @@ mod da_commitment_tests;
 mod pulse_inline_tests;
 
 mod header_inline_tests;
+
+#[test]
+fn prepared_signature_custody_observation_rejects_equal_wire_distinct_owner() {
+    for count in [0, 4] {
+        let pool = AllocationBudget::new(1024 * 1024);
+        let untrusted = fixture(count);
+        let (source, span) = source_for(&untrusted, &pool);
+        let floor = pool.reserved_bytes();
+        let mut first_decoder = PreparedSignedBlockSignaturesDecode::new(&pool).unwrap();
+        let mut second_decoder = PreparedSignedBlockSignaturesDecode::new(&pool).unwrap();
+        let original = first_decoder
+            .decode(
+                &source,
+                span,
+                norito::canonical_decode_limits(span.end - span.start),
+            )
+            .unwrap();
+        let distinct = second_decoder
+            .decode(
+                &source,
+                span,
+                norito::canonical_decode_limits(span.end - span.start),
+            )
+            .unwrap();
+        assert_eq!(original, distinct);
+        assert!(original.signatures_admitted_to(&pool));
+        assert!(distinct.signatures_admitted_to(&pool));
+        assert!(!original.same_signature_custody(&distinct));
+        let occupied = pool.reserved_bytes();
+        norito::with_decode_limits_scope(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, 0),
+            || {
+                assert!(
+                    first_decoder
+                        .retains_signature_custody(&source, &original)
+                        .unwrap()
+                );
+                assert!(
+                    !first_decoder
+                        .retains_signature_custody(&source, &distinct)
+                        .unwrap()
+                );
+                assert!(
+                    second_decoder
+                        .retains_signature_custody(&source, &distinct)
+                        .unwrap()
+                );
+                assert!(
+                    !second_decoder
+                        .retains_signature_custody(&source, &original)
+                        .unwrap()
+                );
+            },
+        );
+        assert_eq!(pool.reserved_bytes(), occupied);
+        drop(original);
+        drop(distinct);
+        drop(first_decoder);
+        drop(second_decoder);
+        assert_eq!(pool.reserved_bytes(), floor);
+        drop(source);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+}
+
+#[test]
+fn prepared_signature_custody_observation_requires_exact_source_and_completed_owner() {
+    let pool = AllocationBudget::new(1024 * 1024);
+    let foreign = AllocationBudget::new(pool.limit_bytes());
+    let untrusted = fixture(4);
+    let (source, span) = source_for(&untrusted, &pool);
+    let (copy, _) = source_for(&untrusted, &pool);
+    let (foreign_source, _) = source_for(&untrusted, &foreign);
+    let mut decoder = PreparedSignedBlockSignaturesDecode::new(&pool).unwrap();
+    assert!(
+        !decoder
+            .retains_signature_custody(&source, &untrusted)
+            .unwrap()
+    );
+    assert!(matches!(
+        decoder.retains_signature_custody(&foreign_source, &untrusted),
+        Err(PreparedSignatureBlockError::Source)
+    ));
+    let original = decoder
+        .decode(
+            &source,
+            span,
+            norito::canonical_decode_limits(span.end - span.start),
+        )
+        .unwrap();
+    assert!(
+        decoder
+            .retains_signature_custody(&source, &original)
+            .unwrap()
+    );
+    assert!(
+        !decoder
+            .retains_signature_custody(&source, &untrusted)
+            .unwrap()
+    );
+    assert_eq!(source.as_slice(), copy.as_slice());
+    assert_ne!(source.as_slice().as_ptr(), copy.as_slice().as_ptr());
+    assert!(matches!(
+        decoder.retains_signature_custody(&copy, &original),
+        Err(PreparedSignatureBlockError::SourceChanged)
+    ));
+    assert!(matches!(
+        decoder.retains_signature_custody(&foreign_source, &original),
+        Err(PreparedSignatureBlockError::Source)
+    ));
+    let before_retirement = pool.reserved_bytes();
+    decoder.clear_consumed();
+    assert!(
+        !decoder
+            .retains_signature_custody(&source, &original)
+            .unwrap()
+    );
+    assert!(
+        original.signatures_admitted_to(&pool),
+        "explicit decoder retirement leaves the real original block's charges alive"
+    );
+    assert_eq!(
+        pool.reserved_bytes(),
+        before_retirement,
+        "the original block keeps every completed collection/leaf while controls remain"
+    );
+    drop(original);
+    drop(decoder);
+    drop(source);
+    drop(copy);
+    assert_eq!(pool.reserved_bytes(), 0);
+    drop(foreign_source);
+    assert_eq!(foreign.reserved_bytes(), 0);
+}

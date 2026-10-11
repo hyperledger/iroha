@@ -22,7 +22,6 @@ import org.gradle.work.DisableCachingByDefault
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.io.ByteArrayOutputStream
 import java.io.File
-import java.nio.ByteOrder
 import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.CodingErrorAction
@@ -82,8 +81,6 @@ private object NativeBridgeBuildContract {
         "HOME",
         "LANG",
         "LC_ALL",
-        "MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE",
-        "MOBILE_SDK_ORDINARY_CONTEXT_COMPILED_BINDING_FILE",
         "NORITO_SKIP_BINDINGS_SYNC",
         "PATH",
         "RUSTC",
@@ -106,8 +103,6 @@ private object NativeBridgeBuildContract {
         val androidNdk: java.nio.file.Path,
         val cargoTargetDirectory: java.nio.file.Path,
         val cargoLock: java.nio.file.Path,
-        val hardwareCompiledBinding: PublicCompiledBindingOriginal,
-        val ordinaryCompiledBinding: PublicCompiledBindingOriginal,
         val cargoRelease: String,
         val cargoCommitHash: String,
         val rustcRelease: String,
@@ -147,53 +142,6 @@ private object NativeBridgeBuildContract {
         }
         return digest.digest().joinToString("") { byte ->
             "%02x".format(byte.toInt() and 0xff)
-        }
-    }
-
-    /** Public build input only; runtime authority comes from Native threshold authentication. */
-    class PublicCompiledBindingOriginal private constructor(
-        val path: Path,
-        private val originalIdentity: Map<String, Any>,
-        private val original: ByteArray,
-        private val label: String,
-    ) {
-        val sha256: String = sha256Hex(original)
-        val sizeBytes: Long = original.size.toLong()
-
-        fun recheck() {
-            require(identity(path) == originalIdentity &&
-                readBoundedNonSymbolicRegularFile(path, label, original.size)
-                    .contentEquals(original) && identity(path) == originalIdentity) {
-                "$label original changed"
-            }
-        }
-        fun originalBytes(): ByteArray { recheck(); return original.copyOf() }
-
-        companion object {
-            private fun identity(path: Path): Map<String, Any> = Files.readAttributes(
-                path, "unix:dev,ino,mode,nlink,uid,gid,size,lastModifiedTime,ctime",
-                LinkOption.NOFOLLOW_LINKS,
-            )
-            fun open(
-                path: Path, sourceRoot: Path, targetRoot: Path, label: String,
-                filename: String, minimumBytes: Int, maximumBytes: Int,
-            ): PublicCompiledBindingOriginal {
-                require(path.isAbsolute && path.normalize() == path &&
-                    path.toRealPath() == path &&
-                    path.fileName.toString() == filename &&
-                    !path.startsWith(sourceRoot) && !path.startsWith(targetRoot)) {
-                    "$label must be an explicit canonical public original outside source/target"
-                }
-                val before = identity(path)
-                require((before["mode"] as Number).toInt() and 0x12 == 0 &&
-                    (before["nlink"] as Number).toLong() == 1L) {
-                    "$label original must be nonwritable and single-link"
-                }
-                val bytes = readBoundedNonSymbolicRegularFile(path, label, maximumBytes)
-                require(bytes.size >= minimumBytes) { "$label original is shorter than its exact bound" }
-                require(identity(path) == before) { "$label intake changed" }
-                return PublicCompiledBindingOriginal(path, before, bytes, label).also { it.recheck() }
-            }
         }
     }
 
@@ -528,8 +476,6 @@ private object NativeBridgeBuildContract {
         hermeticRunnerFile: File,
         androidNdkDirectory: File,
         cargoTargetDirectory: File,
-        hardwareCompiledBindingFile: File,
-        ordinaryCompiledBindingFile: File,
     ): BuildTools {
         val python = trustedPython(execOperations, irohaRoot)
         val homeText = commandOutput(
@@ -664,21 +610,6 @@ private object NativeBridgeBuildContract {
                 !Files.isSymbolicLink(canonicalCargoTarget),
         ) {
             "Android CARGO_TARGET_DIR must be one absolute canonical non-symbolic directory"
-        }
-        val hardwareCompiledBinding = PublicCompiledBindingOriginal.open(
-            hardwareCompiledBindingFile.toPath(), canonicalIrohaRoot, canonicalCargoTarget,
-            "Hardware compiled binding", "hardware-compiled-binding.norito", 1, 192 * 1024,
-        )
-        val ordinaryCompiledBinding = PublicCompiledBindingOriginal.open(
-            ordinaryCompiledBindingFile.toPath(), canonicalIrohaRoot, canonicalCargoTarget,
-            "Ordinary compiled binding", "common-sdk-compiled-root.bin", 76, 76,
-        )
-        val ordinaryOriginal = ordinaryCompiledBinding.originalBytes()
-        require(ordinaryOriginal.copyOfRange(0, 8).contentEquals("KGMROOT1".toByteArray(Charsets.US_ASCII)) &&
-            ordinaryOriginal.copyOfRange(8, 40).any { it.toInt() != 0 } &&
-            ordinaryOriginal.copyOfRange(40, 72).any { it.toInt() != 0 } &&
-            ByteBuffer.wrap(ordinaryOriginal, 72, 4).order(ByteOrder.LITTLE_ENDIAN).int == 25) {
-            "Ordinary compiled binding must retain the exact public root/source/ABI shape"
         }
         val suppliedAndroidNdk = androidNdkDirectory.toPath().toAbsolutePath().normalize()
         val androidNdkIdentity = loadAndroidNdkIdentity(suppliedAndroidNdk)
@@ -836,8 +767,6 @@ private object NativeBridgeBuildContract {
             androidNdk = androidNdk,
             cargoTargetDirectory = canonicalCargoTarget,
             cargoLock = cargoLock,
-            hardwareCompiledBinding = hardwareCompiledBinding,
-            ordinaryCompiledBinding = ordinaryCompiledBinding,
             cargoRelease = cargoRelease,
             cargoCommitHash = cargoCommitHash,
             rustcRelease = rustcRelease,
@@ -856,8 +785,6 @@ private object NativeBridgeBuildContract {
     }
 
     fun buildEnvironmentDocument(tools: BuildTools): Map<String, Any> {
-        tools.hardwareCompiledBinding.recheck()
-        tools.ordinaryCompiledBinding.recheck()
         return linkedMapOf(
         "schema" to buildEnvironmentSchema,
         "hermetic_runner_schema" to hermeticRunnerSchema,
@@ -885,10 +812,6 @@ private object NativeBridgeBuildContract {
         "rustup_binary_sha256" to sha256Hex(tools.rustup),
         "android_ndk_revision" to tools.androidNdkRevision,
         "android_ndk_source_properties_sha256" to tools.androidNdkSourcePropertiesSha256,
-        "hardware_compiled_binding_sha256" to tools.hardwareCompiledBinding.sha256,
-        "hardware_compiled_binding_size_bytes" to tools.hardwareCompiledBinding.sizeBytes,
-        "ordinary_compiled_binding_sha256" to tools.ordinaryCompiledBinding.sha256,
-        "ordinary_compiled_binding_size_bytes" to tools.ordinaryCompiledBinding.sizeBytes,
         )
     }
 
@@ -1007,8 +930,6 @@ private object NativeBridgeBuildContract {
         tools: BuildTools,
         platform: String = "android",
     ): ByteArray {
-        tools.hardwareCompiledBinding.recheck()
-        tools.ordinaryCompiledBinding.recheck()
         val stdout = ByteArrayOutputStream()
         val stderr = ByteArrayOutputStream()
         val result = execOperations.exec {
@@ -1035,8 +956,6 @@ private object NativeBridgeBuildContract {
             "Unable to capture Android NoritoBridge source seal: " +
                 stderr.toString(Charsets.UTF_8.name()).trim()
         }
-        tools.hardwareCompiledBinding.recheck()
-        tools.ordinaryCompiledBinding.recheck()
         return stdout.toByteArray().also { payload ->
             require(payload.isNotEmpty()) { "Android NoritoBridge source seal is empty" }
         }
@@ -1051,8 +970,6 @@ private object NativeBridgeBuildContract {
         tools: BuildTools,
         platform: String = "android",
     ) {
-        tools.hardwareCompiledBinding.recheck()
-        tools.ordinaryCompiledBinding.recheck()
         val stderr = ByteArrayOutputStream()
         val result = execOperations.exec {
             workingDir(irohaRoot)
@@ -1079,8 +996,6 @@ private object NativeBridgeBuildContract {
             "Android NoritoBridge source changed during $phase; refusing a mixed-source " +
                 "native artifact: ${stderr.toString(Charsets.UTF_8.name()).trim()}"
         }
-        tools.hardwareCompiledBinding.recheck()
-        tools.ordinaryCompiledBinding.recheck()
     }
 }
 
@@ -1129,14 +1044,6 @@ abstract class CompileNativeBridgeTask @Inject constructor(
     @get:OutputFile
     abstract val buildEnvironmentFile: RegularFileProperty
 
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val hardwareCompiledBindingFile: RegularFileProperty
-
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val ordinaryCompiledBindingFile: RegularFileProperty
-
     @TaskAction
     fun compile() {
         val platform = sourceSealPlatform.get()
@@ -1159,8 +1066,6 @@ abstract class CompileNativeBridgeTask @Inject constructor(
             hermeticRunner.get().asFile,
             androidNdkDirectory.get().asFile,
             cargoTargetRoot,
-            hardwareCompiledBindingFile.get().asFile,
-            ordinaryCompiledBindingFile.get().asFile,
         )
         val sourceSeal = NativeBridgeBuildContract.captureSourceSeal(
             execOperations,
@@ -1263,10 +1168,6 @@ abstract class CompileNativeBridgeTask @Inject constructor(
                         "LANG=C.UTF-8",
                         "--set",
                         "LC_ALL=C.UTF-8",
-                        "--set",
-                        "MOBILE_SDK_HARDWARE_BOOTSTRAP_COMPILED_BINDING_FILE=${tools.hardwareCompiledBinding.path}",
-                        "--set",
-                        "MOBILE_SDK_ORDINARY_CONTEXT_COMPILED_BINDING_FILE=${tools.ordinaryCompiledBinding.path}",
                         "--set",
                         "NORITO_SKIP_BINDINGS_SYNC=1",
                         "--set",
@@ -1396,8 +1297,6 @@ abstract class CompileNativeBridgeTask @Inject constructor(
             hermeticRunner.get().asFile,
             androidNdkDirectory.get().asFile,
             cargoTargetDirectory.get().asFile,
-            hardwareCompiledBindingFile.get().asFile,
-            ordinaryCompiledBindingFile.get().asFile,
         )
         NativeBridgeBuildContract.requireLibraries(outputRoot, NativeBridgeBuildContract.buildAbis(sourceSealPlatform.get()))
         require(Files.isRegularFile(sealFile.toPath(), LinkOption.NOFOLLOW_LINKS))
@@ -1444,14 +1343,6 @@ abstract class InspectArmv7DiagnosticTask @Inject constructor(
     abstract val buildEnvironmentFile: RegularFileProperty
     @get:OutputFile abstract val reportFile: RegularFileProperty
 
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val hardwareCompiledBindingFile: RegularFileProperty
-
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val ordinaryCompiledBindingFile: RegularFileProperty
-
     @TaskAction
     fun inspect() {
         require(localIntegration.get()) {
@@ -1461,8 +1352,6 @@ abstract class InspectArmv7DiagnosticTask @Inject constructor(
         val tools = NativeBridgeBuildContract.resolveBuildTools(
             execOperations, root, hermeticRunner.get().asFile,
             androidNdkDirectory.get().asFile, cargoTargetDirectory.get().asFile,
-            hardwareCompiledBindingFile.get().asFile,
-            ordinaryCompiledBindingFile.get().asFile,
         )
         val profile = NativeBridgeBuildContract.armv7DiagnosticPlatform
         val sealFile = sourceSealFile.get().asFile
@@ -1521,14 +1410,13 @@ abstract class InspectArmv7DiagnosticTask @Inject constructor(
             ?: throw GradleException("Armv7 inspection must return an object")
         require(observation["schema"] == "iroha.android-armv7-diagnostic.v1" &&
             observation["artifact_scope"] == "android-local-diagnostic" &&
-            observation["release_admitted"] == false && observation["kagemusha_qualified"] == false) {
+            observation["release_admitted"] == false) {
             "Armv7 inspection must remain explicitly diagnostic"
         }
         val report = linkedMapOf<String, Any>(
             "schema" to "iroha.android-armv7-diagnostic.v1",
             "artifact_scope" to "android-local-diagnostic",
             "release_admitted" to false,
-            "kagemusha_qualified" to false,
             "privacy_production_enabled" to true,
             "cargo_features" to listOf("privacy-production-enabled"),
             "source_seal" to seal,
@@ -1604,14 +1492,6 @@ abstract class StripNativeBridgeTask @Inject constructor(
     @get:OutputDirectory
     abstract val provenanceDirectory: DirectoryProperty
 
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val hardwareCompiledBindingFile: RegularFileProperty
-
-    @get:InputFile
-    @get:PathSensitive(PathSensitivity.NONE)
-    abstract val ordinaryCompiledBindingFile: RegularFileProperty
-
     @TaskAction
     fun strip() {
         val irohaRoot = irohaDirectory.get().asFile
@@ -1624,8 +1504,6 @@ abstract class StripNativeBridgeTask @Inject constructor(
             hermeticRunner.get().asFile,
             androidNdkDirectory.get().asFile,
             cargoTargetDirectory.get().asFile,
-            hardwareCompiledBindingFile.get().asFile,
-            ordinaryCompiledBindingFile.get().asFile,
         )
         require(Files.isRegularFile(sealFile.toPath(), LinkOption.NOFOLLOW_LINKS)) {
             "Android source seal must be a non-symbolic regular file: $sealFile"
@@ -1854,12 +1732,6 @@ abstract class StripNativeBridgeTask @Inject constructor(
             "stripped artifact immediate pre-promotion authentication",
             tools,
         )
-        val compiledOriginalFile = provenanceFile.parentFile.resolve("hardware-compiled-binding.norito")
-        Files.write(compiledOriginalFile.toPath(), tools.hardwareCompiledBinding.originalBytes(),
-            StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
-        val ordinaryOriginalFile = provenanceFile.parentFile.resolve("common-sdk-compiled-root.bin")
-        Files.write(ordinaryOriginalFile.toPath(), tools.ordinaryCompiledBinding.originalBytes(),
-            StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
         provenanceFile.writeText(JsonOutput.prettyPrint(JsonOutput.toJson(manifest)) + "\n")
         NativeBridgeBuildContract.assertSourceSeal(
             execOperations,
@@ -1919,9 +1791,6 @@ android {
         getByName("main").jniLibs.directories.clear()
         // Reuse the exact Java assertions against the Android consumer classpath.
         getByName("test").java.srcDir(project(":core-jvm").file("src/sorafsJavaTest/java"))
-        // Android instrumentation reads the same captured issuer vector as Rust
-        // and the bank issuer tests; these assets are never packaged in the SDK.
-        getByName("androidTest").assets.srcDir(rootProject.projectDir.parentFile.resolve("fixtures/offline"))
     }
 
     packaging {
@@ -2059,7 +1928,7 @@ fun irohaDir(): String {
     return props.getProperty("iroha.dir") ?: rootProject.file("..").absolutePath
 }
 
-// KAGEMUSHA is mandatory. This retired selector cannot introduce an off profile.
+// Privacy support is mandatory. This retired selector cannot introduce an off profile.
 require(!providers.gradleProperty("privacyProductionEnabled").isPresent) {
     "privacyProductionEnabled has been removed; the native bridge always includes privacy support"
 }
@@ -2410,29 +2279,7 @@ tasks.register("verifyAndroidNdkIdentityContract") {
     }
 }
 
-// The approved public Native helper emits this sole original before JNI compilation.
-val hardwareCompiledBindingInput = providers.gradleProperty("irohaHardwareBootstrapCompiledBinding")
-    .map { raw ->
-        val path = Path.of(raw)
-        require(path.isAbsolute && path.normalize() == path) {
-            "irohaHardwareBootstrapCompiledBinding requires one canonical absolute public original"
-        }
-        path.toFile()
-    }
-
-// Independently selected SDK-role/source/ABI bytes only; no runtime/context body is compiled.
-val ordinaryCompiledBindingInput = providers.gradleProperty("irohaOrdinaryContextCompiledBinding")
-    .map { raw ->
-        val path = Path.of(raw)
-        require(path.isAbsolute && path.normalize() == path) {
-            "irohaOrdinaryContextCompiledBinding requires one canonical absolute public original"
-        }
-        path.toFile()
-    }
-
 val compileNativeLibs = tasks.register<CompileNativeBridgeTask>("compileNativeLibs") {
-    hardwareCompiledBindingFile.set(layout.file(hardwareCompiledBindingInput))
-    ordinaryCompiledBindingFile.set(layout.file(ordinaryCompiledBindingInput))
     group = "native"
     description = "Compile connect_norito_bridge .so from Rust source (requires cargo-ndk + Android NDK)"
     irohaDirectory.set(file(irohaDir()))
@@ -2463,8 +2310,6 @@ val compileNativeLibs = tasks.register<CompileNativeBridgeTask>("compileNativeLi
 // Explicit development-only armv7 lane. It shares the pinned native recipe but
 // never supplies generated JNI directories, AAR contents or admitted provenance.
 val compileArmv7DiagnosticRaw = tasks.register<CompileNativeBridgeTask>("compileArmv7DiagnosticRaw") {
-    hardwareCompiledBindingFile.set(layout.file(hardwareCompiledBindingInput))
-    ordinaryCompiledBindingFile.set(layout.file(ordinaryCompiledBindingInput))
     group = "native"
     description = "Compile the sealed armv7 bridge in the owned diagnostic scope"
     // A fixed warm lane must never reuse artifacts from another feature recipe.
@@ -2484,8 +2329,6 @@ val compileArmv7DiagnosticRaw = tasks.register<CompileNativeBridgeTask>("compile
     dependsOn(requireAndroidArtifactDirectory)
 }
 val compileArmv7Diagnostic = tasks.register<InspectArmv7DiagnosticTask>("compileArmv7Diagnostic") {
-    hardwareCompiledBindingFile.set(compileArmv7DiagnosticRaw.flatMap { it.hardwareCompiledBindingFile })
-    ordinaryCompiledBindingFile.set(compileArmv7DiagnosticRaw.flatMap { it.ordinaryCompiledBindingFile })
     group = "native"
     description = "Build and inspect an armv7 diagnostic; no AAR/JNI or release promotion"
     localIntegration.set(localAndroidIntegration)
@@ -2522,8 +2365,6 @@ tasks.register("verifyArmv7DiagnosticContract") {
 }
 
 val stripNativeLibs = tasks.register<StripNativeBridgeTask>("stripNativeLibs") {
-    hardwareCompiledBindingFile.set(compileNativeLibs.flatMap { it.hardwareCompiledBindingFile })
-    ordinaryCompiledBindingFile.set(compileNativeLibs.flatMap { it.ordinaryCompiledBindingFile })
     group = "native"
     description = "Canonically strip the compiled Android native bridge libraries"
     localIntegration.set(localAndroidIntegration)

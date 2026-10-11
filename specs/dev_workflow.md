@@ -116,7 +116,10 @@ new patches follow the same default gates.
   [operation and admission-route inventory](zk_operation_inventory.json)
   against the source: every instruction of the ZK, privacy and FHE families
   with its wire id, handler and authority checks, the twelve-protocol list and
-  its dispatch, the closed relation, class, job-kind and executable lists, the
+  its dispatch, the thirteen Exact12 roles with the typed dispatch registry
+  and the single Exact12 path (one envelope assembler, one instruction, one
+  dispatch call, one caller of each native verifier outside its engine, one
+  effect consumer), the closed relation, class, job-kind and executable lists, the
   family syscalls and Kotodama builtins, the Torii routes of the listed path
   families, the SDK and native-bridge files and declarations that reference
   them, every call of a verifier or restore-validator entry point with its
@@ -126,6 +129,18 @@ new patches follow the same default gates.
   site or SDK declaration in those families, list it in the inventory;
   `--propose` prints a skeleton and `--refresh` recomputes the scanned parts
   and keeps every classification.
+- `make guards` and the pull-request workflow also run
+  `scripts/check_zk_economic_invariants.py`. It checks the
+  [protocol economic invariant matrix](zk_economic_invariants.json) against
+  the source: every operation of the operation inventory is classified as
+  moving value or not, every value-bearing operation has an effect row, and
+  each row's handler, enforcement sites and cited tests exist. A handler
+  recorded as moving no value fails the check when it starts to name a
+  ledger-value identifier. After adding a value-bearing instruction, a ledger
+  effect class, a reserve-owning protocol, a root role or a lifecycle state,
+  add its row or entry; `--refresh` rewrites recorded lines, the
+  suspension-word counts and the summary, and keeps every classification.
+  `--show` prints one line per effect and `--defects` one per open defect.
 - `make guards` and the pull-request workflow also run
   `scripts/check_zk_primitive_workloads.py`. It checks the
   [primitive and workload specification](zk_primitive_workloads.json) against
@@ -137,8 +152,14 @@ new patches follow the same default gates.
   commitment value in any byte form and the files that name a commitment type,
   the candidate native commitment frame and its vectors, the BN254 Poseidon
   tables against an independent regeneration, the post-quantum packages, call
-  sites and known-answer responses, and the exploratory workload and
-  transcript-requirement lists. A file or function that starts to use a digest
+  sites and known-answer responses, the exploratory workload and
+  transcript-requirement lists, and the frozen semantic profiles of task H.2:
+  each identity is recomputed from its parameters by
+  `scripts/zk_semantic_profile_reference.py`, every digest role and H.1 defect
+  needs a disposition, the transcript known answers in
+  `fixtures/fastpq/q77-transcript-profile.json` are recomputed, and a recorded
+  measurement that names another identity than the current one fails as
+  inapplicable. A file or function that starts to use a digest
   fails the guard: run `--refresh --write` to record it, then classify a new
   use under its consumer and assign a new producer its role.
   `--write-candidate-vectors`, `scripts/zk_bn254_poseidon_reference.py

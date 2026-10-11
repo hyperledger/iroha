@@ -95,10 +95,24 @@ decryption and refresh belong to later tasks.
   sanitization headroom and proof work, and a core-SVP sanity calculation.
   `make check-fhe-bgv-cost` checks it with `scripts/fhe_bgv_cost_model.py`,
   and `tests/bgv_cost_model_vectors.rs` recomputes its sizes, work units,
-  instruction costs, tape plans and contract inputs with this crate. `scripts/fhe_bgv_lattice_estimator.sage` pins the estimator run
-  that has not been made. No candidate holds the maximum shape of its class
-  when a tape is lowered instruction by instruction; the summary says what
-  each holds.
+  instruction costs, tape plans and contract inputs with this crate. No
+  candidate holds the maximum shape of its class when a tape is lowered
+  instruction by instruction; the summary says what each holds.
+- **Security estimate (unreviewed).** `scripts/fhe_bgv_lattice_estimator.sage`
+  ran the Lattice Estimator at a pinned commit on every candidate; the raw
+  output is `specs/fhe_bgv_lattice_estimator_output.txt` and the summary
+  restates it (`security_estimate.lattice_estimator`). For plain LWE of
+  dimension `N` on the largest modulus `Q * P`, the cheapest attack that
+  returned a cost is, in bits under BDGL16 classical / ADPS16 classical /
+  ADPS16 quantum: affine 136.9 / 102.5 / 93.0, bounded 197.9 / 161.5 / 146.8,
+  refresh 135.3 / 99.0 / 89.8. The design target of 128 classical bits under
+  BDGL16 is met by all three on the attacks that returned a cost, with 8.9 and
+  7.3 bits of margin for the affine and refresh candidates; some attacks
+  returned none (the summary lists them). Under the core-SVP count of ADPS16
+  only the bounded candidate meets it. The estimate does not cover the ring structure,
+  the circular-security assumption of the published switching keys, keys
+  that were not sampled honestly or side channels, and it leaves the class
+  fit as it is. No candidate is qualified; the parameters await review.
 
 ## Rounding rules
 

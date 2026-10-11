@@ -524,20 +524,24 @@ def test_cargo_target_accepts_authenticated_linux_tmp_and_rejects_aliases(
 ) -> None:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
+    # Authenticate disjoint fixture roots independently of pytest's base directory.
+    source_root = tmp_path / "candidate-source"
+    source_root.mkdir(mode=0o700)
+    (source_root / "target").mkdir(mode=0o700)
     with tempfile.TemporaryDirectory(
         prefix="iroha-policy-target-", dir=AUTHENTICATED_TEMP_BASE
     ) as temporary_root:
         target = Path(temporary_root) / "target"
         target.mkdir(mode=0o700)
         accepted = _run_policy(
-            f'require_external_cargo_target_dir "{REPO_ROOT}"',
+            f'require_external_cargo_target_dir "{source_root}"',
             fake_bin=fake_bin,
             environment={"CARGO_TARGET_DIR": str(target)},
         )
         default_accepted = None
         if AUTHENTICATED_TEMP_BASE in (Path("/private/tmp"), Path("/tmp")):
             default_accepted = _run_policy(
-                f'require_external_cargo_target_dir "{REPO_ROOT}"',
+                f'require_external_cargo_target_dir "{source_root}"',
                 fake_bin=fake_bin,
                 environment={
                     "CARGO_TARGET_DIR": str(target),
@@ -545,9 +549,9 @@ def test_cargo_target_accepts_authenticated_linux_tmp_and_rejects_aliases(
                 },
             )
     rejected = _run_policy(
-        f'require_external_cargo_target_dir "{REPO_ROOT}"',
+        f'require_external_cargo_target_dir "{source_root}"',
         fake_bin=fake_bin,
-        environment={"CARGO_TARGET_DIR": str(REPO_ROOT / "target")},
+        environment={"CARGO_TARGET_DIR": str(source_root / "target")},
     )
     linux_tmp = tmp_path / "tmp"
     linux_tmp.mkdir(mode=0o700)
@@ -555,7 +559,7 @@ def test_cargo_target_accepts_authenticated_linux_tmp_and_rejects_aliases(
     linux_target.mkdir(parents=True, mode=0o700)
     linux_target.parent.chmod(0o700)
     linux_accepted = _run_policy(
-        f'require_external_cargo_target_dir "{REPO_ROOT}"',
+        f'require_external_cargo_target_dir "{source_root}"',
         fake_bin=fake_bin,
         environment={
             "CARGO_TARGET_DIR": str(linux_target),
@@ -565,7 +569,7 @@ def test_cargo_target_accepts_authenticated_linux_tmp_and_rejects_aliases(
     linux_alias = tmp_path / "tmp-alias"
     linux_alias.symlink_to(linux_tmp, target_is_directory=True)
     alias_rejected = _run_policy(
-        f'require_external_cargo_target_dir "{REPO_ROOT}"',
+        f'require_external_cargo_target_dir "{source_root}"',
         fake_bin=fake_bin,
         environment={
             "CARGO_TARGET_DIR": str(linux_target),
@@ -577,7 +581,7 @@ def test_cargo_target_accepts_authenticated_linux_tmp_and_rejects_aliases(
     target_alias = linux_tmp / "target-alias"
     target_alias.symlink_to(real_target, target_is_directory=True)
     target_alias_rejected = _run_policy(
-        f'require_external_cargo_target_dir "{REPO_ROOT}"',
+        f'require_external_cargo_target_dir "{source_root}"',
         fake_bin=fake_bin,
         environment={
             "CARGO_TARGET_DIR": str(target_alias),
@@ -590,7 +594,7 @@ def test_cargo_target_accepts_authenticated_linux_tmp_and_rejects_aliases(
     unsafe_mode_target.mkdir(mode=0o700)
     unsafe_mode_base.chmod(0o755)
     mode_rejected = _run_policy(
-        f'require_external_cargo_target_dir "{REPO_ROOT}"',
+        f'require_external_cargo_target_dir "{source_root}"',
         fake_bin=fake_bin,
         environment={
             "CARGO_TARGET_DIR": str(unsafe_mode_target),
@@ -609,7 +613,7 @@ def test_cargo_target_accepts_authenticated_linux_tmp_and_rejects_aliases(
     else:
         wrong_owner_base = Path("/")
     owner_rejected = _run_policy(
-        f'require_external_cargo_target_dir "{REPO_ROOT}"',
+        f'require_external_cargo_target_dir "{source_root}"',
         fake_bin=fake_bin,
         environment={
             "CARGO_TARGET_DIR": str(ownership_target),
@@ -637,7 +641,7 @@ def test_cargo_target_accepts_authenticated_linux_tmp_and_rejects_aliases(
     cache_target = protected_cache / "target"
     cache_target.mkdir(mode=0o700)
     cache_overlap = _run_policy(
-        f'require_external_cargo_target_dir "{REPO_ROOT}" "{protected_cache}"',
+        f'require_external_cargo_target_dir "{source_root}" "{protected_cache}"',
         fake_bin=fake_bin,
         environment={
             "CARGO_TARGET_DIR": str(cache_target),
@@ -679,16 +683,18 @@ def test_artifact_root_must_be_private_external_and_under_private_tmp(
         artifacts.mkdir(mode=0o700)
         target.mkdir(mode=0o700)
         fixture_source.mkdir(mode=0o700)
-        cancel = invocation_root / "cancel-request.json"
+        cancel_root = invocation_root / "cancel"
+        cancel_root.mkdir(mode=0o700)
+        cancel = cancel_root / "cancel-request.json"
         cancel.write_bytes(b'{"reason":"operator-request","schema_version":1}\n')
         cancel.chmod(0o600)
         accepted = _run_policy(
-            f'require_external_release_artifact_root "{REPO_ROOT}"',
+            f'require_external_release_artifact_root "{fixture_source}"',
             fake_bin=fake_bin,
             environment={"IROHA_RELEASE_ARTIFACT_ROOT": str(artifacts)},
         )
         disjoint = _run_policy(
-            f'require_disjoint_release_roots "{REPO_ROOT}"',
+            f'require_disjoint_release_roots "{fixture_source}"',
             fake_bin=fake_bin,
             environment={
                 "CARGO_TARGET_DIR": str(target),
@@ -699,7 +705,7 @@ def test_artifact_root_must_be_private_external_and_under_private_tmp(
         nested_artifacts = target / "nested-artifacts"
         nested_artifacts.mkdir(mode=0o700)
         nested = _run_policy(
-            f'require_disjoint_release_roots "{REPO_ROOT}"',
+            f'require_disjoint_release_roots "{fixture_source}"',
             fake_bin=fake_bin,
             environment={
                 "CARGO_TARGET_DIR": str(target),
@@ -708,7 +714,7 @@ def test_artifact_root_must_be_private_external_and_under_private_tmp(
             },
         )
         nested_target_cancel = _run_policy(
-            f'require_disjoint_release_roots "{REPO_ROOT}"',
+            f'require_disjoint_release_roots "{fixture_source}"',
             fake_bin=fake_bin,
             environment={
                 "CARGO_TARGET_DIR": str(target),
@@ -719,7 +725,7 @@ def test_artifact_root_must_be_private_external_and_under_private_tmp(
             },
         )
         nested_artifact_cancel = _run_policy(
-            f'require_disjoint_release_roots "{REPO_ROOT}"',
+            f'require_disjoint_release_roots "{fixture_source}"',
             fake_bin=fake_bin,
             environment={
                 "CARGO_TARGET_DIR": str(target),
@@ -743,7 +749,7 @@ def test_artifact_root_must_be_private_external_and_under_private_tmp(
         noncanonical_parent = invocation_root / "nested"
         noncanonical_parent.mkdir(mode=0o700)
         noncanonical_cancel = _run_policy(
-            f'require_disjoint_release_roots "{REPO_ROOT}"',
+            f'require_disjoint_release_roots "{fixture_source}"',
             fake_bin=fake_bin,
             environment={
                 "CARGO_TARGET_DIR": str(target),
@@ -754,13 +760,20 @@ def test_artifact_root_must_be_private_external_and_under_private_tmp(
             },
         )
         relative_cancel = _run_policy(
-            f'require_disjoint_release_roots "{REPO_ROOT}"',
+            f'require_disjoint_release_roots "{fixture_source}"',
             fake_bin=fake_bin,
             environment={
                 "CARGO_TARGET_DIR": str(target),
                 "IROHA_RELEASE_ARTIFACT_ROOT": str(artifacts),
                 "IROHA_RELEASE_CANCEL_REQUEST_PATH": "cancel-request.json",
             },
+        )
+        inside_source_artifacts = fixture_source / "artifacts"
+        inside_source_artifacts.mkdir(mode=0o700)
+        source_overlap = _run_policy(
+            f'require_external_release_artifact_root "{fixture_source}"',
+            fake_bin=fake_bin,
+            environment={"IROHA_RELEASE_ARTIFACT_ROOT": str(inside_source_artifacts)},
         )
         preserved_cancel = cancel.read_bytes()
     rejected = _run_policy(
@@ -786,6 +799,8 @@ def test_artifact_root_must_be_private_external_and_under_private_tmp(
     assert relative_cancel.returncode == 2
     assert "must be absolute" in relative_cancel.stderr
     assert rejected.returncode == 2
+    assert source_overlap.returncode == 2
+    assert "outside source" in source_overlap.stderr
 
 
 def test_artifact_directory_must_remain_below_authenticated_root() -> None:

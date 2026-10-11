@@ -256,8 +256,7 @@ async fn lane_compliance_policy_blocks_transactions() {
             }),
         }),
     };
-    let attachments = ProofAttachmentList::try_from(vec![proof_attachment])
-        .expect("one attachment is a valid bounded proof list");
+    let attachments = vec![proof_attachment];
     let confidential_tx = accepted_tx_with_attachments(
         confidential_id.clone(),
         &confidential_keypair,

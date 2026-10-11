@@ -91,7 +91,7 @@ fn one_scope_validates_identical_epoch_once_across_complete_schedule_operations(
         validation.validations, 1,
         "one exact context owns the repeated pure work"
     );
-    assert_eq!(validation.entries.len(), 1);
+    assert_eq!(validation.entries.iter().flatten().count(), 1);
     assert_eq!(
         validation.core_epoch(&epoch).unwrap(),
         core_epoch(&epoch).unwrap()
@@ -171,7 +171,7 @@ fn warm_epoch_scope_rejects_substituted_credentials_and_authority_bindings() {
             ExecutionResultCommitment::decode_with_validation(&bytes, &mut validation).is_err()
         );
         assert_eq!(
-            validation.entries.len(),
+            validation.entries.iter().flatten().count(),
             1,
             "invalid values never enter retained ownership"
         );
@@ -199,14 +199,14 @@ fn epoch_scope_is_exact_owned_and_bounded_with_revalidation_after_eviction() {
     );
     first.leader_seed[1] ^= 1;
     validation.core_epoch(&first).unwrap();
-    assert_eq!(validation.entries.len(), 2);
+    assert_eq!(validation.entries.iter().flatten().count(), 2);
     assert_eq!(validation.validations, 3);
     assert_eq!(validation.core_epoch(&original).unwrap(), first_core);
     assert_eq!(
         validation.validations, 4,
         "eviction requires full validation again"
     );
-    assert_eq!(validation.entries.len(), 2);
+    assert_eq!(validation.entries.iter().flatten().count(), 2);
     let mut independent = EpochValidationScope::new();
     independent.core_epoch(&original).unwrap();
     assert_eq!(
@@ -335,7 +335,7 @@ fn scoped_decode_keeps_inherited_resource_refusal_and_reuses_epoch_work_after_re
         ))
     ));
     assert_eq!(validation.validations, 0);
-    assert!(validation.entries.is_empty());
+    assert!(validation.entries.iter().all(Option::is_none));
     assert_eq!(bytes, original);
     for _ in 0..3 {
         assert_eq!(
@@ -344,5 +344,5 @@ fn scoped_decode_keeps_inherited_resource_refusal_and_reuses_epoch_work_after_re
         );
     }
     assert_eq!(validation.validations, 1);
-    assert_eq!(validation.entries.len(), 1);
+    assert_eq!(validation.entries.iter().flatten().count(), 1);
 }

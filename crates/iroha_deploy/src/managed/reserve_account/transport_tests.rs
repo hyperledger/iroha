@@ -455,3 +455,74 @@ fn registration_wallet503_reopen_preserves_original_wire_and_single_dispatch() {
         );
     }
 }
+
+#[test]
+fn generated_registration_retains_underwriting_and_refuses_drift_without_profile_reparse() {
+    let _resources = crate::managed::native_test_guard();
+    let (_temporary, prepared, coordinator) = fixture();
+    let provider = coordinator.authority.provider_id().unwrap();
+    // The real startup issuer must inspect child custody without another owner holding its lock.
+    drop(coordinator);
+    let mut peers = UnavailablePeers::start(&prepared);
+    let mut parent =
+        crate::managed::service_bootstrap::ManagedServiceBootstrap::open(&prepared).unwrap();
+    let options = options();
+    let authorization = parent.authorize_test_startup(&options).unwrap().unwrap();
+    let child = authorization
+        .test_child(Purpose::ReserveAccount(provider))
+        .unwrap();
+    let policy = child.policies().network.reserve.clone();
+    let mut coordinator = ManagedReserveAccountRegistration::open(&prepared, provider).unwrap();
+    let underwriting = coordinator
+        .authority
+        .provider_plan()
+        .unwrap()
+        .reserve_terms()
+        .clone();
+    let mut changed = underwriting.clone();
+    changed.capacity_gib += 1;
+    let (error, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
+        coordinator
+            .advance_selected(&policy, &changed, &child, options.deadline)
+            .unwrap_err()
+    });
+    assert_eq!(parses, 0);
+    assert!(
+        error
+            .to_string()
+            .contains("reserve registration differs from authorized policy or underwriting")
+    );
+    unprepared_absent(&coordinator);
+    assert!(peers.requests.lock().unwrap().is_empty());
+
+    let generation =
+        iroha_fs::PrivateDirectory::open_exact(prepared.context.client_config.parent().unwrap())
+            .unwrap();
+    let original = generation.read("peer3.toml", 1024 * 1024).unwrap();
+    let mut changed = original.clone();
+    changed.extend_from_slice(b"\n# changed original before selected registration\n");
+    generation
+        .write_atomic("peer3.toml", &changed, iroha_fs::PublishMode::Replace)
+        .unwrap();
+    let (result, parses) = crate::localnet::service_authorities::count_profile_validations(|| {
+        coordinator.advance_selected(&policy, &underwriting, &child, options.deadline)
+    });
+    assert!(result.is_err());
+    assert_eq!(parses, 0);
+    unprepared_absent(&coordinator);
+    assert!(peers.requests.lock().unwrap().is_empty());
+    generation
+        .write_atomic("peer3.toml", &original, iroha_fs::PublishMode::Replace)
+        .unwrap();
+    coordinator.authority.validate_profile().unwrap();
+    assert_eq!(
+        coordinator
+            .authority
+            .provider_plan()
+            .unwrap()
+            .reserve_terms(),
+        &underwriting
+    );
+    peers.finish();
+    assert!(peers.requests.lock().unwrap().is_empty());
+}

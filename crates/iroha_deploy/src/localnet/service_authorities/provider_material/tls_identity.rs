@@ -17,7 +17,7 @@ pub(super) const CA_KEY: &str = "provider-ca.key.der";
 pub(super) const LEAF_CERT: &str = "provider-tls.der";
 pub(super) const LEAF_KEY: &str = "provider-tls.key.der";
 pub(super) const FILES: [&str; 4] = [CA_CERT, CA_KEY, LEAF_CERT, LEAF_KEY];
-const MAX_DER: usize = 16 * 1024;
+pub(super) const MAX_DER: usize = 16 * 1024;
 
 pub(super) struct PublicIdentity {
     pub(super) root: Vec<u8>,
@@ -129,7 +129,7 @@ pub(super) fn verify(root: &[u8], leaf: &[u8], host: &str, at: u64) -> Result<()
 }
 
 pub(super) fn validate_retained(
-    directory: &iroha_fs::PrivateDirectory,
+    directory: &capture::CapturedDirectory,
     root: &[u8],
     leaf: &[u8],
     host: &str,
@@ -141,7 +141,7 @@ pub(super) fn validate_retained(
     let retained_root = directory.read(CA_CERT, MAX_DER)?;
     let retained_leaf = directory.read(LEAF_CERT, MAX_DER)?;
     ensure!(
-        &*retained_root == root && &*retained_leaf == leaf,
+        retained_root == root && retained_leaf == leaf,
         "retained provider TLS identity changed"
     );
     verify(root, leaf, host, original_time)?;

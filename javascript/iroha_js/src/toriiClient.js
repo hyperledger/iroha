@@ -12656,7 +12656,6 @@ async function parseGovernanceProposalRecord(payload) {
     proposalOperator = kind.validation_fee_policy.proposal_operator;
   } else if (kind.variant === "ValidationFeePayoutLifecycle") {
     proposalOperator = kind.validation_fee_payout_lifecycle.proposal_operator;
-
   }
   if (proposalOperator !== null && proposalOperator !== proposer) {
     rejectType("governance proposal operator must match the retained proposer");

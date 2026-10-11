@@ -7,7 +7,7 @@
 
 use super::*;
 use iroha_crypto::{PreparedCryptoDecodeError, PreparedPublicKeyDecode, PreparedSignatureDecode};
-use iroha_data_model::{consensus::GlobalThresholdBeaconDkgConstantProofV1, id::NetworkId};
+use iroha_data_model::consensus::GlobalThresholdBeaconDkgConstantProofV1;
 use norito::core::{
     CanonicalField, DecodeField, DecodeIntoError, DecodeRecordFields, Encoder, FieldDestination,
     PayloadRef, PreparedRecordDestination, SequenceDestinationError, SequenceSpan,

@@ -1,0 +1,145 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "cancel_of_the_last_in_flight_step_that_commits_completes",
+  "category": "cancellation",
+  "rules": [
+    "cancellation_is_sticky_and_never_rolls_back",
+    "per_transaction_atomicity_only"
+  ],
+  "description": "Cancellation arrives while the last transaction is in flight and that transaction commits. Every step took effect, so the workflow is completed: cancellation never pretends a committed transaction did not happen.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "cancel-of-the-last-in-flight-step-that-commits-completes",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "observed"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "FinalityPending",
+          "stage": "reconcile",
+          "step": 0
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "pending"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "cancel",
+      "expect": {
+        "result": "ok",
+        "effects": [],
+        "status": "cancelling",
+        "steps": [
+          "pending"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "recover",
+      "script": {
+        "statuses": [
+          "applied"
+        ]
+      },
+      "driver": "absent",
+      "expect": {
+        "result": "ok",
+        "effects": [
+          "status:0#1"
+        ],
+        "status": "completed",
+        "steps": [
+          "finalized"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        }
+      }
+    },
+    {
+      "op": "run",
+      "expect": {
+        "result": "completed",
+        "effects": [],
+        "status": "completed",
+        "steps": [
+          "finalized"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0
+          ],
+          "irreversible_steps": [
+            0
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        }
+      }
+    }
+  ]
+}

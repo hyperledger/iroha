@@ -168,12 +168,9 @@ fn specified_frame<'a>(document: &'a str, frame: &str) -> (&'a str, Vec<&'a str>
     (row, fields.split('`').skip(1).step_by(2).collect())
 }
 
+/// The specification with Unix line endings, whatever the checkout wrote.
 fn specification() -> String {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../specs/ram_lfe_execution_proof.md"
-    );
-    std::fs::read_to_string(path).expect("tracked RAM-LFE specification")
+    crate::ram_lfe::specification_tests::repository_file("specs/ram_lfe_execution_proof.md")
 }
 
 #[test]

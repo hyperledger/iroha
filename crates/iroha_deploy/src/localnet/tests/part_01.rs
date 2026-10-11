@@ -1391,7 +1391,6 @@ fn generated_localnet_bootstraps_universal_kagemusha_asset() {
         generate_genesis_key_pair(opts.seed.as_ref().map(String::as_bytes), GENESIS_SEED)
             .expect("test localnet genesis key generation should succeed");
     let genesis_account_id = AccountId::new(genesis_public_key);
-    let expected_explicit_manage_kagemusha_reserve_grants = 1;
     let expected_mint_destination =
         AssetId::new(kagemusha_asset_id.clone(), client_account_id.clone());
     let has_definition = manifest.instructions().any(|instruction| {
@@ -1456,8 +1455,6 @@ fn generated_localnet_bootstraps_universal_kagemusha_asset() {
     );
     let mut has_alias_manage = false;
     let mut has_manifest_publish = false;
-    let mut manage_kagemusha_reserve_grants = 0usize;
-    let mut total_manage_kagemusha_reserve_grants = 0usize;
     let mut genesis_manage_verifying_keys_grants = 0usize;
     let mut client_manage_verifying_keys_grants = 0usize;
     let mut total_manage_verifying_keys_grants = 0usize;
@@ -1469,10 +1466,10 @@ fn generated_localnet_bootstraps_universal_kagemusha_asset() {
             continue;
         };
         let permission_name: &str = grant_permission.object().name();
-        if permission_name == "CanManageKagemushaReserve" {
-            total_manage_kagemusha_reserve_grants =
-                total_manage_kagemusha_reserve_grants.saturating_add(1);
-        }
+        assert_ne!(
+            permission_name, "CanManageKagemushaReserve",
+            "localnet genesis must not grant the retired KAGEMUSHA reserve permission"
+        );
         if permission_name == "CanManageVerifyingKeys" {
             total_manage_verifying_keys_grants =
                 total_manage_verifying_keys_grants.saturating_add(1);
@@ -1488,9 +1485,6 @@ fn generated_localnet_bootstraps_universal_kagemusha_asset() {
         }
         match permission_name {
             "CanManageAccountAlias" => has_alias_manage = true,
-            "CanManageKagemushaReserve" => {
-                manage_kagemusha_reserve_grants = manage_kagemusha_reserve_grants.saturating_add(1);
-            }
             "CanManageVerifyingKeys" => {
                 client_manage_verifying_keys_grants =
                     client_manage_verifying_keys_grants.saturating_add(1);
@@ -1506,14 +1500,6 @@ fn generated_localnet_bootstraps_universal_kagemusha_asset() {
     assert!(
         has_manifest_publish,
         "localnet client signer must be able to publish onboarding manifests"
-    );
-    assert_eq!(
-        manage_kagemusha_reserve_grants, expected_explicit_manage_kagemusha_reserve_grants,
-        "localnet must only emit an explicit CanManageKagemushaReserve grant when the client signer is not Alice"
-    );
-    assert_eq!(
-        total_manage_kagemusha_reserve_grants, expected_explicit_manage_kagemusha_reserve_grants,
-        "localnet genesis must not emit duplicate explicit CanManageKagemushaReserve grants"
     );
     assert_eq!(
         genesis_manage_verifying_keys_grants, 1,
@@ -1534,7 +1520,7 @@ fn generated_localnet_bootstraps_universal_kagemusha_asset() {
     );
 }
 #[test]
-fn permissioned_localnet_genesis_deduplicates_kagemusha_reserve_grant() {
+fn permissioned_localnet_genesis_grants_no_kagemusha_reserve_permission() {
     let opts = LocalnetOptions {
         service_profile: crate::localnet::LocalnetServiceProfile::Standard,
         sora_profile: None,
@@ -1552,8 +1538,6 @@ fn permissioned_localnet_genesis_deduplicates_kagemusha_reserve_grant() {
         consensus_mode: SumeragiConsensusMode::Permissioned,
     };
     let manifest = localnet_genesis_for_opts(&opts);
-    let client_account_id = localnet_client_account_id();
-    let expected_explicit_manage_kagemusha_reserve_grants = 1;
     let kagemusha_reserve_grants = manifest
         .instructions()
         .filter_map(|instruction| instruction.as_any().downcast_ref::<GrantBox>())
@@ -1561,12 +1545,11 @@ fn permissioned_localnet_genesis_deduplicates_kagemusha_reserve_grant() {
             GrantBox::Permission(grant_permission) => Some(grant_permission),
             _ => None,
         })
-        .filter(|grant_permission| grant_permission.destination() == &client_account_id)
         .filter(|grant_permission| grant_permission.object().name() == "CanManageKagemushaReserve")
         .count();
     assert_eq!(
-        kagemusha_reserve_grants, expected_explicit_manage_kagemusha_reserve_grants,
-        "permissioned localnet genesis must grant the actual runtime operator exactly one KAGEMUSHA reserve permission"
+        kagemusha_reserve_grants, 0,
+        "permissioned localnet genesis must not grant the retired KAGEMUSHA reserve permission"
     );
 }
 #[test]

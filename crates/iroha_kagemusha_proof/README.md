@@ -1,49 +1,57 @@
 # iroha_kagemusha_proof
 
-Native-only KAGEMUSHA relations on the PIPA-v1 engine (`iroha_plonk`,
+Native-only KAGEMUSHA step relations on the PIPA-v1 engine (`iroha_plonk`,
 `specs/plonk_ipa_v1.md`). This crate is the compilation boundary of KAGEMUSHA
 relations built on the native stack. It links `iroha_pasta`, `iroha_plonk` and
 `iroha_plonk_gadgets` only, never the vendored halo2 stack or `iroha_core_zk`.
 
-## Prototype status
+## Status
 
-Everything here is a **prototype** of the proposed *split-lineage* design
-(`specs/kagemusha_single_design_proposal.md` sections 3 and 3.2): step proofs
-on the payment path, with the recursive lineage proof in the background. Owner
-approval of that design is pending. The relations implement the spec section 3
-core with every regulatory control off, under prototype domain labels
-(`kgspcor1`, `kgspcrd1`, ...); only the public statement follows the G1
-wallet statement encoding (`kgwstmt1`). They are not a protocol format, and no
-protocol path uses them. Aligning the core layout, the chain entries and the
-domains with the G1 encodings is open (TODO(G3) in `src/witness.rs`). A frozen relation needs versioned types, shared Swift/Kotlin
-vectors and owner sign-off.
+The split-lineage step relations `sigma_send` and `sigma_recv`
+(`specs/kagemusha_single_design_proposal.md` sections 3, 3.2, 5.1 and 7) in the
+G1 wallet layout of `iroha_data_model` (`specs/kagemusha_wallet_wire_v1.md`
+section 3.2). The domains, element lists, commitment, chains, `credit_id` and
+statement are the G1 ones, pinned by the shared vectors of
+`fixtures/kagemusha/wallet_v1_vectors.json`. No protocol path uses the
+relations yet. The artifact set (frozen verifying keys, their digest rule and
+the exact proof lengths of the allowlist) is G3 work.
+
+Open (TODO(G3) in `src/witness.rs`): with the blacklist control, `sigma_send`
+enforces only the maximum list age; the recipient non-membership opening, the
+quota windows and usage update and the lease check are not implemented. A
+relation enabling a quota or lease bit is refused (`ParamsError::Relation`),
+and no relation with an enabled control may be frozen into an allowlist yet.
 
 ## Relations
 
 `sigma_send` and `sigma_recv` (`SigmaCircuit`) on Pow5 sponge lanes,
-running-sum range checks, checked `u128`/`u64` arithmetic and glue gates.
+running-sum range checks, checked `u128`/`u64` arithmetic and glue gates. A
+`SigmaRelation` is a step with the enabled-controls mask its verifying key is
+selected by: the G1 selector `(operation tag, mask)` (owner answer Q11),
+`(3, mask)` for `sigma_send` and `(4, 0)` for `sigma_recv`.
 
-- **State.** A 40-field wallet state: a 30-field core plus a 10-field
-  remainder.
-  - The core holds every field spec section 3 assigns to it: lifecycle,
-    `wallet_id` and credential digest, balance, `burned_total`, sequence, the
-    send, load and redeem ordinals, both chains, the five map roots, the
-    enabled-controls mask, the quota windows root, the blacklist version and
-    root, the lease expiry, the policy epoch, the accepted-time floor and the
-    state nonce.
-  - It also holds the scheme and asset identifiers, beyond the spec's list.
-    The lineage proof exposes no asset, so a step proof binds the asset of the
-    incarnation only by opening it. (Spec question for the owner: add the
-    asset to the core, or to the section 3.2 consumer checks.)
-  - Two-level (spec): `H(core || H(remainder))`, 16 permutations per opening
-    with a folded prefix. Flat: `H(core || remainder)`, 21. Each
-    `(step, layout)` pair has its own relation identifier.
+- **Hashes.** `P(d, items)` is the RP57 Poseidon `hash_with_domain` over Pasta
+  `Fp`, under the G1 domains `kgwcore1`, `kgwrest1`, `kgwcrdt1`, `kgwschn1`,
+  `kgwrchn1` and `kgwstmt1`. An integer is one element, a 32-byte digest two
+  `u128` limbs, a `P` value one element.
+- **State.** A 32-element core (lifecycle; scheme id, asset digest, `wallet_id`
+  and credential digest; balance, `burned_total`, sequence and the send, load
+  and redeem ordinals; both chains; the consumed-credit, pending-outgoing,
+  load/redeem-recovery, fee-claim and quota-usage roots; the enabled-controls
+  mask; the quota-windows root; the blacklist version, root, issue time and
+  maximum age; the lease expiry; the policy epoch; the accepted-time floor; the
+  state nonce) and a 13-element rest. The head commitment is one `Fp` value,
+  `P(kgwcore1, core || P(kgwrest1, rest))` (owner answer Q10): 17 folded
+  permutations per opening. The rest digest is carried; no step relation opens
+  the rest.
 - **Both steps.**
-  - Open the predecessor commitment and require lifecycle Active.
+  - Open the predecessor commitment and require the lifecycle to be Active or
+    Retiring, carried unchanged (a Retiring wallet keeps sending and
+    receiving, spec section 6.3).
   - Require a nonzero `u128` amount and `sequence + 1 < 2^128`.
-  - Derive `credit_id = H(kgspcrd1, Request body)` in circuit and decompose it
-    into its canonical limbs. The Request's scheme, asset and own wallet (and,
-    for `sigma_recv`, the receiver credential) are the opened core cells.
+  - Derive `credit_id = P(kgwcrdt1, 24-element Request body)` in circuit: one
+    element (owner answer Q1). The Request's scheme, asset and own wallet are
+    the opened core cells.
   - Require distinct payer and receiver wallets.
   - Commit the successor with a fresh state nonce. Roots the step updates are
     carried witnesses; the others are copied. Spec section 3.2 assigns root
@@ -51,7 +59,7 @@ running-sum range checks, checked `u128`/`u64` arithmetic and glue gates.
 - **`sigma_send`.**
   - Takes `burned_total` and the pending-outgoing root of the predecessor's
     lineage proof as public inputs (in the statement).
-  - Requires an empty enabled-controls mask.
+  - Requires the core's enabled-controls mask to be its relation's.
   - Checks `amount + fee < 2^128` and `amount + fee <= balance - burned_total`.
     The successor balance is `balance - amount - fee`, and its `burned_total`
     is the lineage input.
@@ -59,20 +67,26 @@ running-sum range checks, checked `u128`/`u64` arithmetic and glue gates.
     `request_policy_epoch <= policy_epoch` and
     `max(accepted_time_floor, request_time) <= lower <= upper` (all `u64`),
     and raises the successor's floor to `lower`.
-  - Appends `send_chain` over `credit_id`, receiver, ordinal, amount and fee.
+  - With the blacklist control (owner answer Q5): while a list is held under
+    an age rule, `issued_at <= upper <= issued_at + max_age` (the native G1
+    `check_blacklist` age check), as two gated range checks.
+  - `send_chain' = P(kgwschn1, [send_chain, credit_id, receiver (2), ordinal,
+    amount, fee, Request digest (2)])`.
 - **`sigma_recv`.**
-  - Credits the amount without overflow and appends `recv_chain`.
-  - Its statement contains no Payment digest (precomputed at Request
-    signing).
-- **Public outputs.** The Poseidon digest of the 29-field step statement
-  under `kgwstmt1`, in the order of the G1
-  `KagemushaWalletStatementV1::field_items` (version, the 32-byte relation
-  identity as two limbs, scheme, asset, credential, successor lifecycle,
-  sequence and `next_load`, mask, the lineage inputs of a Send, both
-  commitments, the effect tag and an 11-field effect union; the Send effect
-  carries the Request digest limbs after the fee), plus the credit identifier
-  for `sigma_send`. The statement carries no
-  prover-chosen other-parity commitment component.
+  - Matches the Request's receiver by the core `wallet_id` inside
+    `credit_id`. The Request's receiver credential digest is a Request term,
+    never compared with the core's (owner answer Q8), so a Request quoted
+    before a renewal stays receivable after it. The `payment_key` match is
+    the native Payment check and `Λ_recv`'s.
+  - Credits the amount without overflow;
+    `recv_chain' = P(kgwrchn1, [recv_chain, credit_id, payer (2), amount])`.
+- **Public input.** The digest of the 28-element G1 statement under
+  `kgwstmt1` (`KagemushaWalletStatementV1::field_items`): version, the
+  scheme-level relation identity (two limbs, a witness bound by the digest; it
+  cannot be a circuit constant because it binds the verifying-key set),
+  scheme, asset, credential, successor lifecycle, sequence and `next_load`,
+  mask, the lineage inputs of a Send, both commitments, the effect tag and a
+  10-element effect union.
 
 `StepWitness::evaluate` is the native reference. It returns every digest, the
 successor and the relation `Violation`s. The circuit compares every in-circuit
@@ -80,36 +94,37 @@ digest with it while the witness is known.
 
 `consumer::check_send` and `consumer::check_receive` are the native spec
 section 3.2 checks a package consumer runs before verifying the proof: the
-relation identity, the predecessor, credential, scheme, mask, `burned_total`
-and pending-outgoing root against the lineage proof (`LineageView`), and the
-scheme, asset, wallets, amounts and credit identifier against the Request
-body.
+relation identity, the predecessor, credential, scheme, lifecycle, mask,
+`burned_total` and pending-outgoing root against the lineage proof
+(`LineageView`), and the scheme, asset, wallets, amounts and `credit_id`
+against the Request body. They return the relation whose verifying key the
+consumer selects and the public input.
 
 ## Shapes and proofs
 
 - `select_shape` chooses the smallest `k`, then the fewest lanes, at which a
   key-generation synthesis fits. A proof byte budget is optional; the default
   is the 3.5 KB gate. Proof lengths are exact, taken from the descriptor.
-- Shapes chosen (folded prefixes):
+- Shapes (folded prefixes; `sigma_send` 67 permutations with or without the
+  blacklist control, `sigma_recv` 65):
 
-  | Relation | Permutations | With the 3.5 KB budget | Without a budget |
-  | --- | --- | --- | --- |
-  | Two-level send / recv | 65 / 64 | `k = 12`, one lane, 3,296 B | `k = 10`, four lanes, 5,120 B |
-  | Flat send / recv | 75 / 74 | `k = 12`, one lane, 3,296 B | `k = 10`, four lanes, 5,120 B |
+  | `k` | Lanes (fewest that fit) | Proof |
+  | --- | --- | --- |
+  | 12 | 1 (the selector's choice within 3.5 KB) | 3,296 B |
+  | 11 | 2 | 3,840 B |
+  | 10 | 4 (the smallest `k`) | 5,120 B |
 
-  At `k = 11` the two-level relation needs two lanes, and that proof exceeds
-  the budget.
 - The glue chip shares the columns of the least loaded lane, in the rows after
   its last permutation block.
 - `SigmaProver` derives the parameters, generates keys and proves. It refuses
   a witness that breaks the relation.
 - `KeyOptions` trades memory for speed and never changes a key or proof byte.
-  The default has no fixed-base commitment tables. With
-  `KeyOptions::WITH_TABLES`, at the budget shape (`k = 12`), proving takes
-  about 4-6% less one-thread CPU, and the single-prover peak RSS rises by
-  about 11 MiB (M12 stage FIX: three processes per variant).
+  The default has no fixed-base commitment tables.
 - `SigmaVerifier` needs only the descriptor bytes, the verifying-key bytes and
-  the pinned parameters.
+  the pinned parameters. `SigmaAllowlist` holds one verifier per selector,
+  selects by `(tag, mask)` and emits the G1 allowlist entries (selector,
+  verifying-key digest, exact proof length). The verifying-key digest is the
+  PIPA-v1 `transcript_repr` of the key (an interim choice; TODO(G3)).
 - The format is the KAGEMUSHA step format: RP57 Poseidon transcript, Direct
   instances and the folded-generator suffix.
 
@@ -117,11 +132,11 @@ body.
 
 | File | What it covers |
 | --- | --- |
-| `tests/relation_checks.rs` | The 28 range-check cases in the strict constraint checker: two steps, two layouts, two Poseidon prefix modes, each honest witness plus its mutations (including a debit that ignores the lineage `burned_total`). Every rejection is a range-check limb lookup. Every other rule, broken alone, and the integer boundaries, on all eight shapes. In release, the per-cell tamper sweep on every honest case (every cell is pinned; this does not show what the cells are bound to). |
-| `tests/forgeries.rs` | Consistent-forgery tests, one per soundness rule: a forged identity, credit identifier or `burned_total` assigned consistently (every downstream digest recomputed by the circuit) is rejected by the consumer checks or unprovable for the claimed statement; self-payment has no witness; accepted time never goes back; the statement's commitments are the opened ones; the layouts have distinct relation identities. |
-| `tests/real_proofs.rs` (release) | The 28 cases as real proofs. Honest proofs verify. The library and the engine refuse each mutated witness. A forger who zeroes the failing range checks gets a proof the verifier rejects. Every flipped proof byte is rejected. Proofs on Pallas also verify. A forged identity proves only its own head. Keys and proofs are identical on 1, 2, 4 and 7 threads. |
-| `tests/digest_parity.rs` | The native reference against `fixtures/native_prover/kats_v1.json`; in-circuit digests equal native ones on both fields; pinned known answers. |
-| `tests/shapes.rs` | Shape selection, the pinned shapes, inventories, and verifiers rebuilt from bytes. |
+| `tests/digest_parity.rs` | The native reference against `fixtures/native_prover/kats_v1.json`; the G1 vectors of `fixtures/kagemusha/wallet_v1_vectors.json` (domains, core and rest elements, rest digest, commitment, `credit_id`, both chain appends, both statements, and the named, pairwise-distinct `controlled_state` that pins every commitment position) natively and in circuit; in-circuit digests equal native ones on both fields; pinned known answers. |
+| `tests/relation_checks.rs` | The 20 range-check cases in the strict constraint checker (three relations, two Poseidon prefix modes): each honest witness plus its mutations (including a debit that ignores the lineage `burned_total` and a stale or future blacklist). Every rejection is a range-check limb lookup. Every other rule, broken alone, and the integer and list-age boundaries, on all six shapes. In release, the per-cell tamper sweep on every honest case. |
+| `tests/forgeries.rs` | Consistent-forgery tests, one per soundness rule: identity, receiver binding by `wallet_id` (Q8), `credit_id`, `burned_total`, the blacklist age under the mask-selected relation (Q5), self-payment, accepted time, the opened commitments and the relation identity. |
+| `tests/real_proofs.rs` (release) | The 20 cases as real proofs. Honest proofs verify. The library and the engine refuse each mutated witness. A forger who zeroes the failing range checks gets a proof the verifier rejects. Every flipped proof byte is rejected. Proofs on Pallas also verify. A forged identity proves only its own head. A proof verifies only under its own allowlist selector. Keys and proofs are identical on 1, 2, 4 and 7 threads. |
+| `tests/shapes.rs` | Shape selection, the pinned shapes at `k = 12, 11, 10`, inventories, and verifiers rebuilt from bytes. |
 | `tests/measure.rs` (ignored, release only) | The M12 measurement harness and footprint workloads. |
 
 Validate:
@@ -138,5 +153,5 @@ prints min/median/p95/max with the load average of every run; a series with
 `load1 >= 4` is marked `gate_grade=false`:
 
 ```sh
-/usr/bin/time -l <measure binary> m12_send_two_level_budget --exact --ignored --nocapture --test-threads=1
+/usr/bin/time -l <measure binary> m12_send_k12 --exact --ignored --nocapture --test-threads=1
 ```

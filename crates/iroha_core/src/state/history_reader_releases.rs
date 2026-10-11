@@ -29,7 +29,7 @@ pub(crate) struct StateViewReleases<'state> {
 /// This is only cleanup custody; it grants no read or publication authority.
 #[must_use = "retain original read notices through every enclosing physical owner"]
 pub(crate) struct StateViewRetirement {
-    _indexes: [DeferredReleaseBatch; 13],
+    _indexes: [DeferredReleaseBatch; 12],
     _hashes: Option<DeferredReleaseBatch>,
     _membership: DeferredReleaseBatch,
     _world: view_acquisition::WorldReadReleases,
@@ -73,7 +73,6 @@ impl<'state> StateViewReleases<'state> {
             prepared_cache,
             crypto,
             nexus,
-            verifier,
             header,
             manifests,
             privacy,
@@ -89,7 +88,6 @@ impl<'state> StateViewReleases<'state> {
                 prepared_cache.into_releases(),
                 crypto.into_releases(),
                 nexus.into_releases(),
-                verifier.into_releases(),
                 header.into_releases(),
                 manifests.into_releases(),
                 privacy.into_releases(),

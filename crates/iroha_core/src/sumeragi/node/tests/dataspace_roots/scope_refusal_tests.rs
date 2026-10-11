@@ -298,8 +298,7 @@ fn signed_private_contract_lookup_does_not_turn_scope_refusal_into_vm_permission
 
 #[test]
 fn signed_private_registry_lookup_does_not_publish_refusal_as_absence() {
-    let manifest_signing =
-        crate::manifest_signing_test_support::ManifestSigningFixture::new();
+    let manifest_signing = crate::manifest_signing_test_support::ManifestSigningFixture::new();
     use iroha_data_model::{
         isi::smart_contract_code::{RegisterSmartContractBytes, RegisterSmartContractCode},
         smart_contract::ContractArtifactId,
@@ -329,7 +328,13 @@ seiyaku OriginalRegistry {
             .into(),
             RegisterSmartContractCode {
                 artifact_id: artifact,
-                manifest: manifest.try_signed(manifest_signing.context(), manifest_signing.max_frame_bytes(), &SAMPLE_GENESIS_ACCOUNT_KEYPAIR).expect("sign bounded fixture manifest"),
+                manifest: manifest
+                    .try_signed(
+                        manifest_signing.context(),
+                        manifest_signing.max_frame_bytes(),
+                        &SAMPLE_GENESIS_ACCOUNT_KEYPAIR,
+                    )
+                    .expect("sign bounded fixture manifest"),
             }
             .into(),
         ],

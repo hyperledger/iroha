@@ -494,7 +494,7 @@ fn kagemusha_wallet_v1_output_descriptors_are_receipt_free() {
         },
         KagemushaWalletEffectV1::ArchiveSent {
             credit_id: field_value(0x55),
-            credited: [0x56; 32],
+            credited: field_value(0x56),
         },
         KagemushaWalletEffectV1::Unload {
             nullifier,

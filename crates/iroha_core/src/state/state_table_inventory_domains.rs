@@ -253,11 +253,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         literals: &[r"iroha:telemetry:classified-journal:v1\0"],
     },
     OtherDomains {
-        usage: Use::LocalArtifact,
-        reason: "Unused domain constant of the merge write-set encoding: production uses that encoding only as an emptiness probe and forms no digest",
-        literals: &[r"iroha:merge:execution-write-set:v1\0"],
-    },
-    OtherDomains {
         usage: Use::Seed,
         reason: "Digests of the consensus projection of one lane configuration and of the lane catalog. They are compared for equality inside one process, to decide which lanes reset, and they are inputs of the static, configuration and lifecycle derivations of the lane incarnation, the identifier that State stores per lane. The two digests themselves are never stored or carried",
         literals: &[
@@ -333,7 +328,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha:state:zk-verifying-key-ref:v1",
             r"iroha:state:zk:v1",
             r"musubi.v0.aliases",
-            r"state.kagemusha_v1_runtime_verifier",
             r"world.smart_contract_state.retail_day_v1",
         ],
     },
@@ -725,7 +719,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha.kagemusha.v1.release-profile-digest-subject",
             r"iroha.kagemusha.v1.release-profile-qualification-digest-subject",
             r"iroha.kagemusha.v1.release-vk-set-digest-subject",
-            r"iroha.kagemusha.v1.reserve-custody",
             r"iroha.kagemusha.v1.retail-enrollment-account-proof",
             r"iroha.kagemusha.v1.retail-enrollment-approval",
             r"iroha.kagemusha.v1.retail-enrollment-certificate",
@@ -790,7 +783,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha:kagemusha:v1:liability-pool",
             r"iroha:kagemusha:v1:lifecycle-binding",
             r"iroha:kagemusha:v1:manifest",
-            r"iroha:kagemusha:v1:mint-authority-bootstrap",
             r"iroha:kagemusha:v1:mint-authorization",
             r"iroha:kagemusha:v1:mint-authorization-context",
             r"iroha:kagemusha:v1:mint-authorization-statement",
@@ -906,7 +898,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha:kagemusha:v1:release-authority-policy",
             r"iroha:kagemusha:v1:release-profile",
             r"iroha:kagemusha:v1:reserve-receipt",
-            r"iroha:kagemusha:v1:reserve:top-up-result-wire\0",
             r"iroha:kagemusha:v1:retail-enrollment-account-possession",
             r"iroha:kagemusha:v1:retail-enrollment-approval",
             r"iroha:kagemusha:v1:retail-enrollment-ceremony-evidence",
@@ -925,9 +916,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"kagemusha-advance-journal-marker-v1",
             r"kagemusha-ordinary-app-v1-",
             r"kagemusha-v1-isi",
-            r"kagemusha-v1-other-network",
-            r"kagemusha-v1-witness",
-            r"kagemusha-v1-witness-incarnation",
         ],
     },
     OtherDomains {

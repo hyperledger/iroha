@@ -24,8 +24,10 @@ import org.hyperledger.iroha.sdk.norito.NoritoCodec
 import org.hyperledger.iroha.sdk.norito.NoritoDecoder
 import org.hyperledger.iroha.sdk.testing.TestEd25519Keys
 import org.hyperledger.iroha.sdk.testing.TestNetworkIds
+import org.hyperledger.iroha.sdk.tx.norito.NoritoException
 import org.hyperledger.iroha.sdk.tx.norito.NoritoJavaCodecAdapter
 import org.hyperledger.iroha.sdk.tx.norito.SignedTransactionEncoder
+import org.hyperledger.iroha.sdk.tx.norito.TransactionPayloadAdapter
 
 class SignedTransactionHasherTest {
     private val adapter = NoritoJavaCodecAdapter(TairaTestnetProfile.I105_DISCRIMINANT)
@@ -61,22 +63,19 @@ class SignedTransactionHasherTest {
             byteArrayOf(0x01, 0x02, 0x03),
             ProofVerifierKeyRef("halo2", "vk1"),
         )
-        val withAttachment = signed(
-            adapter.encodeTransaction(samplePayload(attachments = listOf(attachment))),
-            0x33,
-        )
 
         assertNotEquals(
             SignedTransactionHasher.hashHex(base),
             SignedTransactionHasher.hashHex(changedMetadata),
         )
-        assertNotEquals(
-            SignedTransactionHasher.hashHex(base),
-            SignedTransactionHasher.hashHex(withAttachment),
-        )
+        // The wire field is SignedAttachmentsV1, which this codec does not implement: a payload
+        // with attachments is refused instead of being encoded in the retired list layout.
+        val refusal = assertFailsWith<NoritoException> {
+            adapter.encodeTransaction(samplePayload(attachments = listOf(attachment)))
+        }
         assertEquals(
-            listOf(attachment),
-            adapter.decodeTransaction(withAttachment.encodedPayload()).attachments,
+            TransactionPayloadAdapter.SIGNED_ATTACHMENTS_UNSUPPORTED,
+            generateSequence<Throwable>(refusal) { it.cause }.last().message,
         )
     }
 

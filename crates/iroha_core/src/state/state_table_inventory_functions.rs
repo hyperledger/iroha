@@ -547,12 +547,6 @@ pub(super) const STATE_HASH_FUNCTIONS: &[StateHashFunction] = &[
     ),
     function(
         "crates/iroha_core/src/state.rs",
-        "lane_fastpq_transcript_selection",
-        1,
-        UseOwner::Other(Use::Record, RECORD_IDENTITY),
-    ),
-    function(
-        "crates/iroha_core/src/state.rs",
         "lane_incarnation",
         1,
         UseOwner::Other(Use::Seed, DERIVED_SEED),

@@ -117,7 +117,8 @@ fn native_origin_rejects_nested_attachments_multisig_bad_signature_and_outer_sub
                 );
                 signed = TransactionBuilder::from_payload(original.payload().clone())
                     .unwrap()
-                    .with_attachments(vec![attachment].try_into().unwrap())
+                    .with_proof_attachments(vec![attachment])
+                    .expect("valid proof carriers")
                     .sign(key.private_key());
             }
             2 => signed.set_multisig_signatures(MultisigSignatures::new(Vec::new())),

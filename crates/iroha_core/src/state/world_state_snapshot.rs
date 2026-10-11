@@ -7,8 +7,6 @@
 //! complete reconstructed root/count must match certified R; current typed targets
 //! that changed in the tail are refused. Decoded restoration requires native replay.
 
-#[path = "world_state_snapshot/ordinary_mint_issuer.rs"]
-mod ordinary_mint_issuer;
 #[path = "world_state_snapshot/ordinary_wallet.rs"]
 mod ordinary_wallet;
 #[path = "world_state_snapshot/reserve_account.rs"]
@@ -27,9 +25,7 @@ use crate::{
 use iroha_allocation::{AllocationBudget, AllocationCharge, ChargedBuffer};
 use iroha_data_model::{
     account::AccountId,
-    asset::{AssetDefinition, AssetDefinitionId},
-    kagemusha::KagemushaGovernedVerifierRegistryV1,
-    nexus::AxtAssetIncarnationV1,
+    asset::AssetDefinitionId,
     sumeragi_finality::{
         MAX_WORLD_STATE_SNAPSHOT_BYTES_V1, MAX_WORLD_STATE_SNAPSHOT_ENTRIES_V1,
         WorldStateSnapshotEntryV1, WorldStateSnapshotV1,
@@ -542,69 +538,6 @@ impl State {
                 hash_value(bytes)?,
             )?;
             consume(snapshot, bytes)
-        })
-    }
-
-    /// Publish every canonical World element and borrowed exact target originals on demand.
-    ///
-    /// `tip` must come from the retained native certified chain. This method checks
-    /// its original header/result against State's opaque execution owner before and
-    /// after capture; no supplied bare root grants authority. The callback may only
-    /// produce a data response, which its independent consumer still authenticates
-    /// under an installed finality root. It must not publish side effects.
-    ///
-    /// # Errors
-    /// Busy or changed publication generation, foreign/retired native tip, missing
-    /// exact targets, inconsistent accumulator, finite allocation or wire bounds.
-    pub fn with_native_world_state_snapshot_v1<T>(
-        &self,
-        tip: &CommittedBlock,
-        asset_id: &AssetDefinitionId,
-        budget: &AllocationBudget,
-        consume: impl FnOnce(
-            &WorldStateSnapshotV1,
-            &AssetDefinition,
-            &AxtAssetIncarnationV1,
-            &KagemushaGovernedVerifierRegistryV1,
-        ) -> Result<T, String>,
-    ) -> Result<T, WorldStateSnapshotError> {
-        self.with_native_world_state_snapshot_cut_v1(tip, None, budget, |snapshot, world| {
-            let definition = world
-                .asset_definitions
-                .get(asset_id)
-                .ok_or("World snapshot exact asset definition is absent")?;
-            let incarnation = world
-                .axt_asset_incarnations
-                .get(asset_id)
-                .ok_or("World snapshot exact asset incarnation is absent")?;
-            for (field, kind, key, value) in [
-                (
-                    "world.asset_definitions",
-                    WorldStateElementKindV1::Table,
-                    Some(hash_value(asset_id)?),
-                    hash_value(definition)?,
-                ),
-                (
-                    "world.axt_asset_incarnations",
-                    WorldStateElementKindV1::Table,
-                    Some(hash_value(asset_id)?),
-                    hash_value(incarnation)?,
-                ),
-                (
-                    "world.kagemusha_verifier_registry",
-                    WorldStateElementKindV1::Cell,
-                    None,
-                    hash_value(world.kagemusha_verifier_registry.get())?,
-                ),
-            ] {
-                require_target(snapshot, field, kind, key, value)?;
-            }
-            consume(
-                snapshot,
-                definition,
-                incarnation,
-                world.kagemusha_verifier_registry.get(),
-            )
         })
     }
 

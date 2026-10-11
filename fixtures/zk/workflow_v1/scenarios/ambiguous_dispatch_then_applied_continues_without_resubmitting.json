@@ -1,0 +1,143 @@
+{
+  "schema": "iroha.durable_workflow.scenario.v1",
+  "id": "ambiguous_dispatch_then_applied_continues_without_resubmitting",
+  "category": "interruption_after_ambiguous_submission",
+  "rules": [
+    "reconcile_before_decide",
+    "no_replacement_while_unresolved"
+  ],
+  "description": "A submission times out. The call returns SubmissionOutcomeUnknown with the transaction identity. The resumed run first reads the committed outcome of that identity, finds it applied, and continues with the next step. The first transaction is never built, signed or dispatched again.",
+  "plan": {
+    "kind": "issuer_bootstrap",
+    "instance": "ambiguous-dispatch-then-applied-continues-without-resubmitting",
+    "driver": {
+      "id": "fixture-driver",
+      "schema_version": 1
+    },
+    "steps": [
+      {
+        "label": "register",
+        "kind": "transaction"
+      },
+      {
+        "label": "activate",
+        "kind": "transaction"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "ambiguous"
+        ],
+        "statuses": [
+          "absent"
+        ]
+      },
+      "expect": {
+        "result": {
+          "error": "SubmissionOutcomeUnknown",
+          "stage": "reconcile",
+          "step": 0,
+          "resumable": true,
+          "has_transaction_identity": true
+        },
+        "effects": [
+          "build:0#1",
+          "sign:0#1",
+          "dispatch:0#1",
+          "status:0#1"
+        ],
+        "status": "in_progress",
+        "steps": [
+          "outcome_unknown",
+          "planned"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [],
+          "irreversible_steps": [],
+          "unresolved_steps": [
+            0
+          ],
+          "failed_steps": [],
+          "not_started_steps": [
+            1
+          ],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "op": "run",
+      "script": {
+        "builds": [
+          "ok"
+        ],
+        "signs": [
+          "ok"
+        ],
+        "dispatches": [
+          "accepted"
+        ],
+        "statuses": [
+          "applied",
+          "applied"
+        ]
+      },
+      "expect": {
+        "result": "completed",
+        "effects": [
+          "status:0#1",
+          "build:1#1",
+          "sign:1#1",
+          "dispatch:1#1",
+          "status:1#1"
+        ],
+        "status": "completed",
+        "steps": [
+          "finalized",
+          "finalized"
+        ],
+        "partial_completion": {
+          "confirmed_steps": [
+            0,
+            1
+          ],
+          "irreversible_steps": [
+            0,
+            1
+          ],
+          "unresolved_steps": [],
+          "failed_steps": [],
+          "not_started_steps": [],
+          "rolled_back_steps": []
+        },
+        "identities": {
+          "0": [
+            {
+              "dispatches": 1,
+              "possible_admissions": 1,
+              "evidence": "applied"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

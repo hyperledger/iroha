@@ -518,6 +518,25 @@ inputs = [
 check = "cargo run --locked -p ivm --features dev-tools --bin gen_proof_coverage_inventory -- --check"
 
 [[generated]]
+name = "iroha-fhe-bgv-known-answers"
+kind = "file"
+outputs = ["crates/iroha_fhe/tests/vectors/bgv_kat_v1.txt"]
+generator = "python3 crates/iroha_fhe/tests/vectors/bgv_reference.py --write"
+generator_sources = ["crates/iroha_fhe/tests/vectors/bgv_reference.py"]
+# The reference holds its own parameters and seeds and reads no other file.
+inputs = ["crates/iroha_fhe/tests/vectors/bgv_reference.py"]
+check = "python3 crates/iroha_fhe/tests/vectors/bgv_reference.py --check"
+
+[[generated]]
+name = "iroha-fhe-bgv-cost-model-view"
+kind = "file"
+outputs = ["crates/iroha_fhe/tests/vectors/bgv_cost_model_v1.txt"]
+generator = "python3 scripts/fhe_bgv_cost_model.py --rederive --write"
+generator_sources = ["scripts/fhe_bgv_cost_model.py"]
+inputs = ["specs/fhe_bgv_cost_summary.json"]
+check = "python3 scripts/fhe_bgv_cost_model.py"
+
+[[generated]]
 name = "norito-rpc-fixtures"
 kind = "file"
 outputs = [

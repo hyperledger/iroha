@@ -8574,7 +8574,7 @@ mod event {
     use super::*;
     use crate::state::StateBlock;
     use new::NewBlock;
-    use std::collections::BTreeSet;
+
     pub trait EventProducer {
         fn produce_events(&self) -> impl Iterator<Item = PipelineEventBox>;
     }
@@ -8805,6 +8805,7 @@ mod event {
             BlockValidationError::MerkleRootMismatch => Reason::MerkleRootMismatch,
             BlockValidationError::TransactionAccept(fail) => match fail {
                 AcceptTransactionFail::TransactionLimit(_)
+                | AcceptTransactionFail::SignedAttachments(_)
                 | AcceptTransactionFail::SignatureVerification(_)
                 | AcceptTransactionFail::UnexpectedGenesisAccountSignature
                 | AcceptTransactionFail::TransactionDomainMismatch(_)
@@ -11489,8 +11490,27 @@ seiyaku DynamicTarget {
             world.tx_sequences.insert(authority.clone(), 5);
             world.commit();
         }
-        let native_chain = crate::block::tests::component_chain(state);
+        let native_chain = component_chain_with_genesis_parameters(
+            state,
+            vec![iroha_data_model::parameter::Parameter::Transaction(
+                iroha_data_model::parameter::system::TransactionParameter::RequireSequence(true),
+            )],
+        );
         let state = native_chain.state();
+        assert!(
+            state
+                .view()
+                .world()
+                .parameters()
+                .transaction()
+                .require_sequence,
+            "the original signed genesis must retain the requested sequence policy"
+        );
+        assert_eq!(
+            state.view().world().tx_sequences.get(&authority),
+            Some(&5),
+            "original signed genesis must retain the independently seeded previous sequence"
+        );
         let mut metadata = Metadata::default();
         metadata.insert(
             Name::from_str("tx_sequence").expect("metadata key"),

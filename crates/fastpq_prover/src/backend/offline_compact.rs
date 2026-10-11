@@ -30,11 +30,11 @@
 //!     prepaid: &mut AllocationReservation) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
 //!     let policy = ExecutionEffectVerificationLimits::default();
 //!     let produced = prove_quantity_ordinary_artifact(statement, expected,
-//!         ProvingLimits::default(), policy, budget, prepaid)?;
+//!         ProvingLimits::default(), &policy, budget, prepaid)?;
 //!     let (bytes, producer_verified) = produced.into_parts();
 //!     assert!(producer_verified.segments() > 0);
 //!     // Independent verification also needs prepaid preparation credit.
-//!     let verified = verify_quantity_ordinary_artifact(&bytes, expected, policy, budget, prepaid)?;
+//!     let verified = verify_quantity_ordinary_artifact(&bytes, expected, &policy, budget, prepaid)?;
 //!     assert!(verified.segments() > 0);
 //!     Ok(bytes)
 //! }

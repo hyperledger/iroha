@@ -2,16 +2,27 @@
 
 use eyre::{Result, bail, eyre};
 use iroha_crypto::{ExposedPrivateKey, PrivateKey};
+#[cfg(test)]
 use std::path::Path;
 
+#[cfg(test)]
 const MAX_BYTES: usize = 4096;
 
+#[cfg(test)]
 pub(super) fn read(path: &Path) -> Result<PrivateKey> {
-    let encoded = iroha_fs::read_private(path, MAX_BYTES)?;
+    use iroha_config_base::file_source::{ConfigFileAccess, ConfigFileRequest, read_checked};
+    let encoded = read_checked(
+        &super::user::NativeConfigFiles,
+        path,
+        ConfigFileRequest {
+            access: ConfigFileAccess::Private,
+            maximum: MAX_BYTES,
+        },
+    )?;
     parse(&encoded)
 }
 
-fn parse(encoded: &[u8]) -> Result<PrivateKey> {
+pub(super) fn parse(encoded: &[u8]) -> Result<PrivateKey> {
     let text =
         std::str::from_utf8(encoded).map_err(|_| eyre!("private-key file must contain UTF-8"))?;
     let text = text.strip_suffix('\n').unwrap_or(text);

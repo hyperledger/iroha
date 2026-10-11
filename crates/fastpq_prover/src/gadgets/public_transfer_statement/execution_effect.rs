@@ -540,9 +540,9 @@ fn prepare_execution_effect_view(
             "execution effect independent statement expectation mismatch",
         ));
     }
-    check_effects_digest(&statement.effects, expected.effects_digest, limits)?;
+    check_effects_digest(statement.effects, expected.effects_digest, limits)?;
     let (canonical, mut prepared) = funded_preparation::prepare(
-        &statement.effects,
+        statement.effects,
         statement.public_inputs,
         limits,
         budget,

@@ -48,7 +48,6 @@ _RUST_BRIDGE_PLATFORM_JNI_PARTS = (
     "crates/connect_norito_bridge/src/platform_jni/part_2.rs",
     "crates/connect_norito_bridge/src/platform_jni/part_3.rs",
     "crates/connect_norito_bridge/src/platform_jni/private_settlement.rs",
-    "crates/connect_norito_bridge/src/platform_jni/kagemusha_reserve_finality.rs",
 )
 _RUST_BRIDGE_SOURCE_FILES = (
     RUST_BRIDGE,
@@ -60,7 +59,6 @@ _RUST_BRIDGE_PLATFORM_JNI_INCLUDES = (
     "platform_jni/part_2.rs",
     "platform_jni/part_3.rs",
     "platform_jni/private_settlement.rs",
-    "platform_jni/kagemusha_reserve_finality.rs",
 )
 C_HEADER = "crates/connect_norito_bridge/include/connect_norito_bridge.h"
 _JAVASCRIPT_CAPABILITIES = "javascript/iroha_js/src/privacyCapabilities.js"

@@ -217,7 +217,7 @@ impl EffectFixture {
         let demand = quantity_ordinary_allocation_bytes(
             &self.statement.effects,
             funding_work,
-            funding_policy,
+            &funding_policy,
         )?;
         let budget = AllocationBudget::new(demand);
         let mut reservation = budget
@@ -227,7 +227,7 @@ impl EffectFixture {
             &SourceExecutionEffectStatement::from_owned(offered),
             expected,
             proving,
-            limits(policy),
+            &limits(policy),
             &budget,
             &mut reservation,
         );
@@ -260,7 +260,7 @@ impl EffectFixture {
         // deficient tested policy, so the actual verifier observes each cap.
         let demand = quantity_ordinary_verification_allocation_bytes(
             &self.statement.effects,
-            limits(VerificationLimits::default()),
+            &limits(VerificationLimits::default()),
         )?;
         let budget = AllocationBudget::new(demand);
         let mut reservation = budget
@@ -269,7 +269,7 @@ impl EffectFixture {
         let result = verify_quantity_ordinary_artifact(
             bytes,
             expected,
-            limits(policy),
+            &limits(policy),
             &budget,
             &mut reservation,
         );

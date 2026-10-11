@@ -117,7 +117,7 @@ class KagemushaWalletAndroidPaymentKeyV1Test {
         )
         assertEquals(unsupported, assertIs<KagemushaWalletAndroidRemoveV1.Uncertain>(paymentKey.delete(slot())).reason)
         assertEquals(unsupported, assertIs<KagemushaWalletAndroidAttestationChainV1.Unavailable>(paymentKey.attestationChain(empty)).reason)
-        assertEquals(unsupported, assertIs<KagemushaWalletAndroidSignatureV1.Unavailable>(paymentKey.sign(empty, byteArrayOf(1))).reason)
+        assertEquals(unsupported, assertIs<KagemushaWalletAndroidSignatureV1.Unavailable>(paymentKey.sign(empty, ByteArray(32) { 1 })).reason)
         assertTrue(keyStore.generated.isEmpty())
         assertEquals(0, keyStore.getKeyCalls)
         assertEquals(0, keyStore.deleteCalls)
@@ -350,26 +350,32 @@ class KagemushaWalletAndroidPaymentKeyV1Test {
         assertEquals(null, KagemushaWalletAndroidKeyProfileV1.fromTag(0))
     }
 
-    @Test fun `signing returns the platform DER over the exact preimage`() {
+    @Test fun `signing returns the platform DER over the exact message`() {
         val slot = slot()
         val entry = keyStore.seed(alias(slot))
-        val preimage = "iroha:kagemusha:wallet:v1:receipt-body".toByteArray(Charsets.US_ASCII)
-        val der = assertIs<KagemushaWalletAndroidSignatureV1.Der>(paymentKey.sign(slot, preimage)).der()
+        val message = ByteArray(32) { 7 }
+        val der = assertIs<KagemushaWalletAndroidSignatureV1.Der>(paymentKey.sign(slot, message)).der()
         assertTrue(Signature.getInstance("SHA256withECDSA").run {
             initVerify(entry.pair.public)
-            update(preimage)
+            update(message)
             verify(der)
         })
         val raw = KagemushaP256Codec.rawLowSFromStrictDer(der)
-        assertTrue(KagemushaP256Codec.verifyRawLowS(testSec1V1(entry.pair.public), preimage, raw))
-        assertFailsWith<IllegalArgumentException> { paymentKey.sign(slot, ByteArray(0)) }
+        assertTrue(KagemushaP256Codec.verifyRawLowS(testSec1V1(entry.pair.public), message, raw))
+        val signCalls = keyStore.signCalls
+        val keyCalls = keyStore.getKeyCalls
+        for (length in listOf(0, 31, 33, 1024)) {
+            assertFailsWith<IllegalArgumentException> { paymentKey.sign(slot, ByteArray(length)) }
+        }
+        assertEquals(signCalls, keyStore.signCalls, "wrong lengths never reach the signer")
+        assertEquals(keyCalls, keyStore.getKeyCalls, "wrong lengths never load the key")
     }
 
     @Test fun `signing failures are unavailable and never touch the key`() {
         val slot = slot()
         assertEquals(
             platformCode(KagemushaWalletAndroidUnavailableV1.PLATFORM_KEY_ABSENT),
-            assertIs<KagemushaWalletAndroidSignatureV1.Unavailable>(paymentKey.sign(slot, byteArrayOf(1))).reason,
+            assertIs<KagemushaWalletAndroidSignatureV1.Unavailable>(paymentKey.sign(slot, ByteArray(32) { 1 })).reason,
         )
         val entry = keyStore.seed(alias(slot))
         val cases = listOf(
@@ -381,13 +387,13 @@ class KagemushaWalletAndroidPaymentKeyV1Test {
         )
         for ((failure, reason) in cases) {
             keyStore.signFailure = failure
-            assertEquals(reason, assertIs<KagemushaWalletAndroidSignatureV1.Unavailable>(paymentKey.sign(slot, byteArrayOf(1))).reason)
+            assertEquals(reason, assertIs<KagemushaWalletAndroidSignatureV1.Unavailable>(paymentKey.sign(slot, ByteArray(32) { 1 })).reason)
         }
         keyStore.signFailure = null
         keyStore.getKeyFailure = IllegalStateException("keystore2 binder failure")
         assertEquals(
             platformCode(KagemushaWalletAndroidUnavailableV1.PLATFORM_KEYSTORE),
-            assertIs<KagemushaWalletAndroidSignatureV1.Unavailable>(paymentKey.sign(slot, byteArrayOf(1))).reason,
+            assertIs<KagemushaWalletAndroidSignatureV1.Unavailable>(paymentKey.sign(slot, ByteArray(32) { 1 })).reason,
         )
         assertSame(entry, keyStore.entries.getValue(alias(slot)))
         assertEquals(0, keyStore.deleteCalls)

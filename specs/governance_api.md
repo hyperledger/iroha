@@ -675,25 +675,7 @@ Code Size Cap
     `ValidationFeePolicy`, `ValidationFeePayoutLifecycle`,
     `MusubiRegistryGovernance`, `SorafsProviderGovernance`,
     `ContractLifecycleGovernance`, `ContractEmergencyHold`,
-    `GlobalDataTriggerPermissionGovernance`, and
-    `KagemushaVerifierPolicyInstall`, and
-    `KagemushaVerifierReleaseInstall`, and
-    `KagemushaVerifierReleaseActivate`. The policy kind binds the exact network,
-    proposing operator, canonical empty governed verifier-registry predecessor,
-    and complete signer policy. Admission checks its canonical Norito frame
-    against the 512 KiB policy limit. Bonded citizens submit it through
-    `ProposeKagemushaVerifierPolicyInstallV1`; only an exact due Parliament
-    certificate can create the single-use State publication authorization.
-    The release kind binds the full finalized policy/registry predecessor,
-    exact network and operator, complete authenticated manifest, internal
-    qualification receipt, and threshold attestation. The same exact-due
-    Parliament and State-owned compare-and-set authorization can install only
-    an inactive standby release. The activation kind binds that complete
-    finalized predecessor and the sole installed standby release ID. Its exact-due
-    certificate makes the first target active from an inactive registry. Nodes
-    may replay the finalized transition with their
-    reject-all local verifier until exact authenticated artifacts are reloaded;
-    further rotation and retirement remain unavailable.
+    and `GlobalDataTriggerPermissionGovernance`.
     Unknown fields, unknown tags,
     externally tagged legacy kinds, and retired proposal
     pipeline/snapshot/finalization fields are rejected rather than projected.

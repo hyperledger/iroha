@@ -119,12 +119,6 @@ const ROUTE_CHECKS: &[(&str, RouteCheckMethod, &str, &[u16])] = &[
         &[400],
     ),
     (
-        "kagemusha_readiness",
-        RouteCheckMethod::Get,
-        "/v1/kagemusha/readiness",
-        &[200],
-    ),
-    (
         "zk_proofs_count",
         RouteCheckMethod::Get,
         "/v1/zk/proofs/count",
@@ -2657,7 +2651,6 @@ fn run_doctor(public_root: &str, scope: DoctorScope) -> Result<Value> {
                     }),
                 "status" => validate_public_status(result.body.as_ref()).err(),
                 "time_now" => validate_time_snapshot(result.body.as_ref(), scope).err(),
-                "kagemusha_readiness" => validate_kagemusha_readiness(result.body.as_ref()).err(),
                 _ => None,
             }
         } else {
@@ -6474,37 +6467,6 @@ fn collect_time_warnings(snapshot: Option<&Value>, warnings: &mut Vec<String>) {
     }
 }
 
-fn validate_kagemusha_readiness(capability: Option<&Value>) -> Result<(), String> {
-    let capability = capability
-        .cloned()
-        .ok_or_else(|| "/v1/kagemusha/readiness returned no JSON body".to_owned())?;
-    let capability: iroha_torii_shared::kagemusha_api::KagemushaReadinessV1 =
-        json::from_value(capability).map_err(|error| {
-            format!("/v1/kagemusha/readiness is not exact KagemushaReadinessV1 JSON: {error}")
-        })?;
-    if capability.kagemusha_handoff_capability
-        != iroha::data_model::kagemusha::KAGEMUSHA_HANDOFF_CAPABILITY_V1
-    {
-        return Err(
-            "/v1/kagemusha/readiness does not advertise the exact kagemusha_handoff_v1 contract"
-                .to_owned(),
-        );
-    }
-    if capability.wire_version != iroha::data_model::kagemusha::KAGEMUSHA_WIRE_VERSION_V1 {
-        return Err("/v1/kagemusha/readiness does not advertise KAGEMUSHA wire V1".to_owned());
-    }
-    if capability.device_lifecycle_version
-        != iroha::data_model::kagemusha::KAGEMUSHA_DEVICE_LIFECYCLE_VERSION_V1
-    {
-        return Err(
-            "/v1/kagemusha/readiness does not require secure-device lifecycle V1".to_owned(),
-        );
-    }
-    if !capability.ready {
-        return Err("/v1/kagemusha/readiness reports KAGEMUSHA V1 unavailable".to_owned());
-    }
-    Ok(())
-}
 fn tagged_enum_name<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
     let object = value.as_object()?;
     if object.len() != 2 || !object.get("value").is_some_and(Value::is_null) {
@@ -10348,15 +10310,6 @@ mod tests {
             ("GET", "/v1/pipeline/transactions/status") => {
                 MockResponse::json(400, norito::json!({"error": "missing transaction hash"}))
             }
-            ("GET", "/v1/kagemusha/readiness") => MockResponse::json(
-                200,
-                norito::json!({
-                    "kagemusha_handoff_capability": "kagemusha_handoff_v1",
-                    "wire_version": 1,
-                    "device_lifecycle_version": 1,
-                    "ready": true
-                }),
-            ),
             ("POST", "/v1/musubi/queries/ordered-prefix") => MockResponse::json(
                 401,
                 norito::json!({
@@ -12910,9 +12863,12 @@ mod tests {
         assert!(requests.iter().any(|request| {
             request.method == "GET" && path_only(&request.path) == "/v1/time/now"
         }));
-        assert!(requests.iter().any(|request| {
-            request.method == "GET" && path_only(&request.path) == "/v1/kagemusha/readiness"
-        }));
+        assert!(
+            requests
+                .iter()
+                .all(|request| !path_only(&request.path).starts_with("/v1/kagemusha/")),
+            "the doctor must not probe the retired KAGEMUSHA route family"
+        );
         assert!(requests.iter().any(|request| {
             request.method == "POST"
                 && path_only(&request.path) == "/v1/musubi/queries/ordered-prefix"
@@ -13375,38 +13331,6 @@ mod tests {
                 if invalid_cursor { 1 } else { 2 }
             );
         }
-    }
-    #[test]
-    fn kagemusha_readiness_requires_exact_universal_kagemusha_contract() {
-        let canonical = norito::json!({
-            "kagemusha_handoff_capability": "kagemusha_handoff_v1",
-            "wire_version": 1,
-            "device_lifecycle_version": 1,
-            "ready": true
-        });
-        validate_kagemusha_readiness(Some(&canonical)).expect("canonical capability");
-
-        for (field, replacement) in [
-            ("kagemusha_handoff_capability", Value::from("legacy")),
-            ("wire_version", Value::from(2_u64)),
-            ("device_lifecycle_version", Value::from(2_u64)),
-            ("ready", Value::Bool(false)),
-        ] {
-            let mut hostile = canonical.clone();
-            hostile
-                .as_object_mut()
-                .expect("capability fixture is an object")
-                .insert(field.to_owned(), replacement);
-            assert!(validate_kagemusha_readiness(Some(&hostile)).is_err());
-        }
-
-        let mut expanded = canonical;
-        expanded
-            .as_object_mut()
-            .expect("capability fixture is an object")
-            .insert("release_ready".to_owned(), Value::Bool(true));
-        assert!(validate_kagemusha_readiness(Some(&expanded)).is_err());
-        assert!(validate_kagemusha_readiness(None).is_err());
     }
     #[test]
     fn write_canary_exit_gate_fails_closed() {

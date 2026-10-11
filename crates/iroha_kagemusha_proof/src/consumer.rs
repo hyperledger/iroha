@@ -1,52 +1,67 @@
-//! **Prototype** native consumer checks of a step statement (spec section
-//! 3.2): what a package consumer compares before mutation, and the public
-//! outputs it then verifies the step proof against.
+//! Native consumer checks of a step statement (spec section 3.2; the G1
+//! `KagemushaWalletStatementV1::validate_against_lineage` and Payment
+//! checks): what a package consumer compares before mutation, the relation
+//! whose verifying key it then selects, and the public input it verifies the
+//! step proof against.
 //!
 //! A package carries its statement in canonical form ([`StatementV1`]); the
-//! step proof's public outputs are the statement digest and, for
-//! `sigma_send`, the credit identifier. A consumer never takes a field from
-//! the statement on trust:
+//! step proof's public input is the statement digest. A consumer never takes
+//! a field from the statement on trust:
 //!
-//! - the relation identity must be the one its allowlist selects for the
-//!   step and the state layout ([`crate::witness::relation_id`]);
+//! - the relation identity must be the scheme's (Ω(pred) exposes it for a
+//!   Send);
 //! - for `sigma_send`, the predecessor, credential digest, scheme,
-//!   enabled-controls mask, `burned_total` and pending-outgoing root must
-//!   equal the predecessor's lineage proof Ω(pred) ([`LineageView`]); the
-//!   mask must be empty, since this relation enforces no control;
+//!   lifecycle, enabled-controls mask, `burned_total` and pending-outgoing
+//!   root must equal the predecessor's lineage proof Ω(pred)
+//!   ([`LineageView`]); the mask selects the verifying key
+//!   ([`Accepted::relation`]);
 //! - the scheme, asset, wallets, send ordinal, amount and fee must equal the
-//!   Request body the consumer holds, and the credit identifier is
-//!   recomputed from that body, never read from the statement.
+//!   Request body the consumer holds, and `credit_id` is recomputed from
+//!   that body, never read from the statement.
 //!
-//! Only then does it verify the proof against
-//! `(statement.digest(), credit_id)`. A statement that claims another
-//! credential, wallet, credit or `burned_total` than Ω(pred) and the
-//! Request therefore fails here. A statement that passes here but is not
-//! what the prover's predecessor opened (for example another asset, which
-//! Ω does not expose) fails verification.
+//! A Receive statement is matched to its Request by `credit_id`, whose
+//! preimage holds the receiver `wallet_id` that `sigma_recv` equates with
+//! the receiver's core wallet. Its credential digest is the receiver's
+//! current credential and is never compared with the Request's receiver
+//! credential digest (owner answer Q8): a Request quoted before a renewal
+//! stays receivable after it. The receiver's `payment_key` is matched by the
+//! receipt and credential checks outside this crate (G1
+//! `KagemushaWalletPaymentV1::receive_effect`) and by `Λ_recv`.
+//!
+//! Only then does the consumer verify the proof with the selected key. A
+//! statement that claims another credential, wallet, credit or
+//! `burned_total` than Ω(pred) and the Request therefore fails here. A
+//! statement that passes here but is not what the prover's predecessor
+//! opened (for example another asset, which Ω does not expose) fails
+//! verification.
 
 use iroha_pasta::poseidon::PoseidonField;
-use iroha_plonk_gadgets::statement::{StatementV1, StepRelation};
+use iroha_plonk_gadgets::statement::{StatementV1, StepRelation, digest_fields};
 
 use crate::witness::{
-    LIFECYCLE_ACTIVE, RECEIVE_EFFECT_FIELDS, RequestBody, SEND_EFFECT_FIELDS, StateLayout,
-    StepPublic, limbs, relation_id,
+    LIFECYCLE_ACTIVE, LIFECYCLE_RETIRING, RECEIVE_EFFECT_FIELDS, RequestBody, SEND_EFFECT_FIELDS,
+    SigmaRelation, StepPublic,
 };
 
 /// The public outputs of the predecessor's lineage proof Ω(pred) that a
-/// `sigma_send` consumer compares (spec section 3.2; prototype view).
+/// `sigma_send` consumer compares (spec section 3.2; the G1
+/// `KagemushaWalletLineagePublicV1` fields).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LineageView<F> {
-    /// The head commitment (the predecessor state commitment, in the step
-    /// proof's field; Ω exposes it as canonical limbs).
+    /// The head commitment (the predecessor state commitment).
     pub head: F,
+    /// The scheme identifier.
+    pub scheme_id: [u8; 32],
+    /// The scheme-level relation identity.
+    pub relation_id: [u8; 32],
     /// The `wallet_id`.
     pub wallet_id: [u8; 32],
     /// The credential digest.
-    pub credential: [u8; 32],
-    /// The scheme identifier.
-    pub scheme_id: [u8; 32],
+    pub credential_digest: [u8; 32],
+    /// The lifecycle tag of the head.
+    pub lifecycle: u8,
     /// The enabled-controls mask.
-    pub enabled_controls: u64,
+    pub enabled_controls: u32,
     /// The lineage-adjusted `burned_total`.
     pub burned_total: u128,
     /// The lineage-adjusted pending-outgoing root.
@@ -56,24 +71,24 @@ pub struct LineageView<F> {
 /// Why a consumer rejects a statement before verifying its proof.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ConsumerError {
-    /// The relation identity or step is not the allowlisted one.
+    /// The step or the relation identity is not the expected one.
     Relation,
-    /// The statement's lifecycle is not Active.
+    /// The lifecycle is not Ω(pred)'s, or neither Active nor Retiring.
     Lifecycle,
     /// The predecessor is not Ω(pred)'s head.
     Predecessor,
-    /// The credential digest differs from Ω(pred)'s (Send) or the Request's
-    /// receiver credential (Receive).
+    /// The credential digest differs from Ω(pred)'s.
     Credential,
     /// The scheme differs from Ω(pred)'s or the Request's.
     Scheme,
     /// The asset differs from the Request's.
     Asset,
-    /// The enabled-controls mask differs from Ω(pred)'s or is not empty.
+    /// The enabled-controls mask differs from Ω(pred)'s.
     Controls,
-    /// The `burned_total` input differs from Ω(pred)'s.
+    /// The lineage `burned_total` input differs from Ω(pred)'s, or a
+    /// Receive statement carries lineage inputs.
     BurnedTotal,
-    /// The pending-outgoing input differs from Ω(pred)'s.
+    /// The lineage pending-outgoing input differs from Ω(pred)'s.
     PendingOutgoing,
     /// The Request's payer is not Ω(pred)'s wallet.
     Payer,
@@ -93,8 +108,8 @@ impl core::fmt::Display for ConsumerError {
             Self::Scheme => "scheme",
             Self::Asset => "asset",
             Self::Controls => "enabled-controls mask",
-            Self::BurnedTotal => "burned_total input",
-            Self::PendingOutgoing => "pending-outgoing input",
+            Self::BurnedTotal => "lineage burned_total input",
+            Self::PendingOutgoing => "lineage pending-outgoing input",
             Self::Payer => "payer wallet",
             Self::SelfPayment => "payer equals receiver",
             Self::Effect => "effect",
@@ -105,22 +120,32 @@ impl core::fmt::Display for ConsumerError {
 
 impl std::error::Error for ConsumerError {}
 
+/// What a consumer verifies after its checks pass: the relation whose
+/// verifying key the allowlist selects, and the public input.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Accepted<F> {
+    /// The relation (the G1 verifying-key selector `(tag, mask)`).
+    pub relation: SigmaRelation,
+    /// The public input of the step proof.
+    pub public: StepPublic<F>,
+}
+
 /// Fails with `error` unless `ok`.
 const fn require(ok: bool, error: ConsumerError) -> Result<(), ConsumerError> {
     if ok { Ok(()) } else { Err(error) }
 }
 
-/// The effect prefix a Request body determines: the credit identifier's
-/// canonical limbs, the counterparty limbs, then the step's amounts.
+/// The effect prefix a Request body determines: `credit_id`, the
+/// counterparty limbs, then the step's amounts (the Send effect's Request
+/// digest and accepted interval are compared by the G1 Payment checks).
 fn expected_effect<F: PoseidonField>(step: StepRelation, request: &RequestBody) -> Vec<F> {
-    let [credit_lo, credit_hi] = request.credit_limbs::<F>().map(F::from_u128);
+    let credit = request.credit_id::<F>();
     let amount = F::from_u128(request.terms.amount);
     match step {
         StepRelation::Send => {
-            let [receiver_lo, receiver_hi] = limbs::<F>(&request.receiver_wallet);
+            let [receiver_lo, receiver_hi] = digest_fields::<F>(&request.receiver_wallet);
             vec![
-                credit_lo,
-                credit_hi,
+                credit,
                 receiver_lo,
                 receiver_hi,
                 F::from_u128(request.send_ordinal),
@@ -129,33 +154,37 @@ fn expected_effect<F: PoseidonField>(step: StepRelation, request: &RequestBody) 
             ]
         }
         StepRelation::Receive => {
-            let [payer_lo, payer_hi] = limbs::<F>(&request.payer_wallet);
-            vec![credit_lo, credit_hi, payer_lo, payer_hi, amount]
+            let [payer_lo, payer_hi] = digest_fields::<F>(&request.payer_wallet);
+            vec![credit, payer_lo, payer_hi, amount]
         }
     }
 }
 
-/// The checks both steps share: relation identity, lifecycle, scheme and
-/// asset against the Request, distinct wallets and the effect.
+/// The checks both steps share: step and relation identity, a valid
+/// lifecycle, scheme and asset against the Request, distinct wallets and the
+/// effect.
 fn check_common<F: PoseidonField>(
     step: StepRelation,
-    layout: StateLayout,
+    relation_id: &[u8; 32],
     request: &RequestBody,
     statement: &StatementV1<F>,
 ) -> Result<(), ConsumerError> {
     require(
-        statement.step == step && statement.relation_id == relation_id(step, layout),
+        statement.step == step && statement.relation_id == *relation_id,
         ConsumerError::Relation,
     )?;
     require(
-        statement.lifecycle == LIFECYCLE_ACTIVE,
+        statement.lifecycle == LIFECYCLE_ACTIVE || statement.lifecycle == LIFECYCLE_RETIRING,
         ConsumerError::Lifecycle,
     )?;
     require(
         statement.scheme_id == request.scheme_id,
         ConsumerError::Scheme,
     )?;
-    require(statement.asset == request.asset, ConsumerError::Asset)?;
+    require(
+        statement.asset_digest == request.asset_digest,
+        ConsumerError::Asset,
+    )?;
     require(
         request.payer_wallet != request.receiver_wallet,
         ConsumerError::SelfPayment,
@@ -173,73 +202,101 @@ fn check_common<F: PoseidonField>(
 
 /// The checks of a `sigma_send` statement against Ω(pred) (`view`) and the
 /// Request body the consumer holds (its own, for a receiver). Returns the
-/// public outputs to verify the proof against.
+/// relation whose verifying key Ω(pred)'s mask selects and the public input
+/// to verify the proof against.
 ///
 /// # Errors
 ///
 /// The first [`ConsumerError`] found.
 pub fn check_send<F: PoseidonField>(
     view: &LineageView<F>,
-    layout: StateLayout,
     request: &RequestBody,
     statement: &StatementV1<F>,
-) -> Result<StepPublic<F>, ConsumerError> {
-    check_common(StepRelation::Send, layout, request, statement)?;
+) -> Result<Accepted<F>, ConsumerError> {
+    check_common(StepRelation::Send, &view.relation_id, request, statement)?;
     require(
         statement.predecessor == view.head,
         ConsumerError::Predecessor,
     )?;
     require(
-        statement.credential == view.credential,
+        statement.credential_digest == view.credential_digest,
         ConsumerError::Credential,
     )?;
     require(statement.scheme_id == view.scheme_id, ConsumerError::Scheme)?;
     require(
-        statement.enabled_controls == view.enabled_controls && statement.enabled_controls == 0,
+        statement.lifecycle == view.lifecycle,
+        ConsumerError::Lifecycle,
+    )?;
+    require(
+        statement.enabled_controls == view.enabled_controls,
         ConsumerError::Controls,
     )?;
     require(
-        statement.burned_total == view.burned_total,
+        statement.lineage_burned_total == view.burned_total,
         ConsumerError::BurnedTotal,
     )?;
     require(
-        statement.pending_outgoing_root == view.pending_outgoing_root,
+        statement.lineage_pending_outgoing_root == view.pending_outgoing_root,
         ConsumerError::PendingOutgoing,
     )?;
     require(request.payer_wallet == view.wallet_id, ConsumerError::Payer)?;
-    let digest = statement.digest().ok_or(ConsumerError::Effect)?;
-    Ok(StepPublic {
-        statement: digest,
-        credit_id: Some(request.credit_id::<F>()),
+    let statement_digest = statement.digest().ok_or(ConsumerError::Effect)?;
+    Ok(Accepted {
+        relation: SigmaRelation::send(view.enabled_controls),
+        public: StepPublic {
+            statement: statement_digest,
+        },
     })
 }
 
 /// The checks of a `sigma_recv` statement (for example Credited evidence)
-/// against the Request body the consumer holds: its credential digest must
-/// be the Request's receiver credential. Returns the public outputs to
-/// verify the proof against.
+/// against the scheme's relation identity and the Request body the consumer
+/// holds. The receiver's credential digest is not compared with the
+/// Request's (owner answer Q8). Returns the `sigma_recv` relation and the
+/// public input to verify the proof against.
 ///
 /// # Errors
 ///
 /// The first [`ConsumerError`] found.
 pub fn check_receive<F: PoseidonField>(
-    layout: StateLayout,
+    relation_id: &[u8; 32],
     request: &RequestBody,
     statement: &StatementV1<F>,
-) -> Result<StepPublic<F>, ConsumerError> {
-    check_common(StepRelation::Receive, layout, request, statement)?;
+) -> Result<Accepted<F>, ConsumerError> {
+    check_common(StepRelation::Receive, relation_id, request, statement)?;
     require(
-        statement.credential == request.receiver_credential,
-        ConsumerError::Credential,
-    )?;
-    require(
-        statement.burned_total == 0 && statement.pending_outgoing_root == F::ZERO,
+        statement.lineage_burned_total == 0 && statement.lineage_pending_outgoing_root == F::ZERO,
         ConsumerError::BurnedTotal,
     )?;
-    let digest = statement.digest().ok_or(ConsumerError::Effect)?;
-    Ok(StepPublic {
-        statement: digest,
-        credit_id: None,
+    let statement_digest = statement.digest().ok_or(ConsumerError::Effect)?;
+    Ok(Accepted {
+        relation: SigmaRelation::RECEIVE,
+        public: StepPublic {
+            statement: statement_digest,
+        },
+    })
+}
+
+/// The Ω(pred) view of the predecessor of an honest `sigma_send` witness
+/// (test and measurement support).
+#[must_use]
+pub fn lineage_view_of<F: PoseidonField>(
+    witness: &crate::witness::StepWitness<F>,
+) -> Option<LineageView<F>> {
+    let crate::witness::StepInputs::Send(send) = &witness.inputs else {
+        return None;
+    };
+    let core = &witness.predecessor.core;
+    Some(LineageView {
+        head: witness.predecessor.commitment(),
+        scheme_id: core.identity.scheme_id,
+        relation_id: witness.relation_id,
+        wallet_id: core.identity.wallet_id,
+        credential_digest: core.identity.credential_digest,
+        lifecycle: core.lifecycle,
+        enabled_controls: core.controls.enabled,
+        burned_total: send.lineage.burned_total,
+        pending_outgoing_root: send.lineage.pending_outgoing_root,
     })
 }
 
@@ -250,43 +307,32 @@ mod tests {
     use super::*;
     use crate::{
         vectors::{Mutation, sample_witness},
-        witness::{StepInputs, StepWitness},
+        witness::{CONTROL_BLACKLIST, StepInputs},
     };
 
-    /// The Ω(pred) view of an honest send witness.
-    fn view_of(witness: &StepWitness<Fp>, layout: StateLayout) -> LineageView<Fp> {
-        let StepInputs::Send(send) = &witness.inputs else {
-            panic!("send witness");
-        };
-        let core = &witness.predecessor.core;
-        LineageView {
-            head: witness.predecessor.commitment(layout),
-            wallet_id: core.identity.wallet_id,
-            credential: core.identity.credential,
-            scheme_id: core.identity.scheme_id,
-            enabled_controls: core.controls.enabled,
-            burned_total: send.lineage.burned_total,
-            pending_outgoing_root: send.lineage.pending_outgoing_root,
-        }
-    }
-
     #[test]
-    fn honest_statements_pass_and_yield_the_proof_outputs() {
-        let layout = StateLayout::TwoLevel;
-        let send = sample_witness::<Fp>(2, StepRelation::Send, Mutation::None);
-        let statement = send.statement(layout).expect("statement");
-        let public = check_send(
-            &view_of(&send, layout),
-            layout,
-            &send.request_body(),
-            &statement,
-        )
-        .expect("accepted");
-        assert_eq!(public, send.evaluate(layout).public());
-        let receive = sample_witness::<Fp>(2, StepRelation::Receive, Mutation::None);
-        let statement = receive.statement(layout).expect("statement");
-        let public = check_receive(layout, &receive.request_body(), &statement).expect("accepted");
-        assert_eq!(public, receive.evaluate(layout).public());
+    fn honest_statements_pass_and_yield_the_proof_inputs() {
+        for relation in [SigmaRelation::SEND, SigmaRelation::send(CONTROL_BLACKLIST)] {
+            let send = sample_witness::<Fp>(2, relation, Mutation::None);
+            let statement = send.statement(relation).expect("statement");
+            let view = lineage_view_of(&send).expect("send witness");
+            let accepted = check_send(&view, &send.request_body(), &statement).expect("accepted");
+            assert_eq!(accepted.public, send.evaluate(relation).public());
+            // Ω(pred)'s mask selects the relation's verifying key.
+            assert_eq!(accepted.relation, relation);
+        }
+        let receive = sample_witness::<Fp>(2, SigmaRelation::RECEIVE, Mutation::None);
+        let statement = receive
+            .statement(SigmaRelation::RECEIVE)
+            .expect("statement");
+        let accepted = check_receive(&receive.relation_id, &receive.request_body(), &statement)
+            .expect("accepted");
+        assert_eq!(
+            accepted.public,
+            receive.evaluate(SigmaRelation::RECEIVE).public()
+        );
+        assert_eq!(accepted.relation, SigmaRelation::RECEIVE);
+        assert!(lineage_view_of(&receive).is_none());
     }
 
     /// A statement edit of [`every_bound_field_is_compared`].
@@ -294,25 +340,29 @@ mod tests {
 
     #[test]
     fn every_bound_field_is_compared() {
-        let layout = StateLayout::TwoLevel;
-        let send = sample_witness::<Fp>(3, StepRelation::Send, Mutation::None);
-        let view = view_of(&send, layout);
+        let send = sample_witness::<Fp>(3, SigmaRelation::SEND, Mutation::None);
+        let view = lineage_view_of(&send).expect("send witness");
         let request = send.request_body();
-        let honest = send.statement(layout).expect("statement");
-        let edits: [(Edit, ConsumerError); 10] = [
+        let honest = send.statement(SigmaRelation::SEND).expect("statement");
+        let edits: [(Edit, ConsumerError); 12] = [
             (|s| s.relation_id[0] ^= 1, ConsumerError::Relation),
-            (|s| s.lifecycle = 2, ConsumerError::Lifecycle),
+            (|s| s.step = StepRelation::Receive, ConsumerError::Relation),
+            (|s| s.lifecycle = 3, ConsumerError::Lifecycle),
+            (
+                |s| s.lifecycle = LIFECYCLE_RETIRING,
+                ConsumerError::Lifecycle,
+            ),
             (
                 |s| s.predecessor += Fp::from(1u64),
                 ConsumerError::Predecessor,
             ),
-            (|s| s.credential[0] ^= 1, ConsumerError::Credential),
+            (|s| s.credential_digest[0] ^= 1, ConsumerError::Credential),
             (|s| s.scheme_id[0] ^= 1, ConsumerError::Scheme),
-            (|s| s.asset[0] ^= 1, ConsumerError::Asset),
+            (|s| s.asset_digest[0] ^= 1, ConsumerError::Asset),
             (|s| s.enabled_controls = 1, ConsumerError::Controls),
-            (|s| s.burned_total = 0, ConsumerError::BurnedTotal),
+            (|s| s.lineage_burned_total = 0, ConsumerError::BurnedTotal),
             (
-                |s| s.pending_outgoing_root += Fp::from(1u64),
+                |s| s.lineage_pending_outgoing_root += Fp::from(1u64),
                 ConsumerError::PendingOutgoing,
             ),
             (|s| s.effect[0] += Fp::from(1u64), ConsumerError::Effect),
@@ -321,24 +371,54 @@ mod tests {
             let mut statement = honest.clone();
             edit(&mut statement);
             assert_eq!(
-                check_send(&view, layout, &request, &statement),
+                check_send(&view, &request, &statement),
                 Err(error),
                 "{error}"
             );
         }
-        // The flat relation's statement is not the two-level relation's.
-        let flat = send.statement(StateLayout::Flat).expect("statement");
-        assert_eq!(
-            check_send(&view, layout, &request, &flat),
-            Err(ConsumerError::Relation)
-        );
         // A Request whose payer is another wallet, or the receiver itself.
         let mut other = request;
         other.payer_wallet[0] ^= 1;
-        assert!(check_send(&view, layout, &other, &honest).is_err());
+        assert!(check_send(&view, &other, &honest).is_err());
         let mut own = request;
         own.receiver_wallet = own.payer_wallet;
-        assert!(check_send(&view, layout, &own, &honest).is_err());
+        assert!(check_send(&view, &own, &honest).is_err());
         assert!(!ConsumerError::Payer.to_string().is_empty());
+    }
+
+    #[test]
+    fn a_receiver_is_matched_by_wallet_not_by_credential_digest() {
+        let mut receive = sample_witness::<Fp>(4, SigmaRelation::RECEIVE, Mutation::None);
+        // The Request was quoted under the credential before a renewal.
+        if let StepInputs::Receive(inputs) = &mut receive.inputs {
+            inputs.receiver_credential_digest[0] ^= 0x77;
+        }
+        let request = receive.request_body();
+        assert_ne!(
+            request.receiver_credential_digest,
+            receive.predecessor.core.identity.credential_digest
+        );
+        let statement = receive
+            .statement(SigmaRelation::RECEIVE)
+            .expect("statement");
+        assert!(check_receive(&receive.relation_id, &request, &statement).is_ok());
+        // Another relation identity or lineage inputs are rejected.
+        assert_eq!(
+            check_receive(&[0; 32], &request, &statement),
+            Err(ConsumerError::Relation)
+        );
+        let mut lineage = statement.clone();
+        lineage.lineage_burned_total = 1;
+        assert_eq!(
+            check_receive(&receive.relation_id, &request, &lineage),
+            Err(ConsumerError::BurnedTotal)
+        );
+        // A Request for another receiver wallet has another credit_id.
+        let mut other = request;
+        other.receiver_wallet[0] ^= 1;
+        assert_eq!(
+            check_receive(&receive.relation_id, &other, &statement),
+            Err(ConsumerError::Effect)
+        );
     }
 }

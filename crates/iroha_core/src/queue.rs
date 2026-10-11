@@ -66,10 +66,6 @@ use iroha_data_model::{
     isi::{
         InstructionBox,
         error::Mismatch,
-        kagemusha_v1::{
-            KagemushaOperationKindV1, KagemushaRedemptionRequestV1, KagemushaTopUpRequestV1,
-            RedeemKagemushaV1, TopUpKagemushaV1,
-        },
         runtime_upgrade::{ActivateRuntimeUpgrade, CancelRuntimeUpgrade, ProposeRuntimeUpgrade},
         smart_contract_code::{
             ActivateContractInstance, CommitContractDeployment, DeactivateContractInstance,
@@ -128,7 +124,6 @@ use tokio::{
 };
 pub(crate) mod policy_route;
 type EntrypointHash = HashOf<TransactionEntrypoint>;
-type PendingKagemushaOperationKey = [u8; 32];
 use crate::smartcontracts::isi::sccp::admission::{
     SccpAdmissionKeysV1, SccpAdmissionRejectV1, SccpExemptBlockBudgetV1, SccpPendingClaimErrorV1,
     SccpPendingIndexV1,
@@ -412,392 +407,6 @@ static GOV_APPROVERS_METADATA_KEY: LazyLock<Name> = LazyLock::new(|| {
 static CONTRACT_ADDRESS_METADATA_KEY: LazyLock<Name> =
     LazyLock::new(|| Name::from_str("contract_address").expect("static contract metadata key"));
 
-#[derive(Clone, Copy)]
-enum KagemushaOperationRequestV1<'request> {
-    TopUp(&'request KagemushaTopUpRequestV1),
-    Redemption(&'request KagemushaRedemptionRequestV1),
-}
-
-impl KagemushaOperationRequestV1<'_> {
-    const fn kind(self) -> KagemushaOperationKindV1 {
-        match self {
-            Self::TopUp(_) => KagemushaOperationKindV1::TopUp,
-            Self::Redemption(_) => KagemushaOperationKindV1::Redemption,
-        }
-    }
-
-    const fn operation_id(self) -> [u8; 32] {
-        match self {
-            Self::TopUp(request) => request.operation_id,
-            Self::Redemption(request) => request.operation_id,
-        }
-    }
-
-    fn validate(self) -> Result<(), String> {
-        match self {
-            Self::TopUp(request) => request.validate_shape(),
-            Self::Redemption(request) => request.validate_shape(),
-        }
-        .map_err(|error| error.to_string())
-    }
-
-    fn canonical_digest(self) -> Result<[u8; 32], String> {
-        match self {
-            Self::TopUp(request) => request.canonical_digest(),
-            Self::Redemption(request) => request.canonical_digest(),
-        }
-        .map_err(|error| error.to_string())
-    }
-}
-
-fn kagemusha_operation_request_v1(
-    instruction: &InstructionBox,
-) -> Option<KagemushaOperationRequestV1<'_>> {
-    let instruction = instruction.as_any();
-    if let Some(top_up) = instruction.downcast_ref::<TopUpKagemushaV1>() {
-        Some(KagemushaOperationRequestV1::TopUp(top_up.request()))
-    } else {
-        instruction
-            .downcast_ref::<RedeemKagemushaV1>()
-            .map(|redeem| KagemushaOperationRequestV1::Redemption(redeem.request()))
-    }
-}
-
-fn executable_contains_kagemusha_operation_v1(executable: &Executable) -> bool {
-    executable
-        .explicit_instructions()
-        .any(|instruction| kagemusha_operation_request_v1(instruction).is_some())
-        || matches!(
-            executable,
-            Executable::IvmProved(proved)
-                if proved
-                    .overlay
-                    .iter()
-                    .any(|instruction| kagemusha_operation_request_v1(instruction).is_some())
-        )
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct PendingKagemushaOperationBinding {
-    /// Outer transaction authority retained for status attribution.
-    authority: AccountId,
-    operation_id: [u8; 32],
-    kind: KagemushaOperationKindV1,
-    canonical_request_digest: [u8; 32],
-    entrypoint_hash: EntrypointHash,
-    signed_transaction_hash: HashOf<SignedTransaction>,
-}
-
-impl PendingKagemushaOperationBinding {
-    fn key(&self) -> PendingKagemushaOperationKey {
-        self.operation_id
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum PendingKagemushaOperationClaimError {
-    OperationIdClaimed {
-        existing_entrypoint_hash: EntrypointHash,
-    },
-    EntrypointClaimed {
-        existing_key: PendingKagemushaOperationKey,
-    },
-    Inconsistent {
-        entrypoint_hash: EntrypointHash,
-        reason: String,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct PendingKagemushaOperationIndexError {
-    entrypoint_hash: EntrypointHash,
-    reason: String,
-}
-
-#[derive(Clone, Debug, Default)]
-struct PendingKagemushaOperationIndex {
-    by_key: BTreeMap<PendingKagemushaOperationKey, PendingKagemushaOperationBinding>,
-    key_by_entrypoint: BTreeMap<EntrypointHash, PendingKagemushaOperationKey>,
-}
-
-impl PendingKagemushaOperationIndex {
-    fn validate_binding_identity(
-        binding: &PendingKagemushaOperationBinding,
-    ) -> Result<(), PendingKagemushaOperationIndexError> {
-        if binding.operation_id == [0; 32]
-            || binding.canonical_request_digest == [0; 32]
-            || binding.signed_transaction_hash.as_ref() == &[0; Hash::LENGTH]
-        {
-            return Err(PendingKagemushaOperationIndexError {
-                entrypoint_hash: binding.entrypoint_hash,
-                reason: "pending Kagemusha V1 binding has a zero immutable identity".to_owned(),
-            });
-        }
-        Ok(())
-    }
-
-    #[cfg(test)]
-    fn binding(&self, operation_id: [u8; 32]) -> Option<&PendingKagemushaOperationBinding> {
-        self.by_key.get(&operation_id)
-    }
-
-    #[cfg(test)]
-    fn entrypoint_for(&self, operation_id: [u8; 32]) -> Option<EntrypointHash> {
-        self.binding(operation_id)
-            .map(|binding| binding.entrypoint_hash)
-    }
-
-    fn validate_cardinality(&self) -> Result<(), PendingKagemushaOperationIndexError> {
-        if self.by_key.len() == self.key_by_entrypoint.len() {
-            return Ok(());
-        }
-        let entrypoint_hash = self
-            .key_by_entrypoint
-            .keys()
-            .next()
-            .copied()
-            .or_else(|| {
-                self.by_key
-                    .values()
-                    .next()
-                    .map(|binding| binding.entrypoint_hash)
-            })
-            .expect("unequal non-negative index cardinalities cannot both be zero");
-        Err(PendingKagemushaOperationIndexError {
-            entrypoint_hash,
-            reason: format!(
-                "Kagemusha V1 pending-operation index cardinality differs: {} forward owners and {} reverse owners",
-                self.by_key.len(),
-                self.key_by_entrypoint.len()
-            ),
-        })
-    }
-
-    fn validate_forward_owner(
-        &self,
-        key: &PendingKagemushaOperationKey,
-        binding: &PendingKagemushaOperationBinding,
-    ) -> Result<(), PendingKagemushaOperationIndexError> {
-        Self::validate_binding_identity(binding)?;
-        if binding.key() != *key {
-            return Err(PendingKagemushaOperationIndexError {
-                entrypoint_hash: binding.entrypoint_hash,
-                reason: format!(
-                    "forward operation key {:?} disagrees with its binding key {:?}",
-                    key, binding.operation_id
-                ),
-            });
-        }
-        match self.key_by_entrypoint.get(&binding.entrypoint_hash) {
-            Some(reverse_key) if reverse_key == key => Ok(()),
-            Some(reverse_key) => Err(PendingKagemushaOperationIndexError {
-                entrypoint_hash: binding.entrypoint_hash,
-                reason: format!(
-                    "forward operation {:?} points to {}, whose reverse owner is operation {:?}",
-                    key, binding.entrypoint_hash, reverse_key
-                ),
-            }),
-            None => Err(PendingKagemushaOperationIndexError {
-                entrypoint_hash: binding.entrypoint_hash,
-                reason: format!(
-                    "forward operation {:?} points to {}, which has no reverse owner",
-                    key, binding.entrypoint_hash
-                ),
-            }),
-        }
-    }
-
-    fn validate_reverse_owner(
-        &self,
-        entrypoint_hash: EntrypointHash,
-        key: &PendingKagemushaOperationKey,
-    ) -> Result<(), PendingKagemushaOperationIndexError> {
-        match self.by_key.get(key) {
-            Some(binding) if binding.entrypoint_hash == entrypoint_hash => {
-                self.validate_forward_owner(key, binding)
-            }
-            Some(binding) => Err(PendingKagemushaOperationIndexError {
-                entrypoint_hash,
-                reason: format!(
-                    "reverse entry {entrypoint_hash} names operation {:?}, whose forward owner is {}",
-                    key, binding.entrypoint_hash
-                ),
-            }),
-            None => Err(PendingKagemushaOperationIndexError {
-                entrypoint_hash,
-                reason: format!(
-                    "reverse entry {entrypoint_hash} names operation {:?}, which has no forward owner",
-                    key
-                ),
-            }),
-        }
-    }
-
-    /// Validate the complete index once at a cold reconstruction boundary.
-    ///
-    /// Hot admission, removal, and status lookup preserve the same invariant
-    /// inductively with cardinality plus exact reciprocal-owner checks. Scanning
-    /// every unrelated owner while holding Queue's mutation lock would make a
-    /// public status miss linear in the global pending-operation population.
-    #[cfg(test)]
-    fn validate_bijection(&self) -> Result<(), PendingKagemushaOperationIndexError> {
-        self.validate_cardinality()?;
-        for (key, binding) in &self.by_key {
-            self.validate_forward_owner(key, binding)?;
-        }
-        for (entrypoint_hash, key) in &self.key_by_entrypoint {
-            self.validate_reverse_owner(*entrypoint_hash, key)?;
-        }
-        Ok(())
-    }
-
-    fn checked_binding(
-        &self,
-        operation_id: [u8; 32],
-    ) -> Result<Option<&PendingKagemushaOperationBinding>, PendingKagemushaOperationIndexError>
-    {
-        self.validate_cardinality()?;
-        let key = operation_id;
-        let Some(binding) = self.by_key.get(&key) else {
-            return Ok(None);
-        };
-        self.validate_forward_owner(&key, binding)?;
-        Ok(Some(binding))
-    }
-
-    fn validate_claim(
-        &self,
-        binding: &PendingKagemushaOperationBinding,
-    ) -> Result<(), PendingKagemushaOperationClaimError> {
-        let inconsistent = |error: PendingKagemushaOperationIndexError| {
-            PendingKagemushaOperationClaimError::Inconsistent {
-                entrypoint_hash: error.entrypoint_hash,
-                reason: error.reason,
-            }
-        };
-        self.validate_cardinality().map_err(&inconsistent)?;
-        Self::validate_binding_identity(binding).map_err(&inconsistent)?;
-        let key = binding.key();
-        if let Some(existing) = self.by_key.get(&key) {
-            self.validate_forward_owner(&key, existing)
-                .map_err(&inconsistent)?;
-            return Err(PendingKagemushaOperationClaimError::OperationIdClaimed {
-                existing_entrypoint_hash: existing.entrypoint_hash,
-            });
-        }
-        if let Some(existing_key) = self.key_by_entrypoint.get(&binding.entrypoint_hash) {
-            self.validate_reverse_owner(binding.entrypoint_hash, existing_key)
-                .map_err(&inconsistent)?;
-            return Err(PendingKagemushaOperationClaimError::EntrypointClaimed {
-                existing_key: existing_key.clone(),
-            });
-        }
-        Ok(())
-    }
-
-    fn claim(
-        &mut self,
-        binding: PendingKagemushaOperationBinding,
-    ) -> Result<(), PendingKagemushaOperationClaimError> {
-        self.validate_claim(&binding)?;
-        let key = binding.key();
-        self.key_by_entrypoint
-            .insert(binding.entrypoint_hash, key.clone());
-        self.by_key.insert(key, binding);
-        Ok(())
-    }
-
-    fn remove_entrypoint(
-        &mut self,
-        hash: &EntrypointHash,
-    ) -> Result<(), PendingKagemushaOperationIndexError> {
-        self.validate_cardinality()?;
-        let Some(key) = self.key_by_entrypoint.get(hash).cloned() else {
-            return Ok(());
-        };
-        self.validate_reverse_owner(*hash, &key)?;
-        self.key_by_entrypoint.remove(hash);
-        self.by_key.remove(&key);
-        Ok(())
-    }
-}
-
-/// One globally indexed pending Kagemusha V1 operation.
-#[derive(Clone, Debug)]
-pub struct PendingKagemushaOperation {
-    binding: PendingKagemushaOperationBinding,
-    transaction: Arc<CheckedTransaction<'static>>,
-}
-
-impl PendingKagemushaOperation {
-    /// Return the outer transaction authority that submitted the operation.
-    #[must_use]
-    pub fn authority(&self) -> &AccountId {
-        &self.binding.authority
-    }
-
-    /// Return the signed operation identifier.
-    #[must_use]
-    pub const fn operation_id(&self) -> [u8; 32] {
-        self.binding.operation_id
-    }
-
-    /// Return whether this is a top-up or redemption.
-    #[must_use]
-    pub const fn kind(&self) -> KagemushaOperationKindV1 {
-        self.binding.kind
-    }
-
-    /// Return the canonical digest of the complete authorized request.
-    #[must_use]
-    pub const fn canonical_request_digest(&self) -> [u8; 32] {
-        self.binding.canonical_request_digest
-    }
-
-    /// Return the canonical transaction-entrypoint hash.
-    #[must_use]
-    pub const fn entrypoint_hash(&self) -> HashOf<TransactionEntrypoint> {
-        self.binding.entrypoint_hash
-    }
-
-    /// Return the exact signed-transaction identity.
-    #[must_use]
-    pub const fn signed_transaction_hash(&self) -> HashOf<SignedTransaction> {
-        self.binding.signed_transaction_hash
-    }
-
-    /// Borrow the exact external transaction without cloning its proof-heavy request.
-    #[must_use]
-    pub fn signed_transaction(&self) -> &SignedTransaction {
-        match self.transaction.as_accepted().entrypoint() {
-            TransactionEntrypoint::External(transaction) => transaction,
-            TransactionEntrypoint::SealedCommitment(_) | TransactionEntrypoint::SealedReveal(_) => {
-                unreachable!("indexed Kagemusha V1 operation must retain its external carrier")
-            }
-        }
-    }
-}
-
-/// Failure to resolve one pending Kagemusha V1 operation from a coherent Queue snapshot.
-#[derive(Clone, Debug, Error, PartialEq, Eq)]
-pub enum PendingKagemushaOperationLookupError {
-    /// The supplied operation identifier is zero.
-    #[error("Kagemusha V1 pending-operation lookup requires a non-zero operation id")]
-    InvalidOperationId,
-    /// Queue ownership is not safe to inspect until startup or fault recovery completes.
-    #[error("Kagemusha V1 pending-operation lookup is unavailable: {reason}")]
-    Unavailable {
-        /// Closed reason for the unavailable lookup.
-        reason: String,
-    },
-    /// Forward, reverse, or transaction ownership no longer agrees.
-    #[error("Kagemusha V1 pending-operation index is inconsistent: {reason}")]
-    Inconsistent {
-        /// Closed identity-consistency failure reason.
-        reason: String,
-    },
-}
-
 /// Advisory position for bounded leader sampling of local queue availability.
 #[derive(Default)]
 struct BoundedPendingScanCursor {
@@ -826,11 +435,6 @@ pub struct Queue {
     /// Stored behind `Arc` to avoid deep cloning heavy transactions
     /// (including instruction payloads) during queue operations.
     txs: DashMap<EntrypointHash, Arc<CheckedTransaction<'static>>>,
-    /// Complete pending Kagemusha V1 operation identity, maintained atomically with `txs`.
-    ///
-    /// Every mutation is serialized by `push_remove_lock`; the inner mutex provides interior
-    /// mutability without introducing an independent mutation order.
-    pending_kagemusha_operations: parking_lot::Mutex<PendingKagemushaOperationIndex>,
     /// Admission keys of every queued fee-exempt SCCP transaction (`specs/sccp.md` §4.19),
     /// maintained atomically with `txs` under `push_remove_lock`.
     pending_sccp_exempt: parking_lot::Mutex<SccpPendingIndexV1>,
@@ -1061,7 +665,6 @@ pub struct GossipBatchEntry {
 struct PreparedQueueAdmission {
     checked: CheckedTransaction<'static>,
     hash: EntrypointHash,
-    kagemusha_operation: Option<PendingKagemushaOperationBinding>,
     /// SCCP exemption keys claimed with the transaction.
     sccp_exempt: Option<SccpAdmissionKeysV1>,
     routing_decision: RoutingDecision,
@@ -1377,23 +980,6 @@ pub enum Error {
     MaximumTransactionsPerUser,
     /// The transaction is already in the queue
     IsInQueue,
-    /// Kagemusha V1 operation carrier is not canonical: {reason}
-    KagemushaV1OperationCarrierRejected {
-        /// Closed carrier-shape or request-validation reason.
-        reason: String,
-    },
-    /// Kagemusha V1 operation {operation_id:?} is already pending as {existing_entrypoint_hash}
-    KagemushaV1OperationIdConflict {
-        /// Globally unique Kagemusha V1 operation identifier.
-        operation_id: [u8; 32],
-        /// Existing exact transaction-entrypoint owner.
-        existing_entrypoint_hash: HashOf<TransactionEntrypoint>,
-    },
-    /// Kagemusha V1 pending-operation index is inconsistent: {reason}
-    KagemushaV1OperationIndexInconsistent {
-        /// Closed forward/reverse ownership mismatch.
-        reason: String,
-    },
     /// Transaction authority is not registered: {authority}
     UnregisteredAuthority {
         /// Authority that was absent from the committed world state.
@@ -1676,7 +1262,6 @@ impl Queue {
         if removed.is_some() {
             self.advance_pending_ownership_generation(hash);
         }
-        self.remove_pending_kagemusha_operation_locked(hash);
         self.remove_pending_sccp_exempt_locked(hash);
         self.fee_admission_reservations.lock().release(&hash);
         self.routing_plans.remove(&hash);
@@ -1802,85 +1387,6 @@ impl Queue {
         Ok(!tx.is_in_blockchain(state_view) && !self.is_expired(tx.as_accepted()))
     }
 
-    fn classify_pending_kagemusha_operation(
-        checked: &CheckedTransaction<'static>,
-    ) -> Result<Option<PendingKagemushaOperationBinding>, Error> {
-        let accepted = checked.as_accepted();
-        let TransactionEntrypoint::External(transaction) = accepted.entrypoint() else {
-            let contains_operation = match accepted.entrypoint() {
-                TransactionEntrypoint::SealedReveal(reveal) => {
-                    executable_contains_kagemusha_operation_v1(
-                        reveal.signed_transaction().instructions(),
-                    )
-                }
-                TransactionEntrypoint::SealedCommitment(_) => false,
-                TransactionEntrypoint::External(_) => unreachable!(),
-            };
-            return if contains_operation {
-                Err(Error::KagemushaV1OperationCarrierRejected {
-                    reason:
-                        "Kagemusha V1 operations require one direct external signed transaction"
-                            .to_owned(),
-                })
-            } else {
-                Ok(None)
-            };
-        };
-        crate::tx::validate_kagemusha_top_up_admission_invariants_v1(transaction).map_err(
-            |reason| Error::KagemushaV1OperationCarrierRejected {
-                reason: reason.to_owned(),
-            },
-        )?;
-        if !executable_contains_kagemusha_operation_v1(transaction.instructions()) {
-            return Ok(None);
-        }
-        let Executable::Instructions(instructions) = transaction.instructions() else {
-            return Err(Error::KagemushaV1OperationCarrierRejected {
-                reason: "Kagemusha V1 operations cannot be carried by proved or overlay execution"
-                    .to_owned(),
-            });
-        };
-        let [instruction] = instructions.as_ref() else {
-            return Err(Error::KagemushaV1OperationCarrierRejected {
-                reason: "an Kagemusha V1 operation must be the only instruction in its signed transaction"
-                    .to_owned(),
-            });
-        };
-        let request = kagemusha_operation_request_v1(instruction).ok_or_else(|| {
-            Error::KagemushaV1OperationCarrierRejected {
-                reason: "Kagemusha V1 carrier shape changed during classification".to_owned(),
-            }
-        })?;
-        request
-            .validate()
-            .map_err(|reason| Error::KagemushaV1OperationCarrierRejected { reason })?;
-        let canonical_request_digest = request
-            .canonical_digest()
-            .map_err(|reason| Error::KagemushaV1OperationCarrierRejected { reason })?;
-        Ok(Some(PendingKagemushaOperationBinding {
-            authority: transaction.authority().clone(),
-            operation_id: request.operation_id(),
-            kind: request.kind(),
-            canonical_request_digest,
-            entrypoint_hash: accepted.hash_as_entrypoint(),
-            signed_transaction_hash: transaction.hash(),
-        }))
-    }
-
-    fn latch_pending_kagemusha_operation_index_fault(&self, hash: EntrypointHash, reason: &str) {
-        if !self
-            .accepted_work_validation_fault
-            .swap(true, Ordering::AcqRel)
-        {
-            iroha_logger::error!(
-                tx = %hash,
-                stage = "pending_kagemusha_operation_index",
-                reason,
-                "pending Kagemusha V1 operation index lost exact Queue ownership; disabled admission and transaction selection until restart recovery"
-            );
-        }
-    }
-
     /// The signed transaction whose SCCP exemption admission classifies: the transaction of an
     /// external or sealed-reveal entry point (`specs/sccp.md` §4.19).
     fn sccp_signed_transaction(entrypoint: &TransactionEntrypoint) -> Option<&SignedTransaction> {
@@ -1911,28 +1417,12 @@ impl Queue {
         }
     }
 
-    /// Remove an operation claim with its transaction while holding `push_remove_lock`.
-    fn remove_pending_kagemusha_operation_locked(&self, hash: EntrypointHash) {
-        if let Err(error) = self
-            .pending_kagemusha_operations
-            .lock()
-            .remove_entrypoint(&hash)
-        {
-            self.latch_pending_kagemusha_operation_index_fault(
-                error.entrypoint_hash,
-                &error.reason,
-            );
-        }
-    }
-
     fn collect_lane_privacy_proofs(tx: &CheckedTransaction<'_>) -> Vec<LanePrivacyProof> {
+        // Admission has validated every wrapped carrier; a malformed one
+        // contributes no witness.
         tx.external()
-            .into_iter()
-            .flat_map(|signed| signed.attachments().into_iter())
-            .into_iter()
-            .flat_map(|list| list.as_slice().iter())
-            .filter_map(|attachment| attachment.lane_privacy.clone())
-            .collect()
+            .map(|signed| signed.lane_privacy_proofs_v1().unwrap_or_default())
+            .unwrap_or_default()
     }
     fn publishes_only_space_directory_manifests(tx: &CheckedTransaction<'_>) -> bool {
         let Some(signed) = tx.external() else {
@@ -2979,9 +2469,6 @@ impl Queue {
                 routing_policy: RwLock::new(LaneRoutingPolicy::default()),
                 tx_hashes: ArrayQueue::new(capacity.get()),
                 txs: DashMap::new(),
-                pending_kagemusha_operations: parking_lot::Mutex::new(
-                    PendingKagemushaOperationIndex::default(),
-                ),
                 pending_sccp_exempt: parking_lot::Mutex::new(SccpPendingIndexV1::default()),
                 active_count: AtomicUsize::new(0),
                 txs_per_user: DashMap::new(),
@@ -3344,122 +2831,6 @@ impl Queue {
             relay_lease_remaining,
         })
     }
-    /// Resolve one pending Kagemusha V1 operation from an exact Queue ownership snapshot.
-    ///
-    /// Operation identifiers are globally unique across authorities. Index and input identity
-    /// are read under the same mutation lock used by admission and G application.
-    ///
-    /// # Errors
-    /// Returns a typed unavailable or consistency failure while Queue ownership cannot safely
-    /// support an authoritative pending result.
-    pub fn pending_kagemusha_operation(
-        &self,
-        state_view: &StateView<'_>,
-        operation_id: [u8; 32],
-    ) -> Result<Option<PendingKagemushaOperation>, PendingKagemushaOperationLookupError> {
-        if operation_id == [0; 32] {
-            return Err(PendingKagemushaOperationLookupError::InvalidOperationId);
-        }
-        let unavailable_reason = || {
-            self.admission_faulted()
-                .then_some("Queue admission is unavailable")
-        };
-        if let Some(reason) = unavailable_reason() {
-            return Err(PendingKagemushaOperationLookupError::Unavailable {
-                reason: reason.to_owned(),
-            });
-        }
-
-        let queue_guard = self.push_remove_lock.lock();
-        if let Some(reason) = unavailable_reason() {
-            return Err(PendingKagemushaOperationLookupError::Unavailable {
-                reason: reason.to_owned(),
-            });
-        }
-        let binding = {
-            let index = self.pending_kagemusha_operations.lock();
-            index
-                .checked_binding(operation_id)
-                .map(|binding| binding.cloned())
-        };
-        let binding = match binding {
-            Ok(Some(binding)) => binding,
-            Ok(None) => return Ok(None),
-            Err(error) => {
-                self.latch_pending_kagemusha_operation_index_fault(
-                    error.entrypoint_hash,
-                    &error.reason,
-                );
-                return Err(PendingKagemushaOperationLookupError::Inconsistent {
-                    reason: error.reason,
-                });
-            }
-        };
-        let transaction = self
-            .txs
-            .get(&binding.entrypoint_hash)
-            .map(|entry| Arc::clone(entry.value()));
-        let Some(transaction) = transaction else {
-            let reason = format!(
-                "operation key points to absent transaction {}",
-                binding.entrypoint_hash
-            );
-            self.latch_pending_kagemusha_operation_index_fault(binding.entrypoint_hash, &reason);
-            return Err(PendingKagemushaOperationLookupError::Inconsistent { reason });
-        };
-        let exact_binding = match Self::classify_pending_kagemusha_operation(transaction.as_ref()) {
-            Ok(Some(exact_binding)) => exact_binding,
-            Ok(None) => {
-                let reason = format!(
-                    "operation key points to a non-Kagemusha-V1 transaction {}",
-                    binding.entrypoint_hash
-                );
-                self.latch_pending_kagemusha_operation_index_fault(
-                    binding.entrypoint_hash,
-                    &reason,
-                );
-                return Err(PendingKagemushaOperationLookupError::Inconsistent { reason });
-            }
-            Err(error) => {
-                let reason = format!(
-                    "operation key points to invalid Kagemusha V1 transaction {}: {error}",
-                    binding.entrypoint_hash
-                );
-                self.latch_pending_kagemusha_operation_index_fault(
-                    binding.entrypoint_hash,
-                    &reason,
-                );
-                return Err(PendingKagemushaOperationLookupError::Inconsistent { reason });
-            }
-        };
-        if exact_binding != binding {
-            let reason = format!(
-                "operation key disagrees with immutable transaction {}",
-                binding.entrypoint_hash
-            );
-            self.latch_pending_kagemusha_operation_index_fault(binding.entrypoint_hash, &reason);
-            return Err(PendingKagemushaOperationLookupError::Inconsistent { reason });
-        }
-        let pending = match self.pending_status(transaction.as_ref(), state_view) {
-            Ok(pending) => pending,
-            Err(reason) => {
-                self.latch_pending_kagemusha_operation_index_fault(
-                    binding.entrypoint_hash,
-                    &reason,
-                );
-                return Err(PendingKagemushaOperationLookupError::Inconsistent { reason });
-            }
-        };
-        drop(queue_guard);
-        if !pending {
-            return Ok(None);
-        }
-        Ok(Some(PendingKagemushaOperation {
-            binding,
-            transaction,
-        }))
-    }
-
     /// Returns all pending transactions.
     pub fn all_transactions<'state>(
         &'state self,
@@ -4173,11 +3544,6 @@ impl Queue {
                 err,
             });
         }
-        let kagemusha_operation =
-            Self::classify_pending_kagemusha_operation(&checked).map_err(|err| Failure {
-                tx: Box::new(checked.as_accepted().clone()),
-                err,
-            })?;
         let routing_decision = routing_plan.coordinator_route();
         if let Some(transaction) = checked.as_accepted().external() {
             let authority = transaction.authority();
@@ -4563,7 +3929,6 @@ impl Queue {
         Ok(PreparedQueueAdmission {
             checked,
             hash,
-            kagemusha_operation,
             sccp_exempt,
             routing_decision,
             routing_plan,
@@ -4585,7 +3950,6 @@ impl Queue {
             let PreparedQueueAdmission {
                 checked,
                 hash,
-                kagemusha_operation,
                 sccp_exempt,
                 routing_decision,
                 routing_plan,
@@ -4625,50 +3989,6 @@ impl Queue {
             {
                 return Err((notifications, fail(Error::MaximumTransactionsPerUser)));
             }
-            if let Some(binding) = kagemusha_operation.as_ref() {
-                match self
-                    .pending_kagemusha_operations
-                    .lock()
-                    .validate_claim(binding)
-                {
-                    Ok(()) => {}
-                    Err(PendingKagemushaOperationClaimError::OperationIdClaimed {
-                        existing_entrypoint_hash,
-                    }) => {
-                        return Err((
-                            notifications,
-                            fail(Error::KagemushaV1OperationIdConflict {
-                                operation_id: binding.operation_id,
-                                existing_entrypoint_hash,
-                            }),
-                        ));
-                    }
-                    Err(PendingKagemushaOperationClaimError::EntrypointClaimed {
-                        existing_key,
-                    }) => {
-                        let reason =
-                            format!("entrypoint {hash} already owns operation {existing_key:?}");
-                        self.latch_pending_kagemusha_operation_index_fault(hash, &reason);
-                        return Err((
-                            notifications,
-                            fail(Error::KagemushaV1OperationIndexInconsistent { reason }),
-                        ));
-                    }
-                    Err(PendingKagemushaOperationClaimError::Inconsistent {
-                        entrypoint_hash,
-                        reason,
-                    }) => {
-                        self.latch_pending_kagemusha_operation_index_fault(
-                            entrypoint_hash,
-                            &reason,
-                        );
-                        return Err((
-                            notifications,
-                            fail(Error::KagemushaV1OperationIndexInconsistent { reason }),
-                        ));
-                    }
-                }
-            }
             if let Some(keys) = sccp_exempt.as_ref()
                 && let Err(error) = self.pending_sccp_exempt.lock().validate_claim(&hash, keys)
             {
@@ -4694,12 +4014,6 @@ impl Queue {
                         reason: "FIFO capacity changed under its mutation lock".to_owned(),
                     }),
                 ));
-            }
-            if let Some(binding) = kagemusha_operation {
-                self.pending_kagemusha_operations
-                    .lock()
-                    .claim(binding)
-                    .expect("exact claim validated under original mutation lock");
             }
             if let Some(keys) = sccp_exempt {
                 self.pending_sccp_exempt
@@ -5913,7 +5227,7 @@ pub mod tests {
         },
         parameter::TransactionParameters,
         prelude::*,
-        proof::{ProofAttachment, ProofAttachmentList, ProofBox},
+        proof::{ProofAttachment, ProofBox},
         runtime::RuntimeUpgradeManifest,
         transaction::signed::{
             SealedTransactionCommitmentPayload, SealedTransactionReveal,
@@ -5948,143 +5262,6 @@ pub mod tests {
     };
     use tempfile::tempdir;
     static NEXT_TEST_DOMAIN_SUFFIX: AtomicU64 = AtomicU64::new(1);
-    fn pending_kagemusha_binding_for_test(
-        authority: AccountId,
-        operation_id: [u8; 32],
-        hash_seed: u8,
-    ) -> PendingKagemushaOperationBinding {
-        PendingKagemushaOperationBinding {
-            authority,
-            operation_id,
-            kind: KagemushaOperationKindV1::TopUp,
-            canonical_request_digest: Hash::new([hash_seed, 1]).into(),
-            entrypoint_hash: HashOf::from_untyped_unchecked(Hash::new([hash_seed])),
-            signed_transaction_hash: HashOf::from_untyped_unchecked(Hash::new([hash_seed, 2])),
-        }
-    }
-    #[test]
-    fn pending_kagemusha_index_uses_global_operation_ids_and_exact_reverse_owner() {
-        let (first_authority, _) = gen_account_in("pending-kagemusha-first");
-        let (second_authority, _) = gen_account_in("pending-kagemusha-second");
-        let operation_id = [0xA5; 32];
-        let first = pending_kagemusha_binding_for_test(first_authority.clone(), operation_id, 1);
-        let conflicting = pending_kagemusha_binding_for_test(first_authority, operation_id, 2);
-        let foreign = pending_kagemusha_binding_for_test(second_authority, operation_id, 3);
-        let mut index = PendingKagemushaOperationIndex::default();
-
-        index.claim(first.clone()).expect("claim first operation");
-        assert!(matches!(
-            index.claim(conflicting.clone()),
-            Err(PendingKagemushaOperationClaimError::OperationIdClaimed {
-                existing_entrypoint_hash
-            }) if existing_entrypoint_hash == first.entrypoint_hash
-        ));
-        assert!(matches!(
-            index.claim(foreign.clone()),
-            Err(PendingKagemushaOperationClaimError::OperationIdClaimed {
-                existing_entrypoint_hash
-            }) if existing_entrypoint_hash == first.entrypoint_hash
-        ));
-        assert_eq!(
-            index.entrypoint_for(operation_id),
-            Some(first.entrypoint_hash)
-        );
-
-        index
-            .remove_entrypoint(&first.entrypoint_hash)
-            .expect("remove exact forward and reverse owner");
-        index
-            .claim(foreign.clone())
-            .expect("operation id becomes available after exact removal");
-        assert_eq!(
-            index.entrypoint_for(operation_id),
-            Some(foreign.entrypoint_hash)
-        );
-    }
-    #[test]
-    fn pending_kagemusha_index_rejects_reverse_only_operation_owner() {
-        let (authority, _) = gen_account_in("pending-kagemusha-reverse-only");
-        let operation_id = [0xA6; 32];
-        let orphan = pending_kagemusha_binding_for_test(authority.clone(), operation_id, 4);
-        let replacement = pending_kagemusha_binding_for_test(authority, operation_id, 5);
-        let mut index = PendingKagemushaOperationIndex::default();
-        index
-            .key_by_entrypoint
-            .insert(orphan.entrypoint_hash, orphan.key());
-
-        assert!(matches!(
-            index.validate_claim(&replacement),
-            Err(PendingKagemushaOperationClaimError::Inconsistent {
-                entrypoint_hash,
-                ..
-            }) if entrypoint_hash == orphan.entrypoint_hash
-        ));
-        assert!(matches!(
-            index.checked_binding(operation_id),
-            Err(PendingKagemushaOperationIndexError {
-                entrypoint_hash,
-                ..
-            }) if entrypoint_hash == orphan.entrypoint_hash
-        ));
-    }
-    #[test]
-    fn pending_kagemusha_index_rejects_forward_only_owner_on_removal() {
-        let (authority, _) = gen_account_in("pending-kagemusha-forward-only");
-        let operation_id = [0xA7; 32];
-        let orphan = pending_kagemusha_binding_for_test(authority, operation_id, 6);
-        let mut index = PendingKagemushaOperationIndex::default();
-        index.by_key.insert(orphan.key(), orphan.clone());
-
-        assert!(matches!(
-            index.remove_entrypoint(&orphan.entrypoint_hash),
-            Err(PendingKagemushaOperationIndexError {
-                entrypoint_hash,
-                ..
-            }) if entrypoint_hash == orphan.entrypoint_hash
-        ));
-    }
-    #[test]
-    fn pending_kagemusha_index_rejects_zero_immutable_identity() {
-        let (authority, _) = gen_account_in("pending-kagemusha-zero");
-        let operation_id = [0xA8; 32];
-        let mut malformed = pending_kagemusha_binding_for_test(authority, operation_id, 9);
-        malformed.canonical_request_digest = [0; 32];
-        let index = PendingKagemushaOperationIndex::default();
-        assert!(matches!(
-            index.validate_claim(&malformed),
-            Err(PendingKagemushaOperationClaimError::Inconsistent { .. })
-        ));
-
-        let (authority, _) = gen_account_in("pending-kagemusha-zero-operation");
-        let mut malformed = pending_kagemusha_binding_for_test(authority, [0; 32], 10);
-        malformed.signed_transaction_hash =
-            HashOf::from_untyped_unchecked(Hash::prehashed([0; Hash::LENGTH]));
-        assert!(matches!(
-            index.validate_claim(&malformed),
-            Err(PendingKagemushaOperationClaimError::Inconsistent { .. })
-        ));
-    }
-    #[test]
-    fn pending_kagemusha_cold_replay_validation_rejects_balanced_cross_wiring() {
-        let (first_authority, _) = gen_account_in("pending-kagemusha-cross-first");
-        let (second_authority, _) = gen_account_in("pending-kagemusha-cross-second");
-        let first = pending_kagemusha_binding_for_test(first_authority, [0xA9; 32], 7);
-        let second = pending_kagemusha_binding_for_test(second_authority, [0xAA; 32], 8);
-        let mut index = PendingKagemushaOperationIndex::default();
-        index.by_key.insert(first.key(), first.clone());
-        index.by_key.insert(second.key(), second.clone());
-        index
-            .key_by_entrypoint
-            .insert(first.entrypoint_hash, second.key());
-        index
-            .key_by_entrypoint
-            .insert(second.entrypoint_hash, first.key());
-
-        assert!(matches!(
-            index.validate_bijection(),
-            Err(PendingKagemushaOperationIndexError { .. })
-        ));
-    }
     #[test]
     fn execution_context_routing_plan_reconstruction_is_exact_and_canonical() {
         let coordinator = RoutingDecision::new(LaneId::new(5), DataSpaceId::new(7));
@@ -10042,15 +9219,6 @@ pub mod tests {
             Queue::compute_teu_weight(&committed, &gas::DEFAULT_ZK_GAS),
             commitment_cost
         );
-        for accepted in [external, revealed, committed] {
-            assert!(
-                Queue::classify_pending_kagemusha_operation(&CheckedTransaction::new_unchecked(
-                    accepted
-                ),)
-                .expect("non-KAGEMUSHA input is not a pending operation")
-                .is_none()
-            );
-        }
     }
     #[test]
     fn proposal_gas_cost_fails_closed_and_charges_signed_runtime_limit() {
@@ -10346,7 +9514,6 @@ pub mod tests {
     }
     include!("queue/queue_metadata_and_admission_tests.rs");
     include!("queue/instruction_and_state_routing_tests.rs");
-    include!("queue/kagemusha_top_up_admission_tests.rs");
     include!("queue/routing_batch_admission_tests.rs");
     include!("queue/config_factory_test_support.rs");
     /// Choose the complete initial catalog before constructing State and Kura.

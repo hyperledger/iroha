@@ -1101,29 +1101,11 @@ def require_parliament_commit_publication(state: str) -> None:
             or not propagated < assignment < frozen):
         raise RuntimeError(f"{path}: World preparation must propagate refusal before publication")
     validation = section(compact, "world_commit::PreparedWorldCommit::validate_prepared_overlay(",
-                         "letverifier:&dynstd::any::Any=", path)
+                         "iftiered_snapshot.is_none()", path)
+    if not validation.startswith("world,&state_ref.ivm_execution_budget(),).map_err(|error|matcherror{"):
+        raise RuntimeError(f"{path}: retained World validation must use the original overlay and allocation budget")
     if not validation.endswith("ExecutionAttemptError::Deferred(reason)=>{TransactionsBlockError::ExecutionDeferred(reason)}})?;"):
         raise RuntimeError(f"{path}: retained World validation must propagate refusal before publication")
-    kagemusha = section(compact, "letverifier:&dynstd::any::Any=", "iftiered_snapshot.is_none()", path)
-    authority_checks = (
-        "letruntime_check=world.kagemusha_verifier_registry.get().validate()"
-        ".map_err(str::to_owned).and_then(|()|{"
-        "crate::smartcontracts::isi::kagemusha::validate_runtime_cache_for_publication("
-        "verifier,state_ref.network_id,)})",
-        "returnErr(TransactionsBlockError::KagemushaVerifierAuthority);",
-        "letpredecessor=state_ref.world.kagemusha_verifier_registry.view();",
-        "authorization.validate_for_state_commit(",
-        "returnErr(TransactionsBlockError::KagemushaGovernanceUnavailable);",
-        "(true,None)|(false,Some(_))=>{",
-        "drop(predecessor);",
-    )
-    authority_positions = [kagemusha.find(token) for token in authority_checks]
-    if (
-        any(position < 0 for position in authority_positions)
-        or authority_positions != sorted(authority_positions)
-        or kagemusha.count("returnErr(TransactionsBlockError::KagemushaGovernanceUnavailable);") != 2
-    ):
-        raise RuntimeError(f"{path}: KAGEMUSHA authority must reject unowned transitions before publication")
     geometry = section(compact, "ifletErr(err)=geometry_result{", "autoscale_start.elapsed()", path)
     if not geometry.endswith("returnErr(TransactionsBlockError::from(err));}"):
         raise RuntimeError(f"{path}: geometry refusal must return before State publication")
@@ -1135,7 +1117,7 @@ def require_parliament_commit_publication(state: str) -> None:
         "letcommitted_parliament_attempt_counts=world.parliament_attempt_counts.is_dirty()",
         "let_state_commit_lock=commit_fence.lock();",
         prepare_call,
-        "letverifier:&dynstd::any::Any=kagemusha_v1_runtime_verifier.as_ref();",
+        "world_commit::PreparedWorldCommit::validate_prepared_overlay(",
         "*tiered_snapshot=Some(",
         "ifletErr(err)=geometry_result{",
         "letstate_write_lock_wait_start=Instant::now();let_state_write_lock=write_fence.lock();",

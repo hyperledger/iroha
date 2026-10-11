@@ -14,7 +14,7 @@ use norito::core::{
     CanonicalField, DecodeField, DecodeFlagsGuard, DecodeLimits, Encoder, FieldDestination,
     SerializePayload, classify_decode_attempt, header_flags, with_decode_limits_scope,
 };
-use std::{convert::Infallible, io::Write as _, num::NonZeroU64};
+use std::{convert::Infallible, num::NonZeroU64};
 
 fn typed_hash<T>(label: &[u8]) -> HashOf<T> {
     HashOf::from_untyped_unchecked(Hash::new(label))

@@ -60,8 +60,10 @@ pub(super) fn validate(
         availability_digest: iroha_sumeragi::types::Hash32::ZERO,
         proposer: 0,
         skipped_leaders: Vec::new(),
-        attest: iroha_core::sumeragi::executor::attestation_required(&proposal)
-            || proposal.header().height().get() == scheduled.epoch.authorization.last_height,
+        attest: iroha_core::sumeragi::executor::proposal_requires_attestation(
+            &proposal,
+            scheduled.epoch.authorization.last_height,
+        ),
     };
     let body = chain.author_payload(header, bytes.clone());
     let header = body.header();

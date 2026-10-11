@@ -30,9 +30,7 @@ pub(super) fn prepare(
         return Ok(None);
     }
     let authority = ServiceAuthority::open_network(&prepared, NetworkPurpose::BuildRegistry)?;
-    let plans = prepared
-        .provider_service_plans()?
-        .ok_or_else(|| invalid("generated build registry has no original provider plans"))?;
+    let plans = authority.provider_plans()?;
     let config = authority.config.clone();
     let mut originals = Vec::with_capacity(3);
     for (slot, plan) in plans.iter().enumerate() {
@@ -151,8 +149,10 @@ pub(in crate::managed) fn observe_generated_service(
             "current native provider signer differs from original activation",
         ));
     }
-    let plan = prepared
-        .provider_service_plan(provider)?
+    let plan = owner
+        .provider_plans()?
+        .iter()
+        .find(|plan| plan.provider_id() == provider)
         .ok_or_else(|| invalid("original generated provider plan is absent"))?;
     GeneratedLocalProviderTransportV1::select(
         plan.network_id(),

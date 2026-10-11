@@ -568,6 +568,10 @@ fn global_beacon_public_inventory_wire_v1<'a>(
 /// # Errors
 ///
 /// Rejects empty, excessive, or cross-network inventories and encoding failure.
+#[expect(
+    single_use_lifetimes,
+    reason = "anonymous lifetimes in impl Trait are unstable on the pinned Rust compiler"
+)]
 pub fn global_beacon_partial_signer_inventory_digest_v1<'a>(
     network_id: NetworkId,
     sessions: impl IntoIterator<Item = &'a RuntimeGlobalBeaconShareProvisioningV1>,

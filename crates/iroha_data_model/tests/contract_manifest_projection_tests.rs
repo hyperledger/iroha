@@ -274,7 +274,7 @@ impl ManifestStateTypeV1 for NativeType {
             Self::Option(value) | Self::List(value, _) => (index == 0).then_some(value.as_ref()),
             _ => None,
         };
-        child.map(|ty| ty as &dyn ManifestStateTypeV1)
+        child.map(|ty| -> &dyn ManifestStateTypeV1 { ty })
     }
     fn field_name(&self, index: usize) -> Option<&str> {
         match self {
@@ -493,3 +493,6 @@ fn projected_state_rows_match_the_existing_native_string_and_sequence_codecs() {
         .unwrap();
     assert_eq!(destination, original);
 }
+
+#[path = "contract_manifest_instruction_registry_projection_tests.rs"]
+mod instruction_registry_projection_tests;

@@ -800,10 +800,6 @@ mod block {
         AxtAssetIncarnation,
         /// Prepared World commit does not match the actual State or target height
         WorldCommitPreparation,
-        /// Staged KAGEMUSHA release authority differs from this block's installed verifier
-        KagemushaVerifierAuthority,
-        /// No finalized governance owner admits a changed KAGEMUSHA verifier registry yet
-        KagemushaGovernanceUnavailable,
         /// The applying State was busy or changed during its complete snapshot observation
         SnapshotObservationChanged,
         /// A stable State snapshot projection or encoding is malformed

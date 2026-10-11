@@ -1064,8 +1064,8 @@ GATE_SETTINGS = (
     ),
     (
         "smartcontracts::isi::(domain|",
-        "smartcontracts::isi::(domains|",
-        "release-gate module path matches no module in iroha_core: smartcontracts::isi::domains",
+        "smartcontracts::isi::(unreviewed_domain|",
+        "release-gate module path matches no module in iroha_core: smartcontracts::isi::unreviewed_domain",
     ),
     (
         "    package(mv)\n",

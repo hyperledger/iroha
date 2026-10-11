@@ -12,11 +12,13 @@
 use iroha_data_model::fastpq::FastpqCommitmentV1;
 use norito::{DecodeLimits, NoritoDeserialize, NoritoSerialize};
 
+#[cfg(test)]
+use super::compact_public_batch::PublicTransferBatch;
 use super::compact_value_domain::CompactTransferValue;
 use super::{
     compact_axt_batch::AxtTransferBatch,
     compact_public_api::{AxtVerificationContext, DeepVerifier},
-    compact_public_batch::{BatchContextLimits, PublicTransferBatch},
+    compact_public_batch::BatchContextLimits,
 };
 use crate::{
     Error, ProofSemantics, Result, VerifyLimits,
@@ -62,7 +64,9 @@ impl Default for BundleLimits {
     }
 }
 
-/// Canonical carrier only; decoding it does not validate any contained proof.
+/// Test-only transfer diagnostic carrier; the ordinary artifact uses complete effects.
+/// Decoding this diagnostic frame does not validate any contained proof.
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq, Eq, NoritoSerialize, NoritoDeserialize, norito::NoritoSchema)]
 #[norito_schema(
     name = "fastpq_prover::backend::compact_bundle::BundleWire",
@@ -201,6 +205,7 @@ pub(super) fn verify_transfer_bundle<V: CompactTransferValue>(
     )
 }
 
+#[cfg(test)]
 fn verify_transfer_bundle_with<V: CompactTransferValue>(
     prepared: &PreparedPublicTransfers<'_, V>,
     expected: &PublicIO,
@@ -383,6 +388,7 @@ fn verify_axt_transfer_bundle_with<V: CompactTransferValue>(
 
 /// Verify an ordered candidate ordinary bundle with separate child and cumulative
 /// decode charges. Every child must pass before returning a verified result.
+#[cfg(test)]
 pub(super) fn verify_transfer_bundle_with_allocation<V: CompactTransferValue>(
     prepared: &PreparedPublicTransfers<'_, V>,
     expected: &PublicIO,
@@ -429,6 +435,7 @@ pub(super) fn verify_axt_transfer_bundle_with_allocation<V: CompactTransferValue
 }
 // Normalize only already bounded nominal carrier fields by moving their owned
 // tables. No child is decoded, retagged or accepted by these internal conversions.
+#[cfg(test)]
 fn decode_wire_with_policy(
     bytes: &[u8],
     count: usize,
@@ -480,6 +487,7 @@ fn decode_axt_wire_with_policy(
 }
 
 /// Serialize a bounded carrier; this helper does not verify its child frames.
+#[cfg(test)]
 pub(super) fn encode_wire(
     wire: &BundleWire,
     expected_count: usize,
@@ -627,6 +635,7 @@ fn preflight_count_for(count: usize, limits: BundleLimits, verifier: DeepVerifie
     check_limit("max_bundle_queries", queries, limits.max_total_queries)
 }
 
+#[cfg(test)]
 fn preflight_wire(wire: &BundleWire, expected_count: usize, limits: BundleLimits) -> Result<()> {
     preflight_wire_parts(
         wire.version,

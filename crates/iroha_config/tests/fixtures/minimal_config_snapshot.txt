@@ -499,7 +499,6 @@ Root {
         },
         account_onboarding: [REDACTED; 0 configured],
         faucet_configured: false,
-        kagemusha_v1_commands: [REDACTED; 0 configured],
         ram_lfe_program_count: 0,
         tx_history: None,
         recipient_lookup: ToriiRecipientLookup {
@@ -1886,11 +1885,6 @@ Root {
         ],
     },
     settlement: Settlement {
-        kagemusha: Kagemusha {
-            reserve_accounts: {},
-            proof_release: None,
-            allow_testnet_experimental_release: false,
-        },
         router: Router {
             twap_window: 60s,
             epsilon_bps: 25,

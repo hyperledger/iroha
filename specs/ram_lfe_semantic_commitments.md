@@ -22,6 +22,11 @@ authoritative. Where this proposal differs from it, the contract holds:
   nonce, which role 8 below does not. It identifies the network by its genesis
   hash, not by the chain label. Its initialized-memory commitment is blinded
   for each execution from the program key, so it confirms no guessed lanes.
+- A V1 opening commits the 64 padded output slots, the ordered output followed
+  by zeros, so the `output_count` of its ordered-output frame is always 64 and
+  no output length reaches the opener or the recipient. Role 7 below takes a
+  private `output_count`, and the text after the table says the resolver and
+  the recipient see output lengths; under V1 neither holds.
 
 Whether the relation constrains the V1 BLAKE3 frames or a Poseidon role table is
 an [open construction question](ram_lfe_execution_proof.md#open-construction-questions)

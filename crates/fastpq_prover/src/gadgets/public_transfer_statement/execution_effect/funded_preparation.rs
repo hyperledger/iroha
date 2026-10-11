@@ -266,7 +266,7 @@ fn asset_states<'a>(
         let scale = values
             .into_iter()
             .flatten()
-            .map(|v| v.scale())
+            .map(Quantity::scale)
             .max()
             .unwrap_or(0);
         states.push_reserved(AssetState {

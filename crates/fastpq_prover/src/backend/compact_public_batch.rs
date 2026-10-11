@@ -14,24 +14,27 @@
 //! The offline engine fixes375 queries; production replay and default limits
 //! remain unmodified pending a complete qualified artifact cutover.
 
+#[cfg(test)]
 use norito::{NoritoSerialize, codec::Encode};
 
 #[cfg(test)]
 use super::compact_protocol::PreparedAir;
 use super::compact_value_domain::CompactTransferValue;
+#[cfg(test)]
 use super::{
     compact_protocol::{FixedAir, FixedAirSchema},
     compact_public_transfer::encode_context,
     compact_transfer_air::CompactTransferAir,
 };
 use crate::{
-    Error, ProofSemantics, Result, VerifyLimits,
+    Error, Result, VerifyLimits,
     gadgets::{
         compact_smt_air::PublicStatement,
         public_transfer_statement::{PreparedPublicTransfers, PublicTransferLimits},
     },
-    proof::PublicIO,
 };
+#[cfg(test)]
+use crate::{ProofSemantics, proof::PublicIO};
 
 #[cfg(test)]
 const IDENTITY: &str = <u64 as CompactTransferValue>::BATCH_IDENTITY;
@@ -55,6 +58,7 @@ impl Default for BatchContextLimits {
     }
 }
 
+#[cfg(test)]
 #[derive(NoritoSerialize, norito::NoritoSchema)]
 #[norito_schema(
     name = "fastpq_prover::backend::compact_public_batch::BoundBatchContext",
@@ -67,6 +71,7 @@ struct BoundBatchContext {
     intermediate_roots: Vec<[u8; 32]>,
 }
 
+#[cfg(test)]
 #[derive(NoritoSerialize, norito::NoritoSchema)]
 #[norito_schema(
     name = "fastpq_prover::backend::compact_public_batch::BoundSegmentContext",
@@ -79,11 +84,13 @@ struct BoundSegmentContext {
     batch_context: Vec<u8>,
 }
 
-/// Immutable whole-batch context with checked chronological segment statements.
+/// Test-only transfer diagnostic context with checked chronological segments.
+/// The ordinary artifact facade uses the complete execution-effect batch.
 ///
 /// This object is a statement, not a successful proof. It owns no private path,
 /// witness, FFT/LDE or prepared fixed AIR cache. A verifier can use the exact
 /// aggregate statement length before decoding or hashing any child proof.
+#[cfg(test)]
 pub(super) struct PublicTransferBatch {
     identity: &'static str,
     #[cfg(test)]
@@ -94,6 +101,7 @@ pub(super) struct PublicTransferBatch {
     max_statement_bytes: usize,
 }
 
+#[cfg(test)]
 impl PublicTransferBatch {
     /// Derive a nonempty ordinary bundle from the complete immutable preparation.
     ///
@@ -228,13 +236,16 @@ impl PublicTransferBatch {
 }
 
 /// Fixed ordinary bundle relation; callers cannot replace its semantic profile.
+#[cfg(test)]
 pub(super) struct PublicTransferSegmentAir {
     identity: &'static str,
     inner: CompactTransferAir,
 }
 
+#[cfg(test)]
 impl super::deep_relation::sealed::Sealed for PublicTransferSegmentAir {}
 
+#[cfg(test)]
 impl super::deep_relation::DeepRelation for PublicTransferSegmentAir {
     // Borrow the already constructed AIR without replacing the outer identity
     // or any byte of its complete prepared batch/ordinal/public context.
@@ -243,6 +254,7 @@ impl super::deep_relation::DeepRelation for PublicTransferSegmentAir {
     }
 }
 
+#[cfg(test)]
 impl FixedAir for PublicTransferSegmentAir {
     fn schema(&self) -> FixedAirSchema {
         FixedAirSchema {
@@ -341,11 +353,13 @@ fn preflight_counts(
     Ok(bytes)
 }
 
+#[cfg(test)]
 fn checked_u32(value: usize) -> Result<u32> {
     u32::try_from(value)
         .map_err(|_| invariant("compact public bundle count is not representable as u32"))
 }
 
+#[cfg(test)]
 fn checked_sum(left: usize, right: usize) -> Result<usize> {
     left.checked_add(right)
         .ok_or_else(|| invariant("compact public bundle byte count overflows"))
@@ -356,6 +370,7 @@ fn checked_product(left: usize, right: usize) -> Result<usize> {
         .ok_or_else(|| invariant("compact public bundle byte count overflows"))
 }
 
+#[cfg(test)]
 fn check_total(actual: usize, limits: BatchContextLimits) -> Result<()> {
     check_limit(
         "max_compact_bundle_statement_bytes",

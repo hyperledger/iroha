@@ -34,8 +34,8 @@ use iroha_plonk_gadgets::{
     poseidon::ROWS_PER_PERMUTATION,
     statement::{
         EFFECT_UNION_FIELDS, STATEMENT_DOMAIN, STATEMENT_FIELDS, StatementCells, StatementV1,
-        StepRelation, assign_canonical_limbs, assign_foreign_scalar, bytes_to_limbs,
-        digest_fields, foreign_limbs, foreign_value_native, limb_fields, statement_digest,
+        StepRelation, assign_canonical_limbs, assign_foreign_scalar, bytes_to_limbs, digest_fields,
+        foreign_limbs, foreign_value_native, limb_fields, statement_digest,
     },
     tamper::{Tamper, assigned_advice_cells, check_tampered},
 };
