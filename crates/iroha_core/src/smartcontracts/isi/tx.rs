@@ -654,9 +654,32 @@ pub(crate) fn read_finalized_execution_carrier(
     FinalizedExecutionCarrier,
     crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>,
 > {
-    use crate::sumeragi::certified_chain::{
-        NativeExecutionReadError, NativeExecutionReadLimits, read_authenticated_execution,
-    };
+    let limits =
+        admit_finalized_execution_read(kura, hashes, height, expected_hash, max_work, max_bytes)?;
+    let verified = crate::sumeragi::certified_chain::read_authenticated_execution(
+        kura,
+        chain_id,
+        network,
+        hashes,
+        u64::try_from(height.get()).map_err(|_| QueryExecutionFail::GasBudgetExceeded)?,
+        limits,
+        budget,
+    )
+    .map_err(finalized_execution_read_error)?;
+    finalized_execution_carrier_from_read(verified, max_work)
+}
+
+fn admit_finalized_execution_read(
+    kura: &crate::kura::Kura,
+    hashes: &dyn crate::state::BlockHashRead,
+    height: NonZeroUsize,
+    expected_hash: HashOf<BlockHeader>,
+    max_work: u64,
+    max_bytes: u64,
+) -> Result<
+    crate::sumeragi::certified_chain::NativeExecutionReadLimits,
+    crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>,
+> {
     if max_work == 0 || max_bytes == 0 {
         return Err(QueryExecutionFail::GasBudgetExceeded.into());
     }
@@ -683,33 +706,36 @@ pub(crate) fn read_finalized_execution_carrier(
     if target_wire_bytes > max_bytes {
         return Err(QueryExecutionFail::GasBudgetExceeded.into());
     }
-    let verified = read_authenticated_execution(
-        kura,
-        chain_id,
-        network,
-        hashes,
-        height_u64,
-        NativeExecutionReadLimits {
+    Ok(
+        crate::sumeragi::certified_chain::NativeExecutionReadLimits {
             admitted_target_wire_bytes: target_wire_bytes,
             max_source_blocks: max_work,
             max_source_wire_bytes: max_bytes,
             max_frame_wire_bytes: max_bytes,
         },
-        budget,
     )
-    .map_err(|error| match error {
-        NativeExecutionReadError::Capacity { .. } => {
-            crate::execution_attempt::ExecutionAttemptError::Rejected(
-                QueryExecutionFail::GasBudgetExceeded,
-            )
-        }
+}
+
+fn finalized_execution_read_error(
+    error: crate::sumeragi::certified_chain::NativeExecutionReadError,
+) -> crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail> {
+    use crate::sumeragi::certified_chain::NativeExecutionReadError;
+    match error {
+        NativeExecutionReadError::Capacity { .. } => QueryExecutionFail::GasBudgetExceeded.into(),
         NativeExecutionReadError::Deferred(reason) => {
             crate::execution_attempt::ExecutionAttemptError::Deferred(reason)
         }
-        error => crate::execution_attempt::ExecutionAttemptError::Rejected(
-            canonical_transaction_history_error(error),
-        ),
-    })?;
+        error => canonical_transaction_history_error(error).into(),
+    }
+}
+
+fn finalized_execution_carrier_from_read(
+    verified: crate::sumeragi::certified_chain::NativeExecutionRead,
+    max_work: u64,
+) -> Result<
+    FinalizedExecutionCarrier,
+    crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>,
+> {
     let block = verified.authority.block().clone();
     let work = u64::try_from(
         block
@@ -741,6 +767,116 @@ pub(crate) fn read_finalized_execution_carrier(
         wire_bytes: verified.source_wire_bytes,
         work_items: work,
     })
+}
+
+/// One durable caller's finalized carrier read across original local capacity refusal.
+///
+/// Holds only the original immutable committed hash generation, current frame and
+/// bounded prefix; no World view or all-history vector survives the read. Dropping
+/// this operation cancels the read and refunds its original physical owners.
+/// Retains the original prefix, committed-frame and result verification slots when
+/// a later original-pool admission refuses. TODO: retain partially decoded nested
+/// graphs; this owner does not complete decoder graph or crypto scratch funding.
+pub struct FinalizedExecutionCarrierReadAttempt<'state> {
+    state: &'state crate::state::State,
+    hashes: crate::state::BlockHashesView<'state>,
+    height: NonZeroUsize,
+    expected_hash: HashOf<BlockHeader>,
+    max_work: u64,
+    read: crate::sumeragi::certified_chain::NativeExecutionReadAttempt<'state>,
+}
+impl<'state> FinalizedExecutionCarrierReadAttempt<'state> {
+    pub(crate) fn new(
+        state: &'state crate::state::State,
+        kura: &'state crate::kura::Kura,
+        hashes: crate::state::BlockHashesView<'state>,
+        height: NonZeroUsize,
+        max_work: u64,
+        max_bytes: u64,
+    ) -> Result<Self, crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>> {
+        let expected_hash = hashes.get(height.get() - 1).copied().ok_or_else(|| {
+            QueryExecutionFail::Conversion("canonical carrier height is unavailable".into())
+        })?;
+        let limits = admit_finalized_execution_read(
+            kura,
+            &hashes,
+            height,
+            expected_hash,
+            max_work,
+            max_bytes,
+        )?;
+        let read = crate::sumeragi::certified_chain::NativeExecutionReadAttempt::new(
+            kura,
+            state.chain_id_ref(),
+            *state.network_id_ref(),
+            &hashes,
+            u64::try_from(height.get()).map_err(|_| QueryExecutionFail::GasBudgetExceeded)?,
+            limits,
+            &state.ivm_execution_budget(),
+        )
+        .map_err(finalized_execution_read_error)?;
+        Ok(Self {
+            state,
+            hashes,
+            height,
+            expected_hash,
+            max_work,
+            read,
+        })
+    }
+
+    /// Exact original committed target retained by this operation.
+    pub const fn height(&self) -> NonZeroUsize {
+        self.height
+    }
+
+    /// Continue this same immutable source and original pool, retaining local refusal.
+    ///
+    /// # Errors
+    /// Preserves the original source, finite-limit, canonical/authority and local
+    /// refusal classification. A removed or rebound State target is rejected.
+    /// Native completion consumes this operation; further calls reject the invalid
+    /// reentry without reporting the still-committed source as absent.
+    pub fn advance(
+        &mut self,
+    ) -> Result<
+        FinalizedExecutionCarrier,
+        crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>,
+    > {
+        if self.read.is_completed() {
+            return Err(QueryExecutionFail::Conversion(
+                "finalized carrier read attempt already completed".into(),
+            )
+            .into());
+        }
+        self.recheck_binding()?;
+        let verified = self
+            .read
+            .advance(&self.hashes)
+            .map_err(finalized_execution_read_error)?;
+        let carrier = finalized_execution_carrier_from_read(verified, self.max_work)?;
+        self.recheck_binding()?;
+        Ok(carrier)
+    }
+
+    fn recheck_binding(
+        &self,
+    ) -> Result<(), crate::execution_attempt::ExecutionAttemptError<QueryExecutionFail>> {
+        if self
+            .state
+            .block_hashes
+            .view()
+            .get(self.height.get() - 1)
+            .copied()
+            != Some(self.expected_hash)
+        {
+            return Err(QueryExecutionFail::Conversion(
+                "canonical carrier changed during finalized read".into(),
+            )
+            .into());
+        }
+        Ok(())
+    }
 }
 
 /// Read one event-only carrier from the actual immutable State source.

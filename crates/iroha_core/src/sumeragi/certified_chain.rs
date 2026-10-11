@@ -705,25 +705,23 @@ fn admitted_slot_transfer_reclaims_original_backing_without_dropping_moved_value
     unsafe_code,
     reason = "the complete decoded result is moved into one aligned prepaid slot before exposing its initialized length"
 )]
-fn decode_frame_result_admitted(
+fn initialize_frame_result_admitted(
+    original: &mut iroha_allocation::ChargedBuffer<ExecutionResultCommitment>,
     preimage: &[u8],
     height: u64,
     validation: &mut EpochValidationScope,
-    budget: &iroha_allocation::AllocationBudget,
-) -> Result<
-    iroha_allocation::ChargedBuffer<ExecutionResultCommitment>,
-    ExecutionAttemptError<ChainReadError>,
-> {
-    let mut original = admit_verification_slot::<ExecutionResultCommitment>(budget)?;
-    ExecutionResultCommitment::decode_with_validation_into(preimage, validation, move |value| {
+) -> Result<(), ExecutionAttemptError<ChainReadError>> {
+    if !original.as_slice().is_empty() {
+        return Ok(());
+    }
+    ExecutionResultCommitment::decode_with_validation_into(preimage, validation, |value| {
         // SAFETY: one aligned result slot was prepaid. The sole decoder invokes this owner
         // only after complete validation. Neither write nor initialized-length publication
-        // allocates, drops or exposes partial fields. Failure drops the still empty slot.
+        // allocates, drops or exposes partial fields. Failure leaves the same empty slot.
         unsafe {
             original.spare_capacity_mut()[0].as_mut_ptr().write(value);
             original.set_initialized_len(1);
         }
-        original
     })
     .map_err(|error| frame_result_error(height, error))
 }
@@ -733,21 +731,34 @@ fn decode_frame_result_admitted(
     unsafe_code,
     reason = "distinct fields of an exact prepaid slot are written after complete verification; no incomplete receipt is exposed or dropped"
 )]
-fn read_frame_admitted(
+fn initialize_frame_admitted(
+    original: &mut iroha_allocation::ChargedBuffer<CommittedBlock>,
+    result_slot: &mut Option<iroha_allocation::ChargedBuffer<ExecutionResultCommitment>>,
     block: iroha_data_model::block::SharedSignedBlock,
     height: u64,
     validation: &mut EpochValidationScope,
     budget: &iroha_allocation::AllocationBudget,
-) -> Result<iroha_allocation::ChargedBuffer<CommittedBlock>, ExecutionAttemptError<ChainReadError>>
-{
-    let mut original = admit_verification_slot::<CommittedBlock>(budget)?;
+) -> Result<(), ExecutionAttemptError<ChainReadError>> {
+    if !original.as_slice().is_empty() {
+        return Ok(());
+    }
     let (header, core_hash) = checked_frame_header(&block, height)?;
     let certificate = block
         .commit_certificate()
         .ok_or(ChainReadError::MissingCertificate { height })?;
     let result = result_of_preimage(certificate.result_preimage());
-    let commitment =
-        decode_frame_result_admitted(certificate.result_preimage(), height, validation, budget)?;
+    if result_slot.is_none() {
+        *result_slot = Some(admit_verification_slot::<ExecutionResultCommitment>(
+            budget,
+        )?);
+    }
+    let commitment = result_slot.as_mut().expect("original result slot retained");
+    initialize_frame_result_admitted(
+        commitment,
+        certificate.result_preimage(),
+        height,
+        validation,
+    )?;
     validate_frame_result(
         &block,
         height,
@@ -756,6 +767,7 @@ fn read_frame_admitted(
         validation,
     )?;
     let pointer = original.spare_capacity_mut()[0].as_mut_ptr();
+    let commitment = result_slot.take().expect("complete original result slot");
     // SAFETY: one aligned CommittedBlock slot was prepaid. Every fallible predicate
     // finished above. These moves neither allocate nor invoke drop. The complete result
     // moves from its original charged backing, whose length is immediately cleared to
@@ -769,7 +781,63 @@ fn read_frame_admitted(
         transfer_verification_slot(commitment, std::ptr::addr_of_mut!((*pointer).commitment));
         original.set_initialized_len(1);
     }
-    Ok(original)
+    Ok(())
+}
+
+// Each original verification slot remains owned by its actual read operation until
+// complete transfer or operation retirement. A later admission refusal cannot refund
+// an earlier slot and thereby satisfy the same operation's returned release wait.
+#[derive(Default)]
+struct AdmittedFrameRead {
+    committed: Option<iroha_allocation::ChargedBuffer<CommittedBlock>>,
+    result: Option<iroha_allocation::ChargedBuffer<ExecutionResultCommitment>>,
+}
+impl AdmittedFrameRead {
+    fn initialize(
+        &mut self,
+        block: iroha_data_model::block::SharedSignedBlock,
+        height: u64,
+        validation: &mut EpochValidationScope,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<(), ExecutionAttemptError<ChainReadError>> {
+        if self.committed.is_none() {
+            self.committed = Some(admit_verification_slot::<CommittedBlock>(budget)?);
+        }
+        initialize_frame_admitted(
+            self.committed
+                .as_mut()
+                .expect("original frame slot retained"),
+            &mut self.result,
+            block,
+            height,
+            validation,
+            budget,
+        )
+    }
+
+    fn committed(&self) -> &CommittedBlock {
+        &self
+            .committed
+            .as_ref()
+            .expect("original frame initialized")
+            .as_slice()[0]
+    }
+
+    fn take_committed(&mut self) -> iroha_allocation::ChargedBuffer<CommittedBlock> {
+        self.committed.take().expect("original frame initialized")
+    }
+}
+
+fn read_frame_admitted(
+    block: iroha_data_model::block::SharedSignedBlock,
+    height: u64,
+    validation: &mut EpochValidationScope,
+    budget: &iroha_allocation::AllocationBudget,
+) -> Result<iroha_allocation::ChargedBuffer<CommittedBlock>, ExecutionAttemptError<ChainReadError>>
+{
+    let mut original = AdmittedFrameRead::default();
+    original.initialize(block, height, validation, budget)?;
+    Ok(original.take_committed())
 }
 
 /// One complete receipt in exact backing admitted by the original history pool.
@@ -1518,10 +1586,6 @@ impl CertifiedPrefix {
     /// # Errors
     /// The original pool/allocator refuses the slot, or the same signed genesis and result
     /// validation required by `new` does not complete.
-    #[allow(
-        unsafe_code,
-        reason = "each distinct field of the prepaid slot is initialized after all fallible verification; no incomplete prefix is exposed or dropped"
-    )]
     pub(crate) fn new_admitted(
         chain_id: &ChainId,
         network: NetworkId,
@@ -1529,12 +1593,39 @@ impl CertifiedPrefix {
         budget: &iroha_allocation::AllocationBudget,
     ) -> Result<iroha_allocation::ChargedBuffer<Self>, ExecutionAttemptError<ChainReadError>> {
         let mut original = admit_verification_slot::<Self>(budget)?;
+        Self::initialize_admitted(
+            &mut original,
+            &mut AdmittedFrameRead::default(),
+            chain_id,
+            network,
+            genesis,
+            budget,
+        )?;
+        Ok(original)
+    }
+
+    // Both one-shot and retained readers initialize the same exact prepaid slot
+    // through this existing admitted verifier. Failure leaves the slot empty;
+    // the retained caller keeps its original backing across local refusal.
+    #[allow(
+        unsafe_code,
+        reason = "each distinct field of the prepaid slot is initialized after all fallible verification; no incomplete prefix is exposed or dropped"
+    )]
+    fn initialize_admitted(
+        original: &mut iroha_allocation::ChargedBuffer<Self>,
+        frame: &mut AdmittedFrameRead,
+        chain_id: &ChainId,
+        network: NetworkId,
+        genesis: iroha_data_model::block::SharedSignedBlock,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<(), ExecutionAttemptError<ChainReadError>> {
         let (epoch, instance) = authenticate_genesis(&genesis, &network, chain_id)?;
         let mut validation = EpochValidationScope::new();
-        let tip = read_frame_admitted(genesis, GENESIS_HEIGHT, &mut validation, budget)?;
+        frame.initialize(genesis, GENESIS_HEIGHT, &mut validation, budget)?;
         let (schedule, authority) =
-            genesis_prefix_authority(&tip.as_slice()[0], epoch, &mut validation)?;
+            genesis_prefix_authority(frame.committed(), epoch, &mut validation)?;
         let pointer = original.spare_capacity_mut()[0].as_mut_ptr();
+        let tip = frame.take_committed();
         // SAFETY: the original exact backing has one aligned Self slot. All fallible work
         // finished above. Field writes only move already valid owners; none invokes a
         // destructor or allocates. Every field is initialized before exposing length one.
@@ -1550,7 +1641,7 @@ impl CertifiedPrefix {
             std::ptr::addr_of_mut!((*pointer).prefix.proof_source).write(None);
             original.set_initialized_len(1);
         }
-        Ok(original)
+        Ok(())
     }
 
     /// Borrow the complete authority already authenticated by this prefix's source relation.
@@ -2532,6 +2623,7 @@ mod event_execution;
 mod execution_read;
 mod state_certificate;
 pub(crate) use event_execution::read_event_execution;
+pub(crate) use execution_read::NativeExecutionReadAttempt;
 pub use execution_read::{
     AuthenticatedExecutionBlock, NativeExecutionRead, NativeExecutionReadError,
     NativeExecutionReadLimits, NativeExecutionReadResource, read_authenticated_execution,

@@ -1156,6 +1156,9 @@ TORII_MUTATIONS = [
       ["tests_runtime_handlers::pipeline_status_pending_refresh_retains_original_query_refusal_and_pending_source"]),
     m("TOR3", "Finite finality HTTP stop control: retire original query credit before an unpolled worker error or deadline result",
       ["finality_interval::tests::failed_and_timed_out_workers_keep_original_credit_until_unpolled_stop_control_retires"]),
+    m("TOR4", "Push replay: discard the original current carrier attempt on a late capacity refusal",
+      ["push::tests::push_replay_late_capacity_retains_original_frame_and_waits_for_external_release",
+       "push::tests::push_replay_verification_slot_capacity_preserves_original_wait_and_resumes"]),
 
 ]
 

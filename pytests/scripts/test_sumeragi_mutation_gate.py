@@ -4322,7 +4322,7 @@ def test_torii_cache_mutation_has_exact_owner_hook_and_both_native_adapters():
         identifier for path in (source / "src").rglob("*.rs")
         for identifier in re.findall(r'sumeragi_torii_mutation\s*=\s*"([^"]+)"', path.read_text())
     }
-    assert actual_switches == {"TOR1", "TOR2", "TOR3"}
+    assert actual_switches == set(gate.index_mutations(gate.TORII_MUTATIONS))
     controls = (source / "src/tests/lib_runtime_handlers/part_5.rs").read_text()
     for name in rule.tests:
         assert "fn " + name.rsplit("::", 1)[-1] + "(" in controls
@@ -4331,7 +4331,10 @@ def test_torii_cache_mutation_has_exact_owner_hook_and_both_native_adapters():
     assert "canonical_outcome_test_fixture(false)" in controls
     assert "membership.insert_block(HashSet::new(), NonZeroUsize::new(2).unwrap())" in controls
     build = (source / "build.rs").read_text()
-    assert 'const IDS: &[&str] = &["TOR1", "TOR2", "TOR3"];' in build
+    declared = re.search(r'const IDS: &\[&str\] = &\[(.*?)\];', build, re.S)
+    assert declared is not None
+    ids = re.findall(r'"(TOR[0-9]+)"', declared.group(1))
+    assert ids == [rule.id for rule in gate.TORII_MUTATIONS]
     assert 'const ENV: &str = "SUMERAGI_TORII_MUTATION";' in build
     assert 'const CFG: &str = "sumeragi_torii_mutation";' in build
     assert 'let values = IDS' in build
@@ -6038,3 +6041,60 @@ def test_native_multisig_semantic_mutation_owns_only_the_original_cause_projecti
     assert len(rows) == 1 and all(prefix + leaf in rows[0] for leaf in leaves)
     core = (ROOT / "crates/iroha_core/src/sumeragi/amx/native.rs").read_text()
     assert 'AmxLegDecodeErrorV1::Multisig(error) => invalid(error.to_string())' in core
+
+
+def test_push_retry_mutation_has_exact_retained_operation_owner():
+    mid = "TOR4"
+    selector = "push::tests::push_replay_late_capacity_retains_original_frame_and_waits_for_external_release"
+    rule = gate.index_mutations(gate.TORII_MUTATIONS)[mid]
+    verification = "push::tests::push_replay_verification_slot_capacity_preserves_original_wait_and_resumes"
+    assert rule.tests == (selector, verification) and not rule.scenarios
+    assert gate.has_switch(mid, torii=True)
+    for family in ({}, {"core": True}, {"daemon": True}, {"model": True},
+                   {"sdk": True}, {"deploy": True}, {"norito": True}):
+        assert not gate.has_switch(mid, **family)
+    source = ROOT / "crates/iroha_torii"
+    owners = {path.relative_to(source / "src").as_posix()
+              for path in (source / "src").rglob("*.rs")
+              if f'sumeragi_torii_mutation = "{mid}"' in path.read_text()}
+    assert owners == {"push.rs"}
+    native = (source / "src/push.rs").read_text()
+    assert all("fn " + name.rsplit("::", 1)[-1] + "(" in native for name in rule.tests)
+    build = (source / "build.rs").read_text()
+    declared = re.search(r'const IDS: &\[&str\] = &\[(.*?)\];', build, re.S)
+    assert declared is not None
+    ids = re.findall(r'"(TOR[0-9]+)"', declared.group(1))
+    assert ids == [rule.id for rule in gate.TORII_MUTATIONS]
+    rows = re.findall(r"^\| TOR4 \| (.+)$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and all(name in rows[0] for name in rule.tests)
+
+
+@pytest.mark.parametrize("damage,verdict", [
+    ("none", "killed_by_test"), ("incidental_only", "error"),
+    ("missing", "error"), ("ignored", "error"),
+])
+def test_push_retry_named_kill_requires_original_late_refusal_control(
+    monkeypatch, tmp_path, damage, verdict
+):
+    rule = gate.index_mutations(gate.TORII_MUTATIONS)["TOR4"]
+    rows = [(name, "FAILED") for name in rule.tests]
+    if damage == "incidental_only":
+        rows = [(name, "ok") for name in rule.tests]
+    elif damage == "missing":
+        rows.clear()
+    elif damage == "ignored":
+        rows[0] = (rule.tests[0], "ignored")
+    rows.append((rule.tests[0] + "_incidental", "FAILED"))
+    code, output = exact_control_output(rows)
+    selected_cargo_results(monkeypatch, code, output, names=tuple(name for name, _ in rows))
+    monkeypatch.setattr(gate, "build", lambda *args: gate.Step(status="pass"))
+    result = gate.evaluate(SimpleNamespace(torii=True, target_dir=tmp_path,
+                          timeout_test=900, fast=False), tmp_path, rule)
+    assert result["verdict"] == verdict, result
+    assert "scenario" not in result
+    if verdict == "killed_by_test":
+        assert result["named"]["required_failed"] == list(rule.tests)
+    elif damage == "incidental_only":
+        assert result["reason"] == "named tests: only additional substring-selected tests failed"
+    else:
+        assert result["reason"] == "named tests: missing-test"

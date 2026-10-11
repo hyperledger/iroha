@@ -3942,25 +3942,6 @@ fn decode_checkpoint(
     }
     Ok(checkpoint)
 }
-/// Validate one nonempty canonical checkpoint and return its monotonic sequence.
-///
-/// The file-store adapter uses this crate-private boundary to bind physical two-slot generations to
-/// the journal schema without exposing the private checkpoint DTO. Every retained intent must
-/// belong to the exact configured exact network and provider.
-pub(crate) fn validate_musubi_provider_attestation_journal_checkpoint_bytes_v1(
-    bytes: &[u8],
-    policy: MusubiProviderAttestationJournalPolicyV1,
-    network_id: &NetworkId,
-    provider_id: ProviderId,
-) -> Result<u64, MusubiProviderAttestationJournalErrorV1> {
-    validate_musubi_provider_attestation_journal_checkpoint_metadata_v1(
-        bytes,
-        policy,
-        network_id,
-        provider_id,
-    )
-    .map(|(checkpoint_sequence, _)| checkpoint_sequence)
-}
 /// Validate one canonical checkpoint and return its sequence and UNIX floor.
 ///
 /// The checkpoint-seal protocol uses this crate-private projection to prove

@@ -160,7 +160,7 @@ fn record_hash(record: &AmxRecordV1) -> Result<Hash, NativeAmxPreparedRelayError
     }
     hash.map_err(|_| NativeAmxPreparedRelayErrorV1::Source("record digest writer refused"))
 }
-impl<'v, V: StateReadOnly> NativeAmxPreparedRelayReadV1<'v, V> {
+impl<V: StateReadOnly> NativeAmxPreparedRelayReadV1<'_, V> {
     fn recheck(&self) -> Result<(), NativeAmxPreparedRelayErrorV1> {
         self.read.recheck_namespace()?;
         let index = usize::try_from(self.height - 1).map_err(|_| {
@@ -378,9 +378,12 @@ impl<'v, V: StateReadOnly> NativeAmxPreparedRelayReadV1<'v, V> {
             }
         }
     }
+}
+
+#[cfg(test)]
+impl<'v, V: StateReadOnly> NativeAmxPreparedRelayReadV1<'v, V> {
     // Observes the actual completed instruction before its final original-source join.
     // It cannot install coordinates, proof fields, graph backing or a guard verdict.
-    #[cfg(test)]
     pub(crate) fn probe_instruction_prepared_once(
         &mut self,
         probe: impl FnOnce(&InstructionBox) + 'v,
@@ -388,15 +391,12 @@ impl<'v, V: StateReadOnly> NativeAmxPreparedRelayReadV1<'v, V> {
         assert!(self.prepared_probe.is_none() && self.instruction.is_none() && self.index == 0);
         self.prepared_probe = Some(Box::new(probe));
     }
-    #[cfg(test)]
     pub(crate) fn retained_instruction(&self) -> Option<&InstructionBox> {
         self.instruction.as_ref()
     }
-    #[cfg(test)]
     pub(crate) fn acquired_frame_is_complete(&self) -> bool {
         self.bytes.is_some()
     }
-    #[cfg(test)]
     pub(crate) fn acquired_frame(&self) -> Option<&[u8]> {
         self.bytes
             .as_ref()

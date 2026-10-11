@@ -30282,6 +30282,35 @@ impl State {
         )
     }
 
+    /// Begin one durable off-chain finalized read in the original State execution pool.
+    ///
+    /// The returned operation retains its immutable hash generation and physical
+    /// frame/prefix across local refusal. Ordinary one-shot request readers remain
+    /// unchanged; dropping this owner cancels its read without publishing authority.
+    /// # Errors
+    /// Rejects absent history or the same finite source admission required by the
+    /// ordinary finalized-carrier reader before body I/O.
+    pub fn begin_finalized_execution_carrier_read(
+        &self,
+        height: NonZeroUsize,
+        max_work: u64,
+        max_bytes: u64,
+    ) -> Result<
+        crate::smartcontracts::isi::tx::FinalizedExecutionCarrierReadAttempt<'_>,
+        crate::execution_attempt::ExecutionAttemptError<
+            iroha_data_model::query::error::QueryExecutionFail,
+        >,
+    > {
+        crate::smartcontracts::isi::tx::FinalizedExecutionCarrierReadAttempt::new(
+            self,
+            &self.kura,
+            self.block_hashes.view(),
+            height,
+            max_work,
+            max_bytes,
+        )
+    }
+
     /// Read one block-event execution under its original finite State source owner.
     ///
     /// This off-chain event projection does not authorize State mutation or deterministic
