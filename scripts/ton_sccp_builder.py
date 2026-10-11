@@ -68,7 +68,7 @@ import tarfile
 import tempfile
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT = ROOT / "contracts" / "ton" / "sccp"

@@ -979,89 +979,61 @@ impl norito::core::SerializePayload for InstructionBox {
 impl<'a> norito::core::DeserializePayload<'a> for InstructionBox {
     fn deserialize(archived: &'a norito::core::Archived<InstructionBox>) -> Self {
         const MAX_MESSAGE_LEN: usize = 256;
-        let truncate_message = |mut message: String| {
-            // Keep the placeholder bounded; it may end up in logs/errors.
-            if message.len() > MAX_MESSAGE_LEN {
-                message.truncate(MAX_MESSAGE_LEN);
-            }
-            message
+        let invalid = |name: &str, payload: Option<&[u8]>, error: norito::Error| {
+            let mut message = error.to_string();
+            message.truncate(message.floor_char_boundary(MAX_MESSAGE_LEN));
+            let hash = payload.map_or([0; 32], |bytes| iroha_crypto::Hash::new(bytes).into());
+            InstructionBox::from(transparent::InvalidInstruction::new(name, hash, message))
         };
         let ptr = core::ptr::from_ref(archived).cast::<u8>();
-        if let Ok(bytes) = norito::core::payload_slice_from_ptr(ptr) {
-            match decode_instruction_pair_fields_from_slice(bytes) {
-                Ok((name, payload, used)) if used == bytes.len() => {
-                    return match decode_instruction_from_pair(name, payload) {
-                        Ok(inst) => inst,
-                        Err(err) => {
-                            let hash: [u8; 32] = iroha_crypto::Hash::new(payload).into();
-                            let message = truncate_message(err.to_string());
-                            InstructionBox::from(crate::isi::transparent::InvalidInstruction::new(
-                                name.to_owned(),
-                                hash,
-                                message,
-                            ))
-                        }
-                    };
-                }
-                Ok((name, payload, _used)) => {
-                    let hash: [u8; 32] = iroha_crypto::Hash::new(payload).into();
-                    let message =
-                        truncate_message(instruction_canonical_framing_error().to_string());
-                    return InstructionBox::from(crate::isi::transparent::InvalidInstruction::new(
-                        name.to_owned(),
-                        hash,
-                        message,
-                    ));
-                }
-                Err(_) => {}
-            }
+        let bytes = match norito::core::payload_slice_from_ptr(ptr) {
+            Ok(bytes) => bytes,
+            Err(error) => return invalid("<norito>", None, error),
+        };
+        let (name, payload, used) = match decode_instruction_pair_fields_from_slice(bytes) {
+            Ok(fields) => fields,
+            Err(error) => return invalid("<norito>", None, error),
+        };
+        if used != bytes.len() {
+            return invalid(name, Some(payload), instruction_canonical_framing_error());
         }
-        let pair: Result<(String, Vec<u8>), norito::core::Error> =
-            norito::core::DeserializePayload::try_deserialize(archived.cast());
-        match pair {
-            Ok((name, bytes)) => match decode_instruction_from_pair(&name, &bytes) {
-                Ok(inst) => inst,
-                Err(err) => {
-                    // Avoid panics on malformed instruction payloads (DoS vector).
-                    // Represent the decode error as a sentinel instruction that the executor rejects.
-                    let hash: [u8; 32] = iroha_crypto::Hash::new(&bytes).into();
-                    let message = truncate_message(err.to_string());
-                    InstructionBox::from(crate::isi::transparent::InvalidInstruction::new(
-                        name, hash, message,
-                    ))
-                }
-            },
-            Err(err) => {
-                let message = truncate_message(err.to_string());
-                InstructionBox::from(crate::isi::transparent::InvalidInstruction::new(
-                    "<norito>", [0u8; 32], message,
-                ))
-            }
-        }
+        decode_instruction_from_pair(name, payload)
+            .unwrap_or_else(|error| invalid(name, Some(payload), error))
     }
     fn try_deserialize(
         archived: &'a norito::core::Archived<InstructionBox>,
     ) -> Result<Self, norito::core::Error> {
         let ptr = core::ptr::from_ref(archived).cast::<u8>();
-        if let Ok(bytes) = norito::core::payload_slice_from_ptr(ptr) {
-            match decode_instruction_from_borrowed_pair(bytes) {
-                Ok((instruction, used)) if used == bytes.len() => return Ok(instruction),
-                Ok((_instruction, _used)) => return Err(instruction_canonical_framing_error()),
-                Err(_) => {}
-            }
+        let bytes = norito::core::payload_slice_from_ptr(ptr)?;
+        // This is the sole canonical pair decoder. A refusal terminates this
+        // attempt; retrying would spend the caller's remaining admission twice.
+        let (instruction, used) =
+            decode_instruction_from_borrowed_pair(bytes).or_else(|error| {
+                if cfg!(all(test, sumeragi_model_mutation = "DM28"))
+                    && error.is_decode_resource_limit()
+                {
+                    return decode_instruction_from_borrowed_pair(bytes);
+                }
+                Err(error)
+            })?;
+        if used != bytes.len() {
+            return Err(instruction_canonical_framing_error());
         }
-        let (name, bytes): (String, Vec<u8>) =
-            norito::core::DeserializePayload::try_deserialize(archived.cast())?;
-        decode_instruction_from_pair(&name, &bytes)
+        Ok(instruction)
     }
 }
 impl<'a> norito::core::DecodeFromSlice<'a> for InstructionBox {
     fn decode_from_slice(bytes: &'a [u8]) -> Result<(Self, usize), norito::core::Error> {
-        let (inst, used) =
-            decode_instruction_from_borrowed_pair(bytes).map_err(|err| match err {
-                norito::core::Error::Message(_) => err,
-                _ => instruction_canonical_framing_error(),
-            })?;
+        let (inst, used) = decode_instruction_from_borrowed_pair(bytes).map_err(|error| {
+            if matches!(error, norito::Error::Message(_))
+                || (error.is_decode_resource_limit()
+                    && !cfg!(all(test, sumeragi_model_mutation = "DM29")))
+            {
+                error
+            } else {
+                instruction_canonical_framing_error()
+            }
+        })?;
         if used != bytes.len() {
             return Err(instruction_canonical_framing_error());
         }
@@ -1086,11 +1058,30 @@ impl norito::json::FastJsonWrite for InstructionBox {
 fn instruction_box_from_base64_literal(
     encoded: &str,
 ) -> Result<InstructionBox, norito::json::Error> {
-    let bytes = STANDARD
-        .decode(encoded.as_bytes())
-        .map_err(|err| norito::json::Error::Message(err.to_string()))?;
-    norito::decode_canonical::<InstructionBox>(&bytes)
-        .map_err(|err| norito::json::Error::Message(err.to_string()))
+    let scratch = base64::decoded_len_estimate(encoded.len());
+    // Admit the complete scratch allocation before base64 writes any bytes.
+    // This charges cumulative decode work; it does not grant physical pool ownership.
+    if !cfg!(all(test, sumeragi_model_mutation = "DM31")) {
+        norito::core::reserve_decode_allocation(scratch)
+            .map_err(norito::json::Error::from_decode_resource)?;
+    }
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(scratch).map_err(|_| {
+        norito::json::Error::from_decode_resource(norito::Error::AllocationFailed {
+            bytes: u64::try_from(scratch).unwrap_or(u64::MAX),
+        })
+    })?;
+    bytes.resize(scratch, 0);
+    let used = STANDARD
+        .decode_slice(encoded.as_bytes(), &mut bytes)
+        .map_err(|error| norito::json::Error::Message(error.to_string()))?;
+    bytes.truncate(used);
+    norito::decode_canonical::<InstructionBox>(&bytes).map_err(|error| {
+        if cfg!(all(test, sumeragi_model_mutation = "DM30")) && error.is_decode_resource_limit() {
+            return norito::json::Error::Message(error.to_string());
+        }
+        norito::json::Error::from_decode_resource(error)
+    })
 }
 
 fn json_required_string(map: &norito::json::Map, key: &str) -> Result<String, norito::json::Error> {
@@ -1182,10 +1173,22 @@ fn json_asset_transfer_target(
     params: &norito::json::Map,
 ) -> Result<(crate::account::AccountId, crate::asset::AssetDefinitionId), norito::json::Error> {
     use std::str::FromStr as _;
-    let account_id = crate::account::AccountId::parse_encoded(
-        json_required_string(params, "account_id")?.as_str(),
-    )
-    .map_err(|err| norito::json::Error::Message(err.to_string()))?;
+    let account_literal = params
+        .get("account_id")
+        .and_then(norito::json::Value::as_str)
+        .ok_or_else(|| {
+            norito::json::Error::Message("instruction `account_id` is required".into())
+        })?;
+    let account_id =
+        <AccountId as norito::json::JsonObjectKeyOwned>::from_json_key_text(account_literal)
+            .map_err(|error| {
+                if cfg!(all(test, sumeragi_model_mutation = "DM32"))
+                    && error.is_decode_resource_limit()
+                {
+                    return norito::json::Error::Message(error.to_string());
+                }
+                error
+            })?;
     let asset_definition_id = crate::asset::AssetDefinitionId::from_str(
         json_required_string(params, "asset_definition_id")?.as_str(),
     )
@@ -2943,6 +2946,8 @@ pub mod prelude {
         vpn::{OpenVpnLeaseEscrow, RefundExpiredVpnLease, SettleVpnLease},
     };
 }
+#[cfg(test)]
+mod instruction_decode_refusal_tests;
 #[cfg(test)]
 #[path = "shared_test_helpers.rs"]
 mod test_support;

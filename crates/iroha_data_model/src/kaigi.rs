@@ -805,6 +805,10 @@ mod tests {
     }
     #[test]
     fn kaigi_participant_metadata_preserves_original_account_refusal_and_canonical_map() {
+        use norito::core::{
+            DecodeAttemptErrorKind, DecodeBudgetContext, DecodeResourceError,
+            classify_decode_attempt,
+        };
         let host = AccountId::new(
             KeyPair::from_seed(vec![42; 32], iroha_crypto::Algorithm::Ed25519)
                 .public_key()
@@ -837,10 +841,6 @@ mod tests {
                 assert_eq!(decoded, expected);
             }
             Ok(())
-        };
-        use norito::core::{
-            DecodeAttemptErrorKind, DecodeBudgetContext, DecodeResourceError,
-            classify_decode_attempt,
         };
         let limits = |bytes| {
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
@@ -940,10 +940,7 @@ mod tests {
             Err(norito::json::BoundedJsonError::BodyTooLarge)
         );
         let binary = encode_adaptive(&expected);
-        assert_eq!(
-            decode_adaptive::<KaigiRecord>(&binary).unwrap(),
-            expected
-        );
+        assert_eq!(decode_adaptive::<KaigiRecord>(&binary).unwrap(), expected);
         let key = participant.canonical_i105().unwrap();
         let key_json = norito::json::to_json(&key).unwrap();
         let duplicate_map = format!("{{{key_json}:{{}},{key_json}:{{}}}}");

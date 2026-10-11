@@ -4,10 +4,9 @@ use iroha_config_base::{read::ConfigReader, toml::TomlSource};
 use std::path::PathBuf;
 fn base_reader() -> ConfigReader {
     let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/base.toml");
-    let reader = ConfigReader::new()
+    ConfigReader::new()
         .read_toml_with_extends(base_path)
-        .expect("base config should load");
-    reader
+        .expect("base config should load")
 }
 fn parse_actual_config(inline_toml: &str) -> Result<ActualConfig, String> {
     let table: toml::Table = inline_toml.parse().expect("inline TOML should parse");

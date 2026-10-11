@@ -3298,6 +3298,7 @@ const WITNESS_FAMILIES: &[WitnessFamily] = &[
         derivation: &[
             (FEE_REWARDS, "pub(crate) fn capture_fee_evidence("),
             (FEE_REWARDS, "fn pending_fee_evidence_records("),
+            (FEE_REWARDS, "fn collect_pending_fee_evidence_records("),
             (
                 "crates/iroha_core/src/validation_fee_rewards/head_tree.rs",
                 "fn read_root(world: &impl WorldReadOnly) -> Result<Option<NodeRef>, ExecutionAttemptError<String>> {",
@@ -3340,6 +3341,65 @@ const WITNESS_FAMILIES: &[WitnessFamily] = &[
             (
                 FEE_REWARDS,
                 "let mut key = vec![FEE_EVIDENCE_RECORD_TAG_V1];",
+            ),
+        ],
+    },
+    WitnessFamily {
+        id: "reward_exposure_archive",
+        tags: &["RewardExposureArchive"],
+        key: "archive tag followed by the hash of the canonical protected exposure archive StatePath",
+        value: "changed chronological reward exposure page and its authenticated predecessor in original block custody",
+        reads: false,
+        fields: &[],
+        source: "",
+        derivation: &[(
+            "crates/iroha_core/src/validation_fee_rewards/exposure.rs",
+            "pub(super) fn capture_archive(",
+        )],
+        accessors: &[(
+            "smart_contract_state",
+            Access::Field("world.smart_contract_state"),
+        )],
+        digests: &[],
+        value_types: &[
+            (
+                "crates/iroha_data_model/src/validation_fee_rewards.rs",
+                "pub struct ValidationFeeExposureArchive {",
+            ),
+            (
+                "crates/iroha_data_model/src/validation_fee_rewards.rs",
+                "pub struct ValidationFeeExposureArchiveRef {",
+            ),
+            (
+                "crates/iroha_data_model/src/validation_fee_rewards.rs",
+                "pub struct ValidationFeeExposurePage {",
+            ),
+            (
+                "crates/iroha_data_model/src/validation_fee_rewards.rs",
+                "pub struct ValidationFeeRewardExposure {",
+            ),
+        ],
+        hashes: &[(
+            "ValidationFeeExposureArchiveRef.archive_hash",
+            HashUse::Block(
+                "hash of the predecessor archive wrapper retained in its original certified execution witness",
+            ),
+        )],
+        opaque: &[
+            (
+                "AccountId",
+                "canonical validator and historical earning account identities",
+            ),
+            (
+                "Quantity",
+                "eligible funded self-stake and nomination amounts",
+            ),
+        ],
+        evidence: &[
+            (FEE_REWARDS, "exposure::capture_archive(block, witness)?;"),
+            (
+                "crates/iroha_data_model/src/validation_fee_rewards.rs",
+                "pub fn validation_fee_exposure_archive_witness_key(key: &StatePath) -> [u8; 33] {",
             ),
         ],
     },

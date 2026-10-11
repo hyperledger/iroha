@@ -710,6 +710,21 @@ def test_core_decode_gate_requires_credit_and_both_native_worker_original_source
         "validation_fee_rewards::tests::original_fee_credit_owner_decode_refusal_preserves_exact_binding_and_retries",
         "sumeragi::executor::publication_tests::context_proof_decoder_refusal_retains_original_inputs_and_retries",
         "sumeragi::executor::publication_tests::native_context_archive_decoder_refusal_retains_original_execution_and_retries",
+        'smartcontracts::isi::kaigi::typed_deferral_tests::stored_record_refusal_is_sticky_and_retries_original_json_without_publication',
+        'smartcontracts::isi::kaigi::typed_deferral_tests::indexed_record_refusal_preserves_unregister_guard_and_original_retry',
+        'state::deserialize::kaigi_typed_deferral_tests::restored_kaigi_record_refusal_is_deferred_and_retries_original_snapshot',
+        'smartcontracts::isi::kaigi::relay_typed_deferral_tests::registration_refusal_preserves_original_relay_retirement_and_retry',
+        'smartcontracts::isi::kaigi::relay_typed_deferral_tests::feedback_refusal_preserves_both_original_relay_rows_and_retry',
+        'smartcontracts::isi::kaigi::relay_typed_deferral_tests::allowlist_refusal_prevents_domain_metadata_publication_and_retries_original_json',
+        'smartcontracts::isi::kaigi::relay_typed_deferral_tests::checked_record_writer_refusal_keeps_original_create_unpublished_and_retries',
+        'state::deserialize::kaigi_relay_typed_deferral_tests::restored_registration_refusal_retains_original_snapshot_and_retry',
+        'state::deserialize::kaigi_relay_typed_deferral_tests::restored_allowlist_refusal_retains_original_snapshot_and_retry',
+        'state::world_construction_tests::world_constructor_registration_refusal_is_fallible_and_retries_original_source',
+        'state::world_construction_tests::world_constructor_record_refusal_is_fallible_and_retries_original_source',
+        'smartcontracts::isi::kaigi::relay_typed_deferral_tests::lineage_refusal_preserves_original_relay_retirement_and_retry',
+        'smartcontracts::isi::kaigi::relay_typed_deferral_tests::primary_alias_refusal_preserves_original_registration_and_retry',
+        'execution_attempt::tests::json_scoped_refusal_preserves_original_context_source_and_retry',
+        'smartcontracts::isi::kaigi::relay_typed_deferral_tests::live_manifest_dependency_refusal_preserves_original_route_and_retry',
     )
     assert not rule.scenarios
     assert gate.has_switch("HC32", core=True)
@@ -1039,7 +1054,7 @@ def test_fee_rewards_require_canonical_network_xor_kill_control():
         'validation_fee_rewards::tests::canonical_network_xor_is_required_before_fee_reward_state_changes',
         'state::network_xor::tests::network_xor_rejects_wrong_definition_scope_and_precision',
         'smartcontracts::isi::staking::tests::staking_registration_rejects_wrong_xor_shape_with_transaction_rollback',
-        'smartcontracts::isi::staking::tests::reward_claim_rejects_wrong_xor_shape_with_transaction_rollback',
+        'validation_fee_rewards::tests::public_fee_reward_claim_rejects_wrong_network_xor_without_writes_and_retries_original_plan',
     )
     assert not rule.scenarios
     assert gate.has_switch("HC58", core=True)
@@ -1047,6 +1062,29 @@ def test_fee_rewards_require_canonical_network_xor_kill_control():
     assert 'sumeragi_core_mutation = "HC58"' in (
         gate.REPO / "crates/iroha_core/src/state/network_xor.rs"
     ).read_text()
+
+
+def test_current_network_xor_claim_control_owns_actual_public_fee_claim_and_original_retry():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC58"]
+    selector = "validation_fee_rewards::tests::public_fee_reward_claim_rejects_wrong_network_xor_without_writes_and_retries_original_plan"
+    assert rule.tests[-1] == selector and len(rule.tests) == 4
+    core = gate.REPO / "crates/iroha_core/src"
+    source = (core / "validation_fee_rewards/signed_claim_tests.rs").read_text()
+    body = source.split("fn " + selector.rsplit("::", 1)[-1] + "()", 1)[1].split("#[test]", 1)[0]
+    for required in ("seed_claim_credit", "signed_claim_instruction", "instruction.clone()",
+                     "NumericSpec::fractional(18)", "changed.xor_asset_definition_id",
+                     "rows_before", "source_before", "destination_before", "stake_before",
+                     "original_wire", "original_parameters", "original_definition",
+                     "unchanged original authorized claim plan", "reserved_xor", "receipt.sequence"):
+        assert required in body
+    assert 'include!("validation_fee_rewards/signed_claim_tests.rs");' in (core / "validation_fee_rewards.rs").read_text()
+    assert "reward_claim_rejects_wrong_xor_shape_with_transaction_rollback" not in rule.tests[-1]
+    for mid, leaf in (("HC67", "live_multisig_proposal_decode_refusal_retries_original_signed_xor_transfer"),
+                      ("HC68", "live_multisig_proposal_body_binding_rolls_back_original_signed_xor_transfer")):
+        current = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+        assert current.tests[0].endswith("::" + leaf)
+        assert "fn " + leaf + "()" in (core / "smartcontracts/isi/multisig/tests/proposal_attempt.rs").read_text()
+        assert all("signed_xor_claim" not in name for name in current.tests)
 
 
 def test_inline_beacon_reducer_verifies_each_share_before_retention():
@@ -1174,7 +1212,7 @@ def test_opaque_host_and_replay_preserve_signed_staking_authority():
 def test_live_multisig_proposals_preserve_original_decoder_refusal():
     rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC67"]
     assert rule.tests == (
-        'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_decode_refusal_retries_original_signed_xor_claim',
+        'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_decode_refusal_retries_original_signed_xor_transfer',
     )
     assert not rule.scenarios
     assert gate.has_switch("HC67", core=True)
@@ -1186,7 +1224,7 @@ def test_live_multisig_proposals_preserve_original_decoder_refusal():
 def test_retained_multisig_proposals_bind_exact_approved_body_and_physical_row():
     rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC68"]
     assert rule.tests == (
-        'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_body_binding_rolls_back_original_signed_xor_claim',
+        'smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_body_binding_rolls_back_original_signed_xor_transfer',
         'smartcontracts::isi::multisig::tests::proposal_attempt::proposal_migration_validates_original_physical_key_and_body_before_writes',
         'queue::router::tests::persisted_multisig_body_binding_and_local_refusal_reach_signed_queue_admission',
         'state::deserialize::decode_tests::restored_multisig_proposals_require_exact_body_and_preserve_local_read_refusal',
@@ -2625,6 +2663,15 @@ MODEL_NAMES = {
     "DM22": "account::json_tests::canonical_account_json_preserves_original_refusal_fields_scope_and_retry",
     "DM23": "account::address::tests::numeric_i105_resource_refusal_stops_at_original_candidate_without_later_allocations",
     "DM24": "account::address::tests::expected_i105_prefix_diagnostics_do_not_retry_original_resource_refusal",
+    "DM25": "json_key_codec::tests::account_storage_keys_preserve_original_refusal_fields_scope_and_retry",
+    "DM26": "role::native_assignment_tests::role_assignment_storage_keys_preserve_original_account_refusal_and_retry",
+    "DM27": "kaigi::tests::kaigi_participant_metadata_preserves_original_account_refusal_and_canonical_map",
+    "DM28": "isi::instruction_decode_refusal_tests::archived_instruction_refusal_stops_without_allocating_an_owned_pair_retry",
+    "DM29": "isi::instruction_decode_refusal_tests::instruction_slice_retains_original_scoped_refusal_and_retry",
+    "DM30": "isi::instruction_decode_refusal_tests::instruction_json_retains_original_scoped_refusal_and_retry",
+    "DM31": "isi::instruction_decode_refusal_tests::instruction_base64_scratch_is_admitted_before_decode_and_retries_original_input",
+    "DM32": "isi::instruction_decode_refusal_tests::structured_asset_instructions_preserve_original_account_refusal_and_retry",
+    "DM33": "sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_threshold_replay_preserves_original_cause_without_diagnostic_allocations",
 }
 MODEL_ALLOCATION_OBSERVER = "amx_prepare_streaming_allocations::observer_counts_all_three_allocation_routes_and_resets_after_unwind"
 
@@ -2653,6 +2700,8 @@ def test_model_mutations_have_owning_source_hooks_named_controls_and_exact_spec_
             expected = (name,
                 "account::address::tests::account_address_value_and_map_key_json_decoders_are_borrowed_and_measured",
                 "account::address::tests::address_resource_conversions_preserve_fields_and_anonymous_bounds_without_minting_scope")
+        if identifier == "DM33":
+            expected = (name, "sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_member_replay_preserves_original_cause_without_diagnostic_allocations")
         if identifier == "DM22":
             expected = (name,
                 "account::json_tests::account_id_json_roundtrips_large_multisig_as_canonical_i105",
@@ -2896,6 +2945,15 @@ def model_build_script(tmp_path_factory):
     (True, "DM22", "", True, True), (False, "DM22", "", True, False),
     (True, "DM23", "", True, True), (False, "DM23", "", True, False),
     (True, "DM24", "", True, True), (False, "DM24", "", True, False),
+    (True, "DM25", "", True, True), (False, "DM25", "", True, False),
+    (True, "DM26", "", True, True), (False, "DM26", "", True, False),
+    (True, "DM27", "", True, True), (False, "DM27", "", True, False),
+    (True, "DM28", "", True, True), (False, "DM28", "", True, False),
+    (True, "DM29", "", True, True), (False, "DM29", "", True, False),
+    (True, "DM30", "", True, True), (False, "DM30", "", True, False),
+    (True, "DM31", "", True, True), (False, "DM31", "", True, False),
+    (True, "DM32", "", True, True), (False, "DM32", "", True, False),
+    (True, "DM33", "", True, True), (False, "DM33", "", True, False),
     (True, "unknown_rule", "", False, False), (True, "HC1", "", False, False),
     (False, None, '--cfg\x1fsumeragi_model_mutation="DM1"', False, False),
     (True, "DM1", '--cfg\x1fsumeragi_model_mutation="DM2"', False, False),
@@ -2928,7 +2986,7 @@ def test_native_amx_leg_mutation_keeps_original_pool_rule_and_actual_allocator_c
     implementation = (ROOT / "crates/iroha_core/src/sumeragi/amx/native.rs").read_text()
     assert 'all(test, sumeragi_core_mutation = "HC149")' in implementation
     assert 'AllocationBudget::new(budget.limit_bytes())' in implementation
-    assert 'PendingAmxTransferLegDecodeV1::new(bytes, budget).try_decode()' in implementation
+    assert 'PendingAmxTransferLegDecodeV1::new(bytes, budget).try_decode(bytes)' in implementation
     control = (ROOT / "crates/iroha_core/src/sumeragi/amx/native/tests.rs").read_text()
     assert 'fn ' + name.rsplit('::', 1)[-1] + '(' in control
     assert 'crate::test_allocations::allocations_during' in control
@@ -5554,3 +5612,460 @@ def test_account_cause_mutation_owns_all_actual_parser_address_projections():
         'account::json_tests::account_id_json_roundtrips_large_multisig_as_canonical_i105',
         'account::json_tests::account_id_value_and_map_key_json_decoders_are_borrowed_and_measured',
         'account::json_tests::canonical_account_public_parser_preserves_original_address_cause_and_diagnostics')
+
+
+def test_core_upload_account_key_mutation_owns_only_original_error_projection():
+    mid = "HC220"
+    name = "upload_account_key_preserves_original_refusal_fields_scope_and_same_source_retry"
+    selector = "state::account_key_refusal_tests::" + name
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    assert rule.tests == (selector,) and not rule.scenarios
+    assert gate.has_switch(mid, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True},
+                   {"deploy": True}, {"torii": True}, {"norito": True}):
+        assert not gate.has_switch(mid, **family)
+    core = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(core).as_posix() for path in core.rglob("*.rs")
+              if f'sumeragi_core_mutation = "{mid}"' in path.read_text()}
+    assert owners == {"state.rs"}
+    state = (core / "state.rs").read_text()
+    projection = state.split("fn account_key_json_error(", 1)[1].split("impl norito::json::JsonKeyCodec", 1)[0]
+    assert 'all(test, sumeragi_core_mutation = "HC220")' in projection
+    assert "error.is_decode_resource_limit()" in projection and "terminal(error)" in projection
+    assert state.count("account_key_json_error(error,") == 1
+    assert state.count('<AccountId as json::JsonObjectKeyOwned>::from_json_key_text(') == 1
+    assert "governance_locks_map_json" not in state and "governance_slash_map_json" not in state
+    controls = (core / "state/account_key_refusal_tests.rs").read_text()
+    assert "fn " + name + "()" in controls
+    for evidence in ("SmartContractCodeUploadKey::decode_json_key", "original scoped refusal",
+                     "Some(expected)", "DecodeAttemptErrorKind::EnclosingLimit", "returned, observed.unwrap()",
+                     "same source and original context retry", "pool.reserved_bytes(), 0"):
+        assert evidence in controls
+    rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and selector in rows[0]
+    build = (ROOT / "crates/iroha_core/build.rs").read_text()
+    assert 'mentions(Path::new("src"), &needle)' in build
+
+
+@pytest.mark.parametrize("status,expected", [("ok", "survived"), ("FAILED", "killed_by_test"), ("ignored", "error")])
+def test_core_upload_account_key_mutation_requires_its_actual_named_native_result(monkeypatch, tmp_path, status, expected):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)["HC220"]
+    rows = ((rule.tests[0], status),)
+    monkeypatch.setattr(gate, "has_switch", lambda *args, **kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *args: gate.Step(status="pass"))
+    code, output = exact_control_output(rows)
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    args = SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=5, fast=True)
+    result = gate.evaluate(args, tmp_path, rule)
+    assert result["verdict"] == expected
+    assert result["named"]["selected"] == list(rule.tests)
+    assert result["named"]["ran"] == sorted(name for name, state in rows if state != "ignored")
+    assert result["named"]["failed"] == sorted(name for name, state in rows if state == "FAILED")
+
+
+def test_native_pulse_demand_mutation_has_a_distinct_owner_and_rule():
+    """Merged governance and allocation controls must select independent mutations."""
+    mid = "HC224"
+    name = "pending_parliament_slots_create_no_native_control_demand_and_never_block_unrelated_work"
+    selector = "sumeragi::epoch_beacon::producer::tests::execution_tests::" + name
+    ids = [rule.id for rule in gate.CORE_MUTATIONS]
+    assert len(ids) == len(set(ids))
+    rules = gate.index_mutations(gate.CORE_MUTATIONS)
+    assert rules[mid].tests == (selector,) and not rules[mid].scenarios
+    assert rules["HC220"].tests == (
+        "state::account_key_refusal_tests::upload_account_key_preserves_original_refusal_fields_scope_and_same_source_retry",
+    )
+    assert gate.has_switch(mid, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True},
+                   {"deploy": True}, {"torii": True}, {"norito": True}):
+        assert not gate.has_switch(mid, **family)
+    core = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(core).as_posix() for path in core.rglob("*.rs")
+              if f'sumeragi_core_mutation = "{mid}"' in path.read_text()}
+    assert owners == {"sumeragi/epoch_beacon.rs"}
+    source = (core / "sumeragi/epoch_beacon.rs").read_text()
+    assert source.count('sumeragi_core_mutation = "HC224"') == 2
+    assert 'sumeragi_core_mutation = "HC220"' not in source
+    controls = (core / "sumeragi/epoch_beacon/producer/execution_tests.rs").read_text()
+    assert "fn " + name + "()" in controls
+    rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and name in rows[0]
+    build = (ROOT / "crates/iroha_core/build.rs").read_text()
+    assert 'mentions(Path::new("src"), &needle)' in build
+
+
+@pytest.mark.parametrize("mid,path,delegation,causal", [
+    ("DM25", "json_key_codec.rs", "<Self as json::JsonObjectKeyOwned>::from_json_key_text(encoded)",
+     "AccountId storage key must retain its original scoped refusal"),
+    ("DM26", "role.rs", "<AccountId as norito::json::JsonObjectKeyOwned>::from_json_key_text(account_raw)",
+     "Role assignment storage key must retain its original account scoped refusal"),
+    ("DM27", "json_helpers.rs", "BTreeMap::<AccountId, Metadata>::json_deserialize(parser)",
+     "Kaigi participant metadata must retain its original account scoped refusal"),
+])
+def test_persisted_account_json_mutations_own_only_typed_refusal_at_canonical_delegation(mid, path, delegation, causal):
+    """No source omission restores a retired parser or mints a new provenance owner."""
+    model = ROOT / "crates/iroha_data_model/src"
+    source = (model / path).read_text()
+    rule = gate.index_mutations(gate.MODEL_MUTATIONS)[mid]
+    assert rule.tests == (MODEL_NAMES[mid],)
+    assert not rule.scenarios
+    hooks = {p.relative_to(model).as_posix() for p in model.rglob("*.rs")
+             if f'sumeragi_model_mutation = "{mid}"' in p.read_text()}
+    assert hooks == {path}
+    assert source.count(f'sumeragi_model_mutation = "{mid}"') == 1
+    owner = re.split(r"\n\s*error\s*\n\s*}", source.split(delegation, 1)[1], maxsplit=1)[0]
+    assert f'cfg!(all(test, sumeragi_model_mutation = "{mid}"))' in owner
+    assert "::ScopedDecodeResource(_)" in owner and "::DecodeResource(_)" in owner
+    assert "::Message(error.to_string())" in owner
+    assert not any(name in owner for name in ("parse_encoded", "Value::", "with_decode_limits", "AllocationBudget", "unsafe"))
+    assert gate.has_switch(mid, model=True)
+    for family in ("core", "daemon", "sdk", "deploy", "torii", "norito"):
+        assert not gate.has_switch(mid, **{family: True})
+    selector = MODEL_NAMES[mid]
+    control_path = model / ("kaigi.rs" if mid == "DM27" else path)
+    body = control_path.read_text().split("fn " + selector.rsplit("::", 1)[1] + "()", 1)[1].split("    #[test]", 1)[0]
+    assert causal in body
+    assert f'sumeragi_model_mutation = "{mid}"' not in body
+    for required in ("DecodeAttemptErrorKind::EnclosingLimit", "returned, observed.unwrap()",
+                     "consumed_allocated_bytes", "pool.reserved_bytes()", "original.with("):
+        assert re.sub(r"\s+", "", required) in re.sub(r"\s+", "", body)
+
+
+@pytest.mark.parametrize("mid", ["DM25", "DM26", "DM27", "DM28", "DM29", "DM30", "DM31", "DM32", "DM33"])
+@pytest.mark.parametrize("status,failed,verdict", [
+    ("pass", "none", "survived"), ("fail", "required", "killed_by_test"),
+    ("fail", "unrelated", "error"), ("execution-error", "required", "error"),
+    ("missing-test", "none", "error"), ("timeout", "none", "error"),
+])
+def test_persisted_account_json_mutations_require_exact_native_control(monkeypatch, tmp_path, mid, status, failed, verdict):
+    rule = gate.index_mutations(gate.MODEL_MUTATIONS)[mid]
+    failures = list(rule.tests) if failed == "required" else ["unrelated::test"] if failed == "unrelated" else []
+    monkeypatch.setattr(gate, "has_switch", lambda *args, **kwargs: True)
+    monkeypatch.setattr(gate, "build", lambda *args, **kwargs: gate.Step(status="pass"))
+    monkeypatch.setattr(gate, "run_step", lambda *args, **kwargs: gate.Step(status=status, failed=failures))
+    args = SimpleNamespace(norito=False, core=False, daemon=False, model=True, sdk=False, deploy=False, torii=False,
+                           core_profile="test", model_profile="test", fast=True, jobs=1, timeout_test=900,
+                           rand_timeout=3600, build_timeout=1200, target_dir=tmp_path, seed_count=200,
+                           output=tmp_path / "result.json", require_all=False, strict=True)
+    assert gate.evaluate(args, tmp_path, rule)["verdict"] == verdict
+
+
+def test_kaigi_record_refusal_controls_use_the_existing_shared_hc32_owner():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)['HC32']
+    required = (
+        'smartcontracts::isi::kaigi::typed_deferral_tests::stored_record_refusal_is_sticky_and_retries_original_json_without_publication',
+        'smartcontracts::isi::kaigi::typed_deferral_tests::indexed_record_refusal_preserves_unregister_guard_and_original_retry',
+        'state::deserialize::kaigi_typed_deferral_tests::restored_kaigi_record_refusal_is_deferred_and_retries_original_snapshot',
+    )
+    assert rule.tests[4:7] == required
+    source = (ROOT / 'crates/iroha_core/src/smartcontracts/isi/kaigi.rs').read_text()
+    start = source.index('fn decode_stored_kaigi_record(')
+    stop = source.index('fn store_relay_feedback(', start)
+    decoder = source[start:stop]
+    assert 'norito_decode_attempt_error(error' in decoder
+    assert 'value.clone().try_into_any_norito' not in decoder
+    assert 'sumeragi_core_mutation' not in decoder
+    assert 'ExecutionAttemptError<Error>' in decoder
+    for selector in required:
+        leaf = selector.rsplit('::', 1)[1]
+        owner = ('crates/iroha_core/src/state/deserialize_world_kaigi_deferral_tests.rs'
+                 if selector.startswith('state::') else
+                 'crates/iroha_core/src/smartcontracts/isi/kaigi/typed_deferral_tests.rs')
+        assert (ROOT / owner).read_text().count('fn ' + leaf + '(') == 1
+    assert gate.has_switch('HC32', core=True)
+
+
+def test_kaigi_relay_refusals_use_the_same_owned_hc32_classifier():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)['HC32']
+    required = (
+        'smartcontracts::isi::kaigi::relay_typed_deferral_tests::registration_refusal_preserves_original_relay_retirement_and_retry',
+        'smartcontracts::isi::kaigi::relay_typed_deferral_tests::feedback_refusal_preserves_both_original_relay_rows_and_retry',
+        'smartcontracts::isi::kaigi::relay_typed_deferral_tests::allowlist_refusal_prevents_domain_metadata_publication_and_retries_original_json',
+        'smartcontracts::isi::kaigi::relay_typed_deferral_tests::checked_record_writer_refusal_keeps_original_create_unpublished_and_retries',
+        'state::deserialize::kaigi_relay_typed_deferral_tests::restored_registration_refusal_retains_original_snapshot_and_retry',
+        'state::deserialize::kaigi_relay_typed_deferral_tests::restored_allowlist_refusal_retains_original_snapshot_and_retry',
+    )
+    assert rule.tests[7:13] == required
+    assert len(rule.tests) == 19
+    source = (ROOT / 'crates/iroha_core/src/smartcontracts/isi/kaigi.rs').read_text()
+    for begin, end in [
+        ('fn decode_stored_relay_registration(', 'fn decode_stored_relay_feedback('),
+        ('fn decode_stored_relay_feedback(', 'fn collect_kaigi_relay_registry('),
+        ('fn decode_kaigi_relay_allowlist(', 'fn decode_stored_kaigi_relay_allowlist('),
+    ]:
+        decoder = source[source.index(begin):source.index(end)]
+        assert 'norito_decode_attempt_error(error' in decoder
+        assert 'value.clone()' not in decoder
+        assert 'ExecutionAttemptError<' in decoder
+    start = source.index('fn ensure_manifest_relays_registered(')
+    end = source.index('fn ensure_relay_allowed_by_governance_with_graph(', start)
+    manifest = source[start:end]
+    assert 'decode_stored_relay_registration(&domain_id, &key, stored)' in manifest
+    assert 'try_into_any_norito' not in manifest
+    assert 'registration.relay_id != hop.relay_id' in manifest
+    assert 'registration.bandwidth_class == 0' in manifest
+    assert 'registration.hpke_public_key != hop.hpke_public_key' in manifest
+    assert gate.has_switch('HC32', core=True)
+    for selector in required:
+        owner = ('crates/iroha_core/src/state/deserialize_world_kaigi_relay_deferral_tests.rs'
+                 if selector.startswith('state::') else
+                 'crates/iroha_core/src/smartcontracts/isi/kaigi/relay_typed_deferral_tests.rs')
+        assert (ROOT / owner).read_text().count('fn ' + selector.rsplit('::', 1)[1] + '(') == 1
+
+
+def test_fallible_world_constructor_mutation_owns_the_single_public_result_boundary():
+    mid = 'HC221'
+    required = (
+        'state::world_construction_tests::world_constructor_registration_refusal_is_fallible_and_retries_original_source',
+        'state::world_construction_tests::world_constructor_record_refusal_is_fallible_and_retries_original_source',
+        'state::world_construction_tests::world_constructor_rejects_malformed_kaigi_without_panicking',
+    )
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)[mid]
+    assert rule.tests == required and not rule.scenarios
+    assert gate.has_switch(mid, core=True) and not gate.has_switch(mid)
+    core = ROOT / 'crates/iroha_core/src'
+    owners = {path.relative_to(core).as_posix() for path in core.rglob('*.rs')
+              if f'sumeragi_core_mutation = "{mid}"' in path.read_text()}
+    assert owners == {'state.rs'}
+    state = (core / 'state.rs').read_text()
+    boundary = state.split('pub fn try_with_execution_budget<D, A, Ad>(', 1)[1].split('fn try_with_assets_on', 1)[0]
+    assert boundary.count('Self::try_with_assets_on(') == 1
+    assert 'WorldData::try_new_with_execution_budget(execution_budget)?' in boundary
+    assert 'all(test, sumeragi_core_mutation = "HC221")' in boundary
+    assert 'result.expect("invalid World initialization in restored infallible boundary")' in boundary
+    kernel = state.split('fn try_with_assets_on', 1)[1].split('/// Creates a [`World`] populated', 1)[0]
+    assert 'sumeragi_core_mutation' not in kernel
+    assert 'expect(' not in kernel and 'panic!(' not in kernel and 'assert!(' not in kernel
+    assert 'rebuild_kaigi_relay_registry(&mut world)' in kernel
+    assert 'rebuild_kaigi_account_dependencies(&mut world)' in kernel
+    assert kernel.count('error.map_rejection(') == 3
+    controls = (core / 'state/world_construction_tests.rs').read_text()
+    for selector in required:
+        assert controls.count('fn '+selector.rsplit('::', 1)[1]+'(') == 1
+    assert 'try_new_owned(' in controls and 'consumed_before_retry' in controls
+    assert 'original.release_wait(), expected.release_wait()' in controls
+    assert 'json.get().as_ptr(), pointer' in controls
+    rows = [row for row in (ROOT / 'specs/sumeragi.md').read_text().splitlines()
+            if row.startswith('| HC221 |')]
+    assert len(rows) == 1 and all(selector in rows[0] for selector in required)
+    assert 'mentions(Path::new("src"), &needle)' in (core.parent / 'build.rs').read_text()
+    shared = gate.index_mutations(gate.CORE_MUTATIONS)['HC32']
+    assert tuple(name for name in shared.tests if name in required) == required[:2]
+
+
+@pytest.mark.parametrize('status,expected', [('ok', 'survived'), ('FAILED', 'killed_by_test'), ('ignored', 'error')])
+def test_fallible_world_constructor_mutation_requires_all_actual_named_results(monkeypatch, tmp_path, status, expected):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)['HC221']
+    rows = tuple((name, status) for name in rule.tests)
+    monkeypatch.setattr(gate, 'has_switch', lambda *args, **kwargs: True)
+    monkeypatch.setattr(gate, 'build', lambda *args: gate.Step(status='pass'))
+    code, output = exact_control_output(rows)
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    args = SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=5, fast=True)
+    result = gate.evaluate(args, tmp_path, rule)
+    assert result['verdict'] == expected
+    assert result['named']['selected'] == list(rule.tests)
+    assert result['named']['ran'] == sorted(name for name, state in rows if state != 'ignored')
+    assert result['named']['failed'] == sorted(name for name, state in rows if state == 'FAILED')
+
+
+def test_kaigi_sns_refusals_use_original_sns_owner_and_shared_hc32():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)['HC32']
+    required = ('smartcontracts::isi::kaigi::relay_typed_deferral_tests::lineage_refusal_preserves_original_relay_retirement_and_retry', 'smartcontracts::isi::kaigi::relay_typed_deferral_tests::primary_alias_refusal_preserves_original_registration_and_retry')
+    assert tuple(name for name in rule.tests if name in required) == required
+    assert len(rule.tests) == 19
+    source = (ROOT / 'crates/iroha_core/src/smartcontracts/isi/kaigi.rs').read_text()
+    for begin, end in [
+        ('fn resolve_active_kaigi_account_with_graph(', 'fn accounts_share_active_lineage('),
+        ('fn active_relay_subject_domain(', 'fn relay_subject_domain('),
+    ]:
+        projection = source[source.index(begin):source.index(end)]
+        assert 'error.into_attempt_error(|error|' in projection
+        assert '.attempt_error_to_instruction_error(' in projection
+    sns = (ROOT / 'crates/iroha_core/src/sns.rs').read_text()
+    start = sns.index('fn sns_decode_error(')
+    stop = sns.index('impl From<PricingError>', start)
+    assert 'norito_decode_attempt_error(error' in sns[start:stop]
+    assert gate.has_switch('HC32', core=True)
+    owner = (ROOT / 'crates/iroha_core/src/smartcontracts/isi/kaigi/relay_typed_deferral_tests.rs').read_text()
+    for selector in required:
+        assert owner.count('fn ' + selector.rsplit('::', 1)[1] + '(') == 1
+    assert 'relay_attempt(checkpoint, &relay, &registration, &mut transaction)' in owner
+    assert 'relay_prefix(' in owner and 'lineage_prefix.checked_add(row_prefix)' in owner
+
+
+def test_json_scoped_attempt_delegates_original_error_to_existing_hc32_owner():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)['HC32']
+    positive = 'execution_attempt::tests::json_scoped_refusal_preserves_original_context_source_and_retry'
+    negative = 'execution_attempt::tests::json_stale_scoped_refusal_keeps_its_original_tag_without_retry_authority'
+    assert tuple(name for name in rule.tests if name == positive) == (positive,)
+    assert len(rule.tests) == 19
+    assert negative not in rule.tests
+    source = (ROOT / 'crates/iroha_core/src/execution_attempt.rs').read_text()
+    start = source.index('pub(crate) fn json_decode_attempt_error<E>(')
+    stop = source.index('pub(crate) fn genesis_read_attempt_error<E>(', start)
+    decoder = source[start:stop]
+    assert 'norito::json::Error::ScopedDecodeResource(original)' in decoder
+    assert 'norito_decode_attempt_error(' in decoder
+    assert 'norito::Error::ScopedDecodeResource(original)' in decoder
+    assert 'rejected(norito::json::Error::from_decode_resource(original))' in decoder
+    assert 'classify_decode_attempt(' not in decoder
+    assert 'sumeragi_core_mutation' not in decoder
+    assert gate.has_switch('HC32', core=True)
+    owner = (ROOT / 'crates/iroha_core/src/execution_attempt/json_scoped_tests.rs').read_text()
+    for name in (positive, negative):
+        assert owner.count('fn ' + name.rsplit('::', 1)[1] + '(') == 1
+    assert 'try_new_owned' in owner and 'source.as_slice().as_ptr()' in owner
+    assert 'assert_eq!(returned, tag)' in owner
+
+
+def test_live_manifest_dependency_refusal_uses_original_world_bridge_and_hc32():
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)['HC32']
+    required = 'smartcontracts::isi::kaigi::relay_typed_deferral_tests::live_manifest_dependency_refusal_preserves_original_route_and_retry'
+    assert tuple(name for name in rule.tests if name == required) == (required,) and len(rule.tests) == 19
+    owner = ROOT / 'crates/iroha_core/src/smartcontracts/isi/kaigi/relay_lifecycle_guard_v1.rs'
+    source = owner.read_text().split('#[cfg(test)]', 1)[0]
+    assert source.count('validate_indexed_kaigi_dependency(') == 1
+    assert '.attempt_error_to_instruction_error(error)' in source and 'state_transaction' in source and '.world' in source
+    assert 'sumeragi_core_mutation' not in source
+    assert 'manifest.hops.iter().any(|hop| &hop.relay_id == relay_id)' in source
+    tests = (owner.parent / 'relay_typed_deferral_tests.rs').read_text()
+    assert tests.count('fn live_manifest_dependency_refusal_preserves_original_route_and_retry(') == 1
+    assert 'RegisterKaigiRelay { relay: rotated' in tests
+    assert 'the completed live-route guard' in tests
+    assert gate.has_switch('HC32', core=True)
+
+
+def test_partial_native_amx_worker_custody_has_one_owned_omission_and_all_three_actual_controls():
+    required = ('sumeragi::executor::amx_retry_tests::partial_amx_worker_leg_refusal_retains_original_controls_and_release_wait', 'sumeragi::executor::amx_retry_tests::partial_amx_worker_leg_refusal_retains_completed_source_prefix_without_reallocation', 'sumeragi::executor::amx_retry_tests::partial_amx_worker_leg_refusal_retains_original_multisig_member_prefix_without_reallocation')
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)['HC222']
+    assert rule.tests == required and not rule.scenarios
+    assert gate.has_switch('HC222', core=True)
+    assert not gate.has_switch('HC222') and not gate.has_switch('HC222', model=True) and not gate.has_switch('HC222', daemon=True)
+    core = ROOT / 'crates/iroha_core/src'
+    owners = {path.relative_to(core).as_posix() for path in core.rglob('*.rs')
+              if 'sumeragi_core_mutation = "HC222"' in path.read_text()}
+    assert owners == {'sumeragi/amx/native/retry.rs'}
+    source = (core / 'sumeragi/amx/native/retry.rs').read_text()
+    boundary = source.split('let leg = match super::decode_retained_leg(', 1)[1].split('// No fallible work', 1)[0]
+    assert boundary.count('sumeragi_core_mutation = "HC222"') == 1
+    assert 'Err(error) =>' in boundary and 'self.bank.pending = None' in boundary
+    assert 'get_mut(index)' in boundary and '= None' in boundary
+    assert 'return Err(LegExecutionError::Decode(error));' in boundary
+    assert 'AllocationBudget::new' not in boundary and 'set_limit_bytes' not in boundary
+    model = (ROOT / 'crates/iroha_data_model/src/sumeragi_amx/native/leg_decode.rs').read_text()
+    assert 'sumeragi_core_mutation' not in model
+    assert tuple(re.findall(r'sumeragi_model_mutation\s*=\s*"([^"]+)"', model)) == ('DM33',)
+    assert 'workspace: Option<PreparedDecodeWorkspace>' in model
+    assert 'ncore::RetainedElementSequence' in model
+    controls = (core / 'sumeragi/executor_amx_retry_tests.rs').read_text()
+    for name in required:
+        assert controls.count('fn '+name.rsplit('::', 1)[1]+'(') == 1
+    assert 'partial AMX Worker decoder must not wake its own original refusal by retiring original controls' in controls
+    assert 'partial AMX Worker decoder must retain every original completed source/member allocation without waking its own refusal' in controls
+    assert 'allocations_during' in controls and 'Poll::Pending' in controls
+    rows = [row for row in (ROOT / 'specs/sumeragi.md').read_text().splitlines() if row.startswith('| HC222 |')]
+    assert len(rows) == 1 and all(name in rows[0] for name in required)
+    assert 'mentions(Path::new("src"), &needle)' in (core.parent / 'build.rs').read_text()
+
+
+@pytest.mark.parametrize('status,expected', [('ok', 'survived'), ('FAILED', 'killed_by_test'), ('ignored', 'error')])
+def test_partial_native_amx_worker_custody_requires_every_declared_native_result(monkeypatch, tmp_path, status, expected):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)['HC222']
+    rows = tuple((name, status) for name in rule.tests)
+    monkeypatch.setattr(gate, 'has_switch', lambda *args, **kwargs: True)
+    monkeypatch.setattr(gate, 'build', lambda *args: gate.Step(status='pass'))
+    code, output = exact_control_output(rows)
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    args = SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=5, fast=True)
+    result = gate.evaluate(args, tmp_path, rule)
+    assert result['verdict'] == expected
+    assert result['named']['selected'] == list(rule.tests)
+    assert result['named']['ran'] == sorted(name for name, state in rows if state != 'ignored')
+    assert result['named']['failed'] == sorted(name for name, state in rows if state == 'FAILED')
+
+
+def test_original_native_amx_worker_replay_owns_parked_resumption_and_preserves_captured_classifier():
+    name = 'sumeragi::executor::amx_retry_tests::rejected_amx_worker_occurrence_retains_source_prefix_and_replays_before_later_partial_occurrence'
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)['HC223']
+    assert rule.tests == (name,) and not rule.scenarios
+    assert gate.has_switch('HC223', core=True) and not gate.has_switch('HC223')
+    assert not gate.has_switch('HC223', model=True) and not gate.has_switch('HC223', daemon=True)
+    core = ROOT / 'crates/iroha_core/src'
+    owners = {path.relative_to(core).as_posix() for path in core.rglob('*.rs')
+              if 'sumeragi_core_mutation = "HC223"' in path.read_text()}
+    assert owners == {'sumeragi/amx/native/retry.rs'}
+    native = (core / 'sumeragi/amx/native.rs').read_text()
+    assert 'fn leg_decode_is_completed_rejection(' not in native
+    classifier = native.split('fn leg_decode_error(', 1)[1].split('fn ', 1)[0]
+    assert 'canonical_decode_attempt_error' in classifier
+    source = (core / 'sumeragi/amx/native/retry.rs').read_text()
+    assert 'parked: Option<ChargedBuffer<Option<PendingOccurrence>>>' in source
+    boundary = source.split('sumeragi_core_mutation = "HC223"', 1)[1].split('if parked.is_none()', 1)[0]
+    assert 'if parked.is_some()' in boundary and 'return Err(LegExecutionError::Invariant)' in boundary
+    assert '.pending = None' not in boundary and 'decode_retained_leg' not in boundary
+    assert 'AllocationBudget::new' not in source and 'set_limit_bytes' not in source
+    control = (core / 'sumeragi/executor_amx_retry_tests.rs').read_text()
+    assert control.count('fn '+name.rsplit('::', 1)[1]+'(') == 1
+    replay = control.split('fn '+name.rsplit('::', 1)[1]+'(', 1)[1].split('fn original_quantity_layout(', 1)[0]
+    assert 'proposal_with_transactions' in replay
+    assert 'chain.sign(&customer, [invalid.into()], time)' in replay
+    assert 'chain.sign(&customer, [instruction], time + 1)' in replay
+    assert 'worker.run_execution' in replay and 'partial_snapshot' in replay
+    assert 'replayed A must produce its canonical rejection while B remains retained' in replay
+    assert "whole-block replay preserves B's exact original refusal and release generation" in replay
+    assert replay.count('reject_a(&mut bank)') == 3
+    assert 'Poll::Pending' in replay and 'Poll::Ready(())' in replay
+    assert 'bank.matches_original' in replay and 'partial_metadata_bytes' in replay
+    rows = [row for row in (ROOT / 'specs/sumeragi.md').read_text().splitlines() if row.startswith('| HC223 |')]
+    assert len(rows) == 1 and name in rows[0]
+
+
+@pytest.mark.parametrize('status,expected', [('ok', 'survived'), ('FAILED', 'killed_by_test'), ('ignored', 'error')])
+def test_original_native_amx_worker_replay_requires_its_actual_named_result(monkeypatch, tmp_path, status, expected):
+    rule = gate.index_mutations(gate.CORE_MUTATIONS)['HC223']
+    monkeypatch.setattr(gate, 'has_switch', lambda *args, **kwargs: True)
+    monkeypatch.setattr(gate, 'build', lambda *args: gate.Step(status='pass'))
+    code, output = exact_control_output(((rule.tests[0], status),))
+    selected_cargo_results(monkeypatch, code, output, names=rule.tests)
+    args = SimpleNamespace(core=True, target_dir=tmp_path, timeout_test=5, fast=True)
+    result = gate.evaluate(args, tmp_path, rule)
+    assert result['verdict'] == expected
+    assert result['named']['selected'] == list(rule.tests)
+
+
+def test_native_multisig_semantic_mutation_owns_only_the_original_cause_projection():
+    mid = "DM33"
+    prefix = "sumeragi_amx::native::leg_decode::tests::"
+    leaves = (
+        "invalid_native_multisig_threshold_replay_preserves_original_cause_without_diagnostic_allocations",
+        "invalid_native_multisig_member_replay_preserves_original_cause_without_diagnostic_allocations",
+    )
+    rule = gate.index_mutations(gate.MODEL_MUTATIONS)[mid]
+    assert rule.tests == tuple(prefix + leaf for leaf in leaves) and not rule.scenarios
+    assert gate.has_switch(mid, model=True)
+    for family in ("core", "daemon", "sdk", "deploy", "torii", "norito"):
+        assert not gate.has_switch(mid, **{family: True})
+    model = ROOT / "crates/iroha_data_model/src"
+    owners = {path.relative_to(model).as_posix() for path in model.rglob("*.rs")
+              if f'sumeragi_model_mutation = "{mid}"' in path.read_text()}
+    assert owners == {"sumeragi_amx/native/leg_decode.rs"}
+    source = (model / "sumeragi_amx/native/leg_decode.rs").read_text()
+    owner = source.split("fn policy_error(", 1)[1].split("fn scope(", 1)[0]
+    assert source.count(f'sumeragi_model_mutation = "{mid}"') == 1
+    assert 'cfg!(all(test, sumeragi_model_mutation = "DM33"))' in owner
+    assert 'norito::Error::Message(error.to_string()).into()' in owner
+    assert 'Error::Multisig(error)' in owner
+    assert 'Multisig(#[from] crate::account::MultisigPolicyError)' in source
+    tests = (model / "sumeragi_amx/native/leg_decode/tests.rs").read_text()
+    helper = tests.split("fn assert_multisig_semantic_replay_has_no_diagnostic_allocation(", 1)[1]
+    for proof in ('measured(|| pending.decode(&frame))', 'pool.limit_bytes()',
+                  'pending.original_source_identity()', 'values_pointer', 'ledger_pointer',
+                  'key_pointer', 'workspace', 'ordinary_message', 'Some(original_span_bytes(&original))',
+                  'retained multisig semantic replay must not allocate a diagnostic or replacement backing'):
+        assert re.sub(r"\s+", "", proof) in re.sub(r"\s+", "", helper)
+    assert f'sumeragi_model_mutation = "{mid}"' not in tests
+    rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and all(prefix + leaf in rows[0] for leaf in leaves)
+    core = (ROOT / "crates/iroha_core/src/sumeragi/amx/native.rs").read_text()
+    assert 'AmxLegDecodeErrorV1::Multisig(error) => invalid(error.to_string())' in core

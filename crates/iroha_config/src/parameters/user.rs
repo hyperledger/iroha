@@ -34901,7 +34901,7 @@ mod configuration_regression_tests {
     fn zk_nested_diagnostic_settings_do_not_change_native_admission() {
         use iroha_config_base::{read::ConfigReader, toml::TomlSource};
 
-        let table = r#"
+        let table = r"
             max_verify_batch = 7
             [trace]
             enabled = false
@@ -34917,7 +34917,7 @@ mod configuration_regression_tests {
             max_transcript_label_len = 19
             max_envelope_bytes = 12345
             enforce_transcript_label_ascii = false
-        "#
+        "
         .parse::<toml::Table>()
         .unwrap();
         let configured = ConfigReader::new()

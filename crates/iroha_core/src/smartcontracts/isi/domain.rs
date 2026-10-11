@@ -3101,7 +3101,12 @@ pub mod isi {
             }
             crate::smartcontracts::isi::kaigi::validate_kaigi_relay_allowlist_metadata(
                 &key, &value,
-            )?;
+            )
+            .map_err(|error| {
+                state_transaction
+                    .world
+                    .attempt_error_to_instruction_error(error)
+            })?;
             crate::smartcontracts::limits::enforce_json_size(
                 state_transaction,
                 &value,

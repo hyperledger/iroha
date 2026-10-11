@@ -995,3 +995,43 @@ fn json_key_physical_text_and_compact_refusals_keep_exact_cause_and_retire_text(
     drop(key);
     assert_eq!(pool.reserved_bytes(), 0);
 }
+
+#[test]
+fn borrowed_public_key_recheck_preserves_canonical_limits_and_original_backing() {
+    let pair = KeyPair::from_seed(vec![0x59; 32], Algorithm::Ed25519);
+    let original = pair.public_key();
+    let _flags = DecodeFlagsGuard::enter(norito::core::default_encode_flags());
+    let bytes = encode(original);
+    let pool = AllocationBudget::new(original.retained_allocation_layout().size());
+    let owner = PreparedPublicKeyDecode::try_decode_payload(&bytes, &pool).unwrap();
+    let pointer = owner.get().to_bytes().1.as_ptr();
+    let reserved = pool.reserved_bytes();
+    without_allocations(|| PreparedPublicKeyDecode::recheck_payload(&bytes, owner.get())).unwrap();
+    let ceiling = DecodeLimits::new(0, usize::MAX, usize::MAX, usize::MAX, 64);
+    let ordinary = norito::core::with_decode_limits_scope(ceiling, || {
+        PreparedPublicKeyDecode::try_decode_payload(&bytes, &pool)
+    });
+    let Err(PublicKeyDecodeAdmissionError::Codec(ordinary)) = ordinary else {
+        panic!("canonical sequence ceiling precedes physical storage");
+    };
+    let actual = norito::core::with_decode_limits_scope(ceiling, || {
+        PreparedPublicKeyDecode::recheck_payload(&bytes, owner.get())
+    })
+    .unwrap_err();
+    assert_eq!(
+        actual.decode_resource_error(),
+        ordinary.decode_resource_error()
+    );
+    let other = KeyPair::from_seed(vec![0x5a; 32], Algorithm::Ed25519);
+    assert!(matches!(
+        PreparedPublicKeyDecode::recheck_payload(&bytes, other.public_key()),
+        Err(Error::InvalidValue {
+            context: "public key"
+        })
+    ));
+    assert_eq!(owner.get().to_bytes().1.as_ptr(), pointer);
+    assert_eq!(pool.reserved_bytes(), reserved);
+    without_allocations(|| PreparedPublicKeyDecode::recheck_payload(&bytes, owner.get())).unwrap();
+    drop(owner);
+    assert_eq!(pool.reserved_bytes(), 0);
+}

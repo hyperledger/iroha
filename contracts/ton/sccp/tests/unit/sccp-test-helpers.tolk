@@ -306,10 +306,39 @@ fun certOf(signature: slice, signers: int, qc: TestQc, x: TestX): cell {
         .endCell();
 }
 
+/// Whether `signature` is the aggregate signature over the message `m` of the
+/// members of `committee` whose bit is set in `signers`, as the contract's
+/// `BLS_FASTAGGREGATEVERIFY` wrapper decides it from their public keys.
+fun signatureVerifies(committee: TestCommittee, signers: int, m: slice, signature: slice): bool {
+    var t: tuple = [];
+    var count = 0;
+    var i = 0;
+    while (i < committee.keys.size()) {
+        if (((signers >> i) & 1) != 0) {
+            t.push(committee.keys.get(i));
+            count += 1;
+        }
+        i += 1;
+    }
+    t.push(count);
+    t.push(m);
+    t.push(signature);
+    return sccpBlsFastAggregateVerify(t);
+}
+
 /// The genuine `CommitQC` over `x`: the aggregate signature of the members of
-/// `committee` whose bit is set in `signers`, under the instance `instance`.
+/// `committee` whose bit is set in `signers` (at least one), under the
+/// instance `instance`.
+///
+/// The signer is test-only code, so every signature it makes is checked here
+/// against the fixture public keys with the opcode the minter verifies with.
+/// When the minter refuses a certificate built here, the cause is therefore
+/// what the test changed (the instance, the header, the signer set) and never
+/// a defect of the signer.
 fun certifyBy(committee: TestCommittee, signers: int, instance: int, qc: TestQc, x: TestX): cell {
-    val signature = blsAggregateSign(committee.secretsOf(signers), commitMessage(instance, qc, x));
+    val m = commitMessage(instance, qc, x);
+    val signature = blsAggregateSign(committee.secretsOf(signers), m);
+    expect(signatureVerifies(committee, signers, m, signature)).toBeTrue();
     return certOf(signature, signers, qc, x);
 }
 
@@ -996,7 +1025,8 @@ fun deliverDefault(env: Env, nonce: int, amount: int, recipient: address): Deliv
     );
 }
 
-/// Sends `message` to the minter from `from` as a relayer does: bounceable.
+/// Sends the message `body` to the minter from `from` as a relayer does:
+/// bounceable, with `value` attached.
 fun sendToMinter<TBody>(env: Env, from: address, body: TBody, value: coins): SendResultList {
     return net.send(
         from,

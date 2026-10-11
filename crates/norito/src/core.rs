@@ -60,9 +60,9 @@ pub use field_destination::{
 };
 pub use prepared_scope::{PreparedDecodeError, PreparedDecodeScopeError, PreparedDecodeWorkspace};
 pub use prepared_sequence::{
-    ChargedElementSequence, PreparedElementSequence, SequenceAdmissionError,
-    SequenceDestinationError, decode_raw_byte_sequence_into, inspect_element_sequence,
-    prepare_element_sequence,
+    ChargedElementSequence, PreparedElementSequence, RetainedElementSequence,
+    RetainedSequenceError, SequenceAdmissionError, SequenceDestinationError,
+    decode_raw_byte_sequence_into, inspect_element_sequence, prepare_element_sequence,
 };
 pub use prepared_string::{StringDestinationError, borrow_canonical_string, decode_string_into};
 mod decode_attempt;

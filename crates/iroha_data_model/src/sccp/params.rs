@@ -134,6 +134,9 @@ pub struct SccpParametersV1 {
 }
 
 /// Values the §4.1 table reads from outside [`SccpParametersV1`].
+///
+/// Core fills it at `InitializeSccpV1` and at `SetParameters` enactment: the latency from its
+/// one Parliament seam (`sccp::parliament_iface`) and the delay from the node's staking policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SccpParameterContextV1 {
     /// `parliament_sccp_attempt_latency_ms()` (§4.1, §10.1): the latency of one full-track SCCP

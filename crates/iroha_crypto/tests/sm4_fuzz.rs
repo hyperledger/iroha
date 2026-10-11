@@ -1,9 +1,7 @@
 //! Deterministic tests for SM4 AEAD helpers.
 #![cfg(feature = "sm")]
+use super::sm4_wycheproof_fixture::{Sm4WycheproofMode, load_sm4_wycheproof_cases};
 use iroha_crypto::Sm4Key;
-#[path = "sm4_wycheproof_fixture.rs"]
-mod sm4_wycheproof_fixture;
-use sm4_wycheproof_fixture::{Sm4WycheproofMode, load_sm4_wycheproof_cases};
 const TAG_LENGTHS: [usize; 7] = [4, 6, 8, 10, 12, 14, 16];
 fn u8_index(idx: usize) -> u8 {
     u8::try_from(idx).expect("test helper index fits in u8")

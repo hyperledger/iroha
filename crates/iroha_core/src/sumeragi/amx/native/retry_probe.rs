@@ -20,6 +20,10 @@ struct State {
     occupy: bool,
     blocker: Option<AllocationReservation>,
     candidate: Option<iroha_allocation::AllocationRefusal>,
+    partial_replay: bool,
+    terminal_visits: usize,
+    terminal_cause: Option<String>,
+    first_terminal_bytes: Option<usize>,
 }
 thread_local! { static PROBE: RefCell<State> = RefCell::new(State::default()); }
 
@@ -99,6 +103,34 @@ pub(super) fn candidate_refused(error: &GraphError) {
     });
 }
 
+pub(super) fn retained_attempt(
+    result: &Result<
+        iroha_data_model::sumeragi_amx::CompletedAmxTransferLegDecodeV1,
+        AmxLegDecodeErrorV1,
+    >,
+    before: usize,
+    budget: &AllocationBudget,
+) {
+    PROBE.with(|probe| {
+        let mut probe = probe.borrow_mut();
+        if !probe.partial_replay { return; }
+        match result {
+            Err(AmxLegDecodeErrorV1::Decode(error)) if error.kind() == norito::core::DecodeAttemptErrorKind::Invalid => {
+                probe.terminal_visits += 1;
+                let cause = error.to_string();
+                if let Some(original) = probe.terminal_cause.as_ref() {
+                    assert_eq!(&cause, original, "replayed original rejection preserves the canonical cause");
+                    assert_eq!(budget.reserved_bytes(), before, "replayed terminal prefix does not allocate replacement original-pool backing");
+                } else {
+                    probe.first_terminal_bytes = Some(budget.reserved_bytes().checked_sub(before).unwrap());
+                    probe.terminal_cause = Some(cause);
+                }
+            }
+            _ => {}
+        }
+    });
+}
+
 /// One thread-confined resource fixture; Drop resets it even during unwind.
 pub(crate) struct Observation;
 impl Observation {
@@ -112,6 +144,28 @@ impl Observation {
             };
         });
         Self
+    }
+    /// Observe actual canonical rejection and retained prefix without injecting an error.
+    pub(crate) fn observe_rejected_prefix() -> Self {
+        PROBE.with(|probe| {
+            assert!(!probe.borrow().active);
+            *probe.borrow_mut() = State {
+                active: true,
+                partial_replay: true,
+                ..State::default()
+            };
+        });
+        Self
+    }
+    pub(crate) fn partial_snapshot(&self) -> (usize, Option<String>, Option<usize>) {
+        PROBE.with(|probe| {
+            let probe = probe.borrow();
+            (
+                probe.terminal_visits,
+                probe.terminal_cause.clone(),
+                probe.first_terminal_bytes,
+            )
+        })
     }
     pub(crate) fn snapshot(&self) -> (usize, usize, Option<Sample>) {
         PROBE.with(|probe| {

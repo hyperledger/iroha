@@ -1374,6 +1374,25 @@ async fn replay_with_queue_drain(
     shutdown_signal: &ShutdownSignal,
     registration: &mut ReleaseRegistration,
 ) -> Result<PushReplayOutcome, PushError> {
+    replay_with_queue_drain_observed(
+        bridge,
+        state,
+        target,
+        shutdown_signal,
+        registration,
+        #[cfg(test)]
+        None,
+    )
+    .await
+}
+async fn replay_with_queue_drain_observed(
+    bridge: &PushBridge,
+    state: &State,
+    target: PushReplayTarget,
+    shutdown_signal: &ShutdownSignal,
+    registration: &mut ReleaseRegistration,
+    #[cfg(test)] mut observe: Option<&mut (dyn FnMut(&ExecutionDeferred) + Send)>,
+) -> Result<PushReplayOutcome, PushError> {
     loop {
         let result = match target {
             PushReplayTarget::Authoritative => bridge.reconcile_to_authoritative_height(state),
@@ -1383,6 +1402,10 @@ async fn replay_with_queue_drain(
             Ok(()) => return Ok(PushReplayOutcome::Complete),
             Err(PushReplayError::Fatal(error)) => return Err(error),
             Err(PushReplayError::Deferred(reason)) => {
+                #[cfg(test)]
+                if let Some(probe) = observe.as_mut() {
+                    probe(&reason);
+                }
                 iroha_logger::debug!(%reason, "push native history is waiting for original allocation capacity");
                 if !wait_for_push_history_retry(&reason, shutdown_signal, registration).await {
                     return Ok(PushReplayOutcome::StoppedByShutdown);
@@ -3073,6 +3096,152 @@ mod tests {
             bridge.applied_block_cursor.lock().block_hash,
             Some(chain.committed(chain.height()).block_hash())
         );
+    }
+
+    #[tokio::test]
+    async fn push_replay_late_capacity_retains_original_frame_and_waits_for_external_release() {
+        use std::{
+            future::Future,
+            task::{Context, Poll},
+        };
+        let chain = native_push_chain(false);
+        let state = chain.state();
+        let pool = state.ivm_execution_budget();
+        let baseline = pool.reserved_bytes();
+        let frame_bytes = chain.committed(1).block().encode_wire().unwrap().len();
+        let registration_bytes = ReleaseRegistration::allocation_layout().size();
+        let mut prepaid = pool.try_reserve_bytes(2 * registration_bytes).unwrap();
+        let mut registration = ReleaseRegistration::from_reservation(&mut prepaid).unwrap();
+        let mut observation_registration =
+            ReleaseRegistration::from_reservation(&mut prepaid).unwrap();
+        drop(prepaid);
+        assert!(registration.belongs_to(&pool));
+        assert!(observation_registration.belongs_to(&pool));
+        let controls = baseline + 2 * registration_bytes;
+        let occupied = pool
+            .try_reserve_bytes(pool.limit_bytes() - controls - frame_bytes)
+            .unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let bridge = PushBridge::new_in(test_bridge_config(), temp.path().to_path_buf()).unwrap();
+        let cursor = bridge.applied_block_cursor.lock().clone();
+        let shutdown = ShutdownSignal::new();
+        let observed = Arc::new(Mutex::new(None::<ExecutionDeferred>));
+        let observation = Arc::clone(&observed);
+        let mut probe = move |reason: &ExecutionDeferred| {
+            let mut first = observation.lock().unwrap();
+            if first.is_none() {
+                *first = Some(reason.clone());
+            }
+        };
+        let mut replay = Box::pin(replay_with_queue_drain_observed(
+            &bridge,
+            state,
+            PushReplayTarget::Height(chain.height()),
+            &shutdown,
+            &mut registration,
+            Some(&mut probe),
+        ));
+        // The old synchronous self-wake loop cannot return its first poll. A
+        // separate ordinary shutdown sender bounds that genuine before defect;
+        // the corrected operation parks without needing this watchdog to fire.
+        let (stop_watchdog, wait_watchdog) = std::sync::mpsc::channel();
+        let watchdog_shutdown = shutdown.clone();
+        let watchdog = std::thread::spawn(move || {
+            if matches!(
+                wait_watchdog.recv_timeout(Duration::from_secs(5)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ) {
+                watchdog_shutdown.send();
+            }
+        });
+        let mut context = Context::from_waker(std::task::Waker::noop());
+        let first_poll = replay.as_mut().poll(&mut context);
+        let _ = stop_watchdog.send(());
+        watchdog.join().unwrap();
+        let original = observed
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("actual late native refusal");
+        let Some(iroha_allocation::AllocationRefusal::Capacity {
+            requested_bytes,
+            release,
+            ..
+        }) = original.allocation_refusal()
+        else {
+            panic!("genuine original pool capacity refusal");
+        };
+        assert_eq!(
+            *requested_bytes,
+            SharedSignedBlock::allocation_layout().size(),
+            "the original G1 bytes were read before shared-shell admission refused"
+        );
+        let mut exact_wait = Box::pin(
+            release
+                .clone()
+                .wait_for_release(&mut observation_registration),
+        );
+        let original_wait_poll = exact_wait.as_mut().poll(&mut context);
+        if original_wait_poll != Poll::Pending || !first_poll.is_pending() {
+            // Retire the real replay and both original registrations before
+            // reporting a causal before failure; no worker remains detached.
+            drop(exact_wait);
+            drop(replay);
+            drop(occupied);
+            drop(registration);
+            drop(observation_registration);
+            assert_eq!(pool.reserved_bytes(), baseline);
+            assert_eq!(
+                original_wait_poll,
+                Poll::Pending,
+                "late original frame refusal must retain custody instead of waking its own replay"
+            );
+            panic!("the real replay target must park until an external owner releases");
+        }
+        assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+        assert_eq!(*bridge.applied_block_cursor.lock(), cursor);
+        assert_eq!(bridge.queued_count(), 0);
+        drop(occupied);
+        assert_eq!(exact_wait.as_mut().poll(&mut context), Poll::Ready(()));
+        drop(exact_wait);
+        assert!(matches!(
+            replay.as_mut().poll(&mut context),
+            Poll::Ready(Ok(PushReplayOutcome::Complete))
+        ));
+        drop(replay);
+        assert_eq!(bridge.applied_block_cursor.lock().height, chain.height());
+        assert_eq!(
+            bridge.applied_block_cursor.lock().block_hash,
+            Some(chain.committed(chain.height()).block_hash())
+        );
+        assert_eq!(pool.reserved_bytes(), controls);
+
+        // Cancellation is a real operation retirement: it releases the retained
+        // original bytes and leaves this separate durable cursor unchanged.
+        let cancelled_temp = tempfile::tempdir().unwrap();
+        let cancelled =
+            PushBridge::new_in(test_bridge_config(), cancelled_temp.path().to_path_buf()).unwrap();
+        let occupied = pool
+            .try_reserve_bytes(pool.limit_bytes() - controls - frame_bytes)
+            .unwrap();
+        let mut replay = Box::pin(replay_with_queue_drain_observed(
+            &cancelled,
+            state,
+            PushReplayTarget::Height(chain.height()),
+            &shutdown,
+            &mut registration,
+            None,
+        ));
+        assert!(replay.as_mut().poll(&mut context).is_pending());
+        assert_eq!(pool.reserved_bytes(), pool.limit_bytes());
+        drop(replay);
+        assert_eq!(pool.reserved_bytes(), pool.limit_bytes() - frame_bytes);
+        assert_eq!(cancelled.applied_block_cursor.lock().height, 0);
+        assert_eq!(cancelled.queued_count(), 0);
+        drop(occupied);
+        drop(registration);
+        drop(observation_registration);
+        assert_eq!(pool.reserved_bytes(), baseline);
     }
 
     #[tokio::test]

@@ -5,6 +5,10 @@ use crate::validation_fee_rewards::tests::{account, fund_test_conversion, signed
 use iroha_data_model::{
     isi::{Mint, staking::SchedulePublicLaneUnbond},
     nexus::{PublicLaneStakeShare, PublicLaneValidatorRecord, PublicLaneValidatorStatus},
+    parameter::{
+        Parameter,
+        system::{SumeragiConsensusMode, SumeragiNposParameters, SumeragiParameter},
+    },
     validation_fee::{ValidationFeePayoutPolicyRegistryV1, ValidationFeePolicyRegistryV1},
     validation_fee_rewards::allocate_page,
 };
@@ -16,8 +20,32 @@ fn archived_tail_fixture() -> (
     crate::sumeragi::test_chain::CertifiedTestChain,
     ValidationFeeTreasuryPayoutBindingV1,
 ) {
+    let deployer = AccountId::new(
+        iroha_crypto::KeyPair::from_seed(vec![55; 32], iroha_crypto::Algorithm::Ed25519)
+            .public_key()
+            .clone(),
+    );
+    let mut config = crate::sumeragi::test_chain::TestChainConfig::new(
+        crate::validation_fee::tests::validation_fee_payout_world(&deployer),
+        1_000,
+    );
+    // This signed unbond follows the committed global NPoS epoch schedule.
+    // Permissioned genesis has no elections and retains its interval through u64::MAX.
+    let policy = SumeragiNposParameters::default();
+    let epoch_length = policy.epoch_length_blocks.get();
+    config.consensus_mode = SumeragiConsensusMode::Npos;
+    config.genesis_parameters.extend([
+        Parameter::Sumeragi(SumeragiParameter::EpochLengthBlocks(
+            policy.epoch_length_blocks,
+        )),
+        Parameter::Custom(policy.into_custom_parameter()),
+    ]);
     let (mut chain, binding) =
-        crate::validation_fee::tests::signed_payout_lifecycle_registry_fixture();
+        crate::validation_fee::tests::signed_payout_lifecycle_registry_fixture_with_config(config);
+    let (_, authorization) =
+        crate::state::validator_committee::current_authority(&chain.state().view())
+            .expect("original certified NPoS epoch authority");
+    assert_eq!(authorization.last_height, epoch_length);
     while chain.height() < 20 {
         chain.commit_at((chain.height() + 1) * 1_000, Vec::new());
     }
@@ -45,6 +73,23 @@ fn archived_tail_fixture() -> (
     let service = service_count(&page).unwrap();
     let peer = chain.validators()[0].0.clone();
     let authority = chain.genesis_account().clone();
+    {
+        let view = chain.state().view();
+        assert!(
+            view.world()
+                .public_lane_validators()
+                .iter()
+                .all(|(_, row)| row.peer_id != peer),
+            "component stake setup cannot replace another original peer registration",
+        );
+        assert!(
+            view.world()
+                .public_lane_stake_shares()
+                .iter()
+                .all(|((_, account, _), _)| account != &validator),
+            "component stake setup cannot replace original validator positions",
+        );
+    }
     chain.setup_world_at(NOW, |stx| {
         let registry = ValidationFeePolicyRegistryV1 {
             registered_policies: Vec::new(),
@@ -159,7 +204,12 @@ fn archived_exposure_survives_hot_rollover_replay_and_signed_claims() {
         release_at_ms: timestamp + 365 * DAY_MS,
     };
     let signed = chain.sign(&signer, [unbond.into()], timestamp);
-    assert_eq!(chain.commit_at(timestamp, vec![signed]), vec![true]);
+    assert_eq!(
+        chain.commit_at(timestamp, vec![signed]),
+        vec![true],
+        "actual signed archive rollover unbond must publish successfully: {:?}",
+        chain.committed(chain.height()).block().execution_outputs()
+    );
     chain.commit_at(NOW + 3_001, Vec::new());
     let state = std::sync::Arc::clone(chain.state());
     let proposal = chain.proposal(Some(NOW + 40 * DAY_MS), Vec::new());
@@ -168,7 +218,12 @@ fn archived_exposure_survives_hot_rollover_replay_and_signed_claims() {
     // maintenance path authenticates and cools even the latest tail before
     // any reward is funded; fixed heads still preserve all earning intervals.
     settlement::process_reward_entitlements(&mut block).unwrap();
-    let mut stx = block.transaction();
+    // The delayed funding and claim instructions below are component execution;
+    // retain their finite invocation owner before borrowing the State child.
+    // Certified archive reads and the signed rollover still use the original chain.
+    let invocation = Hash::new(b"archived-reward-claim-component");
+    let mut stx = block.transaction_for_fastpq_testing(invocation);
+    assert_eq!(stx.tx_call_hash, Some(invocation));
     let head = head(&stx, &binding, period, &validator).unwrap().unwrap();
     assert_eq!(head.page_count, 2);
     assert!(!head.tail_resident);

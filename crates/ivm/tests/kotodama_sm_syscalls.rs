@@ -58,7 +58,9 @@ fn install_sm_entrypoint(
         &Json::from(norito::json::Value::Object(payload)),
     )
     .expect("encode SM entrypoint argument record");
-    let key: Name = "trigger_event_json".parse().expect("public input key");
+    let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+        .parse()
+        .expect("public input key");
     vm.set_host(new_sm_host().with_public_inputs(BTreeMap::from([(
         key,
         make_tlv(PointerType::NoritoBytes, &record),

@@ -108,14 +108,13 @@ fn snapshot_owner_policy_fixture_with_stored_history(
     let directory = tempfile::tempdir().expect("owner policy fixture directory");
     let dataspace = DataSpaceId::new(9);
     let catalog = LaneCatalog::new(
-        nonzero!(4_u32),
+        nonzero!(5_u32),
         vec![
             LaneConfig::default(),
             LaneConfig {
-                id: LaneId::new(2),
-                alias: "restricted-staking-sibling".to_owned(),
+                id: LaneId::new(4),
+                alias: "public-staking-sibling".to_owned(),
                 dataspace_id: dataspace,
-                visibility: LaneVisibility::Restricted,
                 ..LaneConfig::default()
             },
             LaneConfig {
@@ -142,7 +141,7 @@ fn snapshot_owner_policy_fixture_with_stored_history(
     configured.staking.max_validators = nonzero!(7_u32);
     configured.autoscale.enabled = false;
     // Reserve a valid range above the static lanes; disabled autoscaling still validates its bounds.
-    configured.autoscale.min_lane_id = nonzero!(4_u32);
+    configured.autoscale.min_lane_id = nonzero!(5_u32);
     configured.autoscale.max_lane_id_exclusive = nonzero!(8_u32);
     let (kura, mut state) =
         authenticated_startup_state_for_testing(directory.path().join("kura"), &catalog);
@@ -423,13 +422,40 @@ state_test! { sync snapshot_owner_policy_rejects_changed_owner_before_and_after_
                 .expect("capture prior durable geometry");
             let mut changed = configured.clone();
             if change_owner {
-                changed.staking.restricted_validator_mode =
-                    iroha_config::parameters::actual::LaneValidatorMode::StakeElected;
+                // A new lower public sibling would replace the sole mutable
+                // staking owner without moving its existing funded custody.
+                let mut lanes = changed.lane_catalog.lanes().to_vec();
+                lanes.push(LaneConfig {
+                    id: LaneId::new(2),
+                    alias: "replacement-staking-owner".to_owned(),
+                    dataspace_id: DataSpaceId::new(9),
+                    ..LaneConfig::default()
+                });
+                changed.lane_catalog = LaneCatalog::new(
+                    changed.lane_catalog.lane_count(), lanes,
+                ).expect("uniform public dataspace with a lower candidate owner");
+                changed.lane_config = iroha_config::parameters::actual::LaneConfig::from_catalog(
+                    &changed.lane_catalog,
+                );
             } else {
                 changed.staking.public_validator_mode =
                     iroha_config::parameters::actual::LaneValidatorMode::AdminManaged;
             }
-            let error = restored.set_nexus_from_config(changed)
+            let result = if change_owner {
+                // Prospective lifecycle additions use this same owner guard.
+                // Configuration ingress cannot introduce a new catalog at a
+                // non-genesis height, so exercise the custody rule directly.
+                ensure_live_shared_dataspace_staking_owner_is_not_reset(
+                    &restored.world.view(),
+                    &restored.nexus_snapshot(),
+                    &changed,
+                    &BTreeSet::new(),
+                    restored.block_hashes.view().len() as u64,
+                )
+            } else {
+                restored.set_nexus_from_config(changed)
+            };
+            let error = result
                 .expect_err("real owner change must fail both before and after initial hydration");
             assert!(matches!(error, LaneLifecycleError::UnsafeRetirement { lane, reason }
                 if lane == LaneId::new(3)

@@ -672,10 +672,7 @@ pub fn validate_exposure_archive(archive: &ValidationFeeExposureArchive) -> Resu
         None if archive.page.page_index == 0 => (),
         Some(previous)
             if previous.recorded_at_height > 0
-                && previous.page_index.checked_add(1) == Some(archive.page.page_index) =>
-        {
-            ()
-        }
+                && previous.page_index.checked_add(1) == Some(archive.page.page_index) => {}
         _ => return Err("exposure archive predecessor is missing or nonconsecutive".into()),
     }
     if norito::to_bytes(archive)
@@ -1242,33 +1239,52 @@ mod tests {
             .map(|value| cohort(1, [(validator.clone(), Quantity::from(value as u64))]))
             .collect();
         assert!(validate_exposure_page(&page(&validator, 0, excessive_cohorts)).is_err());
-        let excessive_recipients =
-            (0..=MAX_REWARD_RECIPIENTS).map(|index| (account(index as u32), Quantity::one()));
+        let excessive_recipients = (0..=MAX_REWARD_RECIPIENTS).map(|index| {
+            (
+                account(u32::try_from(index).expect("bounded reward account seed fits u32")),
+                Quantity::one(),
+            )
+        });
         assert!(
             validate_exposure_page(&page(&validator, 0, vec![cohort(1, excessive_recipients)]))
                 .is_err()
         );
         let recipients = (0..MAX_REWARD_RECIPIENTS)
-            .map(|index| account(index as u32))
+            .map(|index| {
+                account(u32::try_from(index).expect("bounded reward account seed fits u32"))
+            })
             .collect::<Vec<_>>();
         let excessive_entries = (1..=MAX_REWARD_EXPOSURE_ENTRIES / MAX_REWARD_RECIPIENTS + 1)
             .map(|value| {
                 cohort(
                     1,
-                    recipients
-                        .iter()
-                        .cloned()
-                        .map(|account| (account, Quantity::from(value as u32))),
+                    recipients.iter().cloned().map(|account| {
+                        (
+                            account,
+                            Quantity::from(
+                                u32::try_from(value)
+                                    .expect("bounded reward exposure value fits u32"),
+                            ),
+                        )
+                    }),
                 )
             })
             .collect();
         assert!(validate_exposure_page(&page(&validator, 0, excessive_entries)).is_err());
         let mut sum = 0u128;
-        for index in 0..MAX_REWARD_EXPOSURE_COHORTS + 1 {
+        for index in 0..=MAX_REWARD_EXPOSURE_COHORTS {
             let source = page(
                 &validator,
                 index as u64,
-                vec![cohort(1, [(account(index as u32), Quantity::one())])],
+                vec![cohort(
+                    1,
+                    [(
+                        account(
+                            u32::try_from(index).expect("bounded reward account seed fits u32"),
+                        ),
+                        Quantity::one(),
+                    )],
+                )],
             );
             validate_exposure_page(&source).unwrap();
             sum += allocate_page(

@@ -772,6 +772,52 @@ fn read_frame_admitted(
     Ok(original)
 }
 
+/// One complete receipt in exact backing admitted by the original history pool.
+/// Nested result graphs and cryptographic scratch retain their separate funding rules.
+pub(crate) struct AdmittedCommittedBlock(iroha_allocation::ChargedBuffer<CommittedBlock>);
+
+impl AdmittedCommittedBlock {
+    /// Use the existing complete frame decoder and original slot-transfer kernel.
+    pub(crate) fn read(
+        block: iroha_data_model::block::SharedSignedBlock,
+        height: u64,
+        validation: &mut EpochValidationScope,
+        budget: &iroha_allocation::AllocationBudget,
+    ) -> Result<Self, ExecutionAttemptError<ChainReadError>> {
+        read_frame_admitted(block, height, validation, budget).map(Self)
+    }
+
+    /// Move the original receipt only after its full decode has returned.
+    /// The empty backing is reclaimed before its charge refunds, including on unwind.
+    pub(crate) fn into_owned(mut self) -> CommittedBlock {
+        self.0
+            .pop()
+            .expect("the private admitted reader initialized exactly one receipt")
+    }
+
+    #[cfg(test)]
+    fn belongs_to(&self, budget: &iroha_allocation::AllocationBudget) -> bool {
+        self.0.belongs_to(budget)
+    }
+
+    #[cfg(test)]
+    fn slot_bytes(&self) -> usize {
+        assert_eq!(self.0.capacity(), 1);
+        assert_eq!(self.0.as_slice().len(), 1);
+        std::alloc::Layout::array::<CommittedBlock>(1)
+            .unwrap()
+            .size()
+    }
+}
+
+impl std::ops::Deref for AdmittedCommittedBlock {
+    type Target = CommittedBlock;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0.as_slice()[0]
+    }
+}
+
 /// How the local `CommitQC` of a height was checked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum QcVerification {

@@ -9,10 +9,9 @@ const VALID_BOOTSTRAP_TOKEN: &str = "first-credential-bootstrap-token-01";
 
 fn base_reader() -> ConfigReader {
     let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/base.toml");
-    let reader = ConfigReader::new()
+    ConfigReader::new()
         .read_toml_with_extends(base_path)
-        .expect("base config should load");
-    reader
+        .expect("base config should load")
 }
 
 #[test]

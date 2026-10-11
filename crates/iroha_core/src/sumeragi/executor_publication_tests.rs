@@ -507,6 +507,18 @@ pub(super) fn proposal_with_transaction(
         u64,
     ) -> iroha_data_model::transaction::SignedTransaction,
 ) -> AvailableBody {
+    proposal_with_transactions(chain, worker, |chain, time| vec![transaction(chain, time)])
+}
+
+/// Assemble separately signed original inputs through the same admission owner.
+pub(super) fn proposal_with_transactions(
+    chain: &CertifiedTestChain,
+    worker: &Worker<'_>,
+    transactions: impl FnOnce(
+        &CertifiedTestChain,
+        u64,
+    ) -> Vec<iroha_data_model::transaction::SignedTransaction>,
+) -> AvailableBody {
     let height = worker.applied.0 + 1;
     let certified_parent = chain.committed(worker.applied.0);
     let scheduled = worker.scheduled(height).unwrap().height_config().unwrap();
@@ -518,17 +530,22 @@ pub(super) fn proposal_with_transaction(
         .unwrap();
     let cadence = Duration::from_millis(scheduled.params.block_time);
     let block_time = parent.header().creation_time() + cadence;
-    let tx = transaction(chain, u64::try_from(block_time.as_millis()).unwrap() - 1);
+    let transactions = transactions(chain, u64::try_from(block_time.as_millis()).unwrap() - 1);
     let (_, time) = iroha_primitives::time::TimeSource::new_mock(block_time);
-    let accepted = crate::tx::AcceptedTransaction::accept_with_time_source(
-        tx,
-        &chain.network_id(),
-        Duration::from_secs(1),
-        view.world().parameters().transaction(),
-        &iroha_config::parameters::actual::Crypto::default(),
-        &time,
-    )
-    .unwrap();
+    let accepted = transactions
+        .into_iter()
+        .map(|tx| {
+            crate::tx::AcceptedTransaction::accept_with_time_source(
+                tx,
+                &chain.network_id(),
+                Duration::from_secs(1),
+                view.world().parameters().transaction(),
+                &iroha_config::parameters::actual::Crypto::default(),
+                &time,
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
     drop(view);
     let proposal = payload::assemble(
         chain.state(),
@@ -537,7 +554,7 @@ pub(super) fn proposal_with_transaction(
             view: 0,
             cadence,
         },
-        &[accepted],
+        &accepted,
     )
     .unwrap();
     let payload = payload::encode(&proposal).unwrap();

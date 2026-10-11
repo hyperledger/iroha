@@ -2006,9 +2006,9 @@ def test_replay_dispatch_preserves_typed_admission_and_channel_refusal(
 BEACON_SOURCE_PATHS = (
     guard.EPOCH_BEACON_PATH, guard.BEACON_PRODUCER_PATH, guard.BEACON_READINESS_PATH,
 )
-HC220_HOOK = '#[cfg(all(test, sumeragi_core_mutation = "HC220"))]\n    {'
+HC224_HOOK = '#[cfg(all(test, sumeragi_core_mutation = "HC224"))]\n    {'
 NATIVE_ONLY = (
-    '    #[cfg(not(all(test, sumeragi_core_mutation = "HC220")))]\n    {\n        Ok(native)\n    }'
+    '    #[cfg(not(all(test, sumeragi_core_mutation = "HC224")))]\n    {\n        Ok(native)\n    }'
 )
 PARLIAMENT_DISJUNCT = (
     "Ok(native\n            || world\n                .parliament_required_beacon_pulse_slots()\n"
@@ -2066,11 +2066,11 @@ def test_indexed_beacon_requirement_gates_native_admission_and_production() -> N
      NATIVE_ONLY.replace("Ok(native)", PARLIAMENT_DISJUNCT)),
     (guard.EPOCH_BEACON_PATH, NATIVE_ONLY, NATIVE_ONLY.replace("Ok(native)", "Ok(true)")),
     (guard.EPOCH_BEACON_PATH, NATIVE_ONLY, ""),
-    (guard.EPOCH_BEACON_PATH, HC220_HOOK, "#[cfg(test)]\n    {"),
-    (guard.EPOCH_BEACON_PATH, HC220_HOOK, "{"),
-    (guard.EPOCH_BEACON_PATH, HC220_HOOK, HC220_HOOK.replace("HC220", "HC221")),
-    (guard.EPOCH_BEACON_PATH, HC220_HOOK, HC220_HOOK.replace("all(test, ", "any(test, ")),
-    (guard.EPOCH_BEACON_PATH, 'sumeragi_core_mutation = "HC220")))]',
+    (guard.EPOCH_BEACON_PATH, HC224_HOOK, "#[cfg(test)]\n    {"),
+    (guard.EPOCH_BEACON_PATH, HC224_HOOK, "{"),
+    (guard.EPOCH_BEACON_PATH, HC224_HOOK, HC224_HOOK.replace("HC224", "HC221")),
+    (guard.EPOCH_BEACON_PATH, HC224_HOOK, HC224_HOOK.replace("all(test, ", "any(test, ")),
+    (guard.EPOCH_BEACON_PATH, 'sumeragi_core_mutation = "HC224")))]',
      'sumeragi_core_mutation = "HC221")))]'),
     (guard.EPOCH_BEACON_PATH, ".get(&(BeaconSessionId::for_network_v1(&current.network_id), height))",
      ".get(&(BeaconSessionId::for_network_v1(&current.network_id), height + 1))"),
@@ -3006,7 +3006,7 @@ EVIDENCE_PATHS = (
     guard.BEACON_EXECUTION_TESTS_PATH, guard.RESTORE_TESTS_PATH,
     guard.SORTITION_ISI_TESTS_PATH, guard.MUTATION_GATE_PATH, guard.SUMERAGI_SPEC_PATH,
 )
-KILL_TEST = f"fn {guard.HC220_KILL_TEST}() {{"
+KILL_TEST = f"fn {guard.HC224_KILL_TEST}() {{"
 NPOS_TEST = "fn npos_boundary_pulse_stays_mandatory_with_or_without_pending_parliament_slots() {"
 RESTORE_VETO_TEST = "fn restore_accepts_pulse_at_a_slot_a_pending_sortition_election_names() {"
 RESTORE_WAIT_TEST = "fn world_snapshot_roundtrip_keeps_a_pulse_wait_on_its_exact_slot() {"
@@ -3037,13 +3037,13 @@ def _check_evidence(sources: dict[str, str]) -> None:
 
 
 def test_parliament_pulse_isolation_evidence_baseline_and_entrypoint() -> None:
-    """The kill test, the NPoS, restore and rotation tests and both HC220 rows are bound."""
+    """The kill test, the NPoS, restore and rotation tests and both HC224 rows are bound."""
     _check_evidence(_evidence_sources())
     assert _main_calls("require_parliament_pulse_isolation_evidence") == 1
 
 
 @pytest.mark.parametrize("path,declaration,old,new", (
-    # HC220 kill test, in the order of its decisive assertions.
+    # HC224 kill test, in the order of its decisive assertions.
     (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST, "const SLOT: u64 = 9;", "const SLOT: u64 = 8;"),
     (guard.BEACON_EXECUTION_TESTS_PATH, KILL_TEST,
      "let mut chain = prefix();", "let mut chain = npos_prefix(8);"),
@@ -3300,23 +3300,23 @@ def test_parliament_pulse_restore_tests_stay_in_their_compiled_module() -> None:
 
 
 GATE_ROW = (
-    '    m("HC220", "native pulse demand: treat a committed Parliament slot row as mandatory control",\n'
-    f'      ["{guard.HC220_KILL_TEST_PATH}"]),\n'
+    '    m("HC224", "native pulse demand: treat a committed Parliament slot row as mandatory control",\n'
+    f'      ["{guard.HC224_KILL_TEST_PATH}"]),\n'
 )
 
 
 @pytest.mark.parametrize("replacement", (
     "",
     GATE_ROW + GATE_ROW,
-    GATE_ROW.replace(guard.HC220_KILL_TEST, "another_test"),
+    GATE_ROW.replace(guard.HC224_KILL_TEST, "another_test"),
     GATE_ROW.replace('"]),', '",\n       "sumeragi::epoch_beacon::producer::tests::other"]),'),
-    GATE_ROW.replace('m("HC220"', 'm("HC2200"'),
+    GATE_ROW.replace('m("HC224"', 'm("HC2240"'),
     "# " + GATE_ROW.replace("\n      ", " "),
     '    NOTE = """\n' + GATE_ROW + '    """\n',
     GATE_ROW.replace('"]),', '"], ["scenario"]),'),
 ))
-def test_parliament_pulse_isolation_requires_one_hc220_gate_row(replacement: str) -> None:
-    """The mutation gate holds exactly one HC220 row, killed by the named test alone."""
+def test_parliament_pulse_isolation_requires_one_hc224_gate_row(replacement: str) -> None:
+    """The mutation gate holds exactly one HC224 row, killed by the named test alone."""
     sources = _evidence_sources()
     path = guard.MUTATION_GATE_PATH
     assert sources[path].count(GATE_ROW) == 1
@@ -3325,7 +3325,7 @@ def test_parliament_pulse_isolation_requires_one_hc220_gate_row(replacement: str
         _check_evidence(sources)
 
 
-def test_parliament_pulse_isolation_requires_hc220_among_core_mutations() -> None:
+def test_parliament_pulse_isolation_requires_hc224_among_core_mutations() -> None:
     """The row is a Core mutation, not a row of another mutation table."""
     sources = _evidence_sources()
     path = guard.MUTATION_GATE_PATH
@@ -3343,7 +3343,7 @@ def test_parliament_pulse_isolation_requires_hc220_among_core_mutations() -> Non
 
 def _spec_row(sources: dict[str, str]) -> str:
     rows = [line for line in sources[guard.SUMERAGI_SPEC_PATH].splitlines()
-            if line.startswith("| HC220 |")]
+            if line.startswith("| HC224 |")]
     assert len(rows) == 1
     return rows[0]
 
@@ -3351,18 +3351,18 @@ def _spec_row(sources: dict[str, str]) -> str:
 @pytest.mark.parametrize("mutation", (
     "removed", "duplicated", "other_test", "other_id", "no_site", "prose_mention",
 ))
-def test_parliament_pulse_isolation_requires_one_hc220_spec_row(mutation: str) -> None:
-    """Spec section 13.4 holds exactly one HC220 row naming the kill test."""
+def test_parliament_pulse_isolation_requires_one_hc224_spec_row(mutation: str) -> None:
+    """Spec section 13.4 holds exactly one HC224 row naming the kill test."""
     sources = _evidence_sources()
     path = guard.SUMERAGI_SPEC_PATH
     row = _spec_row(sources)
     replacement = {
         "removed": "",
         "duplicated": row + "\n" + row,
-        "other_test": row.replace(guard.HC220_KILL_TEST, "another_test"),
-        "other_id": row.replace("| HC220 |", "| HC2200 |"),
+        "other_test": row.replace(guard.HC224_KILL_TEST, "another_test"),
+        "other_id": row.replace("| HC224 |", "| HC2240 |"),
         "no_site": row.replace("`epoch_beacon::required`", "`epoch_beacon`"),
-        "prose_mention": row + "\n\nHC220 is also described elsewhere.",
+        "prose_mention": row + "\n\nHC224 is also described elsewhere.",
     }[mutation]
     sources[path] = sources[path].replace(row, replacement, 1)
     with pytest.raises(RuntimeError, match=re.escape(path)):

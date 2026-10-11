@@ -4380,6 +4380,25 @@ mod tests {
             changed.query_page.account_filter = "filter-after-pagination";
         });
     }
+
+    #[test]
+    fn abi_hash_binds_distinct_root_argument_and_trigger_event_keys() {
+        let surface = canonical_surface();
+        for clause in [
+            "root-default-input-route=GET_PUBLIC_INPUT-entrypoint_argument_record-NoritoBytes-with-opcode-and-host-gas",
+            "trigger_event_json=actual-firing-Json-independent-of-prepared-root-arguments",
+            "no-argument-record-fallback-to-trigger-event-key",
+        ] {
+            assert!(surface.entrypoint.call_frame_checks.contains(clause));
+        }
+        assert!(!surface.entrypoint.call_frame_checks.contains(
+            "root-default-input-route=GET_PUBLIC_INPUT-trigger_event_json-with-opcode-and-host-gas"
+        ));
+        assert_surface_mutation_changes_hash(|changed| {
+            changed.entrypoint.call_frame_checks = "root-default-input-route=GET_PUBLIC_INPUT-trigger_event_json-with-opcode-and-host-gas";
+        });
+    }
+
     #[test]
     fn abi_hash_binds_table_layout_frame_checks_and_word_limit() {
         let original = collect_abi_surface(crate::SyscallPolicy::AbiV1).expect("ABI surface");

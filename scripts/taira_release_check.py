@@ -479,6 +479,10 @@ CRYPTO_STAGES += (("optimized BLS arithmetic preserves verification boundaries",
     "signature::bls::tests::small::verify_cache_rejects_variable_length_tuple_splice",
 )),)
 
+CRYPTO_STAGES += (('borrowed canonical public-key backing', (
+    'prepared_decode::tests::borrowed_public_key_recheck_preserves_canonical_limits_and_original_backing',
+)),)
+
 P2P_STAGES = (("bounded peer authentication and validator retry ownership", (
     "peer::run::tests::peer_run_authentication_deadline_precedes_long_idle_and_retires_exact_connection",
     "peer::handshake_config_tests::puzzle_work_is_offloaded_serialized_and_remains_bounded_after_cancellation",
@@ -895,6 +899,7 @@ CORE_ADMISSION_STARTUP_STAGES += CORE_MONETARY_AUTHORITY_STAGES
 
 CORE_FEE_REWARD_AUTHORITY_STAGES = (("signed network-XOR fee rewards and additive custody", (
     'validation_fee_rewards::tests::canonical_network_xor_is_required_before_fee_reward_state_changes',
+    'validation_fee_rewards::tests::public_fee_reward_claim_rejects_wrong_network_xor_without_writes_and_retries_original_plan',
     'validation_fee_rewards::tests::signed_fee_reward_claim_rejects_every_changed_binding_before_mutation',
     'validation_fee_rewards::tests::self_custody_fee_claim_releases_only_its_exact_reserve_without_debiting_balance',
     'validation_fee_rewards::tests::unreadable_credit_rejects_the_required_claim_without_mutation',
@@ -1000,6 +1005,44 @@ MODEL_MONETARY_CODEC_STAGES = (('canonical monetary authority payload schemas an
     'nexus::staking::monetary_codec_tests::monetary_schema_names_every_variant_and_distinct_named_payload',
 )),)
 DATA_MODEL_STAGES += MODEL_MONETARY_CODEC_STAGES
+
+DATA_MODEL_STAGES += (("native AMX original multisig diagnostic custody", (
+    "sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_threshold_replay_preserves_original_cause_without_diagnostic_allocations",
+    "sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_member_replay_preserves_original_cause_without_diagnostic_allocations",
+)),)
+
+DATA_MODEL_STAGES += (('native AMX retained partial decode and borrowed validation', (
+    'sumeragi_amx::native::leg_decode::tests::funded_native_leg_preserves_exact_original_capacity_release_generation_and_final_refund',
+    'sumeragi_amx::native::leg_decode::tests::funded_native_leg_preserves_original_root_depth_field_and_source_context',
+    'sumeragi_amx::native::leg_decode::tests::funded_native_leg_rejects_original_malformed_frames_flags_and_payload_bound',
+    'sumeragi_amx::native::leg_decode::tests::partial_native_multisig_retains_original_member_ledger_spans_and_key_pointer_through_retry',
+    'sumeragi_amx::native::leg_decode::tests::partial_native_member_values_survive_original_ledger_refusal_without_prefix_refund',
+    'sumeragi_amx::native::leg_decode::tests::partial_native_leg_rejects_substituted_frame_and_retains_original_graph_through_retry',
+    'sumeragi_amx::native::leg_decode::tests::partial_native_retry_rechecks_cached_field_and_depth_limits_without_retiring_original_backing',
+    'account::controller::borrowed_validation_tests::borrowed_member_validation_preserves_constructor_causes_and_original_key',
+    'account::controller::borrowed_validation_tests::borrowed_policy_validation_preserves_canonical_causes_and_member_storage',
+    'sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_retains_original_policy_and_member_prefix_on_replay',
+)),)
+
+NORITO_RETAINED_SEQUENCE_STAGES = (('retained canonical sequence custody', (
+    'prepared_sequence::retained_sequence_keeps_late_framing_storage_and_cumulative_retry_work',
+    'prepared_sequence::retained_sequence_does_not_wake_its_original_capacity_refusal_during_retry',
+    'prepared_sequence::retained_sequence_rejects_substitution_in_place_mutation_and_changed_flags',
+    'prepared_sequence::retained_sequence_preserves_first_admission_and_exhausted_retry_order',
+    'prepared_sequence::retained_sequence_admits_only_exact_spans_for_each_layout_and_empty_input',
+)),)
+
+PRIMITIVES_QUANTITY_STAGES = (('retained canonical Quantity custody', (
+    'numeric::prepared_quantity::tests::retained_quantity_digits_survive_late_scale_rejection_and_same_backing_retry',
+    'numeric::prepared_quantity::tests::retained_quantity_original_quota_refusal_does_not_retire_digits_or_reset_outer_work',
+    'numeric::prepared_quantity::tests::borrowed_quantity_recheck_preserves_original_field_limits_without_backing_allocation',
+    'numeric::prepared_quantity::tests::one_pass_quantity_matches_canonical_values_rejections_and_exact_original_digits',
+)),)
+
+PRIMITIVES_QUANTITY_ALLOCATION_STAGES = (('canonical Quantity allocation and release ordering', (
+    'one_pass_quantity_allocates_only_final_digits_and_preserves_allocator_refusal_order',
+    'one_pass_quantity_drop_deallocates_before_original_release_wake',
+)),)
 
 TEST_NETWORK_STAGES = (("isolated validator fixture configuration", (
     "config::tests::base_config_applies_bounded_storage_caps",
@@ -1250,6 +1293,9 @@ TORII_UNIT_STAGES = (("released State snapshots and exact canonical outcome auth
 )), ) + TORII_UNIT_STAGES
 
 HARNESS_TARGETS = {
+    'norito-exact-field': ('native retained canonical sequence custody', 'exact_field_streaming_allocations', 'test', ['-p', 'norito', '--test', 'exact_field_streaming_allocations']),
+    'primitives-quantity': ('native retained canonical Quantity custody', 'iroha_primitives', 'lib', ['-p', 'iroha_primitives', '--lib']),
+    'primitives-quantity-allocations': ('native canonical Quantity allocations', 'numeric_abi_encoding_allocations', 'test', ['-p', 'iroha_primitives', '--test', 'numeric_abi_encoding_allocations']),
     "allocation": ("native finite allocation custody", "iroha_allocation", "lib", ["-p", "iroha_allocation", "--lib"]),
     "allocation-shared": ("physical funded shared wake custody", "charged_shared_custody", "test", ["-p", "iroha_allocation", "--test", "charged_shared_custody"]),
     "mv": ("native MV ownership", "mv", "lib", ["-p", "mv", "--lib"]),
@@ -2497,6 +2543,9 @@ def qualification_stages(qualification_scope: str = "basic") -> dict[str, tuple]
     if qualification_scope not in QUALIFICATION_SCOPES:
         raise CheckError("native qualification scope must be basic or full")
     selected = {
+        'norito-exact-field': NORITO_RETAINED_SEQUENCE_STAGES,
+        'primitives-quantity': PRIMITIVES_QUANTITY_STAGES,
+        'primitives-quantity-allocations': PRIMITIVES_QUANTITY_ALLOCATION_STAGES,
         "allocation": ALLOCATION_OWNERSHIP_STAGES,
         "allocation-shared": ALLOCATION_SHARED_STAGES,
         "mv": MV_OWNERSHIP_STAGES, "mv-ebr": MV_EBR_STAGES, "mv-map": MV_MAP_STAGES,

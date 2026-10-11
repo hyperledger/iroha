@@ -971,7 +971,7 @@ fn parent_service_common_proposal_is_independent_of_local_certificate_subset() {
         .verify_parent_service_at(
             &proposal,
             &predecessor,
-            read_frame(source, 5).unwrap(),
+            &read_frame(source, 5).unwrap(),
             offered,
         )
         .unwrap()
@@ -980,7 +980,7 @@ fn parent_service_common_proposal_is_independent_of_local_certificate_subset() {
         .verify_parent_service_at(
             &proposal,
             &predecessor,
-            read_frame(other_source, 5).unwrap(),
+            &read_frame(other_source, 5).unwrap(),
             offered,
         )
         .unwrap()
@@ -1088,11 +1088,11 @@ fn parent_service_original_decode_refusal_retries_same_proposal_without_invalidi
     let predecessor = chain.committed(4);
     let refused = norito::core::with_decode_limits_scope(
         norito::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 128),
-        || reader.verify_parent_service_at(&proposal, &predecessor, current.clone(), offered),
+        || reader.verify_parent_service_at(&proposal, &predecessor, &current, offered),
     );
     assert!(matches!(refused, Err(ParentServiceError::Deferred(_))));
     let retry = reader
-        .verify_parent_service_at(&proposal, &predecessor, current, offered)
+        .verify_parent_service_at(&proposal, &predecessor, &current, offered)
         .unwrap()
         .unwrap();
     retry.require_proposal(&proposal).unwrap();
@@ -1362,4 +1362,38 @@ fn state_certificate_consuming_completion_waits_for_original_walk_and_refunds_re
             assert_eq!(observed.qcs, [5, 2]);
         }
     }
+}
+
+#[test]
+fn admitted_receipt_malformed_frame_preserves_rejection_and_refunds_original_slots() {
+    let (chain, _) = chain();
+    let original = frame(&chain, 5);
+    let malformed = with_parts(&original, |header, _, _| header.height = 6);
+    let budget = chain.state().ivm_execution_budget();
+    let baseline = budget.reserved_bytes();
+    let expected = read_frame(malformed.clone(), 5).unwrap_err();
+    let actual =
+        AdmittedCommittedBlock::read(malformed, 5, &mut EpochValidationScope::new(), &budget)
+            .err()
+            .expect("the same canonical malformed frame must remain rejected");
+    match (expected, actual) {
+        (ExecutionAttemptError::Rejected(expected), ExecutionAttemptError::Rejected(actual)) => {
+            assert_eq!(actual, expected);
+        }
+        errors => panic!("malformed frames must not become local refusals: {errors:?}"),
+    }
+    assert_eq!(budget.reserved_bytes(), baseline);
+    let receipt = AdmittedCommittedBlock::read(
+        original.clone(),
+        5,
+        &mut EpochValidationScope::new(),
+        &budget,
+    )
+    .expect("the original valid frame remains usable after malformed rejection");
+    assert!(iroha_data_model::block::SharedSignedBlock::ptr_eq(
+        receipt.block(),
+        &original
+    ));
+    drop(receipt);
+    assert_eq!(budget.reserved_bytes(), baseline);
 }

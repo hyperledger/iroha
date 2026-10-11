@@ -300,7 +300,9 @@ remain intact. Core retains consensus ownership after the unused direct daemon
 Sumeragi edge was removed.
 
 ABI argument-record and static numeric encoding belong to `ivm_abi`; consumers
-import the owner directly. IVM retains decoding, gas and memory custody.
+import the owner directly. Default-root record acquisition uses
+`entrypoint_argument_record`; `trigger_event_json` retains the separate actual
+firing JSON. IVM retains decoding, gas and memory custody.
 Compiler/toolchain, all 14 ABI/IVM phases, direct SDK consumers and workspace
 qualification remain open. Core ZK requires current strict default/no-default
 libraries, test-feature library/group coverage and canonical proof-owner and

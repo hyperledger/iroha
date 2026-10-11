@@ -2634,7 +2634,7 @@ fn credential_registry_memory_budget_is_configured_and_nonzero() {
             .unwrap()
             .with_toml_source(TomlSource::inline(extra.parse().unwrap()))
             .read_and_complete::<UserConfig>()
-            .map(|user| user.parse())
+            .map(UserConfig::parse)
     };
     let default = parse("").unwrap().unwrap();
     assert_eq!(
@@ -2649,7 +2649,7 @@ fn credential_registry_memory_budget_is_configured_and_nonzero() {
             .runtime_provider_broker
             .credential_max_memory_bytes
             .get(),
-        123456
+        123_456
     );
     assert!(parse("[runtime_provider_broker]\ncredential_max_memory_bytes = 0\n").is_err());
 }

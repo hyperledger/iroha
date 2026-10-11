@@ -547,7 +547,7 @@ fn commit_unrelated_work(
     stored
 }
 
-/// Spec §13.4 HC220. Governance state creates no consensus pulse obligation.
+/// Spec §13.4 HC224. Governance state creates no consensus pulse obligation.
 ///
 /// A Permissioned Global chain has no consensus-native pulse. Its World holds a Parliament
 /// sortition generation awaiting the pulse of slot 9 and, at the end, a timed-OVN ballot whose

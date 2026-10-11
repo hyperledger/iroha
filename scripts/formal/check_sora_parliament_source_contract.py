@@ -22,7 +22,7 @@ native STARK relation exists. The retired binding-only Torii producer must not
 re-enter the proof-carrying governance corridor.
 Governance availability is isolated from consensus: pulse demand is the NPoS
 pre-boundary height alone, the Parliament slot index is read under
-`crates/iroha_core/src/sumeragi` only by the HC220 mutation hook, a sortition slot
+`crates/iroha_core/src/sumeragi` only by the HC224 mutation hook, a sortition slot
 is the first consensus-native pulse height derived from fields frozen in the
 attempt, and no missing-pulse classification, veto or substitute draw exists in
 the reducer, planner, executor, State, restore or the model.
@@ -497,7 +497,7 @@ def sumeragi_production_modules(sources: dict[str, str]) -> dict[str, str]:
 def require_sumeragi_parliament_isolation(sources: dict[str, str]) -> None:
     """No production module of the Sumeragi driver names governance state.
 
-    The single exception is the Parliament index read of the HC220 mutation hook in
+    The single exception is the Parliament index read of the HC224 mutation hook in
     `epoch_beacon::required`, whose position `require_parliament_beacon_requirement`
     fixes by whole-body equality. A committed governance row therefore cannot reach
     pulse demand, admission, production, readiness or block execution.
@@ -2204,7 +2204,7 @@ def require_parliament_beacon_requirement(beacon: str, producer: str, readiness:
 
     Pulse demand is the NPoS pre-boundary height of a root that owns global
     control. No Parliament row requires, vetoes or schedules a pulse: the index is
-    read only by the HC220 mutation hook.
+    read only by the HC224 mutation hook.
     """
     require_borrowed_beacon_roster_and_sealed_binding()
     path = EPOCH_BEACON_PATH
@@ -2235,7 +2235,7 @@ def require_parliament_beacon_requirement(beacon: str, producer: str, readiness:
             "signals alone, never from governance rows"
         )
     # Demand is the NPoS pre-boundary height and nothing else. The Parliament index
-    # is read only by the HC220 mutation hook, which no production build compiles.
+    # is read only by the HC224 mutation hook, which no production build compiles.
     requirement = compact_rust(rust_item(beacon, "pub(crate) fn required(", path))
     expected = compact_rust("""
         pub(crate) fn required(
@@ -2249,7 +2249,7 @@ def require_parliament_beacon_requirement(beacon: str, producer: str, readiness:
             }
             let native = current.mode == ConsensusMode::Npos
                 && height.checked_add(1) == Some(current.authorization.last_height);
-            #[cfg(all(test, sumeragi_core_mutation = "HC220"))]
+            #[cfg(all(test, sumeragi_core_mutation = "HC224"))]
             {
                 Ok(native
                     || world
@@ -2257,7 +2257,7 @@ def require_parliament_beacon_requirement(beacon: str, producer: str, readiness:
                         .get(&(BeaconSessionId::for_network_v1(&current.network_id), height))
                         .is_some_and(|attempts| !attempts.is_empty()))
             }
-            #[cfg(not(all(test, sumeragi_core_mutation = "HC220")))]
+            #[cfg(not(all(test, sumeragi_core_mutation = "HC224")))]
             {
                 Ok(native)
             }
@@ -2266,7 +2266,7 @@ def require_parliament_beacon_requirement(beacon: str, producer: str, readiness:
     if requirement != expected:
         raise RuntimeError(
             f"{path}: mandatory beacon demand must be the NPoS pre-boundary height alone, "
-            "with the Parliament index confined to the HC220 mutation hook"
+            "with the Parliament index confined to the HC224 mutation hook"
         )
     # Whole-body equality above places the one index read inside the hook. Every
     # other live statement of the file is free of governance state.
@@ -2619,10 +2619,10 @@ SORTITION_ISI_TESTS_PATH = (
 )
 MUTATION_GATE_PATH = "scripts/sumeragi_mutation_gate.py"
 SUMERAGI_SPEC_PATH = "specs/sumeragi.md"
-HC220_KILL_TEST = (
+HC224_KILL_TEST = (
     "pending_parliament_slots_create_no_native_control_demand_and_never_block_unrelated_work"
 )
-HC220_KILL_TEST_PATH = "sumeragi::epoch_beacon::producer::tests::execution_tests::" + HC220_KILL_TEST
+HC224_KILL_TEST_PATH = "sumeragi::epoch_beacon::producer::tests::execution_tests::" + HC224_KILL_TEST
 
 
 def pinned_test(
@@ -2657,11 +2657,11 @@ def require_parliament_pulse_isolation_evidence(
 ) -> None:
     """A missing Parliament pulse blocks no block, replay, restore or later consumption.
 
-    The HC220 kill test runs the real execution path over a pending governance
+    The HC224 kill test runs the real execution path over a pending governance
     slot; the NPoS test shows the native obligation is unchanged by that state;
     the restore tests show a wait survives a snapshot on its exact slot; the
     rotation test shows late consumption uses the retained session and nothing
-    else. The mutation gate and the spec each carry exactly one HC220 row.
+    else. The mutation gate and the spec each carry exactly one HC224 row.
     """
     path = BEACON_EXECUTION_TESTS_PATH
     pinned_helper(execution_tests, path, "fn admit(", (
@@ -2713,7 +2713,7 @@ def require_parliament_pulse_isolation_evidence(
         "assert!(view.world().global_beacon_pulses().is_empty());",
         "assert!(view.world().global_beacon_pulse_slots().is_empty());",
     ))
-    pinned_test(execution_tests, path, f"fn {HC220_KILL_TEST}() {{", (
+    pinned_test(execution_tests, path, f"fn {HC224_KILL_TEST}() {{", (
         "constSLOT:u64=9;",
         "letmutcustody=seeded(prefix());letmutchain=prefix();letmutreplay=prefix();",
         "crate::beacon::tests::pending_batched_sortition_attempt("
@@ -2933,19 +2933,19 @@ def require_parliament_pulse_isolation_evidence(
         ),
     )
 
-    # Sumeragi 13.4: exactly one HC220 row in the gate and in the spec, naming the test.
+    # Sumeragi 13.4: exactly one HC224 row in the gate and in the spec, naming the test.
     # The gate is parsed, so a commented or quoted row is not a row.
     try:
         gate = ast.parse(mutation_gate)
     except SyntaxError as error:
         raise RuntimeError(f"{MUTATION_GATE_PATH}: cannot parse the mutation gate: {error}") from error
 
-    def hc220_rows(node: ast.AST) -> list[ast.Call]:
+    def hc224_rows(node: ast.AST) -> list[ast.Call]:
         return [
             call for call in ast.walk(node)
             if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
             and call.func.id == "m" and call.args
-            and isinstance(call.args[0], ast.Constant) and call.args[0].value == "HC220"
+            and isinstance(call.args[0], ast.Constant) and call.args[0].value == "HC224"
         ]
 
     core_tables = [
@@ -2954,27 +2954,27 @@ def require_parliament_pulse_isolation_evidence(
         and isinstance(statement.targets[0], ast.Name)
         and statement.targets[0].id == "CORE_MUTATIONS"
     ]
-    rows = hc220_rows(gate)
-    if len(core_tables) != 1 or len(rows) != 1 or hc220_rows(core_tables[0]) != rows:
+    rows = hc224_rows(gate)
+    if len(core_tables) != 1 or len(rows) != 1 or hc224_rows(core_tables[0]) != rows:
         raise RuntimeError(
-            f"{MUTATION_GATE_PATH}: HC220 must be a Core mutation row, exactly once"
+            f"{MUTATION_GATE_PATH}: HC224 must be a Core mutation row, exactly once"
         )
     row = rows[0]
     if (len(row.args) != 3 or row.keywords or not isinstance(row.args[2], ast.List)
             or [getattr(test, "value", None) for test in row.args[2].elts]
-            != [HC220_KILL_TEST_PATH]):
+            != [HC224_KILL_TEST_PATH]):
         raise RuntimeError(
-            f"{MUTATION_GATE_PATH}: Core mutation HC220 must have exactly one row killed by "
-            f"{HC220_KILL_TEST_PATH} alone"
+            f"{MUTATION_GATE_PATH}: Core mutation HC224 must have exactly one row killed by "
+            f"{HC224_KILL_TEST_PATH} alone"
         )
-    rows = [line for line in spec.splitlines() if "HC220" in line]
+    rows = [line for line in spec.splitlines() if "HC224" in line]
     cells = [cell.strip() for cell in rows[0].split("|")] if len(rows) == 1 else []
-    if (len(cells) != 6 or cells[0] or cells[5] or cells[1] != "HC220"
+    if (len(cells) != 6 or cells[0] or cells[5] or cells[1] != "HC224"
             or "`epoch_beacon::required`" not in cells[2]
-            or cells[3] != f"`{HC220_KILL_TEST}`" or not cells[4]):
+            or cells[3] != f"`{HC224_KILL_TEST}`" or not cells[4]):
         raise RuntimeError(
-            f"{SUMERAGI_SPEC_PATH}: section 13.4 must have exactly one HC220 row killed by "
-            f"{HC220_KILL_TEST}"
+            f"{SUMERAGI_SPEC_PATH}: section 13.4 must have exactly one HC224 row killed by "
+            f"{HC224_KILL_TEST}"
         )
 
 

@@ -526,6 +526,7 @@ fn actual_failed_execution_fee_authority_is_once_only_and_bound_to_its_source_co
 fn actual_raw_vm_rejection_retains_and_charges_consumed_work_once() {
     use iroha_data_model::{
         ValidationFail,
+        executor::fault::{IvmFaultKindV1, IvmFaultPositionV1, IvmInvocationSelectorV1},
         transaction::{IvmBytecode, error::TransactionRejectionReason},
     };
     let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
@@ -561,9 +562,17 @@ fn actual_raw_vm_rejection_retains_and_charges_consumed_work_once() {
     block.gas_limit_per_block = gas_limit;
     let fragments = block.committed_fragment_count();
     execute(&mut block, &source).unwrap();
-    assert!(matches!(network_row(&block, 0).result.as_ref(),
-        Err(TransactionRejectionReason::Validation(ValidationFail::NotPermitted(reason)))
-        if reason.contains("gas")));
+    let result = network_row(&block, 0).result.as_ref();
+    let Err(TransactionRejectionReason::Validation(ValidationFail::IvmFault(fault))) = result
+    else {
+        panic!("raw VM exhaustion must retain its structured execution fault: {result:?}");
+    };
+    assert_eq!(fault.kind, IvmFaultKindV1::OutOfGas);
+    assert_eq!(fault.site.selector, IvmInvocationSelectorV1::Generic);
+    assert!(matches!(
+        fault.site.position,
+        IvmFaultPositionV1::Execute { .. }
+    ));
     assert_eq!(block.gas_used_in_block, gas_limit);
     assert_eq!(balance(&block, &asset, &ALICE_ID), Quantity::from(9_u32));
     assert_eq!(

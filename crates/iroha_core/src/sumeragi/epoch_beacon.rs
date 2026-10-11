@@ -89,7 +89,7 @@ pub(crate) fn required(
     }
     let native = current.mode == ConsensusMode::Npos
         && height.checked_add(1) == Some(current.authorization.last_height);
-    #[cfg(all(test, sumeragi_core_mutation = "HC220"))]
+    #[cfg(all(test, sumeragi_core_mutation = "HC224"))]
     {
         Ok(native
             || world
@@ -97,7 +97,7 @@ pub(crate) fn required(
                 .get(&(BeaconSessionId::for_network_v1(&current.network_id), height))
                 .is_some_and(|attempts| !attempts.is_empty()))
     }
-    #[cfg(not(all(test, sumeragi_core_mutation = "HC220")))]
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC224")))]
     {
         Ok(native)
     }

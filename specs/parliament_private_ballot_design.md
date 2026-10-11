@@ -938,7 +938,7 @@ Keep beacon machinery still required for consensus or sortition.
 1. **Isolate governance availability.** Split Parliament from native beacon
    demand and the daemon preflight. Prove unrelated transactions and restart
    stay live while an exact pulse is absent. This does not depend on the
-   ballot. It is implemented; Core mutation `HC220`
+   ballot. It is implemented; Core mutation `HC224`
    ([sumeragi.md](sumeragi.md) section 13.4) guards the split.
 2. **Qualify the proof profile.** Discharge section 5 and select `P`. Do not
    begin integration around a placeholder relation.

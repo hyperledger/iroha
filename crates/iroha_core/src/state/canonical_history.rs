@@ -357,8 +357,28 @@ impl<'a> CanonicalHistorySource<'a> {
         first: NonZeroUsize,
         last: NonZeroUsize,
         before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
-        visit: impl FnMut(
+        mut visit: impl FnMut(
             crate::sumeragi::certified_chain::CommittedBlock,
+        ) -> Result<
+            core::ops::ControlFlow<()>,
+            ExecutionAttemptError<QueryExecutionFail>,
+        >,
+    ) -> Result<bool, ExecutionAttemptError<QueryExecutionFail>> {
+        self.visit_executed_backwards_admitted_until(first, last, before_read, |receipt| {
+            visit(receipt.into_owned())
+        })
+    }
+
+    /// The same original-tip walk, retaining exact receipt slots from this source's pool.
+    /// Only the selected consumer may retain slots; each skipped ancestor retires in place.
+    /// Source, ancestry, checkpoints and complete result validation use the common kernel.
+    pub(crate) fn visit_executed_backwards_admitted_until(
+        &self,
+        first: NonZeroUsize,
+        last: NonZeroUsize,
+        before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
+        visit: impl FnMut(
+            crate::sumeragi::certified_chain::AdmittedCommittedBlock,
         ) -> Result<
             core::ops::ControlFlow<()>,
             ExecutionAttemptError<QueryExecutionFail>,
@@ -388,7 +408,7 @@ impl<'a> CanonicalHistorySource<'a> {
             last,
             Some(original_target),
             before_read,
-            |value| visit(value).map(|()| core::ops::ControlFlow::Continue(())),
+            |value| visit(value.into_owned()).map(|()| core::ops::ControlFlow::Continue(())),
         )
         .map(drop)
     }
@@ -404,7 +424,7 @@ impl<'a> CanonicalHistorySource<'a> {
         first: NonZeroUsize,
         last: NonZeroUsize,
         before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
-        visit: impl FnMut(
+        mut visit: impl FnMut(
             crate::sumeragi::certified_chain::CommittedBlock,
         ) -> Result<
             core::ops::ControlFlow<()>,
@@ -417,7 +437,9 @@ impl<'a> CanonicalHistorySource<'a> {
         let start = self
             .checkpoint_start(selected_last, tip.height())
             .unwrap_or_else(|| WalkStart::tip(tip));
-        self.walk_backwards(start, first, last, None, before_read, visit)
+        self.walk_backwards(start, first, last, None, before_read, |receipt| {
+            visit(receipt.into_owned())
+        })
     }
 
     /// The authenticated tip of this captured history, after checking the interval.
@@ -479,7 +501,7 @@ impl<'a> CanonicalHistorySource<'a> {
         original_target: Option<&crate::kura::NativeFrameRead<'_>>,
         mut before_read: impl FnMut(u64, u64) -> Result<(), ExecutionAttemptError<QueryExecutionFail>>,
         mut visit: impl FnMut(
-            crate::sumeragi::certified_chain::CommittedBlock,
+            crate::sumeragi::certified_chain::AdmittedCommittedBlock,
         ) -> Result<
             core::ops::ControlFlow<()>,
             ExecutionAttemptError<QueryExecutionFail>,
@@ -525,10 +547,11 @@ impl<'a> CanonicalHistorySource<'a> {
                 None
             };
             let block = self.block_with_original_admission(index, original, &mut before_read)?;
-            let receipt = crate::sumeragi::certified_chain::read_frame_with_validation(
+            let receipt = crate::sumeragi::certified_chain::AdmittedCommittedBlock::read(
                 block,
                 source_height,
                 &mut validation,
+                &self.budget,
             )
             .map_err(|error| {
                 error.map_rejection(|error| QueryExecutionFail::Conversion(error.to_string()))

@@ -190,10 +190,10 @@ impl<'a> SnapshotJsonField<'a> {
             Storage<iroha_crypto::Hash, RetainedEvidenceRecord>,
             StateRestoreError,
         > = (|| {
-            let raw = match &self {
-                Self::Borrowed { raw } => std::borrow::Cow::Borrowed(*raw),
+            let (raw, has_original_bytes) = match &self {
+                Self::Borrowed { raw } => (std::borrow::Cow::Borrowed(*raw), true),
                 #[cfg(test)]
-                Self::Owned(value) => std::borrow::Cow::Owned(json::to_json(value)?),
+                Self::Owned(value) => (std::borrow::Cow::Owned(json::to_json(value)?), false),
             };
             let value = crate::sumeragi::evidence::record::restore_storage(&raw, budget).map_err(
                 |error| match error {
@@ -203,9 +203,11 @@ impl<'a> SnapshotJsonField<'a> {
                     local => StateRestoreError::Evidence(local),
                 },
             )?;
-            // Preserve existing canonical snapshot byte comparison and its explicit
-            // source/String ownership TODO; it grants no authority to restored claims.
-            if json::to_json(&value)?.as_bytes() != raw.as_bytes() {
+            // Production borrows the original bytes and requires their exact canonical
+            // representation. The test-only DOM adapter has already discarded field
+            // order, just like decode_canonical's owned path above. Neither path grants
+            // authority to restored claims. Comparison scratch retains its existing TODO.
+            if has_original_bytes && json::to_json(&value)?.as_bytes() != raw.as_bytes() {
                 return Err(StateRestoreError::Serialization(json::Error::Message(
                     "snapshot field is not canonically encoded".into(),
                 )));
@@ -2669,6 +2671,45 @@ mod evidence_record_restore_adapter_tests {
     use crate::state::EvidencePreparationError;
     use crate::sumeragi::evidence::record::EvidenceRecordRestoreError;
     use iroha_allocation::{AllocationBudget, AllocationRefusal};
+
+    #[test]
+    fn evidence_snapshot_requires_canonical_borrowed_bytes_but_restores_owned_projection() {
+        let storage = Storage::<iroha_crypto::Hash, RetainedEvidenceRecord>::default();
+        let canonical = json::to_json(&storage).unwrap();
+        let projection = json::to_value(&storage).unwrap();
+        let reordered = json::to_json(&projection).unwrap();
+        assert_ne!(canonical, reordered, "the DOM has discarded declaration order");
+        let budget = AllocationBudget::new(1024);
+        let restored = SnapshotJsonField::Borrowed { raw: &canonical }
+            .decode_evidence(&budget)
+            .expect("canonical native snapshot bytes restore");
+        assert_eq!(json::to_json(&restored).unwrap(), canonical);
+        let rejected = SnapshotJsonField::Borrowed { raw: &reordered }
+            .decode_evidence(&budget)
+            .err()
+            .expect("reordered native snapshot bytes must remain rejected");
+        assert!(
+            matches!(rejected, StateRestoreError::Serialization(json::Error::InvalidField {ref field, ref message})
+            if field == "consensus_evidence" && message.contains("not canonically encoded"))
+        );
+        let restored = SnapshotJsonField::Owned(projection)
+            .decode_evidence(&budget)
+            .expect("test DOM projection restores through the same admitted record reader");
+        assert_eq!(json::to_json(&restored).unwrap(), canonical);
+        let mut invalid = json::to_value(&storage).unwrap();
+        let json::Value::Object(ref mut fields) = invalid else {
+            panic!("native storage is an object");
+        };
+        fields.insert("retired_field".into(), json::Value::Null);
+        assert!(
+            SnapshotJsonField::Owned(invalid)
+                .decode_evidence(&budget)
+                .is_err(),
+            "owned fixture projection still rejects unknown storage fields"
+        );
+        drop(restored);
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
 
     fn partial_original_record() -> String {
         let key =

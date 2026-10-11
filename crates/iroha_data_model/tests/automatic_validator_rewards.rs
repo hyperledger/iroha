@@ -225,11 +225,11 @@ fn archived_exposure_binds_predecessors_and_roundtrips_canonically() {
         None,
         Some(ValidationFeeExposureArchiveRef {
             recorded_at_height: 0,
-            ..archive.previous.clone().unwrap()
+            ..archive.previous.unwrap()
         }),
         Some(ValidationFeeExposureArchiveRef {
             page_index: 1,
-            ..archive.previous.clone().unwrap()
+            ..archive.previous.unwrap()
         }),
     ] {
         substituted.previous = bad_previous;
@@ -267,7 +267,12 @@ fn maximum_single_cohort_fits_archive_page_without_stake_narrowing() {
     assert_eq!(quantity.mantissa().to_twos_bytes().len(), 64);
     let validator = account(10_000);
     let stakes: BTreeMap<_, _> = (0..MAX_REWARD_RECIPIENTS)
-        .map(|index| (account(index as u32), quantity.clone()))
+        .map(|index| {
+            (
+                account(u32::try_from(index).expect("fixture recipient index fits u32")),
+                quantity.clone(),
+            )
+        })
         .collect();
     let source = page(&validator, u64::MAX, vec![cohort(u64::MAX, stakes.clone())]);
     validate_exposure_page(&source).unwrap();
@@ -535,33 +540,47 @@ fn page_validation_bounds_work_without_bounding_monthly_stake_churn() {
         .map(|value| cohort(1, [(validator.clone(), Quantity::from(value as u64))]))
         .collect();
     assert!(validate_exposure_page(&page(&validator, 0, excessive_cohorts)).is_err());
-    let excessive_recipients =
-        (0..=MAX_REWARD_RECIPIENTS).map(|index| (account(index as u32), Quantity::one()));
+    let excessive_recipients = (0..=MAX_REWARD_RECIPIENTS).map(|index| {
+        (
+            account(u32::try_from(index).expect("fixture recipient index fits u32")),
+            Quantity::one(),
+        )
+    });
     assert!(
         validate_exposure_page(&page(&validator, 0, vec![cohort(1, excessive_recipients)]))
             .is_err()
     );
     let recipients = (0..MAX_REWARD_RECIPIENTS)
-        .map(|index| account(index as u32))
+        .map(|index| account(u32::try_from(index).expect("fixture recipient index fits u32")))
         .collect::<Vec<_>>();
     let excessive_entries = (1..=MAX_REWARD_EXPOSURE_ENTRIES / MAX_REWARD_RECIPIENTS + 1)
         .map(|value| {
             cohort(
                 1,
-                recipients
-                    .iter()
-                    .cloned()
-                    .map(|account| (account, Quantity::from(value as u32))),
+                recipients.iter().cloned().map(|account| {
+                    (
+                        account,
+                        Quantity::from(
+                            u32::try_from(value).expect("fixture exposure value fits u32"),
+                        ),
+                    )
+                }),
             )
         })
         .collect();
     assert!(validate_exposure_page(&page(&validator, 0, excessive_entries)).is_err());
     let mut sum = 0u128;
-    for index in 0..MAX_REWARD_EXPOSURE_COHORTS + 1 {
+    for index in 0..=MAX_REWARD_EXPOSURE_COHORTS {
         let source = page(
             &validator,
             index as u64,
-            vec![cohort(1, [(account(index as u32), Quantity::one())])],
+            vec![cohort(
+                1,
+                [(
+                    account(u32::try_from(index).expect("fixture recipient index fits u32")),
+                    Quantity::one(),
+                )],
+            )],
         );
         validate_exposure_page(&source).unwrap();
         sum += allocate_page(

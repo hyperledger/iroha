@@ -174,8 +174,17 @@ impl JsonKeyCodec for crate::account::AccountId {
         json::write_json_string(&self.to_string(), out);
     }
     fn decode_json_key(encoded: &str) -> Result<Self, json::Error> {
-        crate::account::AccountId::parse_encoded(encoded)
-            .map_err(|err| json::Error::Message(err.to_string()))
+        <Self as json::JsonObjectKeyOwned>::from_json_key_text(encoded).map_err(|error| {
+            if cfg!(all(test, sumeragi_model_mutation = "DM25"))
+                && matches!(
+                    error,
+                    json::Error::ScopedDecodeResource(_) | json::Error::DecodeResource(_)
+                )
+            {
+                return json::Error::Message(error.to_string());
+            }
+            error
+        })
     }
 }
 impl JsonKeyCodec for crate::proof::VerifyingKeyId {
@@ -467,6 +476,10 @@ mod tests {
     }
     #[test]
     fn account_storage_keys_preserve_original_refusal_fields_scope_and_retry() {
+        use norito::core::{
+            DecodeAttemptErrorKind, DecodeBudgetContext, DecodeResourceError,
+            classify_decode_attempt,
+        };
         use norito::json;
         let expected = AccountId::new(
             KeyPair::from_seed(vec![42; 32], iroha_crypto::Algorithm::Ed25519)
@@ -490,10 +503,6 @@ mod tests {
                 assert_eq!(restored.view().get(&expected), Some(&7));
             }
             Ok(())
-        };
-        use norito::core::{
-            DecodeAttemptErrorKind, DecodeBudgetContext, DecodeResourceError,
-            classify_decode_attempt,
         };
         let limits = |bytes| {
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
@@ -641,8 +650,9 @@ mod tests {
         let err = crate::account::AccountId::decode_json_key("alice@banka.dataspace")
             .expect_err("domain suffix literal must be rejected");
         assert!(
-            err.to_string().contains("canonical I105"),
+            matches!(&err, norito::json::Error::Message(message) if message == "invalid I105 account identifier"),
             "unexpected error: {err}"
         );
+        assert!(!err.is_decode_resource_limit());
     }
 }

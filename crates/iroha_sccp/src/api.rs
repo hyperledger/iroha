@@ -929,7 +929,7 @@ mod tests {
             .get("message_id")
             .and_then(Value::as_str)
             .expect("message id");
-        assert_eq!(message_id, "0a".repeat(32));
+        assert_eq!(message_id, "0A".repeat(32));
         assert!(json.get("history").expect("history key").is_null());
         let mut hostile = json.clone();
         hostile
