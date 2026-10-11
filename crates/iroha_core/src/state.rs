@@ -3323,6 +3323,19 @@ impl SmartContractCodeUploadKey {
             )
     }
 }
+// Preserve the canonical Model key owner's exact refusal before adding diagnostic context.
+// This changes no key grammar, decoder scope, source authority or resource provenance.
+fn account_key_json_error(
+    error: json::Error,
+    terminal: impl FnOnce(json::Error) -> json::Error,
+) -> json::Error {
+    if error.is_decode_resource_limit() && !cfg!(all(test, sumeragi_core_mutation = "HC220")) {
+        error
+    } else {
+        terminal(error)
+    }
+}
+
 impl norito::json::JsonKeyCodec for SmartContractCodeUploadKey {
     fn encode_json_key(&self, out: &mut String) {
         let key = format!(
@@ -3337,8 +3350,12 @@ impl norito::json::JsonKeyCodec for SmartContractCodeUploadKey {
         let (authority, artifact) = encoded.split_once('|').ok_or_else(|| {
             json::Error::Message("expected authority|dataspace|artifact-hash upload key".into())
         })?;
-        let authority = AccountId::parse_encoded(authority)
-            .map_err(|error| json::Error::Message(format!("invalid upload owner: {error}")))?;
+        let authority = <AccountId as json::JsonObjectKeyOwned>::from_json_key_text(authority)
+            .map_err(|error| {
+                account_key_json_error(error, |error| {
+                    json::Error::Message(format!("invalid upload owner: {error}"))
+                })
+            })?;
         let artifact_id = ContractArtifactId::decode_json_key(artifact)?;
         Ok(Self::new(authority, artifact_id))
     }
@@ -3754,6 +3771,39 @@ enum ParliamentTimedOvnResourceReservationErrorV1 {
     TooManyConcurrentCastingContexts,
 }
 
+/// A failed World construction, before publishing the new World.
+///
+/// Storage refusal retains its original pool/release observation. Derived-state
+/// rebuilds distinguish an incomplete local attempt from invalid supplied entities.
+/// This error does not authenticate a complete State or fund its nested graphs.
+#[derive(Debug, thiserror::Error)]
+pub enum WorldConstructionError {
+    /// Original initial-cell admission refused before consuming entity iterators.
+    #[error("World storage initialization refused: {0}")]
+    Storage(#[source] mv::storage::AdmittedStorageError),
+    /// Supplied entities failed validation, or the original decoder could not finish.
+    #[error("World initialization failed: {0}")]
+    Initialization(#[source] ExecutionAttemptError<String>),
+}
+
+impl From<mv::storage::AdmittedStorageError> for WorldConstructionError {
+    fn from(error: mv::storage::AdmittedStorageError) -> Self {
+        Self::Storage(error)
+    }
+}
+
+impl From<ExecutionAttemptError<String>> for WorldConstructionError {
+    fn from(error: ExecutionAttemptError<String>) -> Self {
+        Self::Initialization(error)
+    }
+}
+
+impl From<String> for WorldConstructionError {
+    fn from(error: String) -> Self {
+        Self::Initialization(ExecutionAttemptError::Rejected(error))
+    }
+}
+
 /// The global entity consisting of `domains`, `triggers` and etc.
 /// For example registration of domain, will have this as an ISI target.
 ///
@@ -3762,6 +3812,9 @@ enum ParliamentTimedOvnResourceReservationErrorV1 {
 /// of storage owners through nested stack frames.
 #[derive(Default)]
 pub struct World(Box<WorldData>);
+
+#[cfg(test)]
+mod world_construction_tests;
 
 impl std::ops::Deref for World {
     type Target = WorldData;
@@ -10899,7 +10952,6 @@ impl GovernanceLockRecord {
 )]
 pub struct GovernanceLocksForReferendum {
     /// Map of voter account -> lock record for this referendum.
-    #[norito(with = "governance_locks_map_json")]
     pub locks:
         std::collections::BTreeMap<iroha_data_model::account::AccountId, GovernanceLockRecord>,
 }
@@ -11124,48 +11176,6 @@ impl CitizenshipRecord {
         }
     }
 }
-#[cfg(feature = "json")]
-mod governance_locks_map_json {
-    use super::GovernanceLockRecord;
-    use iroha_data_model::account::AccountId;
-    use norito::json::{self, JsonSerialize as JsonSerializeTrait, MapVisitor, Parser};
-    use std::collections::BTreeMap;
-    pub fn serialize(locks: &BTreeMap<AccountId, GovernanceLockRecord>, out: &mut String) {
-        out.push('{');
-        let mut first = true;
-        for (account, record) in locks {
-            if first {
-                first = false;
-            } else {
-                out.push(',');
-            }
-            json::write_json_string(&account.to_string(), out);
-            out.push(':');
-            JsonSerializeTrait::json_serialize(record, out);
-        }
-        out.push('}');
-    }
-    pub fn deserialize(
-        parser: &mut Parser<'_>,
-    ) -> Result<BTreeMap<AccountId, GovernanceLockRecord>, json::Error> {
-        let mut visitor = MapVisitor::new(parser)?;
-        let mut out = BTreeMap::new();
-        while let Some(key) = visitor.next_key()? {
-            let acc_str = key.as_str();
-            let account: AccountId = AccountId::parse_encoded(acc_str).map_err(|err| {
-                json::Error::Message(format!("invalid account id `{acc_str}`: {err}"))
-            })?;
-            let record: GovernanceLockRecord = visitor.parse_value()?;
-            if out.insert(account, record).is_some() {
-                return Err(json::Error::DuplicateField {
-                    field: acc_str.to_owned(),
-                });
-            }
-        }
-        visitor.finish()?;
-        Ok(out)
-    }
-}
 /// Record of slashing/restitution applied to a specific voter for a referendum.
 #[derive(norito::NoritoSchema)]
 #[norito_schema(name = "iroha_core::state::GovernanceSlashEntry")]
@@ -11190,51 +11200,8 @@ pub struct GovernanceSlashEntry {
 )]
 pub struct GovernanceSlashLedger {
     /// Map of voter account -> slashing ledger entry.
-    #[norito(with = "governance_slash_map_json")]
     pub slashes:
         std::collections::BTreeMap<iroha_data_model::account::AccountId, GovernanceSlashEntry>,
-}
-#[cfg(feature = "json")]
-mod governance_slash_map_json {
-    use super::GovernanceSlashEntry;
-    use iroha_data_model::account::AccountId;
-    use norito::json::{self, JsonSerialize as JsonSerializeTrait, MapVisitor, Parser};
-    use std::collections::BTreeMap;
-    pub fn serialize(slashes: &BTreeMap<AccountId, GovernanceSlashEntry>, out: &mut String) {
-        out.push('{');
-        let mut first = true;
-        for (account, record) in slashes {
-            if first {
-                first = false;
-            } else {
-                out.push(',');
-            }
-            json::write_json_string(&account.to_string(), out);
-            out.push(':');
-            JsonSerializeTrait::json_serialize(record, out);
-        }
-        out.push('}');
-    }
-    pub fn deserialize(
-        parser: &mut Parser<'_>,
-    ) -> Result<BTreeMap<AccountId, GovernanceSlashEntry>, json::Error> {
-        let mut visitor = MapVisitor::new(parser)?;
-        let mut out = BTreeMap::new();
-        while let Some(key) = visitor.next_key()? {
-            let acc_str = key.as_str();
-            let account: AccountId = AccountId::parse_encoded(acc_str).map_err(|err| {
-                json::Error::Message(format!("invalid account id `{acc_str}`: {err}"))
-            })?;
-            let record: GovernanceSlashEntry = visitor.parse_value()?;
-            if out.insert(account, record).is_some() {
-                return Err(json::Error::DuplicateField {
-                    field: acc_str.to_owned(),
-                });
-            }
-        }
-        visitor.finish()?;
-        Ok(out)
-    }
 }
 #[derive(Debug, Clone)]
 pub(crate) struct PipelineParallelism {
@@ -18849,6 +18816,10 @@ impl World {
     }
     /// Creates a World whose asset supplies equal the supplied initial balances.
     /// Repeated asset identities retain their last supplied balance.
+    ///
+    /// # Panics
+    /// Panics if supplied entities are invalid or their rebuild cannot
+    /// complete. Production callers use [`Self::try_with_execution_budget`].
     pub fn with_assets<D, A, Ad, As, N>(
         domains: D,
         accounts: A,
@@ -18863,7 +18834,7 @@ impl World {
         As: IntoIterator<Item = Asset>,
         N: IntoIterator<Item = Nft>,
     {
-        Self::with_assets_on(
+        Self::try_with_assets_on(
             WorldData::default(),
             domains,
             accounts,
@@ -18871,38 +18842,49 @@ impl World {
             assets,
             nfts,
         )
+        .expect("invalid World initialization in convenience constructor")
     }
     /// Construct World with its configured original execution pool.
-    /// Local resource refusal occurs before consuming the supplied entity iterators.
+    ///
+    /// Initial storage refusal occurs before consuming the supplied entity iterators.
+    /// Later validation/rebuild failure drops consumed entities and returns the
+    /// original typed cause; retry therefore requires the caller's source values.
+    ///
+    /// # Errors
+    /// Returns original cell admission refusal, malformed entity state, or typed
+    /// local execution deferral. No partially rebuilt World escapes on failure.
+    /// TODO(S6): ordinary input tables, indexes and nested Kaigi/crypto graphs still
+    /// need complete original-pool physical ownership; codec quotas do not fund them.
     pub fn try_with_execution_budget<D, A, Ad>(
         domains: D,
         accounts: A,
         asset_definitions: Ad,
         execution_budget: &iroha_allocation::AllocationBudget,
-    ) -> Result<Self, mv::storage::AdmittedStorageError>
+    ) -> Result<Self, WorldConstructionError>
     where
         D: IntoIterator<Item = Domain>,
         A: IntoIterator<Item = Account>,
         Ad: IntoIterator<Item = AssetDefinition>,
     {
         let fields = WorldData::try_new_with_execution_budget(execution_budget)?;
-        Ok(Self::with_assets_on(
-            fields,
-            domains,
-            accounts,
-            asset_definitions,
-            [],
-            [],
-        ))
+        let result = Self::try_with_assets_on(fields, domains, accounts, asset_definitions, [], []);
+        #[cfg(all(test, sumeragi_core_mutation = "HC221"))]
+        {
+            return Ok(
+                result.expect("invalid World initialization in restored infallible boundary")
+            );
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC221")))]
+        result
     }
-    fn with_assets_on<D, A, Ad, As, N>(
+    fn try_with_assets_on<D, A, Ad, As, N>(
         initial: WorldData,
         domains: D,
         accounts: A,
         asset_definitions: Ad,
         assets: As,
         nfts: N,
-    ) -> Self
+    ) -> Result<Self, WorldConstructionError>
     where
         D: IntoIterator<Item = Domain>,
         A: IntoIterator<Item = Account>,
@@ -18934,25 +18916,30 @@ impl World {
             if definition.balance_scope_policy() == AssetBalancePolicy::DataspaceRestricted
                 && definition.owning_domain().is_none()
             {
-                panic!(
+                return Err(format!(
                     "dataspace-restricted asset definition {definition_id} requires an explicit owning domain"
-                );
+                ).into());
             }
             if let Some(domain_id) = definition.owning_domain().as_ref() {
-                assert!(
-                    domain_view.get(domain_id).is_some(),
-                    "asset definition {definition_id} references missing owning domain {domain_id}"
-                );
+                if domain_view.get(domain_id).is_none() {
+                    return Err(format!(
+                        "asset definition {definition_id} references missing owning domain {domain_id}"
+                    ).into());
+                }
                 definition_domains.insert(definition_id.clone(), domain_id.clone());
             }
             if let Some(alias) = definition.alias.take() {
                 if let Some(domain) = alias.domain_segment() {
-                    let domain_id = DomainId::try_new(domain, alias.dataspace_segment())
-                        .expect("qualified asset alias must contain a valid domain");
-                    assert!(
-                        domain_view.get(&domain_id).is_some(),
-                        "qualified asset alias `{alias}` references missing domain {domain_id}"
-                    );
+                    let domain_id =
+                        DomainId::try_new(domain, alias.dataspace_segment()).map_err(|error| {
+                            format!("qualified asset alias must contain a valid domain: {error}")
+                        })?;
+                    if domain_view.get(&domain_id).is_none() {
+                        return Err(format!(
+                            "qualified asset alias `{alias}` references missing domain {domain_id}"
+                        )
+                        .into());
+                    }
                 }
                 definition_alias_bindings.insert(
                     definition_id.clone(),
@@ -18977,15 +18964,19 @@ impl World {
         for (id, quantity) in &asset_pairs {
             let definition = definition_pairs
                 .get_mut(id.definition())
-                .expect("initial asset must have its original definition");
-            ensure_asset_quantity_value(&quantity.0, definition.spec())
-                .expect("initial asset quantity must satisfy its definition");
+                .ok_or_else(|| "initial asset must have its original definition".to_owned())?;
+            ensure_asset_quantity_value(&quantity.0, definition.spec()).map_err(|error| {
+                format!("initial asset quantity must satisfy its definition: {error:?}")
+            })?;
             definition.total_quantity = definition
                 .total_quantity
                 .checked_add(&quantity.0)
-                .expect("initial asset supply must fit its quantity representation");
-            ensure_asset_quantity_value(&definition.total_quantity, definition.spec())
-                .expect("initial asset supply must satisfy its definition");
+                .map_err(|error| {
+                    format!("initial asset supply must fit its quantity representation: {error:?}")
+                })?;
+            ensure_asset_quantity_value(&definition.total_quantity, definition.spec()).map_err(
+                |error| format!("initial asset supply must satisfy its definition: {error:?}"),
+            )?;
         }
         let asset_definitions = definition_pairs.into_iter().collect();
         let asset_definition_alias_bindings = definition_alias_bindings.into_iter().collect();
@@ -19067,62 +19058,80 @@ impl World {
             parliament_attempts: Storage::default(),
             ..initial
         }));
-        world
-            .validate_numeric_asset_invariants()
-            .expect("invalid numeric asset state in world constructor");
+        world.validate_numeric_asset_invariants().map_err(|error| {
+            format!("invalid numeric asset state in world constructor: {error}")
+        })?;
         world
             .validate_quantity_ledger_invariants()
-            .expect("invalid quantity ledger state in world constructor");
+            .map_err(|error| {
+                error.map_rejection(|error| {
+                    format!("invalid quantity ledger state in world constructor: {error}")
+                })
+            })?;
         world.rebuild_domain_owner_index();
         world
             .rebuild_account_identity_indexes()
-            .expect("duplicate UAID in world constructor");
+            .map_err(|error| format!("duplicate UAID in world constructor: {error}"))?;
         world
             .rebuild_account_alias_index()
-            .expect("duplicate account alias in world constructor");
-        world
-            .rebuild_account_scope_directory()
-            .expect("invalid account scope directory in world constructor");
-        world
-            .rebuild_account_rekey_records()
-            .expect("invalid account rekey state in world constructor");
-        crate::smartcontracts::isi::kaigi::rebuild_kaigi_relay_registry(&mut world)
-            .expect("invalid Kaigi relay registry in world constructor");
-        crate::smartcontracts::isi::kaigi::rebuild_kaigi_account_dependencies(&mut world)
-            .expect("invalid Kaigi account dependencies in world constructor");
+            .map_err(|error| format!("duplicate account alias in world constructor: {error}"))?;
+        world.rebuild_account_scope_directory().map_err(|error| {
+            format!("invalid account scope directory in world constructor: {error}")
+        })?;
+        world.rebuild_account_rekey_records().map_err(|error| {
+            format!("invalid account rekey state in world constructor: {error}")
+        })?;
+        crate::smartcontracts::isi::kaigi::rebuild_kaigi_relay_registry(&mut world).map_err(
+            |error| {
+                error.map_rejection(|error| {
+                    format!("invalid Kaigi relay registry in world constructor: {error}")
+                })
+            },
+        )?;
+        crate::smartcontracts::isi::kaigi::rebuild_kaigi_account_dependencies(&mut world).map_err(
+            |error| {
+                error.map_rejection(|error| {
+                    format!("invalid Kaigi account dependencies in world constructor: {error}")
+                })
+            },
+        )?;
         world
             .rebuild_asset_definition_alias_indexes()
-            .expect("duplicate asset definition alias in world constructor");
+            .map_err(|error| {
+                format!("duplicate asset definition alias in world constructor: {error}")
+            })?;
         world
             .rebuild_contract_alias_indexes()
-            .expect("duplicate contract alias in world constructor");
-        world
-            .rebuild_asset_definition_indexes()
-            .expect("invalid asset definition domain context in world constructor");
+            .map_err(|error| format!("duplicate contract alias in world constructor: {error}"))?;
+        world.rebuild_asset_definition_indexes().map_err(|error| {
+            format!("invalid asset definition domain context in world constructor: {error}")
+        })?;
         world
             .rebuild_confidential_policy_transition_index()
-            .expect("invalid confidential-policy transition in world constructor");
-        world
-            .rebuild_governance_read_indexes()
-            .expect("invalid governance read indexes in world constructor");
+            .map_err(|error| {
+                format!("invalid confidential-policy transition in world constructor: {error}")
+            })?;
+        world.rebuild_governance_read_indexes().map_err(|error| {
+            format!("invalid governance read indexes in world constructor: {error}")
+        })?;
         world.rebuild_nft_owner_index();
         world
             .rebuild_nft_custody_indexes()
-            .expect("invalid native NFT custody in world constructor");
+            .map_err(|error| format!("invalid native NFT custody in world constructor: {error}"))?;
         world.rebuild_rwa_indexes();
         world.rebuild_escrow_indexes();
-        world
-            .rebuild_game_session_indexes()
-            .expect("invalid game session indexes in world constructor");
+        world.rebuild_game_session_indexes().map_err(|error| {
+            format!("invalid game session indexes in world constructor: {error}")
+        })?;
         world
             .rebuild_vpn_lease_indexes()
-            .expect("invalid VPN lease indexes in world constructor");
+            .map_err(|error| format!("invalid VPN lease indexes in world constructor: {error}"))?;
         world.rebuild_repo_agreement_indexes();
         world.rebuild_proof_status_index();
-        world
-            .validate_identifier_claims()
-            .expect("identifier claims must match account bindings in world constructor");
-        world
+        world.validate_identifier_claims().map_err(|error| {
+            format!("identifier claims must match account bindings in world constructor: {error}")
+        })?;
+        Ok(world)
     }
     #[cfg(any(test, feature = "iroha-core-tests"))]
     /// Creates a [`World`] populated with assets and pre-defined roles.
@@ -26959,24 +26968,44 @@ impl State {
     pub fn metrics(&self) -> &StateTelemetry {
         &self.telemetry
     }
-    pub(crate) fn rebuild_derived_state_indexes(&mut self) -> core::result::Result<(), String> {
+    pub(crate) fn rebuild_derived_state_indexes(
+        &mut self,
+    ) -> core::result::Result<(), ExecutionAttemptError<String>> {
         let kaigi_retained_timestamp_ceiling = self.latest_block_creation_time_ms_fast();
-        crate::smartcontracts::isi::kaigi::rebuild_kaigi_relay_registry(&mut self.world)
-            .map_err(|error| format!("failed to rebuild Kaigi relay registry: {error}"))?;
+        crate::smartcontracts::isi::kaigi::rebuild_kaigi_relay_registry(&mut self.world).map_err(
+            |error| {
+                error.map_rejection(|error| {
+                    format!("failed to rebuild Kaigi relay registry: {error}")
+                })
+            },
+        )?;
         crate::smartcontracts::isi::kaigi::rebuild_kaigi_account_dependencies_at(
             &mut self.world,
             kaigi_retained_timestamp_ceiling,
         )
-        .map_err(|error| format!("failed to rebuild Kaigi account dependencies: {error}"))?;
+        .map_err(|error| {
+            error.map_rejection(|error| {
+                format!("failed to rebuild Kaigi account dependencies: {error}")
+            })
+        })?;
         let nexus = self.nexus_snapshot();
         let world = self.world_view_with_nexus(&nexus);
-        crate::smartcontracts::isi::kaigi::validate_rebuilt_kaigi_relay_registry(&world)
-            .map_err(|error| format!("failed to validate Kaigi relay registry: {error}"))?;
+        crate::smartcontracts::isi::kaigi::validate_rebuilt_kaigi_relay_registry(&world).map_err(
+            |error| {
+                error.map_rejection(|error| {
+                    format!("failed to validate Kaigi relay registry: {error}")
+                })
+            },
+        )?;
         crate::smartcontracts::isi::kaigi::validate_rebuilt_kaigi_account_dependencies_at(
             &world,
             kaigi_retained_timestamp_ceiling,
         )
-        .map_err(|error| format!("failed to validate Kaigi account dependencies: {error}"))?;
+        .map_err(|error| {
+            error.map_rejection(|error| {
+                format!("failed to validate Kaigi account dependencies: {error}")
+            })
+        })?;
         drop(world);
         self.world
             .rebuild_asset_definition_alias_indexes()
@@ -27025,7 +27054,7 @@ impl State {
     pub(crate) fn finalize_snapshot_derived_state_indexes(
         &mut self,
         emergency_fast: bool,
-    ) -> core::result::Result<(), String> {
+    ) -> core::result::Result<(), ExecutionAttemptError<String>> {
         if emergency_fast {
             iroha_logger::warn!(
                 "emergency Fast snapshot restore skipped final derived account and dataspace indexes"
@@ -27035,13 +27064,22 @@ impl State {
         let kaigi_retained_timestamp_ceiling = self.latest_block_creation_time_ms_fast();
         let nexus = self.nexus_snapshot();
         let world = self.world_view_with_nexus(&nexus);
-        crate::smartcontracts::isi::kaigi::validate_rebuilt_kaigi_relay_registry(&world)
-            .map_err(|error| format!("failed to validate Kaigi relay registry: {error}"))?;
+        crate::smartcontracts::isi::kaigi::validate_rebuilt_kaigi_relay_registry(&world).map_err(
+            |error| {
+                error.map_rejection(|error| {
+                    format!("failed to validate Kaigi relay registry: {error}")
+                })
+            },
+        )?;
         crate::smartcontracts::isi::kaigi::validate_rebuilt_kaigi_account_dependencies_at(
             &world,
             kaigi_retained_timestamp_ceiling,
         )
-        .map_err(|error| format!("failed to validate Kaigi account dependencies: {error}"))?;
+        .map_err(|error| {
+            error.map_rejection(|error| {
+                format!("failed to validate Kaigi account dependencies: {error}")
+            })
+        })?;
         drop(world);
         self.validate_musubi_pin_outbox_high_waters()?;
         let leases = self.world.vpn_leases.view();
@@ -27049,7 +27087,7 @@ impl State {
             validate_vpn_lease_network(record, &self.network_id)?;
         }
         drop(leases);
-        self.rebuild_snapshot_root_indexes()
+        self.rebuild_snapshot_root_indexes().map_err(Into::into)
     }
 
     fn validate_musubi_pin_outbox_high_waters(&self) -> core::result::Result<(), String> {
@@ -27068,7 +27106,7 @@ impl State {
 
     fn validate_kaigi_account_dependencies_at_authenticated_time(
         &self,
-    ) -> core::result::Result<(), String> {
+    ) -> core::result::Result<(), ExecutionAttemptError<String>> {
         let kaigi_retained_timestamp_ceiling = self.latest_block_creation_time_ms_fast();
         let nexus = self.nexus_snapshot();
         let world = self.world_view_with_nexus(&nexus);
@@ -27077,7 +27115,11 @@ impl State {
             kaigi_retained_timestamp_ceiling,
         )
         .map_err(|error| {
-            format!("failed to validate authenticated snapshot Kaigi account dependencies: {error}")
+            error.map_rejection(|error| {
+                format!(
+                    "failed to validate authenticated snapshot Kaigi account dependencies: {error}"
+                )
+            })
         })
     }
 
@@ -27768,7 +27810,14 @@ impl State {
             backend.attach_telemetry(telemetry_seed.clone());
         }
         s.rebuild_derived_state_indexes()
-            .map_err(MergeLedgerCommitError::ExecutionStatePublication)?;
+            .map_err(|error| match error {
+                ExecutionAttemptError::Rejected(error) => {
+                    MergeLedgerCommitError::ExecutionStatePublication(error)
+                }
+                ExecutionAttemptError::Deferred(reason) => {
+                    MergeLedgerCommitError::ExecutionDeferred(reason)
+                }
+            })?;
         #[cfg(feature = "telemetry")]
         {
             telemetry_seed.set_musubi_replication_shortfall_releases(
@@ -30792,19 +30841,6 @@ impl State {
     pub(crate) fn try_view_once(&self) -> Result<StateView<'_>, StateViewError> {
         StateViewReleases::new(self).try_view_once()
     }
-    /// Borrow the same view kernel while the enclosing owner retains every read notice.
-    #[track_caller]
-    fn view_with_index_releases(&self, releases: &mut LaneLifecycleReleases<'_>) -> StateView<'_> {
-        loop {
-            match self.try_view_once_with_index_releases(releases) {
-                Ok(view) => return view,
-                Err(StateViewError::Busy(_)) => {}
-                Err(error) => panic!("persisted State reader failed: {error}"),
-            }
-            self.note_view_generation_contention(core::panic::Location::caller());
-            std::thread::yield_now();
-        }
-    }
     #[track_caller]
     fn try_view_once_with_index_releases(
         &self,
@@ -30961,15 +30997,6 @@ impl State {
                 created_at: Instant::now(),
             });
         }
-    }
-    fn encode_pointer_abi_tlv(pointer_type: ivm::PointerType, payload: &[u8]) -> Option<Vec<u8>> {
-        let mut encoded = Vec::with_capacity(7 + payload.len() + Hash::LENGTH);
-        encoded.extend_from_slice(&(pointer_type as u16).to_be_bytes());
-        encoded.push(1);
-        encoded.extend_from_slice(&u32::try_from(payload.len()).ok()?.to_be_bytes());
-        encoded.extend_from_slice(payload);
-        encoded.extend_from_slice(Hash::new(payload).as_ref());
-        Some(encoded)
     }
     fn prune_lane_lifecycle_world_block_state_for_lanes(
         world: &mut WorldBlock<'_>,
@@ -34396,30 +34423,6 @@ fn ensure_autoscale_managed_lane_created_height_not_future(
     }
     ensure_no_retired_physical_drain_metadata(lane)?;
     Ok(())
-}
-fn ensure_autoscale_managed_lane_created_height_is_current(
-    lane: &iroha_data_model::nexus::LaneConfig,
-    block_height: u64,
-) -> Result<(), LaneLifecycleError> {
-    let created_height =
-        lane.autoscale_created_height()
-            .ok_or(LaneLifecycleError::InvalidAutoscaleManagedLane {
-                lane: lane.id,
-                reason: "autoscale.created_height must be a positive integer",
-            })?;
-    if created_height != block_height {
-        return Err(LaneLifecycleError::InvalidAutoscaleManagedLane {
-            lane: lane.id,
-            reason: "autoscale.created_height must equal the current block height",
-        });
-    }
-    Ok(())
-}
-fn ensure_autoscale_transition_matches_plan(
-    plan: &iroha_data_model::nexus::LaneLifecyclePlan,
-    _transition: &PendingAutoscaleTransition,
-) -> Result<(), LaneLifecycleError> {
-    ensure_physical_catalog_additions_only(plan)
 }
 #[cfg(test)]
 fn ensure_autoscale_managed_created_heights_not_future(
@@ -38129,52 +38132,6 @@ impl<'state> StateBlock<'state> {
             .into(),
         );
         Ok(self.world.take_external_events())
-    }
-    fn ensure_prospective_autoscale_lane_committee(
-        &self,
-        lane_id: LaneId,
-        lifecycle_update: &LaneLifecycleCatalogUpdate,
-        _proposal_height: u64,
-    ) -> Result<(), LaneLifecycleError> {
-        let dataspace = lifecycle_update
-            .updated_catalog
-            .lanes()
-            .iter()
-            .find(|lane| lane.id == lane_id)
-            .map_or(self.nexus.routing_policy.default_dataspace, |lane| {
-                lane.dataspace_id
-            });
-        let mut prospective_nexus = self.nexus.clone();
-        prospective_nexus.lane_catalog = lifecycle_update.updated_catalog.clone();
-        prospective_nexus.lane_config = lifecycle_update.updated_lane_config.clone();
-        let required = nexus_lane_committee_size(&prospective_nexus, dataspace).ok_or(
-            LaneLifecycleError::AutoscaleCommitteeSizeInvalid {
-                lane: lane_id,
-                dataspace,
-            },
-        )?;
-        let committee = prospective_nexus
-            .lane_catalog
-            .lanes()
-            .iter()
-            .find(|lane| lane.id == lane_id && lane.dataspace_id == dataspace)
-            .and_then(autoscale_lane_pinned_committee_with_pops)
-            .map(|committee| {
-                committee
-                    .into_iter()
-                    .map(|(peer, _)| peer)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        if committee.len() != required {
-            return Err(LaneLifecycleError::AutoscaleCommitteeUnavailable {
-                lane: lane_id,
-                dataspace,
-                required,
-                actual: committee.len(),
-            });
-        }
-        Ok(())
     }
     #[cfg(test)]
     fn stage_autoscale_sample_record(&mut self, block: &CommittedBlock) -> bool {

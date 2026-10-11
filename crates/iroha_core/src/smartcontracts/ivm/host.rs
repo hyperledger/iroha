@@ -3385,9 +3385,8 @@ impl<QS: Default + QueryStateAccess> CoreHostImpl<QS> {
         host.entrypoint_argument_record = record;
         host
     }
-    /// Replace the current contract-entrypoint argument record.
+    /// Replace the prepared root argument record without changing the firing event JSON.
     pub fn set_entrypoint_argument_record(&mut self, record: Option<ivm::PreparedArgumentRecord>) {
-        self.args = None;
         self.entrypoint_argument_record = record;
     }
     /// Enable the contract syscall surface for an unauthenticated local debug run.
@@ -10476,26 +10475,6 @@ impl<QS: QueryStateAccess + Default> IVMHost for CoreHostImpl<QS> {
                     let tlv = Self::expect_tlv(vm, name_ptr, PointerType::Name)?;
                     let name = Self::decode_name_payload(tlv.payload)?;
                     if name.as_ref() == TRIGGER_EVENT_PUBLIC_INPUT_KEY {
-                        if let Some(record) = self.entrypoint_argument_record.as_ref() {
-                            if !is_type_allowed_for_policy(
-                                vm.syscall_policy(),
-                                PointerType::NoritoBytes,
-                            ) {
-                                return Err(ivm::VMError::AbiTypeNotAllowed {
-                                    abi: vm.abi_version(),
-                                    type_id: PointerType::NoritoBytes as u16,
-                                });
-                            }
-                            let canonical_record = record.canonical_bytes();
-                            let bytes = u64::try_from(canonical_record.len()).unwrap_or(u64::MAX);
-                            let gas = PUBLIC_INPUT_GAS_BASE_DEFAULT.saturating_add(
-                                PUBLIC_INPUT_GAS_PER_BYTE_DEFAULT.saturating_mul(bytes),
-                            );
-                            ivm::host::preflight_reserved_syscall_gas(vm, gas)?;
-                            let ptr = Self::alloc_norito_bytes(vm, canonical_record)?;
-                            vm.set_register(10, ptr);
-                            return Ok(gas);
-                        }
                         let Some(args) = self.args.as_ref() else {
                             return Err(ivm::VMError::PermissionDenied);
                         };

@@ -136,6 +136,26 @@ fn existing_nine_attempt_subject_vector_prepays_each_hash_and_strict_check() {
 
 #[test]
 fn shared_controller_and_lifecycle_geometry_are_complete_without_new_validity() {
+    // Independently sum the retained predicate inputs, not Norito frame sizes.
+    const SINGLE_ACCOUNT_WORK: u64 = 1 + 1 + 32; // controller, algorithm, Ed25519 payload
+    const TWO_MEMBER_MULTISIG_WORK: u64 = 1 + (1 + 2 + 8) + 2 + 2 * (1 + 2 + 32);
+    // Controller, version/threshold/count, two advances, algorithm/weight/key per member.
+    const LIFECYCLE_FIELDS: u64 = 2 // u16 version
+        + 8 // u64 revision
+        + 1 // active-code-hash option
+        + 1 // retained-code-hash option
+        + 1 // pending-owner option
+        + 1 // Parliament delegation
+        + 1 // origin discriminant
+        + 1; // emergency-hold option
+    const DIRECT_WORK: u64 = LIFECYCLE_FIELDS + 1 + SINGLE_ACCOUNT_WORK;
+    const PENDING_WORK: u64 = DIRECT_WORK + 1 + TWO_MEMBER_MULTISIG_WORK;
+    const HOLD_FIELDS: u64 = 3 * 32 + 2 * 8; // three digests and two u64 heights
+    const HOLD_REASON: u64 = 4096 + 8; // original whitespace and "incident" bytes
+    const HELD_WORK: u64 = DIRECT_WORK + HOLD_FIELDS + HOLD_REASON;
+    const PARLIAMENT_WORK: u64 = LIFECYCLE_FIELDS + 1 + 2 * 32;
+    // The owner tags above are separate from AccountId controller tags. Direct
+    // deployer and Parliament proposer are historical, uninspected origin fields.
     let owner = multi();
     for (left, right, exact) in [
         (ALICE_ID.clone(), BOB_ID.clone(), 68),
@@ -180,10 +200,10 @@ fn shared_controller_and_lifecycle_geometry_are_complete_without_new_validity() 
         [2; 32],
     );
     for (lifecycle, exact) in [
-        (&direct, 49),
-        (&pending, 134),
-        (&held, 49 + 112 + 4104),
-        (&parliament, 79),
+        (&direct, DIRECT_WORK),
+        (&pending, PENDING_WORK),
+        (&held, HELD_WORK),
+        (&parliament, PARLIAMENT_WORK),
     ] {
         assert_eq!(
             without_allocations(|| kind(prepay_lifecycle(

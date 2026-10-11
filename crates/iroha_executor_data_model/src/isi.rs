@@ -5,12 +5,7 @@ use iroha_data_model::{
     prelude::{Json, *},
 };
 use iroha_schema::IntoSchema;
-use std::{
-    collections::BTreeMap,
-    format,
-    string::{String, ToString},
-    vec::Vec,
-};
+use std::{collections::BTreeMap, format, string::String, vec::Vec};
 macro_rules! impl_custom_instruction {
     ($box:ty, $($instruction:ty)|+) => {
         impl From<$box> for CustomInstruction {
@@ -50,7 +45,7 @@ pub mod multisig {
     use core::num::{NonZeroU16, NonZeroU64};
     use iroha_crypto::{HashOf, KeyPair};
     use iroha_model_base::domain::DomainId;
-    use norito::json::{self, JsonDeserialize, JsonSerialize, Value};
+    use norito::json::{self, JsonDeserialize, JsonSerialize};
     use std::{borrow::ToOwned, collections::BTreeSet};
     /// Multisig-related instructions
     #[derive(
@@ -589,9 +584,8 @@ pub mod multisig {
     }
     /// Immutable transaction-bound evidence that a multisig proposal became terminal.
     ///
-    /// This is intentionally a distinct versioned value instead of extending
-    /// [`MultisigProposalTerminalState`], whose persisted Norito schema must remain decodable for
-    /// existing ledgers.
+    /// This evidence binds the terminal proposal to the exact transaction entrypoint and
+    /// finalized height, in addition to the proposal payload in [`MultisigProposalTerminalState`].
     #[derive(
         Debug,
         Clone,
@@ -686,6 +680,7 @@ pub mod multisig {
         Encode,
         IntoSchema,
         Constructor,
+        norito::JsonDeserialize,
         norito::NoritoSchema,
     )]
     #[norito_schema(name = "iroha_executor_data_model::isi::multisig::MultisigSpec")]
@@ -709,6 +704,7 @@ pub mod multisig {
         Encode,
         IntoSchema,
         Constructor,
+        norito::JsonDeserialize,
         norito::NoritoSchema,
     )]
     #[norito_schema(name = "iroha_executor_data_model::isi::multisig::MultisigProposalValue")]
@@ -765,64 +761,6 @@ pub mod multisig {
             out.end_container();
             result?;
             Ok(())
-        }
-    }
-    impl JsonDeserialize for MultisigSpec {
-        fn json_deserialize(parser: &mut json::Parser<'_>) -> Result<Self, json::Error> {
-            let mut visitor = json::MapVisitor::new(parser)?;
-            let mut signatories: Option<BTreeMap<AccountId, Weight>> = None;
-            let mut quorum: Option<NonZeroU16> = None;
-            let mut transaction_ttl_ms: Option<NonZeroU64> = None;
-            while let Some(key) = visitor.next_key()? {
-                match key.as_str() {
-                    "signatories" => {
-                        let raw = visitor.parse_value::<Value>()?;
-                        let map = match raw {
-                            Value::Object(map) => map,
-                            _ => {
-                                return Err(json::Error::InvalidField {
-                                    field: "signatories".into(),
-                                    message: "expected object".into(),
-                                });
-                            }
-                        };
-                        let mut parsed = BTreeMap::new();
-                        for (account, weight_value) in map {
-                            let account_id = AccountId::parse_encoded(&account).map_err(|err| {
-                                json::Error::InvalidField {
-                                    field: format!("signatories.{account}"),
-                                    message: err.to_string(),
-                                }
-                            })?;
-                            let weight: Weight = json::from_value(weight_value)?;
-                            parsed.insert(account_id, weight);
-                        }
-                        signatories = Some(parsed);
-                    }
-                    "quorum" => {
-                        let value = visitor.parse_value::<NonZeroU16>()?;
-                        quorum = Some(value);
-                    }
-                    "transaction_ttl_ms" => {
-                        let value = visitor.parse_value::<NonZeroU64>()?;
-                        transaction_ttl_ms = Some(value);
-                    }
-                    _ => {
-                        visitor.skip_value()?;
-                    }
-                }
-            }
-            visitor.finish()?;
-            let signatories =
-                signatories.ok_or_else(|| json::Error::missing_field("signatories"))?;
-            let quorum = quorum.ok_or_else(|| json::Error::missing_field("quorum"))?;
-            let transaction_ttl_ms = transaction_ttl_ms
-                .ok_or_else(|| json::Error::missing_field("transaction_ttl_ms"))?;
-            Ok(Self {
-                signatories,
-                quorum,
-                transaction_ttl_ms,
-            })
         }
     }
     impl JsonSerialize for MultisigProposalValue {
@@ -884,59 +822,6 @@ pub mod multisig {
             Ok(())
         }
     }
-    impl JsonDeserialize for MultisigProposalValue {
-        fn json_deserialize(parser: &mut json::Parser<'_>) -> Result<Self, json::Error> {
-            let mut visitor = json::MapVisitor::new(parser)?;
-            let mut instructions: Option<Vec<InstructionBox>> = None;
-            let mut proposed_at_ms: Option<u64> = None;
-            let mut expires_at_ms: Option<u64> = None;
-            let mut approvals: Option<BTreeSet<AccountId>> = None;
-            let mut is_relayed: Option<Option<bool>> = None;
-            while let Some(key) = visitor.next_key()? {
-                match key.as_str() {
-                    "instructions" => {
-                        let value = visitor.parse_value::<Vec<InstructionBox>>()?;
-                        instructions = Some(value);
-                    }
-                    "proposed_at_ms" => {
-                        let value = visitor.parse_value::<u64>()?;
-                        proposed_at_ms = Some(value);
-                    }
-                    "expires_at_ms" => {
-                        let value = visitor.parse_value::<u64>()?;
-                        expires_at_ms = Some(value);
-                    }
-                    "approvals" => {
-                        let value = visitor.parse_value::<BTreeSet<AccountId>>()?;
-                        approvals = Some(value);
-                    }
-                    "is_relayed" => {
-                        let value = visitor.parse_value::<Option<bool>>()?;
-                        is_relayed = Some(value);
-                    }
-                    _ => {
-                        visitor.skip_value()?;
-                    }
-                }
-            }
-            visitor.finish()?;
-            let instructions =
-                instructions.ok_or_else(|| json::Error::missing_field("instructions"))?;
-            let proposed_at_ms =
-                proposed_at_ms.ok_or_else(|| json::Error::missing_field("proposed_at_ms"))?;
-            let expires_at_ms =
-                expires_at_ms.ok_or_else(|| json::Error::missing_field("expires_at_ms"))?;
-            let approvals = approvals.ok_or_else(|| json::Error::missing_field("approvals"))?;
-            let is_relayed = is_relayed.unwrap_or(None);
-            Ok(Self {
-                instructions,
-                proposed_at_ms,
-                expires_at_ms,
-                approvals,
-                is_relayed,
-            })
-        }
-    }
     impl From<MultisigSpec> for Json {
         fn from(details: MultisigSpec) -> Self {
             Json::new(details)
@@ -946,7 +831,7 @@ pub mod multisig {
         type Error = norito::Error;
         fn try_from(payload: &Json) -> Result<Self, norito::Error> {
             norito::json::from_str::<Self>(payload.as_ref())
-                .map_err(|e| norito::Error::from(e.to_string()))
+                .map_err(norito::json::Error::into_core_error)
         }
     }
     impl From<MultisigProposalValue> for Json {
@@ -958,7 +843,7 @@ pub mod multisig {
         type Error = norito::Error;
         fn try_from(payload: &Json) -> Result<Self, norito::Error> {
             norito::json::from_str::<Self>(payload.as_ref())
-                .map_err(|e| norito::Error::from(e.to_string()))
+                .map_err(norito::json::Error::into_core_error)
         }
     }
     #[cfg(test)]
@@ -1516,8 +1401,8 @@ pub mod multisig {
 
             use norito::json::{BoundedJsonError, JsonSerialize, JsonWriteSink};
 
-            pub(crate) const ORIGINAL_DEPTH: usize = 7;
-            pub(crate) struct OriginalSink {
+            pub const ORIGINAL_DEPTH: usize = 7;
+            pub struct OriginalSink {
                 pub(crate) text: String,
                 pub(crate) depth: usize,
                 cap: usize,
@@ -1568,7 +1453,7 @@ pub mod multisig {
                 }
             }
             /// Retain exact bytes/errors/depth on every byte cap and every actual entry refusal.
-            pub(crate) fn audit_write(
+            pub fn audit_write(
                 ordinary: &str,
                 write: impl Fn(&mut dyn JsonWriteSink) -> Result<(), BoundedJsonError>,
             ) {
@@ -1613,7 +1498,7 @@ pub mod multisig {
                 assert_eq!(retry.depth, ORIGINAL_DEPTH);
             }
             /// Observe the same owning object via ordinary and checked canonical writers.
-            pub(crate) fn audit<T: JsonSerialize + ?Sized>(value: &T) {
+            pub fn audit<T: JsonSerialize + ?Sized>(value: &T) {
                 let original = std::ptr::from_ref(value);
                 let mut ordinary = String::new();
                 value.json_serialize(&mut ordinary);

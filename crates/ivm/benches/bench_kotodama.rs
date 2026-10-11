@@ -70,7 +70,7 @@ fn add_argument_host(program: &[u8]) -> DefaultHost {
     let payload = Json::from(norito::json!({"a": "4", "b": "7"}));
     let payload = ivm_abi::arguments::encode_argument_record_from_json(schema, &payload)
         .expect("encode canonical benchmark argument record");
-    let key: Name = "trigger_event_json"
+    let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
         .parse()
         .expect("public input key is a Name");
     DefaultHost::new().with_public_inputs(BTreeMap::from([(

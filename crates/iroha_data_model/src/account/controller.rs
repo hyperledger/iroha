@@ -12,6 +12,8 @@ use norito::codec::{Decode, Encode};
 use std::{alloc::Layout, vec::Vec};
 use thiserror::Error;
 
+#[cfg(test)]
+mod borrowed_validation_tests;
 mod canonical_decode;
 /// Controller responsible for authorising account actions.
 #[derive(
@@ -239,7 +241,11 @@ impl MultisigPolicy {
         })
     }
     /// Validate borrowed serialized members without cloning keys or normalizing their order.
-    pub(super) fn validate_canonical_members<'a>(
+    ///
+    /// # Errors
+    /// Preserves the serialized constructor's version, count, threshold, key,
+    /// weight and complete-key ordering failures before any ownership transfer.
+    pub(crate) fn validate_canonical_members<'a>(
         version: u8,
         threshold: u16,
         members: impl ExactSizeIterator<Item = (&'a PublicKey, u16)>,
@@ -449,8 +455,23 @@ impl MultisigMember {
     ///
     /// # Errors
     ///
-    /// Returns [`MultisigPolicyError::MemberWeightZero`] if `weight` is zero.
+    /// Rejects zero weight, malformed keys and unsupported signing curves.
     pub fn new(public_key: PublicKey, weight: u16) -> Result<Self, MultisigPolicyError> {
+        Self::validate_components(&public_key, weight)?;
+        Ok(Self { public_key, weight })
+    }
+    /// Validate the original borrowed member before transferring its funded key.
+    ///
+    /// Uses the constructor's validation order without consuming, cloning or
+    /// changing the key. Retained decoders can therefore reject and retry while
+    /// keeping the same original compact backing and allocation charge.
+    ///
+    /// # Errors
+    /// Rejects zero weight, malformed keys and unsupported signing curves.
+    pub(crate) fn validate_components(
+        public_key: &PublicKey,
+        weight: u16,
+    ) -> Result<(), MultisigPolicyError> {
         if weight == 0 {
             return Err(MultisigPolicyError::MemberWeightZero);
         }
@@ -459,7 +480,7 @@ impl MultisigMember {
             .map_err(|_| MultisigPolicyError::MalformedPublicKey)?;
         CurveId::try_from_algorithm(algorithm)
             .map_err(|_| MultisigPolicyError::UnsupportedCurve(algorithm))?;
-        Ok(Self { public_key, weight })
+        Ok(())
     }
     fn zeroize_for_confidential_discard(&mut self) {
         self.public_key.zeroize_for_confidential_discard();

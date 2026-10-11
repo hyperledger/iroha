@@ -1617,6 +1617,12 @@ pub(super) fn with_paid_prepare_retry_fixture(
     paid_borrowed_custody::with_paid_prepare_retry_fixture(test);
 }
 
+pub(super) fn with_paid_multisig_prepare_retry_fixture(
+    test: impl FnOnce(&CertifiedTestChain, InstructionBox, KeyPair),
+) {
+    paid_borrowed_custody::with_paid_multisig_prepare_retry_fixture(test);
+}
+
 pub(super) fn with_paid_prepare_pruning_fixture(
     test: impl FnOnce(&CertifiedTestChain, [InstructionBox; 3], KeyPair, [[u8; 32]; 2]),
 ) {
@@ -1624,3 +1630,5 @@ pub(super) fn with_paid_prepare_pruning_fixture(
 }
 
 mod returned_context;
+
+mod multisig_semantic;

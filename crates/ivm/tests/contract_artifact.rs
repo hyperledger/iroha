@@ -738,9 +738,14 @@ fn sdk_code_readback_fixture_is_reproducible_and_admitted() {
         admitted.code_hash,
         iroha_data_model::smart_contract::contract_code_hash(artifact)
     );
+    let manifest: iroha_data_model::smart_contract::manifest::ContractManifest =
+        norito::json::from_str(include_str!(
+            "../../iroha/tests/fixtures/contract_code_readback/code_readback.manifest.json"
+        ))
+        .expect("decode the compiler-owned SDK contract manifest");
     assert_eq!(
-        hex::encode(admitted.code_hash.as_ref()),
-        "a8a8fecae1cd393962c6a5e39fb7a3ffc8927d0613731213a982da53145b1ed7"
+        admitted.manifest, manifest,
+        "the shared fixture identity must match the independently admitted artifact"
     );
 }
 #[test]

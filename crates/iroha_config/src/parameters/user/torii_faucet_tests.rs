@@ -7,12 +7,13 @@ static NEXT_KEY_FILE: AtomicU64 = AtomicU64::new(0);
 struct TestKeyFile(PathBuf);
 impl TestKeyFile {
     fn create(contents: &str) -> Self {
+        use std::io::Write as _;
+
         let sequence = NEXT_KEY_FILE.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
             "iroha-config-faucet-{}-{sequence}.key",
             std::process::id()
         ));
-        use std::io::Write as _;
         let mut options = fs::OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]

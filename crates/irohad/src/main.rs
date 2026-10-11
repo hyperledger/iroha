@@ -2628,7 +2628,9 @@ impl Iroha {
                     [],
                     &state_execution_budget,
                 )
-                .map_err(|error| Report::new(error).change_context(StartError::InitKura))?;
+                .map_err(|error: iroha_core::state::WorldConstructionError| {
+                    Report::new(error).change_context(StartError::InitKura)
+                })?;
                 if let Some(genesis_block) = effective_genesis {
                     iroha_core::sns::seed_genesis_alias_bootstrap(
                         &mut world,
@@ -8717,7 +8719,9 @@ fn validate_genesis_execution_offline(
         [],
         &execution_budget,
     )
-    .map_err(|error| Report::new(error).change_context(MainError::Config))?;
+    .map_err(|error: iroha_core::state::WorldConstructionError| {
+        Report::new(error).change_context(MainError::Config)
+    })?;
     iroha_core::sns::seed_genesis_alias_bootstrap(
         &mut world,
         &genesis.0,
@@ -11119,7 +11123,7 @@ mod tests {
                 [],
                 &budget,
             )
-            .expect("genesis world");
+            .expect("completed genesis World initialization");
             iroha_core::sns::seed_genesis_alias_bootstrap(
                 &mut world,
                 &provisional.0,

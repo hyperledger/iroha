@@ -263,9 +263,9 @@ ledger::account::set_metadata(
         .contract_subject_addresses
         .insert(contract_address.subject_id(), contract_address.clone());
     let entrypoint_permission: Permission =
-        iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
+        iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
             contract: contract_address.clone(),
-            entrypoint: "run".to_owned(),
+            permission: "CanInvokeContractEntrypoint".parse().unwrap(),
         }
         .into();
     let mut permissions = iroha_data_model::permission::Permissions::new();
@@ -342,13 +342,17 @@ ledger::account::set_metadata(
         .next()
         .map(|(_, error)| error)
         .expect("the gas-capped contract call must fail");
-    assert!(
-        matches!(
-            error,
-            TransactionRejectionReason::Validation(ValidationFail::NotPermitted(message))
-                if message.contains("gas")
-        ),
-        "unexpected VM rejection: {error:?}"
+    let TransactionRejectionReason::Validation(ValidationFail::IvmFault(fault)) = error else {
+        panic!("contract VM exhaustion must retain its structured execution fault: {error:?}");
+    };
+    assert_eq!(
+        fault.kind,
+        iroha_data_model::executor::fault::IvmFaultKindV1::OutOfGas
+    );
+    assert_eq!(fault.site.code_hash, code_hash);
+    assert_eq!(
+        fault.site.selector,
+        iroha_data_model::executor::fault::IvmInvocationSelectorV1::Entrypoint(0)
     );
     let assets = state_block.world.assets();
     let payer_balance = assets

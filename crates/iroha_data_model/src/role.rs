@@ -474,15 +474,23 @@ impl core::fmt::Display for RoleIdWithOwner {
         write!(f, "{}|{}", self.account, self.id)
     }
 }
+// One borrowed grammar boundary is shared by text and JSON storage keys.
+// Each API retains its own account error owner; JSON must keep codec provenance.
+// I105 accounts cannot contain `|`; the complete suffix is the role name,
+// whose canonical Name grammar permits additional `|` characters.
+fn role_id_with_owner_components(
+    encoded: &str,
+) -> Result<(&str, &str), iroha_model_base::error::ParseError> {
+    encoded
+        .split_once('|')
+        .ok_or(iroha_model_base::error::ParseError::new(
+            "RoleIdWithOwner must be formatted as `account|role`",
+        ))
+}
 impl core::str::FromStr for RoleIdWithOwner {
     type Err = iroha_model_base::error::ParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        const SEPARATOR: char = '|';
-        let (account_raw, role_raw) =
-            s.split_once(SEPARATOR)
-                .ok_or(iroha_model_base::error::ParseError::new(
-                    "RoleIdWithOwner must be formatted as `account|role`",
-                ))?;
+        let (account_raw, role_raw) = role_id_with_owner_components(s)?;
         let account = AccountId::parse_encoded(account_raw).map_err(|_| {
             iroha_model_base::error::ParseError::new("Invalid account component in RoleIdWithOwner")
         })?;
@@ -497,9 +505,26 @@ impl norito::json::JsonKeyCodec for RoleIdWithOwner {
         norito::json::write_json_string(&self.to_string(), out);
     }
     fn decode_json_key(encoded: &str) -> Result<Self, norito::json::Error> {
-        encoded
-            .parse::<RoleIdWithOwner>()
-            .map_err(|err| norito::json::Error::Message(err.to_string()))
+        let (account_raw, role_raw) = role_id_with_owner_components(encoded)
+            .map_err(|error| norito::json::Error::Message(error.to_string()))?;
+        let account =
+            <AccountId as norito::json::JsonObjectKeyOwned>::from_json_key_text(account_raw)
+                .map_err(|error| {
+                    if cfg!(all(test, sumeragi_model_mutation = "DM26"))
+                        && matches!(
+                            error,
+                            norito::json::Error::ScopedDecodeResource(_)
+                                | norito::json::Error::DecodeResource(_)
+                        )
+                    {
+                        return norito::json::Error::Message(error.to_string());
+                    }
+                    error
+                })?;
+        let id = role_raw.parse().map_err(|_| {
+            norito::json::Error::Message("Invalid role component in RoleIdWithOwner".into())
+        })?;
+        Ok(Self { account, id })
     }
 }
 
@@ -508,6 +533,10 @@ mod native_assignment_tests {
     use super::*;
     #[test]
     fn role_assignment_storage_keys_preserve_original_account_refusal_and_retry() {
+        use norito::core::{
+            DecodeAttemptErrorKind, DecodeBudgetContext, DecodeResourceError,
+            classify_decode_attempt,
+        };
         use norito::json::JsonKeyCodec as _;
         let expected = RoleIdWithOwner::new(
             AccountId::new(
@@ -535,10 +564,6 @@ mod native_assignment_tests {
                 assert_eq!(restored.view().get(&expected), Some(&()));
             }
             Ok(())
-        };
-        use norito::core::{
-            DecodeAttemptErrorKind, DecodeBudgetContext, DecodeResourceError,
-            classify_decode_attempt,
         };
         let limits = |bytes| {
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
@@ -623,7 +648,7 @@ mod native_assignment_tests {
         for invalid in [
             "no_separator".to_owned(),
             "alice@banka.dataspace|reader".to_owned(),
-            format!("{}|bad|role", expected.account),
+            format!("{}|bad#role", expected.account),
         ] {
             let error = RoleIdWithOwner::decode_json_key(&invalid).unwrap_err();
             assert!(error.into_core_error().decode_resource_error().is_none());
@@ -651,5 +676,44 @@ mod native_assignment_tests {
             crate::sumeragi_finality::world_state_value_hash_v1(&changed).unwrap()
         );
         assert!("no_separator".parse::<RoleIdWithOwner>().is_err());
+    }
+
+    #[test]
+    fn native_assignment_keys_roundtrip_complete_role_names_containing_pipes() {
+        use norito::json::JsonKeyCodec as _;
+        let account = AccountId::new(
+            iroha_crypto::KeyPair::try_from_seed(vec![42; 32], iroha_crypto::Algorithm::Ed25519)
+                .unwrap()
+                .public_key()
+                .clone(),
+        );
+        let storage = mv::storage::Storage::<RoleIdWithOwner, ()>::new();
+        for role in ["reader|writer", "|reader", "reader|"] {
+            let expected = RoleIdWithOwner::new(account.clone(), role.parse().unwrap());
+            let literal = expected.to_string();
+            assert_eq!(literal.parse::<RoleIdWithOwner>().unwrap(), expected);
+            assert_eq!(
+                RoleIdWithOwner::decode_json_key(&literal).unwrap(),
+                expected
+            );
+            let mut key = String::new();
+            expected.encode_json_key(&mut key);
+            assert_eq!(norito::json::from_json::<String>(&key).unwrap(), literal);
+            let frame = norito::encode_canonical(&expected).unwrap();
+            assert_eq!(
+                norito::decode_canonical::<RoleIdWithOwner>(&frame).unwrap(),
+                expected
+            );
+            let mut block = storage.block();
+            block.insert(expected, ());
+            block.commit();
+        }
+        let wire = norito::json::to_json(&storage).unwrap();
+        let restored: mv::storage::Storage<RoleIdWithOwner, ()> =
+            norito::json::from_json(&wire).unwrap();
+        for role in ["reader|writer", "|reader", "reader|"] {
+            let expected = RoleIdWithOwner::new(account.clone(), role.parse().unwrap());
+            assert_eq!(restored.view().get(&expected), Some(&()));
+        }
     }
 }

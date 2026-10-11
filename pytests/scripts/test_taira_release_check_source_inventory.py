@@ -29,6 +29,24 @@ class SelectedSourceInventoryTests(unittest.TestCase):
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text(text)
 
+    def test_core_account_key_and_governance_dto_controls_are_exact_required_in_both_scopes(self):
+        root = SCRIPT.parents[1]
+        names = ('state::account_key_refusal_tests::upload_account_key_preserves_original_refusal_fields_scope_and_same_source_retry', 'state::account_key_refusal_tests::governance_lock_account_key_preserves_original_refusal_fields_scope_and_same_source_retry', 'state::account_key_refusal_tests::governance_slash_account_key_preserves_original_refusal_fields_scope_and_same_source_retry', 'state::account_key_refusal_tests::governance_locks_dto_keeps_exact_json_layout_and_rejects_duplicate_account_keys', 'state::account_key_refusal_tests::governance_slash_dto_keeps_exact_json_layout_and_rejects_duplicate_account_keys')
+        for scope in gate.QUALIFICATION_SCOPES:
+            selected = gate.qualification_stages(scope)
+            current = [name for _, cases in selected["core"] for name in cases]
+            for name in names:
+                with self.subTest(scope=scope, name=name):
+                    self.assertEqual(current.count(name), 1)
+                    focused = gate.focused_regression_stages(scope, ("core=" + name,))
+                    self.assertEqual(tuple(focused), ("core",))
+                    self.assertEqual([item for _, cases in focused["core"] for item in cases], [name])
+                    gate.validate_selected_source_test_inventory(root, focused)
+                    gate.require_tests(name + ": test", focused["core"])
+                    listing = "\n".join(item + ": test" for item in current if item != name)
+                    with self.assertRaisesRegex(gate.CheckError, "required regressions missing"):
+                        gate.require_tests(listing, selected["core"])
+
     def test_direct_and_generated_test_declarations_cover_selected_stages(self):
         self.source("iroha_torii", "src/routing.rs", """
             routing_test! { async selected_route { } }

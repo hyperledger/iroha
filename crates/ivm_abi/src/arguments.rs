@@ -25,6 +25,11 @@ use iroha_primitives::{
 };
 use norito::json as njson;
 use std::str::FromStr;
+/// Public-input name for the canonical root entrypoint argument record.
+///
+/// Default root preparation requires a `NoritoBytes` TLV under this name.
+/// The firing-event JSON uses its separate `trigger_event_json` input.
+pub const ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY: &str = "entrypoint_argument_record";
 fn decode_int(value: &njson::Value) -> Result<BigInt, VMError> {
     let raw = value.as_str().ok_or(VMError::DecodeError)?;
     let parsed: BigInt = raw.parse().map_err(|_| VMError::DecodeError)?;

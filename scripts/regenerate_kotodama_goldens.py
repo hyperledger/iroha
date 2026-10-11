@@ -71,6 +71,9 @@ EXTRA_ZK_SOURCES = frozenset(
     }
 )
 COMPILER_MANIFESTS = {
+    Path("crates/iroha/tests/fixtures/contract_code_readback/code_readback.ko"): Path(
+        "crates/iroha/tests/fixtures/contract_code_readback/code_readback.manifest.json"
+    ),
     Path("demo/authority_probe.ko"): Path("demo/authority_probe.manifest.json"),
     Path("crates/kotodama_lang/src/samples/irohaswap.ko"): Path(
         "demo/irohaswap.manifest.json"
@@ -81,6 +84,7 @@ COMPILER_MANIFESTS = {
     ),
 }
 FORBIDDEN_LEGACY_OUTPUTS = (
+    Path("crates/iroha/tests/fixtures/contract_code_readback/provenance.json"),
     Path("crates/ivm/docs/examples/01_init.to"),
     Path("crates/ivm/docs/examples/02_entry_fn.to"),
     Path("crates/ivm/docs/examples/03_upgrade.to"),

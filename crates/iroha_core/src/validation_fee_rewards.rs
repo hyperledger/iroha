@@ -688,7 +688,12 @@ pub(crate) fn credit_collected_fee(
         .map_err(|error| string_attempt_instruction_error(stx, error))
         .map_err(rejection)?;
     let binding = crate::validation_fee::active_payout_binding_at_height(stx, stx.block_height())
-        .map_err(|error| error_attempt_transaction_error(stx, error))?
+        .map_err(|error| {
+            error_attempt_transaction_error(
+                stx,
+                error.map_rejection(crate::validation_fee::admission_rejection),
+            )
+        })?
         .ok_or_else(|| {
             rejection(fail(
                 "collected fee has no finalized Parliament conversion policy",

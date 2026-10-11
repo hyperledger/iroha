@@ -27975,13 +27975,17 @@ mod tests {
         assert_canonical_account_signed_request(&client, snapshot);
     }
     fn compiled_contract_code_artifact_fixture() -> &'static [u8] {
-        // Retained compiler-produced, admitted public fixture; regeneration and
-        // provenance live beside these repository-local bytes. No compiler is
-        // required to run the SDK regression.
+        // The canonical compiler owner publishes this artifact and its manifest
+        // together after independent native admission. No compiler is needed here.
         let artifact = include_bytes!("../tests/fixtures/contract_code_readback/code_readback.to");
+        let manifest: iroha_data_model::smart_contract::manifest::ContractManifest =
+            norito::json::from_str(include_str!(
+                "../tests/fixtures/contract_code_readback/code_readback.manifest.json"
+            ))
+            .expect("decode the compiler-owned SDK contract manifest");
         assert_eq!(
-            hex::encode(iroha_data_model::smart_contract::contract_code_hash(artifact).as_ref()),
-            "c6005c844c0414f55939dc48b9ecf6e550f967db06f5af4f422b4cf1bb64c5bb",
+            iroha_data_model::smart_contract::contract_code_hash(artifact),
+            manifest.code_hash.expect("native artifact identity"),
             "checked-in fixture must retain its native artifact identity"
         );
         artifact

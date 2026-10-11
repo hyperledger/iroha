@@ -123,18 +123,6 @@ const SYNTHETIC_LANE_LIFECYCLE_HEADER_DOMAIN: &[u8] =
 fn lane_incarnation_is_zero(incarnation: Hash) -> bool {
     incarnation.as_ref().iter().all(|byte| *byte == 0)
 }
-fn lane_incarnation_matches_at_height(
-    incarnations: &BTreeMap<LaneId, Hash>,
-    activation_heights: &BTreeMap<LaneId, u64>,
-    lane_id: LaneId,
-    proposal_height: u64,
-    actual: Hash,
-) -> bool {
-    incarnations.get(&lane_id) == Some(&actual)
-        && activation_heights
-            .get(&lane_id)
-            .is_some_and(|activation_height| proposal_height > *activation_height)
-}
 #[cfg(test)]
 fn synthetic_lane_lifecycle_header_hash(
     network_id: &iroha_data_model::NetworkId,

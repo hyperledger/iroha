@@ -110,7 +110,9 @@ fn input_host(contract: &PreparedContract, prepared: bool) -> InputHost {
     InputHost {
         prepared: prepared.then_some(owner),
         inner: DefaultHost::default().with_public_inputs(BTreeMap::from([(
-            "trigger_event_json".parse().unwrap(),
+            ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+                .parse()
+                .unwrap(),
             tlv,
         )])),
         foreign,

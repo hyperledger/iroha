@@ -71,7 +71,9 @@ fn compile_and_run(source: &str, arguments: Option<&Json>) -> (IVM, Result<(), V
         .expect("run entrypoint descriptor");
     let entry_pc = u64::try_from(parsed.prefix_len()).expect("prefix fits u64") + run.entry_pc;
     let host = if let Some(arguments) = arguments {
-        let key: Name = "trigger_event_json".parse().expect("public input key");
+        let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+            .parse()
+            .expect("public input key");
         DefaultHost::new()
             .with_network_id(common::test_network_id(0x71))
             .with_public_inputs(BTreeMap::from([(key, argument_record_tlv(run, arguments))]))

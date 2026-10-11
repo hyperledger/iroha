@@ -350,7 +350,7 @@ pub(super) fn values() -> Vec<Value> {
         .validate()
         .expect("canonical pin-outbox generated record fixture");
     records.push(capture(pin_outbox_advance));
-    assert_eq!(records.len(), 31);
+    assert_eq!(records.len(), 30);
     records
 }
 

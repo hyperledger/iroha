@@ -299,6 +299,6 @@ pub(crate) use native::{execute_prepare_original, execute_settle_original};
 
 #[cfg(test)]
 pub(crate) use native::{
-    NativeLegExecutionError, NativeLegRetryObservation, with_paid_prepare_pruning_fixture,
-    with_paid_prepare_retry_fixture,
+    NativeLegExecutionError, NativeLegRetryObservation, with_paid_multisig_prepare_retry_fixture,
+    with_paid_prepare_pruning_fixture, with_paid_prepare_retry_fixture,
 };

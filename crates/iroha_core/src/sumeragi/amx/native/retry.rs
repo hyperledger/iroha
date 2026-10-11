@@ -1,15 +1,17 @@
-//! Original Worker-owned completed leg graphs, with no execution-result cache.
+//! Original Worker-owned partial and completed leg graphs, without result caching.
 //!
 //! Each direct signed occurrence has its own physical source identity. The bank
 //! belongs to the same signature/source attempt and never grants State authority.
-//! TODO: retain partial decode/captured diagnostics through Worker deferral and
-//! extend this custody to indirect invocation owners without restricting them.
+//! TODO: fund captured diagnostic Strings and extend this custody to indirect
+//! invocation owners without restricting their valid execution paths.
 
 use super::{AmxLegDecodeErrorV1, PrepareAmxV1};
 use iroha_allocation::{AllocationBudget, ChargedBuffer, ChargedBufferError};
 use iroha_data_model::{
     block::SignedBlock,
-    sumeragi_amx::{AmxTransferLegV1, CompletedAmxTransferLegDecodeV1},
+    sumeragi_amx::{
+        AmxTransferLegV1, CompletedAmxTransferLegDecodeV1, PendingAmxTransferLegDecodeV1,
+    },
     transaction::{Executable, SignedTransaction, TransactionEntrypoint},
 };
 use iroha_sumeragi::availability::{AvailabilityFrame, AvailableBody, PayloadBytes};
@@ -21,6 +23,10 @@ struct Occurrence {
     frame: usize,
     frame_len: usize,
 }
+struct PendingOccurrence {
+    leg: PendingAmxTransferLegDecodeV1,
+    occurrence: Occurrence,
+}
 struct CompletedOccurrence {
     // The actual values and decoder controls retire before enclosing metadata.
     leg: CompletedAmxTransferLegDecodeV1,
@@ -30,6 +36,8 @@ struct CompletedOccurrence {
 /// Inline owner attached to one original SignatureDecodeAttempt.
 /// No unrelated State cache or equal-value deduplication participates.
 pub(crate) struct NativeAmxLegPreparations {
+    pending: Option<PendingOccurrence>,
+    parked: Option<ChargedBuffer<Option<PendingOccurrence>>>,
     staged: Option<CompletedOccurrence>,
     completed: Option<ChargedBuffer<CompletedOccurrence>>,
     // Clones of already-funded shared owners allocate no new shell or backing.
@@ -69,6 +77,8 @@ impl NativeAmxLegPreparations {
             sum.checked_add(count)
         });
         Self {
+            pending: None,
+            parked: None,
             staged: None,
             completed: None,
             payload: source.payload().clone(),
@@ -123,6 +133,18 @@ impl NativeAmxLegPreparations {
             && (cfg!(all(test, sumeragi_core_mutation = "HC151"))
                 || inputs.as_ptr() as usize == self.inputs)
             && inputs.len() == self.input_count
+            && self
+                .pending
+                .as_ref()
+                .is_none_or(|slot| slot.leg.belongs_to(pool))
+            && self.parked.as_ref().is_none_or(|slots| {
+                slots.belongs_to(pool)
+                    && slots
+                        .as_slice()
+                        .iter()
+                        .flatten()
+                        .all(|slot| slot.leg.belongs_to(pool))
+            })
             && self
                 .staged
                 .as_ref()
@@ -185,6 +207,45 @@ impl NativeAmxLegPreparations {
             frame: leg.payload.as_ptr() as usize,
             frame_len: leg.payload.len(),
         }))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn partial_metadata_bytes(&self) -> Option<usize> {
+        std::alloc::Layout::array::<Option<PendingOccurrence>>(self.capacity?)
+            .ok()
+            .map(|layout| layout.size())
+    }
+
+    fn park_pending(&mut self) -> Result<(), LegExecutionError<std::convert::Infallible>> {
+        if self.pending.is_none() {
+            return Ok(());
+        }
+        if self.parked.is_none() {
+            let capacity = self.capacity.ok_or(LegExecutionError::Invariant)?;
+            if capacity == 0 {
+                return Err(LegExecutionError::Invariant);
+            }
+            // The actual signed-input count bounds metadata. Admission happens
+            // only when a second visited occurrence needs an independent owner;
+            // refusal keeps the first graph and its original controls inline.
+            self.parked = Some(
+                ChargedBuffer::new(capacity, &self.pool).map_err(LegExecutionError::Metadata)?,
+            );
+        }
+        let slots = self.parked.as_mut().ok_or(LegExecutionError::Invariant)?;
+        if let Some(empty) = slots.as_mut_slice().iter_mut().find(|slot| slot.is_none()) {
+            *empty = self.pending.take();
+            return Ok(());
+        }
+        if slots.as_slice().len() >= slots.capacity() {
+            return Err(LegExecutionError::Invariant);
+        }
+        let pending = self.pending.take().ok_or(LegExecutionError::Invariant)?;
+        if let Err(original) = slots.try_push(Some(pending)) {
+            self.pending = original;
+            return Err(LegExecutionError::Invariant);
+        }
+        Ok(())
     }
 
     fn promote(&mut self) -> Result<(), LegExecutionError<std::convert::Infallible>> {
@@ -298,7 +359,9 @@ impl<'attempt> NativeAmxLegExecution<'attempt> {
             self.bank.promote().map_err(widen)?;
         }
         if self.bank.staged.is_none() {
-            // Borrow the actual original frame, never a cloned instruction's Vec.
+            // Borrow the immutable original occurrence, never a cloned Vec or a
+            // self-reference into this bank. The Model owner compares the exact
+            // slice identity and full original hash on every synchronous entry.
             let original = signed(self.input)
                 .and_then(|signed| match signed.instructions() {
                     Executable::Instructions(instructions) => instructions.get(ordinal),
@@ -307,8 +370,81 @@ impl<'attempt> NativeAmxLegExecution<'attempt> {
                 .and_then(|isi| isi.as_any().downcast_ref::<PrepareAmxV1>())
                 .and_then(|original| original.transaction.leg(original.dataspace))
                 .ok_or(LegExecutionError::Invariant)?;
-            let leg = super::decode_retained_leg(&original.payload, budget)
-                .map_err(LegExecutionError::Decode)?;
+            let parked = self.bank.parked.as_ref().and_then(|slots| {
+                slots.as_slice().iter().position(|slot| {
+                    slot.as_ref()
+                        .is_some_and(|slot| same_occurrence(slot.occurrence, occurrence))
+                })
+            });
+            #[cfg(all(test, sumeragi_core_mutation = "HC223"))]
+            if parked.is_some() {
+                // Mutant omits only resumption of a preceding original occurrence;
+                // it retains the later partial owner and all captured classifiers.
+                return Err(LegExecutionError::Invariant);
+            }
+            if parked.is_none() {
+                if self
+                    .bank
+                    .pending
+                    .as_ref()
+                    .is_some_and(|slot| slot.occurrence != occurrence)
+                {
+                    self.bank.park_pending().map_err(widen)?;
+                }
+                if self.bank.pending.is_none() {
+                    let leg = super::with_leg_decode_pool(budget, |original_pool| {
+                        PendingAmxTransferLegDecodeV1::new(&original.payload, original_pool)
+                    });
+                    self.bank.pending = Some(PendingOccurrence { leg, occurrence });
+                }
+            }
+            let pending =
+                match parked {
+                    Some(index) => self.bank.parked.as_mut().and_then(|slots| {
+                        slots.as_mut_slice().get_mut(index).and_then(Option::as_mut)
+                    }),
+                    None => self.bank.pending.as_mut(),
+                }
+                .ok_or(LegExecutionError::Invariant)?;
+            let leg = match super::decode_retained_leg(&mut pending.leg, &original.payload, budget)
+            {
+                Ok(leg) => leg,
+                Err(error) => {
+                    #[cfg(all(test, sumeragi_core_mutation = "HC222"))]
+                    {
+                        // Restore only the original premature partial retirement
+                        // after the unchanged canonical/refusal error.
+                        match parked {
+                            Some(index) => {
+                                *self
+                                    .bank
+                                    .parked
+                                    .as_mut()
+                                    .and_then(|slots| slots.as_mut_slice().get_mut(index))
+                                    .ok_or(LegExecutionError::Invariant)? = None
+                            }
+                            None => self.bank.pending = None,
+                        }
+                    }
+                    // Invalid sources retain initialized prefix backing too.
+                    // Replay enters the same canonical parser again and produces
+                    // a fresh captured cause; no verdict/diagnostic is cached.
+                    return Err(LegExecutionError::Decode(error));
+                }
+            };
+            // Completion moved every graph/control allocation out. Removing this
+            // now-empty destination cannot refund another occurrence's backing.
+            match parked {
+                Some(index) => {
+                    *self
+                        .bank
+                        .parked
+                        .as_mut()
+                        .and_then(|slots| slots.as_mut_slice().get_mut(index))
+                        .ok_or(LegExecutionError::Invariant)? = None
+                }
+                None => self.bank.pending = None,
+            }
             self.bank.staged = Some(CompletedOccurrence { leg, occurrence });
         }
         let slot = self

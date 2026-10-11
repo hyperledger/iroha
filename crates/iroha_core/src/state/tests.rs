@@ -1453,8 +1453,8 @@ ledger::nft::create_for_all_users();
     );
     Register::account(Account::new(contract_authority.clone()))
         .execute(&authority, &mut state_transaction).expect("register exact native-network contract subject");
-    let_row! { entrypoint_permission: Permission = iroha_executor_data_model::permission::smart_contract::CanInvokeContractEntrypoint {
-        contract: contract_address.clone(), entrypoint: "run".to_owned(),
+    let_row! { entrypoint_permission: Permission = iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+        contract: contract_address.clone(), permission: "CanInvokeContractEntrypoint".parse().expect("valid contract permission name"),
     }.into() };
     state_transaction.world.account_permissions.insert(
         contract_authority.clone(), BTreeSet::from([entrypoint_permission]),
@@ -6621,10 +6621,21 @@ state_test! { sync autoscale_runtime_elastic_range_rejects_profile_drift_and_res
         LaneLifecycleError::InvalidAutoscaleManagedLane { lane, reason }
             if lane == LaneId::new(1) && reason == AUTOSCALE_PROFILE_DRIFT_REASON
     ));
+    let restricted_dataspace = DataSpaceId::new(1);
     let mut restricted_base = base_lane;
+    restricted_base.dataspace_id = restricted_dataspace;
     restricted_base.visibility = LaneVisibility::Restricted;
-    let restricted = autoscale_transition_test_nexus(vec![restricted_base, valid_lane], 1, 3, 100);
-    let_row! { err = ensure_autoscale_runtime_elastic_range(&restricted) .expect_err("runtime autoscale precheck must reject a restricted routing base") };
+    let mut restricted = autoscale_transition_test_nexus(vec![restricted_base], 1, 3, 100);
+    restricted.dataspace_catalog = dataspace_catalog_with_extra(restricted_dataspace);
+    restricted.configured_dataspace_catalog = restricted.dataspace_catalog.clone();
+    restricted.configured_lane_catalog = restricted.lane_catalog.clone();
+    restricted.routing_policy.default_dataspace = restricted_dataspace;
+    let mut prospective_lane = valid_lane;
+    prospective_lane.dataspace_id = restricted_dataspace;
+    // A canonical catalog cannot mix a restricted base and public managed lane
+    // in one dataspace. Test the same profile predicate before adding the lane.
+    let_row! { err = ensure_autoscale_managed_lane_inherits_default_profile(&prospective_lane, &restricted)
+        .expect_err("autoscale profile precheck must reject a restricted routing base") };
     assert!(matches!(
         err,
         LaneLifecycleError::InvalidAutoscaleManagedLane { lane, reason }
@@ -13251,10 +13262,7 @@ fn configure_restricted_lane_for_manifest_binding_test(
         },
     );
 }
-fn configure_two_universal_authority_lanes_for_test(
-    state: &mut State,
-    second_visibility: LaneVisibility,
-) {
+fn configure_two_universal_authority_lanes_for_test(state: &mut State) {
     configure_pre_genesis_nexus_fixture(
         state,
         iroha_config::parameters::actual::Nexus {
@@ -13266,7 +13274,7 @@ fn configure_two_universal_authority_lanes_for_test(
                         id: LaneId::new(1),
                         alias: "universal-secondary".to_owned(),
                         dataspace_id: DataSpaceId::UNIVERSAL,
-                        visibility: second_visibility,
+                        visibility: LaneVisibility::Public,
                         ..LaneConfig::default()
                     },
                 ],
@@ -13564,11 +13572,11 @@ state_test! { sync lane_relay_validator_pool_uses_stake_when_no_manifest
         vec![validator]
     );
 }
-state_test! { sync same_dataspace_stake_authority_projects_to_restricted_sibling_lane
+state_test! { sync same_dataspace_stake_authority_projects_to_public_sibling_lane
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(World::default(), kura, query_handle);
-    configure_two_universal_authority_lanes_for_test(&mut state, LaneVisibility::Restricted);
+    configure_two_universal_authority_lanes_for_test(&mut state);
 
     let source_lane = LaneId::SINGLE;
     let target_lane = LaneId::new(1);
@@ -13606,7 +13614,7 @@ state_test! { sync same_dataspace_stake_authority_projects_to_restricted_sibling
             .expect("shared-dataspace stake authority must resolve")
             .into_validators(),
         expected_peers,
-        "a restricted lane must inherit its physical dataspace's live stake-elected peers"
+        "a sibling lane must inherit its physical dataspace's live stake-elected peers"
     );
 }
 
@@ -13666,7 +13674,7 @@ state_test! { sync same_dataspace_manifest_authority_projects_to_policy_only_sib
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(World::default(), kura, query_handle);
-    configure_two_universal_authority_lanes_for_test(&mut state, LaneVisibility::Restricted);
+    configure_two_universal_authority_lanes_for_test(&mut state);
 
     let source_lane = LaneId::SINGLE;
     let target_lane = LaneId::new(1);
@@ -13761,7 +13769,7 @@ state_test! { sync singleton_non_owner_same_dataspace_stake_projection_fails_clo
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(World::default(), kura, query_handle);
-    configure_two_universal_authority_lanes_for_test(&mut state, LaneVisibility::Public);
+    configure_two_universal_authority_lanes_for_test(&mut state);
 
     let canonical_lane = LaneId::SINGLE;
     let non_owner_lane = LaneId::new(1);
@@ -13799,7 +13807,7 @@ state_test! { sync conflicting_same_dataspace_stake_projections_fail_closed
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(World::default(), kura, query_handle);
-    configure_two_universal_authority_lanes_for_test(&mut state, LaneVisibility::Public);
+    configure_two_universal_authority_lanes_for_test(&mut state);
 
     let lane_a = LaneId::SINGLE;
     let lane_b = LaneId::new(1);
@@ -13845,7 +13853,7 @@ state_test! { sync duplicate_same_dataspace_stake_projections_fail_closed
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(World::default(), kura, query_handle);
-    configure_two_universal_authority_lanes_for_test(&mut state, LaneVisibility::Public);
+    configure_two_universal_authority_lanes_for_test(&mut state);
 
     let lane_a = LaneId::SINGLE;
     let lane_b = LaneId::new(1);
@@ -15607,7 +15615,7 @@ state_test! { sync same_dataspace_authority_rejects_rebound_active_sibling_manif
     let kura = Kura::blank_kura_for_testing();
     let query_handle = LiveQueryStore::start_test();
     let mut state = State::new_for_testing(World::default(), kura, query_handle);
-    configure_two_universal_authority_lanes_for_test(&mut state, LaneVisibility::Restricted);
+    configure_two_universal_authority_lanes_for_test(&mut state);
 
     let target_lane = LaneId::SINGLE;
     let sibling_lane = LaneId::new(1);
@@ -25082,6 +25090,7 @@ state_test! { sync emergency_fast_snapshot_index_finalization_defers_vpn_network
 
     let error = state
         .finalize_snapshot_derived_state_indexes(false)
+        .map_err(crate::execution_attempt::expect_completed_rejection)
         .expect_err("Strict snapshot restore must validate every retained VPN network");
     assert!(error.contains("different exact network"));
     state
@@ -25140,6 +25149,7 @@ state_test! { sync strict_snapshot_index_finalization_rejects_mis_homed_kaigi_re
 
     let error = state
         .finalize_snapshot_derived_state_indexes(false)
+        .map_err(crate::execution_attempt::expect_completed_rejection)
         .expect_err("Strict snapshot restore must validate rebuilt Kaigi relay homes");
     assert!(error.contains("outside its persisted home domain"));
     state
@@ -25203,6 +25213,7 @@ state_test! { sync derived_state_rebuild_rejects_future_kaigi_relay_feedback
 
     let error = state
         .rebuild_derived_state_indexes()
+        .map_err(crate::execution_attempt::expect_completed_rejection)
         .expect_err("future relay feedback must fail authenticated state restoration");
     assert!(error.contains("exceeds restored ledger time 20"), "{error}");
 }
@@ -26842,12 +26853,12 @@ state_test! { sync raw_ivm_trigger_enforces_entrypoint_authorization_before_argu
     let trigger_id: TriggerId = "protected_raw_callback".parse().expect("trigger id");
     let_row! { src = r#"
         seiyaku ProtectedRawTrigger { permission raw_trigger_run;
-          kotoage fn main(int marker, Json event) authorize(raw_trigger_run) {
+          kotoage fn main(int marker, Json firing_event) authorize(raw_trigger_run) {
             let _marker = marker;
             ledger::account::set_metadata(
               account: context::seiyaku_subject(),
               key: Name::parse("raw_trigger_marker"),
-              value: event
+              value: firing_event
             );
           }
         }
@@ -26917,10 +26928,10 @@ state_test! { sync raw_ivm_trigger_enforces_entrypoint_authorization_before_argu
             trigger_id: trigger_id.clone(),
             authority: ALICE_ID.clone(),
             // Trigger event arguments use the same named-field object as direct
-            // contract calls. The `event` field itself remains arbitrary JSON.
+            // contract calls. The `firing_event` field itself remains arbitrary JSON.
             args: Json::from(norito::json!({
                 "marker": "7",
-                "event": { "marker": "authorized" }
+                "firing_event": { "marker": "authorized" }
             })),
         };
         let denied_events_before = stx.world.external_event_buf.len();
@@ -26958,7 +26969,12 @@ state_test! { sync raw_ivm_trigger_enforces_entrypoint_authorization_before_argu
             1,
             "a missing cached artifact must be authenticated and prepared exactly once from authoritative trigger storage"
         );
-        let callback_permission = Permission::new(REQUIRED_PERMISSION.into(), Json::new(()));
+        let callback_permission: Permission =
+            iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                contract: contract_address.clone(),
+                permission: REQUIRED_PERMISSION.parse().unwrap(),
+            }
+            .into();
         Grant::account_permission(callback_permission.clone(), ALICE_ID.clone())
             .execute(&ALICE_ID, &mut stx)
             .expect("grant raw IVM trigger entrypoint permission");
@@ -27003,6 +27019,8 @@ state_test! { sync raw_ivm_trigger_enforces_entrypoint_authorization_before_argu
             "warm trigger dispatch must check out the retained runtime"
         );
         let_row! { authorized_marker = stx .world .account(&contract_subject) .expect("raw trigger contract subject account") .metadata() .get(&metadata_marker) .cloned() .expect("authorized raw trigger writes its metadata marker") };
+        assert_eq!(authorized_marker, Json::from(norito::json!({"marker": "authorized"})),
+            "the callback must receive its exact typed JSON argument");
         {
             let binding = stx
                 .world
@@ -27697,7 +27715,12 @@ state_test! { sync execute_data_trigger_supports_alias_resolve_and_json_amount_t
             .execute(&ALICE_ID, &mut stx)
             .unwrap();
         Grant::account_permission(
-            Permission::new("alias_transfer_run".into(), Json::new(())),
+            Permission::from(
+                iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                    contract: contract_address.clone(),
+                    permission: "alias_transfer_run".parse().unwrap(),
+                },
+            ),
             ALICE_ID.clone(),
         )
         .execute(&ALICE_ID, &mut stx)

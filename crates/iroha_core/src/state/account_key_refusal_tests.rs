@@ -31,6 +31,7 @@ fn check_original_refusal<T: Debug>(
     literal: &str,
     read: impl Fn(&str) -> Result<T, json::Error>,
     check_value: impl Fn(&T),
+    preceding_admissions: impl Fn() -> Result<(), norito::Error>,
     first_admission: impl Fn() -> Result<(), norito::Error>,
     invalid_context: &str,
 ) {
@@ -39,17 +40,23 @@ fn check_original_refusal<T: Debug>(
     check_value(&complete.expect("complete genuine Core JSON reader"));
     let complete_demand = usage.total_allocated_bytes();
     assert!(complete_demand > 0);
-    // Exact existing canonical leaf/table owner supplies the first refusal fields;
-    // no guessed envelope, replacement parser or test-only production branch.
-    let (expected, _) = with_decode_limits_measured(limits(0), first_admission);
+    // Admit only the measured canonical planning prefix before the selected
+    // table/key checkpoint. The complete operation still uses its real DTO reader.
+    let (prefix_result, prefix_usage) =
+        with_decode_limits_measured(limits(usize::MAX), &preceding_admissions);
+    prefix_result.expect("genuine canonical prefix before the selected admission");
+    let prefix = prefix_usage.total_allocated_bytes();
+    assert!(prefix < complete_demand);
+    let (expected, _) = with_decode_limits_measured(limits(prefix), || {
+        preceding_admissions()?;
+        first_admission()
+    });
     let expected = expected.unwrap_err().decode_resource_error().unwrap();
-    let DecodeResourceError::TotalAllocationExceeded {
-        attempted,
-        limit: 0,
-    } = expected
-    else {
-        panic!("canonical first admission must report its exact zero-quota demand");
+    let DecodeResourceError::TotalAllocationExceeded { attempted, limit } = expected else {
+        panic!("canonical selected admission must report its exact quota demand");
     };
+    assert_eq!(limit, u64::try_from(prefix).unwrap());
+    assert!(attempted > limit);
     let malformed = source.replacen(literal, "not-an-I105-account", 1);
     let (invalid, invalid_usage) =
         with_decode_limits_measured(limits(usize::MAX), || read(&malformed));
@@ -68,7 +75,7 @@ fn check_original_refusal<T: Debug>(
     // are not claimed to have physical admission by these JSON decoder controls.
     let before = original.consumed_allocated_bytes();
     let mut observed = None;
-    let refusal=original.with(||norito::with_decode_limits_scope(limits(0),||{
+    let refusal=original.with(||norito::with_decode_limits_scope(limits(prefix),||{
         classify_decode_attempt(||{
             let error=read(source).expect_err("original finite Core operation must refuse");
             let json::Error::ScopedDecodeResource(origin)=&error else {
@@ -100,7 +107,7 @@ fn check_original_refusal<T: Debug>(
     );
     drop(retry);
     assert_eq!(pool.reserved_bytes(), baseline);
-    let (raw, _) = with_decode_limits_measured(limits(0), || read(source));
+    let (raw, _) = with_decode_limits_measured(limits(prefix), || read(source));
     let raw = raw.unwrap_err().into_core_error();
     assert_eq!(
         raw.decode_resource_error(),
@@ -120,6 +127,32 @@ fn check_original_refusal<T: Debug>(
     assert_eq!(source.as_ptr(), pointer);
     drop(original);
     assert_eq!(pool.reserved_bytes(), 0);
+}
+
+// This is checkpoint calibration using the same canonical object/entry owners,
+// not an alternate DTO decoder. Neither visitor consumes a returned record.
+fn governance_prefix<V>(
+    source: &str,
+    field: &str,
+    include_table: bool,
+) -> Result<(), norito::Error> {
+    let mut parser = json::Parser::new(source);
+    parser
+        .preflight_document()
+        .map_err(json::Error::into_core_error)?;
+    let mut outer = json::MapVisitor::new(&mut parser).map_err(json::Error::into_core_error)?;
+    assert_eq!(outer.total_entries(), 1);
+    let key = outer
+        .next_key()
+        .map_err(json::Error::into_core_error)?
+        .unwrap();
+    assert_eq!(key.as_str(), field);
+    let inner = json::MapVisitor::new(outer.parser()).map_err(json::Error::into_core_error)?;
+    assert_eq!(inner.total_entries(), 1);
+    if include_table {
+        reserve_decode_btree_allocation::<AccountId, V>(inner.total_entries())?;
+    }
+    Ok(())
 }
 
 fn lock_record(account: &AccountId) -> GovernanceLockRecord {
@@ -154,6 +187,7 @@ fn upload_account_key_preserves_original_refusal_fields_scope_and_same_source_re
         &literal,
         SmartContractCodeUploadKey::decode_json_key,
         |decoded| assert_eq!(*decoded, expected),
+        || Ok(()),
         || {
             AccountId::from_json_key_text(&literal)
                 .map(|_| ())
@@ -188,7 +222,32 @@ fn governance_lock_account_key_preserves_original_refusal_fields_scope_and_same_
             assert_eq!(actual.duration_blocks, record.duration_blocks);
             assert_eq!(actual.custody, record.custody);
         },
+        || governance_prefix::<GovernanceLockRecord>(&source, "locks", false),
         || reserve_decode_btree_allocation::<AccountId, GovernanceLockRecord>(1),
+        "invalid I105",
+    );
+    check_original_refusal(
+        &source,
+        &literal,
+        json::from_json::<GovernanceLocksForReferendum>,
+        |decoded| {
+            assert_eq!(decoded.locks.len(), 1);
+            let actual = decoded.locks.get(&account).unwrap();
+            let record = expected.locks.get(&account).unwrap();
+            assert_eq!(actual.owner, record.owner);
+            assert_eq!(actual.amount, record.amount);
+            assert_eq!(actual.slashed, record.slashed);
+            assert_eq!(actual.expiry_height, record.expiry_height);
+            assert_eq!(actual.direction, record.direction);
+            assert_eq!(actual.duration_blocks, record.duration_blocks);
+            assert_eq!(actual.custody, record.custody);
+        },
+        || governance_prefix::<GovernanceLockRecord>(&source, "locks", true),
+        || {
+            AccountId::from_json_key_text(&literal)
+                .map(|_| ())
+                .map_err(json::Error::into_core_error)
+        },
         "invalid I105",
     );
 }
@@ -218,7 +277,29 @@ fn governance_slash_account_key_preserves_original_refusal_fields_scope_and_same
             assert_eq!(actual.last_reason, record.last_reason);
             assert_eq!(actual.last_height, record.last_height);
         },
+        || governance_prefix::<GovernanceSlashEntry>(&source, "slashes", false),
         || reserve_decode_btree_allocation::<AccountId, GovernanceSlashEntry>(1),
+        "invalid I105",
+    );
+    check_original_refusal(
+        &source,
+        &literal,
+        json::from_json::<GovernanceSlashLedger>,
+        |decoded| {
+            assert_eq!(decoded.slashes.len(), 1);
+            let actual = decoded.slashes.get(&account).unwrap();
+            let record = expected.slashes.get(&account).unwrap();
+            assert_eq!(actual.total_slashed, record.total_slashed);
+            assert_eq!(actual.total_restituted, record.total_restituted);
+            assert_eq!(actual.last_reason, record.last_reason);
+            assert_eq!(actual.last_height, record.last_height);
+        },
+        || governance_prefix::<GovernanceSlashEntry>(&source, "slashes", true),
+        || {
+            AccountId::from_json_key_text(&literal)
+                .map(|_| ())
+                .map_err(json::Error::into_core_error)
+        },
         "invalid I105",
     );
 }

@@ -63,10 +63,103 @@ class NativeInventoryTests(unittest.TestCase):
     def test_real_checkout_matches_every_reviewed_owner(self):
         names = inventory.validate_native_source_inventory(ROOT)
         self.assertEqual(len(names), sum(len(row[-1]) for row in inventory.NATIVE_CORE_TEST_OWNERS))
-        self.assertEqual(len(names), 442)
+        self.assertEqual(len(names), 475)
+
+    def test_native_multisig_semantic_control_binds_its_exact_core_source_owner(self):
+        row = next(row for row in inventory.NATIVE_CORE_TEST_OWNERS
+                   if row[0] == 'native AMX typed multisig semantic rejection')
+        self.assertEqual(row[1:], (
+            'sumeragi/amx/native/tests.rs',
+            'sumeragi/amx/native/tests/multisig_semantic.rs',
+            'multisig_semantic', 'sumeragi::amx::native::tests::multisig_semantic',
+            ('native_multisig_semantic_cause_is_terminal_and_preserves_exact_diagnostic',)))
+        self.assertEqual(inventory.validate_native_source_inventory(ROOT, owners=(row,)),
+                         {row[4] + '::' + row[5][0]})
+
+    def test_amx_worker_retry_owner_binds_all_original_and_partial_controls(self):
+        row = next(row for row in inventory.NATIVE_CORE_TEST_OWNERS
+                   if row[0] == 'native original AMX Worker partial and completed retry custody')
+        expected = ('native original AMX Worker partial and completed retry custody', 'sumeragi/executor.rs', 'sumeragi/executor_amx_retry_tests.rs', 'amx_retry_tests', 'sumeragi::executor::amx_retry_tests', ('original_paid_amx_post_decode_refusal_retains_worker_leg_and_exact_retry', 'completed_amx_worker_bank_refuses_replaced_source_parent_and_foreign_pool', 'completed_amx_worker_bank_preserves_equal_occurrences_and_metadata_refusal', 'original_paid_amx_worker_retry_reauthenticates_changed_native_parent', 'partial_amx_worker_leg_refusal_retains_original_controls_and_release_wait', 'partial_amx_worker_leg_refusal_retains_completed_source_prefix_without_reallocation', 'partial_amx_worker_leg_refusal_retains_original_multisig_member_prefix_without_reallocation', 'rejected_amx_worker_occurrence_retains_source_prefix_and_replays_before_later_partial_occurrence'))
+        self.assertEqual(row, expected)
+        self.assertEqual(inventory.validate_native_source_inventory(ROOT, owners=(row,)),
+                         {expected[4] + '::' + leaf for leaf in expected[5]})
+
+    def test_execution_attempt_owner_binds_json_and_instruction_bridge_controls(self):
+        row = next(row for row in inventory.NATIVE_CORE_TEST_OWNERS
+                   if row[0] == 'native original JSON attempt refusal and instruction bridge diagnostics')
+        expected = ('native original JSON attempt refusal and instruction bridge diagnostics', 'execution_attempt.rs', 'execution_attempt/json_scoped_tests.rs', 'tests', 'execution_attempt::tests', ('json_scoped_refusal_preserves_original_context_source_and_retry', 'json_stale_scoped_refusal_keeps_its_original_tag_without_retry_authority', 'instruction_bridges_keep_original_refusal_without_discarded_diagnostic_allocations'))
+        self.assertEqual(row, expected)
+        self.assertEqual(inventory.validate_native_source_inventory(ROOT, owners=(row,)),
+                         {expected[4] + '::' + leaf for leaf in expected[5]})
+
+    def test_kaigi_record_deferral_owners_bind_all_three_actual_control_declarations(self):
+        expected = {
+            'native Kaigi record instruction deferral': (
+                'smartcontracts/isi/kaigi.rs', 'smartcontracts/isi/kaigi/typed_deferral_tests.rs',
+                'typed_deferral_tests', 'smartcontracts::isi::kaigi::typed_deferral_tests', (
+                    'stored_record_refusal_is_sticky_and_retries_original_json_without_publication',
+                    'indexed_record_refusal_preserves_unregister_guard_and_original_retry',
+                )),
+            'native Kaigi record World restore deferral': (
+                'state/deserialize_world.rs', 'state/deserialize_world_kaigi_deferral_tests.rs',
+                'kaigi_typed_deferral_tests', 'state::deserialize::kaigi_typed_deferral_tests', (
+                    'restored_kaigi_record_refusal_is_deferred_and_retries_original_snapshot',
+                )),
+        }
+        rows = {row[0]: row[1:] for row in inventory.NATIVE_CORE_TEST_OWNERS}
+        for label, required in expected.items():
+            self.assertEqual(rows[label], required)
+        owners = tuple(row for row in inventory.NATIVE_CORE_TEST_OWNERS if row[0] in expected)
+        names = inventory.validate_native_source_inventory(ROOT, owners=owners)
+        self.assertEqual(names, {prefix + '::' + leaf for _, _, _, prefix, leaves in expected.values() for leaf in leaves})
+
+    def test_kaigi_relay_deferral_owners_bind_all_nine_actual_control_declarations(self):
+        expected = {
+            'native Kaigi relay instruction and allowlist deferral': (
+                'smartcontracts/isi/kaigi.rs', 'smartcontracts/isi/kaigi/relay_typed_deferral_tests.rs',
+                'relay_typed_deferral_tests', 'smartcontracts::isi::kaigi::relay_typed_deferral_tests', (
+                    'live_manifest_dependency_refusal_preserves_original_route_and_retry',
+                    'lineage_refusal_preserves_original_relay_retirement_and_retry',
+                    'primary_alias_refusal_preserves_original_registration_and_retry',
+                    'registration_refusal_preserves_original_relay_retirement_and_retry',
+                    'feedback_refusal_preserves_both_original_relay_rows_and_retry',
+                    'allowlist_refusal_prevents_domain_metadata_publication_and_retries_original_json',
+                    'checked_record_writer_refusal_keeps_original_create_unpublished_and_retries',
+                )),
+            'native Kaigi relay World restore deferral': (
+                'state/deserialize_world.rs', 'state/deserialize_world_kaigi_relay_deferral_tests.rs',
+                'kaigi_relay_typed_deferral_tests', 'state::deserialize::kaigi_relay_typed_deferral_tests', (
+                    'restored_registration_refusal_retains_original_snapshot_and_retry',
+                    'restored_allowlist_refusal_retains_original_snapshot_and_retry',
+                )),
+        }
+        rows = {row[0]: row[1:] for row in inventory.NATIVE_CORE_TEST_OWNERS}
+        for label, required in expected.items():
+            self.assertEqual(rows[label], required)
+        owners = tuple(row for row in inventory.NATIVE_CORE_TEST_OWNERS if row[0] in expected)
+        names = inventory.validate_native_source_inventory(ROOT, owners=owners)
+        self.assertEqual(names, {prefix + '::' + leaf for _, _, _, prefix, leaves in expected.values() for leaf in leaves})
+
+    def test_world_constructor_owner_binds_all_four_actual_controls(self):
+        row = next(row for row in inventory.NATIVE_CORE_TEST_OWNERS
+                   if row[0] == 'native fallible World constructor custody')
+        expected = ('native fallible World constructor custody', 'state.rs',
+                    'state/world_construction_tests.rs', 'world_construction_tests',
+                    'state::world_construction_tests', (
+                        'world_constructor_registration_refusal_is_fallible_and_retries_original_source',
+                        'world_constructor_record_refusal_is_fallible_and_retries_original_source',
+                        'world_constructor_storage_refusal_preserves_release_before_entity_consumption_and_retries',
+                        'world_constructor_rejects_malformed_kaigi_without_panicking',
+                    ))
+        self.assertEqual(row, expected)
+        names = inventory.validate_native_source_inventory(ROOT, owners=(row,))
+        self.assertEqual(names, {expected[4] + '::' + leaf for leaf in expected[5]})
 
     def test_current_native_owner_additions_reject_same_count_selector_replacement(self):
         expected = {
+            'native Core account-key and governance table refusal': (
+                ('state.rs', 'state/account_key_refusal_tests.rs', 'account_key_refusal_tests', 'state::account_key_refusal_tests'),
+                ('upload_account_key_preserves_original_refusal_fields_scope_and_same_source_retry', 'governance_lock_account_key_preserves_original_refusal_fields_scope_and_same_source_retry', 'governance_slash_account_key_preserves_original_refusal_fields_scope_and_same_source_retry', 'governance_locks_dto_keeps_exact_json_layout_and_rejects_duplicate_account_keys', 'governance_slash_dto_keeps_exact_json_layout_and_rejects_duplicate_account_keys')),
             'native KAGEMUSHA wallet State and verifier-pack routing': (
                 ('kagemusha_wallet_v1/tests.rs', 'kagemusha_wallet_v1/tests/wsv_tests.rs', 'wsv_tests', 'kagemusha_wallet_v1::tests::wsv_tests'),
                 ('registration_requires_dedicated_asset_permission_and_reserve_consent', 'registration_rejects_a_foreign_network_before_creating_reserve_rows', 'registered_reserve_rejects_ordinary_transfer_burn_and_teardown', 'native_rejection_and_missing_source_anchor_cannot_activate', 'real_asset_batch_loads_once_and_failed_debit_rolls_back_ordinal', 'committed_reader_requires_an_original_cut_and_finite_limits', 'routing_uses_permanent_scope_and_refuses_missing_wallet_records', 'verifier_pack_routing_requires_the_exact_registered_asset_and_permanent_scope', 'verifier_install_routing_requires_the_registered_authorizing_asset_and_scheme', 'package_quota_charges_exact_native_calls_and_one_operation_at_the_boundary', 'package_quota_refusal_is_atomic_for_sigma_and_lineage_limits_and_overflow', 'lineage_call_quota_refuses_before_native_verifier_or_payout', 'unavailable_production_artifacts_retain_local_deferral_and_no_activation', 'verifier_install_requires_actual_reserve_owner_before_artifact_parsing', 'genuine_verifier_install_is_immutable_exact_retry_and_same_overlay_native_owner', 'verifier_install_rechecks_live_asset_permission_and_registered_scope', 'authorized_install_cannot_turn_missing_originals_into_a_verifier', 'package_quota_refuses_before_native_verifier_and_ledger_activation', 'real_reserve_pays_unload_once_and_online_controls_defer_without_consuming_it', 'real_fee_payout_requires_retained_history_and_never_requires_receive', 'corrupted_reserve_owner_and_mutated_registration_are_rejected', 'snapshot_requires_exact_reserve_indexes_and_reference_counts', 'private_root_load_rejects_before_debit_or_receipt_creation', 'ordinary_load_receipt_is_recovered_after_growth_and_local_qc_loss')),

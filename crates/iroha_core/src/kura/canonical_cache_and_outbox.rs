@@ -166,16 +166,6 @@ impl BlockData {
         self.get(0)
     }
 
-    fn last(&self) -> Option<&BlockDataEntry> {
-        self.len().checked_sub(1).and_then(|index| self.get(index))
-    }
-
-    fn last_mut(&mut self) -> Option<&mut BlockDataEntry> {
-        self.len()
-            .checked_sub(1)
-            .and_then(|index| self.get_mut(index))
-    }
-
     fn push(&mut self, entry: BlockDataEntry) {
         match self {
             Self::Dense(entries) => entries.push(entry),
@@ -207,12 +197,6 @@ impl BlockData {
                 *len = 0;
                 entries.clear();
             }
-        }
-    }
-
-    fn extend<T: IntoIterator<Item = BlockDataEntry>>(&mut self, entries: T) {
-        for entry in entries {
-            self.push(entry);
         }
     }
 }

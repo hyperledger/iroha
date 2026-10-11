@@ -15152,7 +15152,12 @@ pub mod isi {
             {
                 crate::smartcontracts::isi::kaigi::validate_kaigi_relay_allowlist_metadata(
                     key, value,
-                )?;
+                )
+                .map_err(|error| {
+                    state_transaction
+                        .world
+                        .attempt_error_to_instruction_error(error)
+                })?;
             }
             let requires_endorsement = state_transaction
                 .world

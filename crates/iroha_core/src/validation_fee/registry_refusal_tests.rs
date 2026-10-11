@@ -129,6 +129,65 @@ fn original_retained_fee_registry_does_not_publish_local_decode_refusal_as_malfo
         );
         let original = validated_policy_registry_in_world(&stx.world).unwrap();
         assert!(original.is_some());
+        // An owned enclosing budget must survive the same real registry read.
+        // Its scoped error is distinct from the unscoped quota cases below.
+        let source = stx
+            .world
+            .parameters()
+            .custom()
+            .get(&ValidationFeePolicyRegistryV1::parameter_id())
+            .unwrap()
+            .payload();
+        let source_pointer = source.get().as_ptr();
+        let pool = iroha_allocation::AllocationBudget::new(
+            norito::core::DecodeBudgetContext::allocation_layout().size(),
+        );
+        let context = norito::core::DecodeBudgetContext::try_new_owned(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 32),
+            &pool,
+        )
+        .unwrap();
+        let reserved = pool.reserved_bytes();
+        let raw = context.with(|| {
+            norito::with_decode_limits_scope(limits(), || {
+                // Scoped provenance is minted by the real observer around the read,
+                // not by the retained budget context alone.
+                norito::core::classify_decode_attempt(|| {
+                    Ok::<_, norito::Error>(norito::json::from_str::<ValidationFeePolicyRegistryV1>(
+                        source.get(),
+                    ))
+                })
+                .unwrap()
+            })
+        });
+        assert!(matches!(
+            raw,
+            Err(norito::json::Error::ScopedDecodeResource(_))
+        ));
+        let before = context.consumed_allocated_bytes();
+        let scoped = context.with(|| {
+            norito::with_decode_limits_scope(limits(), || {
+                validated_policy_registry_in_world(&stx.world)
+            })
+        });
+        assert!(
+            matches!(scoped, Err(ExecutionAttemptError::Deferred(ref reason))
+            if reason.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity),
+            "owned registry decoder refusal must not become malformed policy: {scoped:?}"
+        );
+        assert!(context.consumed_allocated_bytes() > before);
+        assert_eq!(pool.reserved_bytes(), reserved);
+        assert_eq!(source.get().as_ptr(), source_pointer);
+        assert_eq!(
+            context
+                .with(|| validated_policy_registry_in_world(&stx.world))
+                .unwrap(),
+            original
+        );
+        drop(raw);
+        drop(scoped);
+        drop(context);
+        assert_eq!(pool.reserved_bytes(), 0);
         let refused = norito::with_decode_limits_scope(limits(), || {
             validated_policy_registry_in_world(&stx.world)
         });

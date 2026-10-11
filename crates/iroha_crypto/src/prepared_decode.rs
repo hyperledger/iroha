@@ -411,6 +411,27 @@ impl PreparedPublicKeyDecode {
         .map(|(owner, _)| owner)
     }
 
+    /// Recheck canonical payload boundaries against an already-retained public key.
+    ///
+    /// The sole compact parser, validator and ordinary logical backing admission
+    /// run again in the active context. No physical storage is allocated, replaced
+    /// or refunded; the caller keeps the original key and its funding together.
+    ///
+    /// # Errors
+    /// Returns the original canonical/resource error or a changed canonical key.
+    pub fn recheck_payload(bytes: &[u8], original: &PublicKey) -> Result<(), Error> {
+        public_key_decode::with_decoded_compact(bytes, true, |algorithm, payload| {
+            public_key_decode::reserve_compact_decode_backing(payload.len())?;
+            if original.to_bytes() != (algorithm, payload) {
+                return Err(Error::InvalidValue {
+                    context: "public key",
+                });
+            }
+            Ok(())
+        })
+        .map(|((), _)| ())
+    }
+
     /// Allocate and initialize the exact compact allocation, including its tag.
     ///
     /// # Errors
