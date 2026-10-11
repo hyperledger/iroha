@@ -222,6 +222,15 @@ impl QueryFanoutMemoryEnvelope {
         let phase_bytes = Self::body_admission_unit(working_set_bytes)?;
         Self::with_phase_bytes(working_set_bytes, 0, phase_bytes)
     }
+    /// Original admission for local finality GETs, which decode no request body
+    /// and retain no signed-query representations. Cold source and response caps
+    /// stay unchanged; only genuinely absent request phases are released to the
+    /// producer. This must never reinterpret an already admitted outer request.
+    fn for_bodyless_finality(working_set_bytes: usize) -> Result<Self, Response> {
+        let mut envelope = Self::for_body_admission(working_set_bytes)?;
+        envelope.request_decode_allocated_bytes = 0;
+        Ok(envelope)
+    }
     fn body_admission_unit(working_set_bytes: usize) -> Result<usize, Response> {
         // Before decoding, the exact verified-request frame is unknown. Reserve
         // seven signed-query-sized transport representations, one verified
@@ -1155,6 +1164,19 @@ fn try_acquire_new_query_fanout_memory(
 ) -> Result<QueryFanoutMemoryReservation, Response> {
     let envelope =
         QueryFanoutMemoryEnvelope::for_body_admission(app.query_fanout_working_set_bytes)?;
+    try_acquire_query_memory_envelope(app, envelope)
+}
+fn try_acquire_bodyless_finality_memory(
+    app: &SharedAppState,
+) -> Result<QueryFanoutMemoryReservation, Response> {
+    let envelope =
+        QueryFanoutMemoryEnvelope::for_bodyless_finality(app.query_fanout_working_set_bytes)?;
+    try_acquire_query_memory_envelope(app, envelope)
+}
+fn try_acquire_query_memory_envelope(
+    app: &SharedAppState,
+    envelope: QueryFanoutMemoryEnvelope,
+) -> Result<QueryFanoutMemoryReservation, Response> {
     app.query_fanout_inflight
         .try_acquire_parts([
             u64::try_from(app.query_fanout_working_set_bytes).map_err(|_| {

@@ -16,11 +16,76 @@ use iroha_crypto::{
     PublicKey as IrohaPublicKey, Signature as IrohaSignature, bls_normal_aggregate_signatures,
     verify_bls_normal_signature_borrowed,
 };
+use iroha_data_model::sumeragi::epoch::ValidatorCommitteeMemberV1;
 use iroha_sumeragi::{
     crypto::{Crypto, Signer},
     types::{AggregateSignature, Hash32, PublicKey, SIGNATURE_LEN, Signature},
 };
 use parking_lot::{Mutex, RwLock};
+
+/// Request-local committee construction preserves resource refusal separately from bad keys.
+#[derive(Debug)]
+pub(crate) enum QueryCommitteeError {
+    Resource(norito::core::DecodeResourceError),
+    Member { index: usize, error: KeyError },
+}
+
+impl From<norito::core::DecodeResourceError> for QueryCommitteeError {
+    fn from(error: norito::core::DecodeResourceError) -> Self {
+        Self::Resource(error)
+    }
+}
+
+fn query_committee_allocation_failure(bytes: usize) -> QueryCommitteeError {
+    norito::core::DecodeResourceError::AllocationFailed {
+        bytes: u64::try_from(bytes).unwrap_or(u64::MAX),
+    }
+    .into()
+}
+
+// Complete allocator-visible backing of the closed one-shot constructor below. No temporary
+// committee Vec or returned key list is built, and each core key moves once into the map.
+fn query_committee_allocation_bytes(
+    members: &[ValidatorCommitteeMemberV1],
+) -> Result<usize, QueryCommitteeError> {
+    let overflow = || query_committee_allocation_failure(usize::MAX);
+    let map = norito::core::owned_hash_table_allocation_bytes::<(
+        PublicKey,
+        Arc<BlsNormalPopVerifiedKey>,
+    )>(members.len())
+    .map_err(|_| overflow())?;
+    let credential = norito::core::owned_arc_allocation_bytes::<BlsNormalPopVerifiedKey>()
+        .map_err(|_| overflow())?;
+    let mut bytes = map
+        .checked_add(BlsNormalAggregateScratch::<()>::backing_bytes())
+        .ok_or_else(overflow)?;
+    for member in members {
+        let key = member.validator.public_key();
+        bytes = bytes
+            .checked_add(key.input_payload_len())
+            .and_then(|bytes| bytes.checked_add(key.retained_allocation_layout().size()))
+            .and_then(|bytes| bytes.checked_add(credential))
+            .ok_or_else(overflow)?;
+    }
+    Ok(bytes)
+}
+
+fn query_committee_key_error(
+    index: usize,
+    reason: &'static str,
+    bad_pop: bool,
+    admit: &mut dyn FnMut(usize) -> Result<(), norito::core::DecodeResourceError>,
+) -> Result<QueryCommitteeError, QueryCommitteeError> {
+    // Diagnostics belong to the same stage as its partially constructed authority. A refusal
+    // to retain the exact message is local capacity, never a fabricated invalid-key verdict.
+    admit(reason.len())?;
+    let error = if bad_pop {
+        KeyError::BadPop(reason.to_owned())
+    } else {
+        KeyError::Malformed(reason.to_owned())
+    };
+    Ok(QueryCommitteeError::Member { index, error })
+}
 
 /// Why a key cannot be used as a Sumeragi consensus key.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -80,6 +145,92 @@ impl BlsCrypto {
     /// A crypto with no admitted key.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Construct one request-owned committee after admitting every retained allocation.
+    ///
+    /// The caller supplies its original physical custody and keeps that allowance through
+    /// this value's lifetime. This method creates neither a pool nor decoder credit. The
+    /// callback covers the exact hash table, core-key buffers, compact key clones, credential
+    /// Arc controls and reusable pairing context before any of them allocate. Partial failure
+    /// drops all completed backing; the caller decides when its prepaid stage can be reused.
+    /// Ordinary mutable node admission remains independent.
+    pub(crate) fn for_query_committee(
+        members: &[ValidatorCommitteeMemberV1],
+        admit: &mut dyn FnMut(usize) -> Result<(), norito::core::DecodeResourceError>,
+    ) -> Result<Self, QueryCommitteeError> {
+        if members.is_empty() || members.len() > iroha_sumeragi::types::MAX_COMMITTEE_SIZE {
+            return Err(query_committee_key_error(
+                0,
+                "committee size is outside the native bound",
+                false,
+                admit,
+            )?);
+        }
+        let demand = query_committee_allocation_bytes(members)?;
+        admit(demand)?;
+        let mut admitted = HashMap::new();
+        admitted
+            .try_reserve(members.len())
+            .map_err(|_| query_committee_allocation_failure(demand))?;
+        for (index, member) in members.iter().enumerate() {
+            let key = member.validator.public_key();
+            let (algorithm, payload) = match key.borrowed_parts() {
+                Ok(parts) => parts,
+                Err(_) => {
+                    return Err(query_committee_key_error(
+                        index,
+                        "malformed compact public key envelope",
+                        false,
+                        admit,
+                    )?);
+                }
+            };
+            if algorithm != Algorithm::BlsNormal {
+                return Err(QueryCommitteeError::Member {
+                    index,
+                    error: KeyError::NotBlsNormal(algorithm),
+                });
+            }
+            let mut raw = Vec::new();
+            raw.try_reserve_exact(payload.len())
+                .map_err(|_| query_committee_allocation_failure(payload.len()))?;
+            raw.extend_from_slice(payload);
+            let core = match PublicKey::new(raw) {
+                Ok(core) => core,
+                Err(_) => {
+                    return Err(query_committee_key_error(
+                        index,
+                        "malformed consensus public key length",
+                        false,
+                        admit,
+                    )?);
+                }
+            };
+            let verified = match BlsNormalPopVerifiedKey::from_owned_uncached(
+                key.clone(),
+                &member.proof_of_possession,
+            ) {
+                Ok(verified) => verified,
+                Err((_original, _error)) => {
+                    return Err(query_committee_key_error(
+                        index,
+                        "invalid proof of possession",
+                        true,
+                        admit,
+                    )?);
+                }
+            };
+            admitted.insert(core, Arc::new(verified));
+        }
+        // The complete exact backing was admitted above. The no-op closure creates no new
+        // credit; the resulting scratch remains inside this request-owned crypto value.
+        let scratch = BlsNormalAggregateScratch::new(|_| Ok::<_, core::convert::Infallible>(()))
+            .unwrap_or_else(|never| match never {});
+        Ok(Self {
+            admitted: RwLock::new(admitted),
+            aggregate_scratch: Some(Mutex::new(scratch)),
+        })
     }
 
     /// Use an already admitted, request-owned aggregate pairing context.
@@ -336,6 +487,131 @@ mod tests {
 
     fn pop(key_pair: &KeyPair) -> Vec<u8> {
         bls_normal_pop_prove(key_pair.private_key()).unwrap()
+    }
+
+    fn query_members(pairs: &[KeyPair]) -> Vec<ValidatorCommitteeMemberV1> {
+        pairs
+            .iter()
+            .map(|pair| ValidatorCommitteeMemberV1 {
+                validator: iroha_model_base::peer::PeerId::new(pair.public_key().clone()),
+                proof_of_possession: pop(pair),
+            })
+            .collect()
+    }
+
+    fn query_limits(bytes: usize) -> norito::DecodeLimits {
+        norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, 64)
+    }
+
+    fn query_admission(bytes: usize) -> Result<(), norito::core::DecodeResourceError> {
+        norito::core::reserve_decode_allocation(bytes)
+            .map_err(|error| error.decode_resource_error().expect("allocation refusal"))
+    }
+
+    #[test]
+    fn query_committee_exact_admission_verifies_and_reuses_pairing_backing() {
+        let pairs: Vec<_> = (1..=4).map(key_pair).collect();
+        let members = query_members(&pairs);
+        let demand = query_committee_allocation_bytes(&members).unwrap();
+        let (result, usage) =
+            norito::core::with_decode_limits_measured(query_limits(demand), || {
+                BlsCrypto::for_query_committee(&members, &mut query_admission)
+            });
+        assert_eq!(usage.total_allocated_bytes(), demand);
+        let crypto = result.unwrap();
+        assert_eq!(crypto.admitted_len(), members.len());
+        assert!(crypto.aggregate_scratch.is_some());
+        let signers: Vec<_> = pairs
+            .iter()
+            .map(|pair| KeyPairSigner::new(pair).unwrap())
+            .collect();
+        let signatures: Vec<_> = signers.iter().map(|signer| signer.sign(b"query")).collect();
+        let aggregate = BlsCrypto::new().aggregate(&signatures);
+        let keys: Vec<_> = signers.iter().map(Signer::public_key).collect();
+        let (_, usage) = norito::core::with_decode_limits_measured(query_limits(0), || {
+            assert!(crypto.verify_aggregate(&keys, b"query", &aggregate));
+            assert!(!crypto.verify_aggregate(&keys, b"changed", &aggregate));
+            assert!(crypto.verify_aggregate(&keys, b"query", &aggregate));
+        });
+        assert_eq!(usage.total_allocated_bytes(), 0);
+    }
+
+    #[test]
+    fn query_committee_refuses_before_backing_and_preserves_inherited_limit() {
+        let members = query_members(&[key_pair(1)]);
+        let demand = query_committee_allocation_bytes(&members).unwrap();
+        let outer = norito::core::DecodeBudgetContext::new(query_limits(demand - 1));
+        let (result, _) = outer.with(|| {
+            norito::core::with_decode_limits_measured(query_limits(demand), || {
+                BlsCrypto::for_query_committee(&members, &mut query_admission)
+            })
+        });
+        assert!(matches!(
+            result,
+            Err(QueryCommitteeError::Resource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ));
+        assert_eq!(outer.consumed_allocated_bytes(), 0);
+        assert!(!norito::core::decode_limits_active());
+        outer.with(|| query_admission(demand - 1)).unwrap();
+        assert!(outer.with(|| query_admission(1)).is_err());
+    }
+
+    #[test]
+    fn query_committee_invalid_pop_is_typed_and_diagnostic_is_funded() {
+        let mut members = query_members(&[key_pair(1), key_pair(2)]);
+        members[0].proof_of_possession[0] ^= 1;
+        let demand = query_committee_allocation_bytes(&members).unwrap();
+        let result = norito::core::with_decode_limits_scope(query_limits(demand), || {
+            BlsCrypto::for_query_committee(&members, &mut query_admission)
+        });
+        assert!(matches!(result, Err(QueryCommitteeError::Resource(_))));
+        let diagnostic = "invalid proof of possession".len();
+        let (result, usage) =
+            norito::core::with_decode_limits_measured(query_limits(demand + diagnostic), || {
+                BlsCrypto::for_query_committee(&members, &mut query_admission)
+            });
+        assert!(matches!(
+            result,
+            Err(QueryCommitteeError::Member {
+                index: 0,
+                error: KeyError::BadPop(_)
+            })
+        ));
+        assert_eq!(usage.total_allocated_bytes(), demand + diagnostic);
+        // A failed private construction cannot populate the next request's authority.
+        let valid = query_members(&[key_pair(1), key_pair(2)]);
+        let crypto = norito::core::with_decode_limits_scope(query_limits(demand), || {
+            BlsCrypto::for_query_committee(&valid, &mut query_admission)
+        })
+        .unwrap();
+        assert_eq!(crypto.admitted_len(), 2);
+    }
+
+    #[test]
+    fn query_committee_rejects_empty_and_non_bls_without_unfunded_diagnostics() {
+        let (result, usage) = norito::core::with_decode_limits_measured(query_limits(0), || {
+            BlsCrypto::for_query_committee(&[], &mut query_admission)
+        });
+        assert!(matches!(result, Err(QueryCommitteeError::Resource(_))));
+        assert_eq!(usage.total_allocated_bytes(), 0);
+        let pair = KeyPair::from_seed(vec![7; 32], Algorithm::Ed25519);
+        let members = vec![ValidatorCommitteeMemberV1 {
+            validator: iroha_model_base::peer::PeerId::new(pair.public_key().clone()),
+            proof_of_possession: vec![0; 96],
+        }];
+        let demand = query_committee_allocation_bytes(&members).unwrap();
+        let result = norito::core::with_decode_limits_scope(query_limits(demand), || {
+            BlsCrypto::for_query_committee(&members, &mut query_admission)
+        });
+        assert!(matches!(
+            result,
+            Err(QueryCommitteeError::Member {
+                index: 0,
+                error: KeyError::NotBlsNormal(Algorithm::Ed25519)
+            })
+        ));
     }
 
     /// `n` validators: their signers, a crypto that admitted every key, and the committee.

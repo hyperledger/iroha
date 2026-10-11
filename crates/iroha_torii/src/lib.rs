@@ -25783,11 +25783,12 @@ async fn finite_finality_response(
     );
     rate_limit_requests_with_cost(&app, &key, FINALITY_HEAVY_QUERY_RATE_COST).await?;
     let mut admission = acquire_query_admission(app.as_ref(), true).await?;
-    // Both bodyless local routes acquire the existing complete query owner when
-    // no admitted outer collection supplies it. Response custody alone cannot
-    // grant producer authority, and a present invalid owner is never replaced.
+    history_producer::HistoryProducerOwner::validate_finality_inheritance(&admission)?;
+    // These local GETs have no signed-query body. Account for that only when
+    // acquiring their original reservation; an existing outer request keeps its
+    // complete original geometry and is never replaced or enlarged.
     if admission._fanout_memory.is_none() {
-        admission._fanout_memory = Some(match try_acquire_new_query_fanout_memory(&app) {
+        admission._fanout_memory = Some(match try_acquire_bodyless_finality_memory(&app) {
             Ok(reservation) => reservation,
             Err(response) => return Ok(response),
         });

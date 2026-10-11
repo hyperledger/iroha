@@ -101,6 +101,7 @@ const MAX_PROPOSAL_BYTES: usize = 64 * 1024 * 1024;
 mod amx_initialization;
 mod artifacts;
 mod native_acquisition;
+mod query_reader;
 pub(crate) use amx_initialization::AmxChainInitialization;
 mod terminal_selection;
 pub(crate) use artifacts::PrefixArtifacts;
@@ -1059,6 +1060,25 @@ impl PrefixVerifierContext {
         committed: &CommittedBlock,
         artifacts: Option<PrefixArtifacts>,
     ) -> Result<PreparedAdvance, ExecutionAttemptError<ChainReadError>> {
+        self.prepare_advance_with_funding(prefix, committed, artifacts, false)
+    }
+
+    fn prepare_advance_query(
+        &self,
+        prefix: &mut VerifiedPrefix,
+        committed: &CommittedBlock,
+        artifacts: Option<PrefixArtifacts>,
+    ) -> Result<PreparedAdvance, ExecutionAttemptError<ChainReadError>> {
+        self.prepare_advance_with_funding(prefix, committed, artifacts, true)
+    }
+
+    fn prepare_advance_with_funding(
+        &self,
+        prefix: &mut VerifiedPrefix,
+        committed: &CommittedBlock,
+        artifacts: Option<PrefixArtifacts>,
+        query: bool,
+    ) -> Result<PreparedAdvance, ExecutionAttemptError<ChainReadError>> {
         let height = committed.height;
         if !committed.extends(&prefix.tip) {
             return Err(ChainReadError::Discontinuous { height }.into());
@@ -1071,16 +1091,30 @@ impl PrefixVerifierContext {
         let authority = if scheduled.epoch == prefix.authority.material {
             Clone::clone(&prefix.authority)
         } else {
-            Arc::new(VerifiedAuthority::new(
-                scheduled.epoch.clone(),
-                height,
-                &mut prefix.validation,
-            )?)
+            if query {
+                query_reader::admit_epoch_clone(&scheduled.epoch, height)?;
+                norito::core::reserve_decode_arc_allocation::<VerifiedAuthority>()
+                    .map_err(|error| read_decode_error(height, error))?;
+                Arc::new(VerifiedAuthority::new_query(
+                    scheduled.epoch.clone(),
+                    height,
+                    &mut prefix.validation,
+                )?)
+            } else {
+                Arc::new(VerifiedAuthority::new(
+                    scheduled.epoch.clone(),
+                    height,
+                    &mut prefix.validation,
+                )?)
+            }
         };
         if committed.commitment.schedule.current != authority.material {
             return Err(
                 malformed("result changes its authenticated incumbent context".into()).into(),
             );
+        }
+        if query {
+            query_reader::admit_height_config(&scheduled.epoch, height)?;
         }
         let config = scheduled
             .height_config_with_validation(&mut prefix.validation)
@@ -1088,6 +1122,11 @@ impl PrefixVerifierContext {
         let certificate =
             self.prepare_certificate(committed, &authority, Some(&config), artifacts)?;
         verify_boundary_source(committed, &prefix.tip, &authority)?;
+        if query {
+            query_reader::admit_schedule(&committed.commitment.schedule, height)?;
+            query_reader::admit_height_config(&prefix.tip.commitment.schedule.current, height)?;
+            query_reader::admit_height_config(&committed.commitment.schedule.current, height)?;
+        }
         let schedule = prefix
             .schedule
             .advanced_with_validation(&committed.commitment.schedule, &mut prefix.validation)
@@ -1193,6 +1232,7 @@ impl PrefixVerifierContext {
         Ok(())
     }
 
+    #[cfg(test)]
     fn verify_certificate_with_scratch_admission(
         &self,
         committed: CommittedBlock,
@@ -1393,12 +1433,39 @@ fn genesis_prefix_authority(
     (schedule::ConsensusSchedule, Arc<VerifiedAuthority>),
     ExecutionAttemptError<ChainReadError>,
 > {
+    genesis_prefix_authority_with_funding(tip, material, validation, false)
+}
+
+fn genesis_prefix_authority_query(
+    tip: &CommittedBlock,
+    material: ValidatorEpochContextV1,
+    validation: &mut EpochValidationScope,
+) -> Result<
+    (schedule::ConsensusSchedule, Arc<VerifiedAuthority>),
+    ExecutionAttemptError<ChainReadError>,
+> {
+    genesis_prefix_authority_with_funding(tip, material, validation, true)
+}
+
+fn genesis_prefix_authority_with_funding(
+    tip: &CommittedBlock,
+    material: ValidatorEpochContextV1,
+    validation: &mut EpochValidationScope,
+    query: bool,
+) -> Result<
+    (schedule::ConsensusSchedule, Arc<VerifiedAuthority>),
+    ExecutionAttemptError<ChainReadError>,
+> {
     if tip.commitment.schedule.current != material {
         return Err(ChainReadError::Committee {
             height: GENESIS_HEIGHT,
             reason: "genesis result context differs from its signed body".into(),
         }
         .into());
+    }
+    if query {
+        query_reader::admit_schedule(&tip.commitment.schedule, GENESIS_HEIGHT)?;
+        query_reader::admit_height_config(&tip.commitment.schedule.current, GENESIS_HEIGHT)?;
     }
     let schedule = schedule::ConsensusSchedule::from_genesis_outcome_with_validation(
         &tip.commitment.schedule,
@@ -1408,11 +1475,21 @@ fn genesis_prefix_authority(
         height: GENESIS_HEIGHT,
         reason: error.to_string(),
     })?;
-    let authority = Arc::new(VerifiedAuthority::new(
-        material,
-        GENESIS_HEIGHT,
-        validation,
-    )?);
+    let authority = if query {
+        norito::core::reserve_decode_arc_allocation::<VerifiedAuthority>()
+            .map_err(|error| read_decode_error(GENESIS_HEIGHT, error))?;
+        Arc::new(VerifiedAuthority::new_query(
+            material,
+            GENESIS_HEIGHT,
+            validation,
+        )?)
+    } else {
+        Arc::new(VerifiedAuthority::new(
+            material,
+            GENESIS_HEIGHT,
+            validation,
+        )?)
+    };
     Ok((schedule, authority))
 }
 
@@ -2084,40 +2161,6 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         self.check_certificate(self.source.block(height)?, height)
     }
 
-    /// Borrow the original target/gap kernel with a finite request stop predicate.
-    /// Receipt and authority validation order remains identical to ordinary reads.
-    pub(crate) fn certified_with_progress<E>(
-        &self,
-        height: u64,
-        progress: &mut impl FnMut() -> Result<(), E>,
-    ) -> Result<CertifiedBlock, E>
-    where
-        E: From<ExecutionAttemptError<ChainReadError>>,
-    {
-        progress()?;
-        #[cfg(all(test, sumeragi_core_mutation = "HC210"))]
-        {
-            *self.prefix.lock() = None;
-        }
-        if self
-            .terminal
-            .as_ref()
-            .is_some_and(|pending| !pending.delivered())
-        {
-            return Err(ExecutionAttemptError::from(ChainReadError::NotInView { height }).into());
-        }
-        let block = self.source.block(height)?;
-        progress()?;
-        let mut cursor = self.prefix.lock();
-        progress()?;
-        self.prepare_certificate_prefix(&mut cursor, height)?;
-        progress()?;
-        let prefix = cursor
-            .as_mut()
-            .ok_or_else(|| ExecutionAttemptError::from(ChainReadError::ForeignGenesis))?;
-        self.check_certificate_at_prefix_with_progress(prefix, block, height, progress)
-    }
-
     /// The exact authenticated epoch committee and its original proofs of possession.
     /// The complete prefix authenticates historical authority even after World rotates it out.
     ///
@@ -2416,26 +2459,6 @@ impl<'v> CertifiedChain<'v, StateView<'v>> {
             kura,
             budget: budget.clone(),
             maximum_wire_bytes: usize::MAX,
-        })
-    }
-
-    /// Borrow the original captured hash generation through the same pinned kernel.
-    /// Its actual State owner retains custody; this creates no history copy.
-    pub(crate) fn from_pinned_history(
-        chain_id: &'v ChainId,
-        network: &'v NetworkId,
-        hashes: &'v dyn crate::state::BlockHashRead,
-        kura: &'v Kura,
-        budget: &iroha_allocation::AllocationBudget,
-        maximum_wire_bytes: usize,
-    ) -> Result<Self, ExecutionAttemptError<ChainReadError>> {
-        Self::from_source(ChainSource::Pinned {
-            chain_id,
-            network,
-            hashes: PinnedHashes::Captured(hashes),
-            kura,
-            budget: budget.clone(),
-            maximum_wire_bytes,
         })
     }
 }

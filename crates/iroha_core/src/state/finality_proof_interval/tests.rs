@@ -7,6 +7,20 @@ use std::{
     sync::Arc,
 };
 
+fn test_budget(frames: iroha_allocation::AllocationBudget) -> NativeFinalityProofBudget {
+    NativeFinalityProofBudget::new(
+        frames,
+        iroha_allocation::AllocationBudget::new(33_312_848),
+        norito::DecodeLimits::new(
+            2_562_487,
+            MAX_FINALITY_BLOCK_BYTES,
+            33_312_848,
+            33_312_848,
+            norito::core::MAX_VALUE_NESTING_DEPTH,
+        ),
+    )
+}
+
 fn limits(height: u64) -> NativeFinalityProofIntervalLimits {
     NativeFinalityProofIntervalLimits::new(
         NonZeroU64::new(2).unwrap(),
@@ -44,7 +58,7 @@ fn interval_busy_capture_returns_exact_writer_release_without_work_or_refund_und
     let state = chain.state();
     let pool = state.ivm_execution_budget();
     let counter = context();
-    let owner = CanonicalHistoryReadBudget::new(pool.clone(), counter.clone());
+    let owner = test_budget(pool.clone());
     let mut registration = crate::unit_test_support::release_registration(&pool);
     // The original waiter is fixture-owned; measure request work after its admission.
     let reserved = pool.reserved_bytes();
@@ -97,7 +111,7 @@ fn interval_original_hash_generation_allows_actual_stable_tip_publication() {
     let state = Arc::clone(chain.state());
     let pool = state.ivm_execution_budget();
     let original = chain.committed(4).block_hash();
-    let owner = CanonicalHistoryReadBudget::new(pool, context());
+    let owner = test_budget(pool);
     let retained = state
         .read_finality_proof_interval_after_read(
             &owner,
@@ -119,8 +133,9 @@ fn interval_original_hash_generation_allows_actual_stable_tip_publication() {
 fn interval_post_read_writer_refusal_retires_response_and_preserves_original_release() {
     let chain = chain();
     let state = Arc::clone(chain.state());
-    let pool = state.ivm_execution_budget();
-    let owner = CanonicalHistoryReadBudget::new(pool.clone(), context());
+    // The writer may retire node-cache originals; measure this request alone.
+    let pool = iroha_allocation::AllocationBudget::new(2_562_487);
+    let owner = test_budget(pool.clone());
     let reserved = pool.reserved_bytes();
     let (request_tx, request_rx) = std::sync::mpsc::sync_channel(1);
     let (held_tx, held_rx) = std::sync::mpsc::sync_channel(1);

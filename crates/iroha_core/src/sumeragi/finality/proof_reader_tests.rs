@@ -686,8 +686,11 @@ fn check_finite_finality_interval(chain: &CertifiedTestChain) {
     chain.kura().reset_canonical_query_reads_for_test();
     let (actual, relations) = relation_counts::measure(|| {
         finite.with(|| {
-            let owner =
-                crate::state::CanonicalHistoryReadBudget::new(budget.clone(), finite.clone());
+            let owner = NativeFinalityProofBudget::new(
+                budget.clone(),
+                iroha_allocation::AllocationBudget::new(33_312_848),
+                caller_limits(usize::MAX),
+            );
             let bytes = expected
                 .iter()
                 .map(|proof| norito::canonical_frame_len(proof).unwrap())
