@@ -1761,38 +1761,23 @@ fallback beyond that.
 
 ### 9.1 Cutover sequencing
 
-Revision 2026-10-10 changes E1 app attestation and issuer policy, the
-wallet–issuer E5/E6 exchange, the signed client runtime and mobile Native
-packaging. It alters no validator-facing ledger wire, ISI or state format, no
-validation rule, no wallet relation or circuit, no artifact producer and no
-verifier-pack, producer-inventory or transport format. The credential, 56-byte
-evidence record, enrollment challenge and Abandonment frame keep their layouts;
-the 32-byte policy and evidence digests they carry name the new preimages. No
-ledger instruction, validation rule or state decodes a policy frame or E5/E6
-evidence. Fact bit 9 (`PLAY_INTEGRITY_SIGNAL`) stays defined in record
-validation and forbidden on Apple records; both masks stay unchanged. It is
-retired issuer output: newly generated evidence never sets bit 9, and renewals
-preserve historical enrollment evidence unchanged, including bit 9, because
-credential replacement validation lets a renewal change only its fresh evidence,
-times and issuer certificate. A credential already issued with bit 9, and every
-renewal of it, therefore stays valid. Removing bit 9 from the defined-facts mask
-would reject that historical Android evidence; removing it from the
-Apple-forbidden mask would instead permit an invalid Apple fact. Neither
-removal is part of this design, and no compatibility decoder is needed.
+The first release uses chain-only Android E1 attestation, the closed E5/E6
+exchange, the signed client runtime and bridge ABI 29. No first-device
+Google authentication or Play Integrity input remains. Fact bit 9 is reserved
+zero for every credential evidence record, including retained enrollment
+evidence and renewal fresh evidence. Native record validation and the
+credential proof relation both reject it; there is no historical-credential
+exception or compatibility decoder.
 
-The validator baseline is Iroha `ff7ec9457c`: the Taira validators run it, and
-the KAGEMUSHA wallet artifacts, verifier pack, producer inventory and artifact
-transport for that genesis are produced from it. Until the cutover, the contract
-that its code implements stays in force: bridge ABI 28; the signed v7 runtime
-with its `firstDeviceAuthentication` selection; and an issuer that requires a
-Play Integrity token and sets fact bit 9 on Android. The mobile baseline is the
-ABI 28 mobile Native that the release driver builds for the deployed apps. This
-document names no separate mobile source commit: if the release driver builds
-that Native from a commit other than `ff7ec9457c`, its signed build record names
-that commit as the mobile baseline. Among signed release objects, the cutover
-changes only the signed client runtime and the mobile Native. It neither
-changes nor re-signs the frozen verifier pack, producer inventory or artifact
-transport, and the signed runtime change is released separately from them.
+The credential, 56-byte evidence record, enrollment challenge and Abandonment
+frame retain their field layouts. The accepted evidence predicate changes the
+monetary circuit, so its proving originals and all dependent recursive keys
+must come from current source. Candidate originals may be reused only when
+complete current-source admission succeeds; changed source fingerprints must
+regenerate. The completed key set and inventory determine a fresh relation,
+scheme and signed artifact manifest. The release binds that complete carrier,
+its genesis and signed runtime, and builds validators and all mobile Native
+slices from the resulting current source.
 
 Nothing in this revision is deployed piecemeal. The cutover is one coordinated
 change, and the release driver builds and releases it:
@@ -1802,8 +1787,8 @@ change, and the release driver builds and releases it:
    adapter), its enrollment `prepare_request` takes the Android chain only, and
    the runtime capacity results of §5.3 become typed. Abandonment returns an
    explicit result, `LocalAbandoned` for the §3.2 no-marker form or
-   `Abandonment(frame)` with the exact retained frame for the marker form;
-   today Abandon always returns frame bytes. Refusals carry the closed §2.4
+   `Abandonment(frame)` with the exact retained frame for the marker form.
+   Refusals carry the closed §2.4
    codes. The first-device authentication and Play Integrity token inputs leave
    every startup consumer together (step 2). The export inventory changes
    accordingly. ABI 29 artifacts refuse ABI 28 callers; there is no
@@ -1815,8 +1800,7 @@ change, and the release driver builds and releases it:
    `selection/bpng.rs`); from BPNG Core's runtime projection, together with its
    Play Integrity secret; from the Android app's first-device bootstrap and
    schema; and from the iOS runtime decode. Removing one alone breaks startup,
-   because Native refuses a BPNG runtime without the selection today, so the
-   runtime keeps the field until this step.
+   because all current consumers require the same closed runtime field roster.
 3. **E1 policy and issuer.** These land together: the Model's Android app and
    enrollment arms of the [enrollment policy](kagemusha_wallet_enrollment_policy_v1.md)
    and the regenerated `fixtures/kagemusha/wallet_enrollment_policy_v1_vectors.json`; the
@@ -1826,7 +1810,7 @@ change, and the release driver builds and releases it:
    §2.4 refusal codes, exported by Native and relayed unchanged by BPNG Core and
    the Kotlin and Swift SDKs, which also keep a withheld E6 delivery distinct
    from a terminal Refused outcome (§2.4); and an issuer that never sets fact
-   bit 9.
+   bit 9; native evidence validation and credential circuits reject that reserved bit.
    - Native core replaces the old Model policy arms, the E5/E6 carriers, the
      issuer worker configuration, the worker's Play Integrity fact requirement
      and the hardware-selector coupling in the credential and pre-key owners,
@@ -1865,6 +1849,9 @@ approval ceremony (§10):
   when a genuine chain from a post-2019 Huawei phone without Google Mobile
   Services enrolls under it. Until then no Huawei root is pinned, and a chain
   to an unpinned root, Huawei's included, is refused with code 5.
+- Reserved evidence: bit 9 is refused for every platform, in both records of
+  initial credentials and either record of renewed credentials. The native
+  validator and actual credential circuit both exercise this rejection.
 - Validity: an expired certificate in a remotely provisioned chain is refused,
   including one that chains to the Google RSA root; an expired certificate in a
   documented factory-provisioned chain under that root is accepted.

@@ -307,13 +307,12 @@ is the body's fields in the order shown.
 
 Fact bits: 0 HARDWARE_BACKED_KEY, 1 STRONGBOX, 2 BOOTLOADER_LOCKED, 3 VERIFIED_BOOT,
 4 PATCH_POLICY_MET, 5 APP_SIGNING_IDENTITY, 6 APP_ATTEST_GENUINE_DEVICE,
-7 APP_ATTEST_KEY_BINDING, 8 APP_ATTEST_PRODUCTION, 9 PLAY_INTEGRITY_SIGNAL (retired
-issuer output, below), 10 REVOCATION_LIST_CLEAR, 11 LOCAL_COMPROMISE_CHECKS_CLEAR;
-12–31 are zero. Android records never carry 6–8; Apple records never carry 0–5 or 9
-and have zero patch levels. Enrollment evidence requires bits 0, 2, 3 and 5 on
-Android (plus 1 for StrongBox; TEE forbids 1) and bits 6 and 7 on Apple. These are
+7 APP_ATTEST_KEY_BINDING, 8 APP_ATTEST_PRODUCTION, 10 REVOCATION_LIST_CLEAR,
+11 LOCAL_COMPROMISE_CHECKS_CLEAR; bit 9 and bits 12–31 are reserved zero.
+Android records never carry 6–8; Apple records never carry 0–5 and have zero
+patch levels. Enrollment evidence requires bits 0, 2, 3 and 5 on Android (plus 1 for StrongBox; TEE forbids 1) and bits 6 and 7 on Apple. These are
 the record-validity rules every consumer, validators included, checks natively;
-this revision does not change them.
+bit 9 is rejected in enrollment evidence and renewal fresh evidence alike.
 
 Issuer policy (enrollment policy revision 2026-10-10, from the proposal §9.1
 cutover) decides which valid bits an issued record carries. The E1 issuer sets
@@ -321,16 +320,10 @@ exactly the facts it verified: on Android bits 0, 2, 3, 5 and 10, plus 1 for
 StrongBox and 4 when the patch floor is met; on Apple bits 6, 7 and 8. It requires
 bit 10 on Android and bit 8 on Apple, and it never sets bit 9 or bit 11.
 REVOCATION_LIST_CLEAR means no chain certificate was listed by its root's
-revocation source or by the operator denylist at the check. Bit 9 is retired
-issuer output, not a reserved-zero bit: newly generated evidence, E1 enrollment
-evidence and renewal fresh evidence alike, never sets bit 9, and renewals
-preserve historical enrollment evidence unchanged, including bit 9, as
-credential replacement validation requires. It stays in the defined-facts and
-Apple-forbidden masks, both unchanged, so a credential issued with it under the
-validator baseline, and each renewal of it, stays valid. Removing bit 9 from the
-defined-facts mask would reject that historical Android evidence; removing it
-from the Apple-forbidden mask would instead permit an invalid Apple fact.
-Neither removal is part of the design (proposal §9.1).
+revocation source or by the operator denylist at the check. There is no Play
+Integrity fact or historical-credential exception. The native Model and the
+credential proof relation both require bit 9 to be zero, including the retained
+enrollment record and fresh record of every renewed credential.
 
 ### 3.1.0 Ledger native verifier installation
 

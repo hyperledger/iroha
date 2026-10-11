@@ -14,8 +14,8 @@ enrollment service. The admission contract is `specs/kagemusha_wallet_enrollment
 
 There is no Play Integrity, Google account, Google Mobile Services, Huawei Mobile Services,
 app-store installation, exact version, hardware selector, model allowlist or second attested
-key in the admission path. The verifier never sets evidence fact bit 9
-(`PLAY_INTEGRITY_SIGNAL`), which is retired issuer output.
+key in the admission path. Evidence fact bit 9 is reserved zero; native validators
+and proof circuits reject it in enrollment and renewal records.
 
 ## Android admission
 

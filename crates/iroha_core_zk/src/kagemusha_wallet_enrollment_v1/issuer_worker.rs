@@ -454,8 +454,7 @@ impl VerifierRequestV1 {
             .validate_enrollment_for_kind(kind)
             .map_err(|_| Error("evidence facts"))?;
         // These are facts of the actual retained adapters, beyond the generic Model minimum.
-        // Fact bit 9 (Play Integrity) is retired issuer output: newly produced evidence never
-        // carries it, although historical credentials and their renewals keep it valid.
+        // Reserved fact bit 9 is already rejected by the shared evidence validator.
         let required = if kind.is_android() {
             KAGEMUSHA_WALLET_FACT_REVOCATION_LIST_CLEAR_V1
         } else {
