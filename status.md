@@ -377,15 +377,19 @@ passes.
 
 - **Parliament:** binding juries move to [anonymous on-chain ballots](specs/parliament_private_ballot_design.md):
   public votes and tally, voter-to-ballot linkage hidden by a PQ membership and
-  nullifier proof, and no ballot custodian. The construction is selected but its
-  proof profile is unqualified and the ballot is not implemented. Binding-governance
-  mainnet launch is no-go until qualification. The
-  [profile evaluation](specs/parliament_ballot_proof_profile.md) selects no
-  profile: no candidate family has an applicable published argument for
-  authorization, unforgeability, joint zero knowledge or registration in the
-  quantum random-oracle model, nothing is implemented or measured for the
-  ballot relation, and selection waits on the owner decisions it lists, so
-  schemas and integration have not started. The epoch-seated fast pause
+  nullifier proof, and no ballot custodian. No proof profile is selected,
+  nothing is qualified and the ballot is not implemented in Core.
+  Binding-governance mainnet launch is no-go. The
+  [profile record](specs/parliament_ballot_proof_profile.md) states the decided
+  construction: a two-SHAKE proof of selection from the sealed credential
+  list, whose bytes are published at seal, in a VOLE-in-the-head backend
+  derived from FAEST v3.0. A standalone experimental backend
+  (`crates/iroha_zkp_vole`) and ballot relations
+  (`crates/iroha_parliament_ballot_proof`) are in progress, wired into nothing
+  and unmeasured. Selection is blocked until every section 5 gate has a
+  complete written argument and the concrete-security ledger meets the
+  2^128 quantum-query contract; neither holds, so schemas and Core integration
+  have not started. The epoch-seated fast pause
   panel is specified, not implemented. Availability isolation (ballot design
   section 9) is implemented in `iroha_core` and `irohad`: no Parliament state
   creates pulse demand, vetoes a pulse or block, or gates startup; a sortition
@@ -399,9 +403,11 @@ passes.
   cannot run, and the committee-rotation corridor has not run. Open: the proof
   profile, schemas and ballot; retirement of timed-OVN, whose ballot now opens
   only when a native pulse sits at exactly its release height, so its four
-  hidden-ballot corridors are ignored; the owner decision on binding the
-  attempt id into the draw seed; and the SCCP hold rule, which must account for
-  a sortition wait that is unbounded in wall time on an idle chain. The
+  hidden-ballot corridors are ignored; and the governance-clock requirements of
+  ballot design section 9 (bounded progress to the native slot, casting-clock
+  due work, a finite qualified attempt latency for the SCCP hold rule), which
+  are specified, not implemented. The draw seed stays attempt-independent by
+  design. The
   state-table inventory generator fails at `45f112b1cc` on unrelated domains,
   so the Parliament rows of `specs/state_table_inventory.json` were aligned by
   hand.

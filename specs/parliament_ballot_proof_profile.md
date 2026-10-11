@@ -2,19 +2,24 @@
 
 Status: evaluation of 2026-10-11 against
 [parliament_private_ballot_design.md](parliament_private_ballot_design.md)
-(the "ballot design") at source baseline `45f112b1cc` plus the uncommitted
-working-tree revision of the ballot design, which touches its sections 9, 12
-and 13; sections 1, 3, 4 and 5 are as committed. **No profile is
-selected. Nothing is qualified.** Nothing has been implemented or measured for
-the ballot relation: every size and time below is a calculation or an estimate
-and is labelled as such. Binding Parliament governance, and every capability
-that depends on it, stays no-go. Schemas and integration (ballot design
-section 12.2, steps 3 and 4) do not start until section 5 is discharged and a
-profile is selected (ballot design section 12.2, step 2).
+(the "ballot design") at source baseline `fd8d296670` plus the working-tree
+revision of the ballot design that states the sealed-list contract. **No
+profile is selected. Nothing is qualified.** The construction to develop is
+decided (section 6): a two-SHAKE proof over the public sealed list, in a
+VOLE-in-the-head backend derived from FAEST v3.0. A standalone experimental
+implementation is in progress in `crates/iroha_zkp_vole` (the backend) and
+`crates/iroha_parliament_ballot_proof` (the ballot relations). It is wired into
+nothing, and this record contains no measurement of it: every size and time
+below is a calculation or an estimate and is labelled as such. Binding
+Parliament governance, and every capability that depends on it, stays no-go.
+Schemas and Core integration (ballot design section 12.2, steps 3 and 4) remain
+blocked by the selection rule of step 2 (section 11.1), whose conditions 2 and
+3 do not hold. `parliament_binding_ballot_available()` stays false until the
+owner records qualification.
 
 This record discharges none of the section 5 gate. It compares the candidate
-families, states the leading experimental candidate exactly, and lists what is
-missing, which decisions belong to the owner and what evidence a selection
+families, states the decided construction exactly, records the decisions taken
+and their source, and lists what is missing and what evidence a selection
 needs. The owner decisions in ballot design section 1 are taken as fixed.
 
 Every statement of fact carries one of these labels:
@@ -23,15 +28,15 @@ Every statement of fact carries one of these labels:
 | --- | --- |
 | **[P]** | Verified by this evaluation in a primary source, which is cited. Section 13 states how much of each source was read. |
 | **[C]** | Read in repository source at the baseline. |
-| **[R]** | Reported by the second-opinion review (section 3). Not independently verified. |
+| **[R]** | Reported or decided by the second-opinion review (section 3). Not independently verified. A decision so labelled is a design decision, not a security proof. |
 | **[D]** | Derived by calculation in this record. The formula and inputs are given. |
 | **[E]** | Estimate or judgement. Not a measurement. |
 | **[U]** | Published claim seen only in an abstract, a landing page or a secondary citation, or collected by the research pass without verification. |
 
 ## 1. Terms
 
-`P`, `profile_id`, `sk`, `C`, `R`, `S`, `scope`, `nf`, `m`, `m_reg`, `pi_reg`
-and `pi_vote` are as in ballot design section 3.1. Further terms:
+`P`, `profile_id`, `sk`, `C`, `L`, `R`, `B`, `S`, `scope`, `nf`, `m`, `m_reg`,
+`pi_reg` and `pi_vote` are as in ballot design section 3.1. Further terms:
 
 | Term | Meaning |
 | --- | --- |
@@ -39,39 +44,45 @@ and `pi_vote` are as in ballot design section 3.1. Further terms:
 | `lambda`, `tau`, `w_grind`, `T_open`, `d_zk` | FAEST security parameter, number of small-VOLE instances, grinding bits, GGM opening threshold, maximal constraint degree |
 | `l` | Number of committed witness bits of a relation |
 | QROM | Quantum random-oracle model |
-| Public-list membership | The verifier holds the `S` sealed real leaves and the proof selects one of them, instead of proving a Merkle path inside the relation |
+| Public-list membership | The verifier holds the validated list of the `S` sealed commitments and the proof selects one of them, instead of proving a Merkle path inside the relation |
+| `P16` | The 16-byte domain identifier of the experimental construction (section 6.1) |
+| Fast row, small row | The two measurement parameter rows of section 8.6 |
 | BHT, CNS | The Brassard–Høyer–Tapp and Chailloux–Naya-Plasencia–Schrottenloher quantum collision algorithms |
 
 ## 2. What a profile must provide
 
-A profile `P` fixes every hash, PRF, field, in-relation encoding, tree and
-proof parameter and instantiates the abstract functions of ballot design
-section 3.1:
+A profile `P` fixes every hash, PRF, field, domain tag, canonical list and
+preimage encoding, digest length and proof parameter and instantiates the
+abstract functions of ballot design section 3.1:
 
 ```text
-C       = CredentialCommit_P(PARLIAMENT_CREDENTIAL_V1, body_context, sk)
+B       = BodyContextDigest_P(body_context)
+C       = CredentialCommit_P(body_context, sk)
 nf      = NullifierPRF_P(sk, scope)
-R       = CredentialRoot_P(sorted real leaves, S, profile_id)
-pi_reg  = Possession_P(sk; C, m_reg)
-pi_vote = Ballot_P(sk, i, path; m)
+R       = SealedListDigest_P(B, S, L)
+pi_reg  = Registration_P(sk; C, m_reg)
+pi_vote = Ballot_P(sk, selector; B, L, m)
 ```
 
-with `m_reg = (network_id, authority, assignment_id, election_attempt_id,
-body_role, C)` (section 3.2) and `m = (scope, R, S, nf, vote, policy_hash,
-profile_id)` (section 3.5). `sk` is one high-entropy secret; every derived
-secret is a constrained derivation of it; `pi_reg` and `pi_vote` use distinct
-transcript domain tags (section 3.1). The tree has 1,024 positions with real
-leaves at `[0, S)` and domain-tagged empty leaves elsewhere (section 3.3).
+with `m_reg = (network_id, authority, assignment_id, governance_attempt_id,
+election_attempt_id, body_role, B, C, profile_id)` (section 3.2) and
+`m = (scope, R, S, nf, vote, policy_hash, profile_id)` (section 3.5). `sk` is
+one high-entropy secret; every derived secret is a constrained derivation of
+it; `pi_reg` and `pi_vote` use distinct transcript domain tags (section 3.1).
+`L` is the `S` sealed commitments in strictly increasing bytewise order,
+without padding. The finalized block data of the seal carries its bytes. A
+verifier of `pi_vote` holds a validated list or an immutable verification
+context authenticated to that seal (sections 3.3 and 3.5) **[C]**.
 
 `P` must establish the eight properties of ballot design section 5. They are
 restated here in that section's own words:
 
-1. **Authorization.** Knowledge of a registered credential, real-leaf
-   membership with `i < S`, a correct nullifier, a valid choice, and binding of
-   the complete message `m`.
+1. **Authorization.** Knowledge of a registered credential, selection of
+   exactly one entry of the validated sealed list at a position below `S`, a
+   correct nullifier, a valid choice, and binding of the complete message `m`.
 2. **Unforgeability.** Quantum chosen-message security despite observed honest
    ballots and adversarial credential registrations.
-3. **Nullifier uniqueness.** For a fixed scope and sealed root, let the
+3. **Nullifier uniqueness.** For a fixed scope and sealed list, let the
    adversary control `k` sealed credentials and obtain honest ballots whose
    nullifiers form the set `H`. Except with negligible probability it cannot
    produce valid ballots with more than `k` distinct nullifiers outside `H`.
@@ -93,15 +104,24 @@ restated here in that section's own words:
 7. **Deterministic bounded verification.** Fixed encodings, maximum
    allocations, bounded hash and field work, defined malformed-proof behaviour
    and identical results across hardware.
-8. **Registration.** `pi_reg` is a simulation-extractable signature of
-   knowledge of `sk` for `C` under `m_reg`, and is zero knowledge jointly with
-   every ballot proof.
+8. **Registration authorization.** Establish adaptive multi-user
+   credential-origin unforgeability in the QROM against malicious registrations
+   and corrupt credentials, with access to both honest proof types. An
+   adversary cannot authorize an uncorrupted honest credential under a fresh
+   registration message, including recontextualization into another body. Joint
+   zero knowledge is required. Simulation-extractability is sufficient but is
+   not required by this item.
 
-The engineering targets of section 5 are proposals: complete ballot proof
-≤ 256 KiB (262,144 bytes); uncached verification on the pinned minimum
-validator CPU ≤ 250 ms; verifier workspace ≤ 64 MiB; phone proving p95 ≤ 10 s;
-phone peak prover memory ≤ 256 MiB; both proofs measured at `S = 3`, 500 and
-1,000.
+Section 7.3 gives the item 8 game. Section 8.8 gives the stated reading of
+item 6. Item 8 does not discharge the knowledge requirement of item 1.
+
+The engineering limits of section 5 apply to both proofs at `S = 3`, 500 and
+1,000: complete canonical proof envelope ≤ 256 KiB (262,144 bytes); uncached
+verification on the minimum validator baseline ≤ 250 ms; verifier workspace
+≤ 64 MiB; phone proving p95 ≤ 10 s; phone peak prover memory ≤ 256 MiB. The
+list-context object is capped separately at 160 KiB. The hardware baselines
+are named in ballot design section 5 **[C]** and in section 11.4 of this
+record.
 
 ## 3. Method and sources
 
@@ -151,6 +171,14 @@ attributed with **[R]** and are not independently verified. Where it conflicts
 with the research pass, it is followed; where primary-source verification
 conflicts with either, the primary source is followed.
 
+The decisions of section 10.1 were taken by the same reviewer, in a second
+pass that the owner delegated on 2026-10-11. That pass reports reading the
+requested records and the relevant implementation paths, consulting a further
+model and checking primary sources; it edited no file and ran no build
+**[R]**. Its decisions are design decisions. They are not security proofs,
+they are not an independent review of this record, and they select and qualify
+nothing.
+
 ## 4. Candidates compared
 
 No row below is a qualified profile. "Evidence" gives the best available size
@@ -161,37 +189,36 @@ and cost information with its label. Verdicts are **[E]**.
 | In-repo PQ-MASP | Goldilocks FRI STARK, SHA-256 depth-32 membership, stable nullifier, outer ML-DSA-65 authorization (`crates/iroha_core_privacy/src/privacy_engines/pq_masp/`) | SHA-256 and SHA3-384 as random oracles; FRI soundness; ML-DSA | **[C]** descriptor fixes trace 2^14, 556 base columns, maximum inner proof 9,431,915 B. **[E]** about 2.3–2.6 MB calculated from the geometry by the research pass. No measured size or time in the repository | Cannot be the profile (section 5) |
 | In-repo ZK-ACE | Dedicated STARK: Poseidon-x7 identity commitment and replay nullifier, no membership | Non-standard six-lane Poseidon; its descriptor states QROM qualification is unavailable **[C]** | **[C]** canonical proof exactly 2,131,222 B | Not a candidate: no membership; **[E]** the research pass reports three independent witness secrets |
 | In-repo FASTPQ | Masked DEEP/FRI engine, one fixed geometry | Honest-verifier answer-view hiding argument only (ballot design section 5) | **[C]** canonical child frame 500,084 B (`fastpq_production_readiness.md`) | Not a candidate at its geometry |
-| STARK, SHA-2/SHA-3 in the relation | DEEP-ALI + FRI compiled with BCS; Merkle path, commitment and nullifier hashed inside the relation | Standard hashes as random oracles; FRI soundness in the proven (Johnson) regime | **[E]** 250–600 KiB (research pass; depends on undecided digest length and soundness floor) | Closest to the literal relation and most conservative primitives. Size near or above the target (250–600 KiB **[E]**, unmeasured); **[R]** no demonstrated impossibility of meeting 256 KiB has been established. Gates 2, 5, 8 unproven in the QROM |
-| STARK, arithmetisation-oriented hash | Same proof system; Poseidon2 or Rescue-Prime in the relation | As above, plus collision and PRF security of a non-standardised hash under active cryptanalysis **[U]** | **[E]** 150–300 KiB with 48-byte digests, 100–200 KiB with 32-byte digests (research pass) | Fits only under a lenient security metric; a further assumption and parameter review **[R]** |
+| STARK, SHA-2/SHA-3 in the relation | DEEP-ALI + FRI compiled with BCS; Merkle path, commitment and nullifier hashed inside the relation | Standard hashes as random oracles; FRI soundness in the proven (Johnson) regime | **[E]** 250–600 KiB (research pass; depends on undecided digest length and soundness floor) | Most conservative primitives; proves a Merkle path, which the sealed-list contract of the ballot design no longer uses. Size near or above the target (250–600 KiB **[E]**, unmeasured); **[R]** no demonstrated impossibility of meeting 256 KiB has been established. Gates 2, 5, 8 unproven in the QROM. A narrow form is the fallback research candidate if the construction to develop fails **[R]** (section 11.5) |
+| STARK, arithmetisation-oriented hash | Same proof system; Poseidon2 or Rescue-Prime in the relation | As above, plus collision and PRF security of a non-standardised hash under active cryptanalysis **[U]** | **[E]** 150–300 KiB with 48-byte digests, 100–200 KiB with 32-byte digests (research pass) | Not admissible in this profile **[R]** (section 10.1). It fits the size limit only under a lenient security metric, with a further assumption and parameter review |
 | STARK with STIR or WHIR | FRI replaced by a newer proximity test | As above; the up-to-capacity conjectures are refuted **[U]** (Crites–Stewart, ePrint 2025/2046) | **[U]** published figures are for large instances; **[E]** modest gain at this relation size | Dominated at this statement size |
 | Ligero / Aurora | Linear-code IOPs with zero knowledge designed in | Standard hashes | **[U]** neighbouring published proofs 0.2–1.9 MB; an Aurora credential prototype verifies in 1.37 s | Dominated: size and linear verification |
-| VOLE-in-the-head, AES-only published shape | One AES key; AES commitment; AES CBC-chain tag as nullifier; one-out-of-N selector over the public list (Chiang et al.) | AES pseudorandomness and key binding; SHAKE as (Q)RO; **[R]** the paper's theorem is in a classical model | **[D]** from the reference code's size macros at N = 2^10: 9,962 / 27,516 / 51,848 B at 128/192/256-bit. **[R]** paper: 51.98 KB and at most 103 ms sign or verify at ring 1,024, AES-256. **[D]** 31,938–43,824 B on a FAEST v3 backend at `lambda` = 256 (section 9, V1) | Smallest; 128-bit tag; commitment not statistically injective (expected 1/2 colliding key pair in the random-map model, section 8.4); reference code unusable (section 6.5) |
-| VOLE-in-the-head, hybrid with SHAKE256 nullifier | Six-block AES-256 commitment, SHAKE256 nullifier inside the relation, public-list selector (section 6) | AES key binding in a stated multi-key form; keyed SHAKE256 pseudorandom given the AES commitment; SHAKE as QRO | **[D]** `pi_vote` 62,562–188,760 B at `lambda` = 256 (section 9, V2) | Leading experimental candidate; not qualified |
-| VOLE-in-the-head, two-SHAKE public list | Commitment and nullifier both SHAKE256 inside the relation; no AES in the relation | SHAKE256 only in the relation; the proof system still uses AES-based PRGs **[R]** | **[D]** `pi_vote` 81,834–316,668 B at `lambda` = 256 (section 9, V3). **[R]** about 224 KB at slow `lambda` = 256 before selector and framing. **[U]** a SHA-3 component inside VOLE-in-the-head is reported implemented (ePrint 2026/109) | Comparison candidate; largest witness; registration proof much heavier |
+| VOLE-in-the-head, AES-only published shape | One AES key; AES commitment; AES CBC-chain tag as nullifier; one-out-of-N selector over the public list (Chiang et al.) | AES pseudorandomness and key binding; SHAKE as (Q)RO; **[R]** the paper's theorem is in a classical model | **[D]** from the reference code's size macros at N = 2^10: 9,962 / 27,516 / 51,848 B at 128/192/256-bit. **[R]** paper: 51.98 KB and at most 103 ms sign or verify at ring 1,024, AES-256. **[D]** 31,938–43,824 B on a FAEST v3 backend at `lambda` = 256 (section 9, V1) | Compared alternative; not the preferred design **[R]**. Smallest; 128-bit tag; commitment not statistically injective (expected 1/2 colliding key pair in the random-map model, section 8.4); reference code unusable (section 6.5) |
+| VOLE-in-the-head, hybrid with SHAKE256 nullifier | Six-block AES-256 commitment `C = (AES256_sk(p_0) \|\| ... \|\| AES256_sk(p_5)) xor D` with a public SHAKE256 mask `D` of the body context, a SHAKE256 nullifier inside the relation, a 256-bit `sk` and the public-list selector | AES key binding in a stated multi-key form; keyed SHAKE256 pseudorandom given the AES commitment; SHAKE as QRO | **[D]** `pi_vote` 62,562–188,760 B at `lambda` = 256 (section 9, V2) | Compared alternative; not chosen **[R]**. It needs two additional credential assumptions, multi-key injectivity of the AES commitment and keyed-SHAKE security given that commitment, and the public mask does not remove them. Avoiding them is judged worth the larger proof (section 10.1). If the two-SHAKE construction passes, it is retained even if the hybrid benchmarks faster (section 11.5) |
+| VOLE-in-the-head, two-SHAKE public list | Commitment and nullifier both SHAKE256 inside the relation; 384-bit `sk`; no AES in the relation; flat digest of the public sealed list (section 6) | SHAKE256 as the modelled oracles in its two uses; the backend's PRG and commitment assumptions, with AES-based PRGs in the initial implementation **[R]** | **[R][D]** `pi_vote` 108,586 B (small row) and 158,796 B (fast row); `pi_reg` 60,010 B and 85,932 B (section 9.7). **[D]** The earlier 96-byte-commitment shape: `pi_vote` 81,834–316,668 B at `lambda` = 256 (section 9, V3). **[U]** a SHA-3 component inside VOLE-in-the-head is reported implemented (ePrint 2026/109) | The construction to develop (section 6). Not selected and not qualified. Largest witness of the three public-list variants; no additional credential assumption |
 | VOLE-in-the-head, Merkle path inside the proof | Depth-10 path with a Rijndael-256 compression function, or with SHA-3 | Rijndael-256 in a hash mode analysed only in the ideal-cipher model **[E]**; or SHA-3 | **[D]** Rijndael: 134,304–217,998 B at `lambda` = 256 from the v3 size formula with the research pass's unverified 45,000–50,000-bit witness. **[D]** SHA-3: at least 13 Keccak permutations. At grouping (c) of section 9.2 (12,800 bits per permutation): 13 × 12,800 = 166,400 bits, 10,554 + 22 × 166,400 / 8 = 468,154 B at 256s. At grouping (d) (8,000 bits, `d_zk = 14`, the least reliable figures): 13 × 8,000 = 104,000 bits, 10,554 + 833 + 22 × 104,000 / 8 = 297,387 B at 256s | Keeps root-only verification. Rijndael's 256-bit digest gives about 2^85 quantum collision queries; SHA-3 misses the size target at `lambda` = 256 |
 | Classical MPC-in-the-head rings | ZKB++ / KKW ring signatures over LowMC | LowMC; classical ROM | **[U]** 388 KB (Katz et al.) and 56 KB (Goel et al.) at ring 2^10; seconds on small machines | Dominated; none is linkable as published |
 | Power-residue and algebraic-OWF rings | PegaRing, DualRing-PRF; Rain, AIM, MQ one-way functions | Legendre / power-residue PRFs or young algebraic designs; **[U]** AIM broken, Rain margins shrinking | **[U]** PegaRing about 28 KB at ring 1,024 with a claimed QROM proof; linkability not stated in its abstract | Not conservative enough for a governance ballot |
 | Lattice compositions | MLWE commitment, log-size set membership, weak-PRF nullifier on a hashed scope | MLWE / MSIS; classical ROM | **[E]** tens of KB to about 220 KB; no published scheme, parameter set or QROM proof for this relation | Compared; not implementable as a first profile |
 | Published post-quantum linkable ring signatures | Falafl, Calamari, SMILE, MatRiCT, Raptor and others | MLWE / MSIS, isogenies; classical ROM | **[U]** sizes from about 10 KB to above 1 MB at ring 1,024 | **[U]** The research pass describes the tags of these schemes as key-only. **[R]** The review found that description wrong as a general statement (Chiang et al. support instance-dependent tags, section 6.5). **[R]** No verified theorem was found covering the scoped nullifier, registration and adaptive quantum anonymity together |
 
-**The comparison ballot design section 5 asks for.** A hash-based
-Merkle-membership signature of knowledge matches the literal relation of
-section 3.5 and keeps verification against the root alone. With standardised
-hashes its projected size is near or above the 256 KiB target in the STARK
-form (250–600 KiB **[E]**, unmeasured) and above it in the VOLE-in-the-head
-form at `lambda` = 256 **[D]**. **[R]** No demonstrated impossibility of
-meeting 256 KiB has been established. No proof of gates 2, 5 or 8 was found
-for any concrete instance. A post-quantum
-linkable ring signature gives a far smaller private relation, but no published
-scheme was found whose theorems cover a scope-dependent nullifier, the
-registration proof and joint quantum anonymity **[R][U]**; ring verification
-needs the verifier to hold the member list, which the ballot design does not
-currently require (section 6.4). The leading experimental candidate is a
-hybrid: a ring-style public-list selector proved in a symmetric-primitive
-proof system, with the Merkle root computed outside the proof. "Evaluate
-first" in section 5 requires a substantive evaluation of the hash-based Merkle
-construction; it does not mandate selecting that family after comparison
-**[R]**. Neither side of the comparison is qualified.
+**The comparison.** A hash-based Merkle-membership signature of knowledge
+keeps verification against a root alone. With standardised hashes its
+projected size is near or above the 256 KiB limit in the STARK form
+(250–600 KiB **[E]**, unmeasured) and above it in the VOLE-in-the-head form at
+`lambda` = 256 **[D]**. **[R]** No demonstrated impossibility of meeting
+256 KiB has been established. No proof of gates 2, 5 or 8 was found for any
+concrete instance. A post-quantum linkable ring signature gives a far smaller
+private relation, but no published scheme was found whose theorems cover a
+scope-dependent nullifier, the registration proof and joint quantum anonymity
+**[R][U]**, and ring verification needs the verifier to hold the member list.
+The construction to develop takes the ring-style public-list selector, proves
+it in a symmetric-primitive proof system and commits to the list by a flat
+digest outside the proof. The ballot design requires the validated list of
+every verifier (section 6.4) **[C]**. Among the three public-list variants,
+the hybrid and the AES-only shape are smaller, but they rest on additional
+credential assumptions or a 128-bit tag. They stay in the table as compared
+alternatives only **[R]**. No row is qualified.
 
 ## 5. Why the in-repo PQ-MASP cannot be the profile
 
@@ -221,199 +248,212 @@ Reusable as code, for a STARK-route candidate only **[E]**: the Goldilocks and
 quartic-extension arithmetic, SHA3-384 framing and Merkle multiproofs, the
 transcript, deterministic query sampling, the fixed-length codec, the masking
 machinery, the exact-integer FRI certificate checker and the fail-closed
-randomness wrapper. None of it applies to a VOLE-in-the-head engine, and the
-repository contains no VOLE-in-the-head or MPC-in-the-head code **[E]**
-(research pass).
+randomness wrapper. None of it applies to a VOLE-in-the-head engine **[E]**
+(research pass). That backend is the separate experimental crate of
+section 11.2.
 
-## 6. Leading experimental candidate
+## 6. Construction to develop
 
-This is an experiment. It is not the normative `P`. Its `profile_id` is not
-allocated: `P16` below is an experimental 16-byte domain identifier. The
-relations are those proposed by the second-opinion review **[R]**; they are a
-proposal to implement and measure outside the node, not a claim that the proof
-system is qualified.
+This is the single construction to develop **[R]**. It is not the normative
+`P`: no profile is selected. Its `profile_id` is not allocated. `P16` below
+identifies this experimental construction; the eventual normative profile
+descriptor must also fix the complete backend parameter tuple, and benchmark
+parameter rows have distinct transcript identities **[R]**. The ballot proof is
+FAEST-derived. It is not a standard FAEST signature, and fixing the relation
+does not claim that the custom proof inherits FAEST's signature theorem
+**[R]**. Sections 6.1 to 6.4 state the construction as decided by the
+second-opinion review (section 10.1); every definition in them is **[R]**
+unless marked otherwise.
 
 ### 6.1 Framing and context
 
 ```text
-Frame(tag; fields) =
-    u16_le(tag_length) || ASCII(tag) ||
-    u16_le(field_count) ||
-    concatenation(u32_le(field_length) || field_bytes)
-```
+P16 = 5041524c2d5348414b452d5631000000      // 16-byte construction domain
 
-Record schemas fix field types and order. Integers have fixed-width
-little-endian encodings. Votes are exactly `0 = Aye`, `1 = Nay`,
-`2 = Abstain`. Identifiers and the canonical domainless `AccountId` use their
-pinned canonical Norito encoding. Alternative encodings, trailing bytes and
-excess lengths are rejected. The bijection between these relation bytes and
-the stored and wire Norito forms is documented with the schemas.
+Frame(tag; fields...) =
+    u16_le(len(tag)) || ASCII(tag) ||
+    u16_le(number_of_fields) ||
+    concat(u32_le(len(field)) || field)
 
-The body context is hashed once, so that no security-critical AES input is a
-truncation of it:
-
-```text
 B = SHA3-512(Frame("PARL/BODY/v1"; P16, Enc(body_context)))
 ```
 
-### 6.2 Commitment, nullifier, tree and messages
+- `P16` is the ASCII string `PARL-SHAKE-V1` followed by three zero bytes
+  **[D]**. It is a 128-bit literal identifier, not a collision-security claim.
+- `Enc` is the pinned canonical Norito encoding of the specified typed value.
+  Stored and wire records use header-framed Norito. `Frame` is a cryptographic
+  preimage definition, not an alternative wire codec.
+- Layout flags, field order and length bounds are fixed. Alternative
+  encodings, trailing bytes and non-canonical values are rejected.
+- Fixed integers are little-endian. Votes are exactly `0 = Aye`, `1 = Nay`,
+  `2 = Abstain`.
+- Keccak lane and bit conventions follow FIPS 202. Backend field conventions
+  follow the pinned backend specification.
+- **Role audit of 32-byte values.** An opaque, authenticated state identifier
+  need not become wider merely because it has 32 bytes. A collision-sensitive
+  content fingerprint must become 64 bytes or be replaced in the binding by
+  its canonical preimage. Hashing an ambiguous 32-byte fingerprint again does
+  not repair it. The audit has not been carried out.
+
+### 6.2 Commitment, nullifier, list and messages
 
 ```text
-p_j = ASCII("PARL-COMMIT-V1") || u16be(j)          0 <= j < 6
-U   = AES256_sk(p_0) || ... || AES256_sk(p_5)       768 bits
-D   = SHAKE256(Frame("PARLIAMENT_CREDENTIAL_V1"; P16, B), 96 bytes)
-C   = U xor D
+sk = 48 uniformly random bytes, fresh for each body
 
-nf  = SHAKE256("PN1\0" || P16 || sk[32] || scope[32], 64 bytes)
+C  = SHAKE256("PCR1" || P16 || sk[48] || B[64],     128 bytes)
+nf = SHAKE256("PNF1" || P16 || sk[48] || scope[64],  64 bytes)
 
-real_value(C)  = 0x00 || C[96]
-empty_value(j) = 0x01 || u16_le(j)
-leaf_j = SHA3-512(Frame("PARL/LEAF/v1"; P16, value_j))
-node   = SHA3-512(Frame("PARL/NODE/v1"; P16, level_u8, left[64], right[64]))
-R      = SHA3-512(Frame("PARL/ROOT/v1"; P16, S_u16, top[64]))
+policy_hash = SHA3-512(Frame("PARL/POLICY/v1";
+                            P16, Enc(complete_frozen_policy)))
 
-m_reg = Enc(network_id, authority, assignment_id,
-            election_attempt_id, body_role, C)
-m     = Enc(scope, R, S, nf, vote, policy_hash, profile_id)
+proposal_digest = SHA3-512(Frame("PARL/PROPOSAL/v1";
+                                Enc(canonical_proposal_content)))
+
+scope = SHA3-512(Frame("PARL/SCOPE/v1";
+                      P16, Enc(network_id), proposal_digest,
+                      Enc(governance_attempt_id),
+                      Enc(body_instance_id)))
+
+L = (C_0, ..., C_(S-1))    // strictly increasing bytewise; no duplicates
+
+R = SHA3-512(Frame("PARL/LIST/v1";
+                  P16, B, u16_le(S), concat(L)))
+
+m_reg = (
+    network_id, authority, assignment_id,
+    governance_attempt_id, election_attempt_id, body_role,
+    B, C, P16
+)
+
+m = (scope, R, S, nf, vote, policy_hash, P16)
 ```
 
-- `sk` is 256 uniformly random bits. `"PARL-COMMIT-V1"` is 14 bytes, so each
-  `p_j` is exactly one AES block.
-- The mask `D` is public. It makes `C` depend on the body context without
-  secret nonlinear work. It gives no multi-target improvement: anyone can
-  remove it **[R]**.
-- The nullifier uses the full scope, is independent of the vote and fits one
-  SHAKE256 absorption block (84 input bytes against a 136-byte rate, 64 output
-  bytes: one Keccak-f[1600] permutation **[D]**). All of it is constrained
-  inside `pi_vote`.
-- Real values are sorted bytewise, duplicates are rejected, they occupy
-  `[0, S)`, and deterministic empty values fill the tree to position 1,023.
-  Ten levels are fixed.
-- An AES-only full-scope nullifier was rejected: `AES_sk(H128(scope))` has a
-  short-input collision problem, and adding ciphertext blocks or hashing the
-  output does not automatically repair it **[R]**.
+- `sk` is 384 bits, `C` is 1,024 bits, and `nf`, `R`, `B`, `scope`,
+  `policy_hash` and `proposal_digest` are 512 bits.
+- Both SHAKE256 inputs are exactly 132 bytes: 4 + 16 + 48 + 64 **[D]**. Each
+  output fits the 136-byte SHAKE256 rate, so each evaluation needs one
+  Keccak-f[1600] permutation. Standard SHAKE padding and bit ordering apply
+  (FIPS 202).
+- The commitment depends on the body context through `B`; the nullifier
+  depends on the full scope and is independent of the vote. Both are
+  constrained inside the relation. There is no AES in the relation.
+- `L` has exactly `S` entries. There are no padded credential leaves, no leaf
+  or node hashing and no tree.
+- In the experimental construction `P16` stands where the ballot design's
+  messages carry `profile_id`.
 
-Points this evaluation's own primary reading adds; the proposed relations do
-not yet resolve them:
+### 6.3 Relations, selector and transcript
 
-- All seats share the plaintexts `p_j`. The FAEST specification's argument
-  against multi-target key recovery relies on an independently sampled
-  plaintext per public key **[P]** (FAEST v3 section 10.1.4), so that argument
-  does not transfer. A per-seat public tweak can help under an appropriate
-  model but changes the commitment inputs and the hidden-selection relation
-  **[R]**.
-- FAEST's QROM proof restricts the key space (`k[0]·k[1] = 0`, enforced in key
-  generation and inside the relation) so that a random public key has no
-  preimage with probability at least 1/4 **[P]** (FAEST v3 section 10.7,
-  Lemma 10.50). A ballot proof that reuses that argument must keep an
-  equivalent restriction or find another source of lossiness.
-- In FAEST the statement and the message enter the challenge chain only
-  through the digest `mu` **[P]** (FAEST v3 Figure 8.2). The ballot statement,
-  the relation identifier and the message must enter there.
-
-### 6.3 Transcripts, relations and selector
-
-Both transcripts absorb the relation identifier, `B`, the complete public
-statement and the canonical message. `REG` and `VOTE` use separate namespaces
-for randomness derivation, commitments and challenges. Core-derived context is
-checked against authenticated state and is never accepted from the caller.
-Domain separation is necessary; it is not itself a joint-security proof **[R]**.
-
-| Proof | Witness | Required checks |
+| Proof | Public input | Witness and conditions |
 | --- | --- | --- |
-| `pi_reg` | `sk`; fully constrained AES intermediate states | Recompute `C`; bind all of `m_reg` and the body context. Core separately checks account authorization, assignment eligibility and duplicate registration |
-| `pi_vote` | `sk`; hidden selector; AES and SHAKE intermediate states | Select exactly one real entry with `i < S`; recompute its `C`; recompute `nf`; require a valid choice; bind the complete `m` and the context |
+| `pi_reg` | Complete `m_reg`, authoritative body context and fixed profile parameters | `sk`; constrained Keccak states; recompute `C` exactly |
+| `pi_vote` | `B`, validated `L`, complete `m`, fixed profile parameters | `sk`, two selector vectors, constrained Keccak states; select one real commitment, recompute that commitment and `nf`, require a valid public vote |
 
-**Selector.** The tree has 1,024 = 32 × 32 positions. The selector is two
-32-entry vectors `a` and `b`; position `i = 32u + v` is selected when
-`a_u = b_v = 1`. The selected commitment is the sum over `i < S` of
-`a_u · b_v · C_i`, and is constrained to equal the AES output XOR `D`. The
-constraints on each vector are, all three required:
+Core separately checks registration authority, invitation and assignment
+eligibility, freshness, uniqueness and the sealed subset. Those checks are not
+facts proved by `pi_reg`.
 
-1. every entry is Boolean;
-2. pairwise exclusivity: `x_u · x_v = 0` for every `u < v` (496 products per
-   vector **[D]**);
-3. the entries sum to one.
+**Selector.** Two 32-entry vectors `a` and `b`. For each vector `x`:
 
-A further constraint forbids the selected pair from indexing a position at or
-beyond `S`.
+```text
+x_j * (x_j - 1) = 0                    for every j
+x_j * (sum_{k<j} x_k) = 0              for every j
+sum_j x_j = 1
+```
 
-**The characteristic-two pitfall.** Boolean entries plus "sum equals one"
-alone are wrong over a field of characteristic two: they enforce odd parity,
-not one-hotness **[R]**. Three active entries pass. With a multiplexer, a
-selector with three active entries in one vector selects the XOR of three
-registered commitments, which is not a registered leaf **[D]**. The published
-reference implementation derives the last entry of each vector by parity and
-adds a "single active bit" constraint that is identically zero in
-characteristic two **[D]** (algebra on `quicksilver.c`). That design tolerates
-it, because it gates a complete per-member constraint set with the selector
-instead of multiplexing public values, so extra active entries only force more
-branches to hold **[D]**. The multiplexer form above does not tolerate it.
+Then:
+
+```text
+sum_{i<S} a_floor(i/32) * b_(i mod 32) = 1
+
+Commit(sk, B)[t] =
+    sum_{i<S} a_floor(i/32) * b_(i mod 32) * C_i[t]
+                                                for every commitment bit t
+Nullifier(sk, scope) = nf
+```
+
+- **The prefix form is one-hot in characteristic two.** Boolean entries plus
+  "sum equals one" alone enforce odd parity, not one-hotness: three active
+  entries pass, and a multiplexer would then select the XOR of three
+  registered commitments, which is not a registered entry **[D]**. In the
+  prefix form the second active entry of a vector sees a prefix sum of exactly
+  one, so its constraint fails; no second active entry can exist **[D]**. The
+  first active entry prevents every later one. The form needs no extra prefix
+  witnesses.
+- **No selection beyond `S`.** The sum over `i < S` equals one only if the
+  selected pair indexes a position below `S`. Every unused selector position is
+  excluded.
+- **No selected-commitment witness.** The final commitment-output polynomials
+  are equated directly to the degree-two selector expression.
+- **Keccak grouping.** Forward-only two-round groups. The maximum relation
+  degree is four. The first implementation keeps the backend's degree-seven
+  masking configuration.
+
+**Transcript binding:**
+
+- `REG` and `VOTE` have separate hash and randomness namespaces.
+- The construction identifier, the complete parameter descriptor, the relation
+  identifier, `B`, the complete public statement and the complete message are
+  bound into `mu`. In FAEST the statement and the message enter the challenge
+  chain only through `mu` **[P]** (FAEST v3 Figure 8.2).
+- For voting, the statement includes the canonical list bytes, although their
+  digest is also in `m`.
+- The v3 challenge chain is preserved, including `iv = H4(ivpre || mu)`.
+- Every backend hash is domain-separated by construction, parameter row,
+  relation and hash role.
+- Proof randomness is fresh. Deterministic testing means deterministic given an
+  explicit random tape.
+
+Domain separation is necessary; it is not itself a joint-security proof
+**[R]**.
+
+A point from this evaluation's own primary reading that the construction does
+not resolve: FAEST's QROM proof restricts the key space (`k[0]·k[1] = 0`,
+enforced in key generation and inside the relation) so that a random public
+key has no preimage with probability at least 1/4 **[P]** (FAEST v3
+section 10.7, Lemma 10.50). The construction has no AES key and no equivalent
+restriction. An argument that reuses the lossy-key step needs another source
+of lossiness **[D]**.
 
 ### 6.4 Public-list verification contract
 
-The proof does not hash a Merkle path. Membership under `R` holds by a
-witness-preserving equivalence **[R]**:
+The proof hashes no Merkle path. `R` is the flat digest of section 6.2. The
+1,024-position tree, leaf hashing, internal-node hashing, padding and path
+witnesses of the earlier design are deleted **[R]**.
 
-1. obtain exactly the canonical sorted list of the `S` real leaves;
-2. rebuild the specified 1,024-position tree, including padding;
-3. check its root against the authenticated `(R, S, profile_id)`;
-4. a witness selecting position `i < S` then determines the Merkle path
-   publicly.
-
-Consequences:
-
-- **Who must do it.** Every verifier of a ballot, not only Core at seal. A
-  verifier must either perform steps 1–3 or hold an equivalently authenticated
-  immutable verification context. Putting `R` in the signed message does not
-  connect an arbitrary supplied list to `R` **[R]**.
-- **Full nodes** already hold the registration state but must construct
-  precisely the sealed subset **[R]**.
-- **Independent full verification** acquires a list requirement **[R]**.
-  Ballot design section 3.9 already lists the "authenticated finalized seal
-  and attempt context" as its first input, beside the closure record and
-  every block from the `s0` height to the closure height **[C]**. Today that
-  context need only authenticate `(R, S, profile_id)`. Under the public list
-  it must also supply, durably, the `S` sorted real-leaf values. They
-  originate in registration blocks before the `s0` height, so the block
-  interval of section 3.9 does not contain them **[R]**.
-- **A possible carrier.** Ballot design section 3.8 already binds "a
-  registration root over the sealed `(assignment_id, C)` pairs" into every
-  closure record **[C]**. It is the existing authenticated handle closest to
-  the list. Whether it can carry the list is not decided here: its encoding is
-  not fixed by a profile, and it is written at closure, after the ballots it
-  would serve **[E]**. `R` itself authenticates a supplied list once the tree
-  is rebuilt from it (steps 1–3), so the open question is availability of the
-  list bytes, not their authentication **[D]**.
-- **Authenticated summary** (the other mode of section 3.9) verifies no
-  ballot proof and is unaffected **[C]**. The review also names light clients
-  **[R]**; the ballot design defines no light-client mode that verifies ballot
-  proofs.
+- **At seal.** Core constructs and persists a canonical
+  `SealedCredentialListV1` containing at least `profile_id`,
+  `body_context_digest`, `S` and `commitments[S]`. The seal's finalized block
+  data carries these bytes durably, not a pointer to a mutable service. The
+  object is bound through `R` into the roster root, the body identity and the
+  sealed state **[R]**.
+- **Every verifier.** Either decode the list, check its length, ordering and
+  uniqueness, recompute `R` and match the authenticated seal; or use an
+  immutable verification context constructed by those checks and authenticated
+  to that same seal. An unvalidated caller-supplied list is never sufficient.
+  Restore validation performs the same checks **[R]**.
+- **Closure evidence** references the seal and list commitment. It does not
+  duplicate the list in every ballot **[R]**.
+- **Registration mapping.** The separate binding over the sealed
+  `(assignment_id, C)` pairs is a precisely encoded, domain-separated 512-bit
+  digest. It authenticates the assignment mapping; `R` authenticates the
+  anonymous membership list **[R]**.
+- **Independent full verification** needs the authenticated seal and its list
+  bytes, in addition to the complete ballot-bearing block interval. It keeps
+  its existing trust boundary on registration eligibility unless the verifier
+  also replays registration and sortition history **[R]**.
+- **Authenticated summary** verifies no ballot proof and is unaffected
+  **[C]**.
 - **Owner decision preserved.** "Outcomes are provable from block data ...
-  without any secret" (ballot design section 1) still holds: the list is
-  public registration data recorded on chain **[D]**. What changes is which
-  blocks or authenticated context a verifier must hold.
-- **Cost at `S = 1,000`.** The list is 96,000 bytes with six-block
-  commitments (64,000 with four blocks), before framing **[D][R]**. Root
-  construction is 1,024 leaf hashes and 1,023 node hashes plus the root
-  framing, once per immutable body context **[R]**. Each ballot verification
-  processes about `O(S)` public data, so a complete body can involve `O(S^2)`
-  selection work if the list is processed per ballot **[R]**.
-- **Gain and loss.** The private relation is much cheaper. Root-only
-  verification without the auxiliary list is lost. No additional trusted party
-  is needed **[R]**.
+  without any secret" (ballot design section 1) holds: the list is public data
+  in finalized block data **[D]**.
+- **Cost.** 128 bytes per credential: 384 B at `S = 3`, 64,000 B at
+  `S = 500` and 128,000 B at `S = 1,000`, before framing **[R][D]**. Public-list
+  work is linear in `S` per ballot. Root-only proof verification is
+  deliberately not provided **[R]**. No additional trusted party is needed.
 
-This changes the ballot design in five places **[C]**:
-
-| Clause | Text today | Under the public list |
-| --- | --- | --- |
-| 3.1 | `pi_vote = Ballot_P(sk, i, path; m)` | No path witness; the witness is `sk` and a hidden selector |
-| 3.3 | "The ballot relation proves `i < S` and a correct real-leaf encoding" | The relation proves `i < S`; the real-leaf encoding and all tree hashing are checked publicly, outside the relation |
-| 3.5 | Index and path under `R` are proved in the relation | Membership under `R` holds through the public rebuild of steps 1–3 |
-| 3.9 | Full verification needs the seal and attempt context, the closure record and the `s0`-to-closure blocks | The context must also supply the `S` real-leaf values |
-| 12.2 step 3 | "`P` defines the in-relation leaf, node and padding encodings" | The candidate has no in-relation leaf, node or padding encoding; these encodings are public |
-
-It is an owner decision (section 10), not an instantiation detail.
+The ballot design states this contract in sections 3.1, 3.3, 3.5, 3.8, 3.9 and
+12.2 **[C]**.
 
 ### 6.5 The published reference implementation is not a reference
 
@@ -430,7 +470,13 @@ Verified in the authors' repository, branch `master` **[P]**, unless marked:
 - Only the first public-key outputs are hashed into the challenge chain. The
   ring size, the selector dimension and any profile or domain identifier are
   absent from it.
-- The one-hot constraint is vacuous (section 6.3) **[D]**.
+- The one-hot constraint is vacuous **[D]** (algebra on `quicksilver.c`). The
+  last entry of each selector vector is derived by parity, and the "single
+  active bit" constraint is identically zero in characteristic two. That
+  design tolerates it, because it gates a complete per-member constraint set
+  with the selector instead of multiplexing public values, so extra active
+  entries only force more branches to hold. A multiplexer over public values,
+  as in section 6.3, does not tolerate it.
 - The ring size is a compile-time power of two. Nothing makes padding members
   unselectable.
 - The tag is one 128-bit block at every security level. **[R]** The paper
@@ -458,21 +504,30 @@ Status classes: **(a)** an applicable theorem as is; **(b)** a short new
 argument; **(c)** substantial new proof work; **(d)** an assumption about a
 concrete primitive. No gate of either route has an unconditional (a).
 
-### 7.1 Leading candidate
+### 7.1 Construction to develop
 
-The route and class columns are the second-opinion review's assessment **[R]**.
-"Missing" adds what primary-source reading established.
+"Completable now" is the second-opinion review's assessment of what a written
+argument can establish today **[R]**. "Remains" adds what primary-source
+reading established. An argument counts only under the standard of
+section 11.1.
 
-| Gate | Argument route | Class | Missing |
+| Gate | Argument route | Completable now | Remains |
 | --- | --- | --- | --- |
-| 1 Authorization | Quantum knowledge authorization for the actual registration, list and nullifier relation | (c) | Ordinary soundness proves a statement true, not that its producer knows the credential. FAEST's QROM proof reduces to soundness and deliberately avoids extraction **[P]** (v3 section 10.7). Its soundness lemma is stated for static adversaries **[P]** (Lemma 10.49) |
-| 2 Unforgeability | Adaptive chosen-message security with malicious registrations, corrupt members and both honest proof types | (c) | FAEST's theorem is for one honestly generated key **[P]** (Theorem 10.53). In a ring relation the statement stays true through the adversary's own leaves, so the lossy-key step does not apply directly **[D]** |
-| 3 Nullifier uniqueness | Associate every newly authorized nullifier with a controlled credential; then commitment binding and deterministic nullification | (b), conditional on gates 1, 2 and binding; otherwise (c) | Binding of the AES commitment (section 8.4). Computational binding needs extraction or an equivalent proved argument |
-| 4 Unlinkability, non-frameability | PRF-given-commitment and simulation hybrids | (b) once the premises hold | The premises: gate 5 for the actual composition, gate 2 for non-frameability, and the keyed-SHAKE assumption (d) |
-| 5 Joint quantum ZK and anonymity | One adaptive multi-theorem simulator for both relations, public registrations, adversarial credentials, the same secret and oracles | (c) | The simulator and its quantitative reprogramming bounds. Distinct transcript tags do not establish it. The claim must exclude later disclosure of a challenge credential, which recomputes its nullifier by design |
-| 6 Concrete security | Arithmetic over the bounds of gates 1, 2 and 5 | (b) after applicable bounds exist; idealising AES and SHAKE is (d) | The bounds do not exist for this relation (section 8) |
-| 7 Bounded deterministic verification | Canonical decoding, allocation and work bounds, malformed-input behaviour, hardware parity | (b) plus implementation evidence | Nothing is implemented |
-| 8 Registration | Simulation-extractable signature of knowledge, as written | (c) | No QROM simulation-extractability theorem covering VOLE-in-the-head was found in the sources read (section 13 lists their coverage). **[P]** The QROM extraction results read concern sigma-protocols and commit-and-open protocols; Don–Fehr–Majenz 2020 Theorem 23 is a proof sketch whose preconditions (constant rounds, an interactive quantum proof of knowledge, a rewinding loss) were not shown to hold here |
+| 1 Authorization | Quantum knowledge authorization for the actual registration, list and nullifier relation | Relation and selector correctness | Research, class (c). Ordinary soundness proves a statement true, not that its producer knows the credential. FAEST's QROM proof reduces to soundness and deliberately avoids extraction **[P]** (v3 section 10.7). Its soundness lemma is stated for static adversaries **[P]** (Lemma 10.49) |
+| 2 Unforgeability | Adaptive chosen-message security with malicious registrations, corrupt members and both honest proof types | The exact game | Research, class (c): the custom adaptive unforgeability reduction. FAEST's theorem is for one honestly generated key **[P]** (Theorem 10.53). In a list relation the statement stays true through the adversary's own entries, so the lossy-key step does not apply directly **[D]** |
+| 3 Nullifier uniqueness | Associate every newly authorized nullifier with a controlled credential; then commitment binding and deterministic nullification | The deterministic-nullifier lemma and a conditional `k`-credential argument | Completion depends on the authorization and binding premises: gates 1 and 2, and binding of the SHAKE commitment (section 8.4) |
+| 4 Unlinkability, non-frameability | Simulation hybrids over the commitment and nullifier oracles | Conditional unlinkability and non-frameability hybrids | Completion depends on gates 2 and 5 and on the primitive analysis of the two SHAKE uses, class (d) for concrete SHAKE |
+| 5 Joint quantum ZK and anonymity | One adaptive multi-theorem simulator for both relations, public registrations, adversarial credentials, the same secret and oracles | The exact joint privacy game | Research, class (c): the adaptive joint simulator and its quantitative reprogramming bound. Distinct transcript tags do not establish it. The claim must exclude later disclosure of a challenge credential, which recomputes its nullifier by design |
+| 6 Concrete security | Arithmetic over the bounds of gates 1, 2, 5 and 8 against the contract of section 8.8 | The target and the arithmetic framework | No successful full ledger today (section 8.5) |
+| 7 Bounded deterministic verification | Canonical decoding, allocation and work bounds, malformed-input behaviour, hardware parity | A complete design argument is feasible now | Implementation evidence. The experimental implementation is in progress and none of its results is recorded here |
+| 8 Registration authorization | Adaptive cross-relation credential-origin unforgeability (section 7.3) | The exact replacement game | Research, class (c): the cross-relation unforgeability reduction. Simulation-extractability would suffice, and no QROM simulation-extractability theorem covering VOLE-in-the-head was found in the sources read **[P]** (section 13 lists their coverage) |
+
+The published FAEST work supplies important ingredients, not these complete
+custom-scheme arguments **[R]**. No gate is known to be impossible in
+principle; several cannot honestly be marked complete with present knowledge
+**[R]**. The review states that it can write and check the arguments in a
+follow-up against the exact protocol, and that it cannot promise the missing
+theorems can be established **[R]**.
 
 ### 7.2 Two unsafe shortcuts
 
@@ -480,7 +535,7 @@ Both appeared in the research pass and are rejected **[R]**; primary reading
 reaches the same conclusion on the first **[D]**.
 
 - **Soundness plus injectivity does not give the `k`-credential bound.** It
-  bounds the whole root to at most `S` credential handles. It does not prevent
+  bounds the whole list to at most `S` credential handles. It does not prevent
   a proof for a true statement about an uncorrupted credential whose ballot
   has never been requested. That needs authorization, unforgeability or
   knowledge (gates 1 and 2).
@@ -492,22 +547,32 @@ reaches the same conclusion on the first **[D]**.
   unforgeability under the honest commitment, provided it stays secure after
   the adversary has observed both registration and ballot proofs. `m_reg`
   binds the account and assignment, so the copied proof is a forgery on a new
-  message. Duplicate rejection then handles later reuse. This is a plausible
-  alternative to full simulation-extractability; it is not proved by the
-  duplicate check.
+  message. Duplicate rejection then handles later reuse. This is the
+  requirement gate 8 now states (section 7.3). It is not proved by the
+  duplicate check, and it is not proved for this construction.
 
-### 7.3 A tension inside ballot design section 5
+### 7.3 The gate 8 game
 
-Gate 8 as written requires that `pi_reg` "is a simulation-extractable
-signature of knowledge". The paragraph that follows calls multi-theorem QROM
-simulation-extractability "one sufficient route to properties 1 and 8". The
-two cannot both be the requirement. Ballot design section 3.2 ("Possession
-proof") states the same requirement a second time in normative text: `pi_reg`
-"is a post-quantum, simulation-extractable, zero-knowledge signature of
-knowledge of `sk` opening `C`" **[C]**. A weaker theorem, such as the anti-copy
-formulation of section 7.2, is not compliance with gate 8 or with section 3.2
-until the owner resolves the wording (section 10). A ruling that permits an
-equivalent must amend both places.
+Gate 8 requires adaptive cross-relation registration unforgeability in place
+of simulation-extractability **[R]**; ballot design sections 3.2 and 5 state
+it **[C]**. The game must **[R]**:
+
+1. publish honest commitments before registration, so front-running is
+   covered;
+2. permit adaptive registration-proof and ballot-proof queries, malicious
+   credentials, corruption and quantum oracle access;
+3. record the exact messages authorized by honest provers;
+4. declare a win on a valid fresh registration message using an uncorrupted
+   honest credential, including a commitment `Commit(B*, sk_j)`
+   recontextualized from that credential;
+5. exclude exact-message replay and rerandomization from the winning
+   condition;
+6. keep the target secret uncorrupted through the forgery.
+
+Duplicate rejection prevents reuse after registration; the game protects the
+period before the honest registration lands. The amendment does not discharge
+gate 1's knowledge requirement. An anti-copy theorem alone is not a proof of
+knowledge or the `k`-credential nullifier bound **[R]**.
 
 ### 7.4 STARK route
 
@@ -523,12 +588,14 @@ as abstracts.
 | 5 | Multi-theorem adaptive QROM simulator covering salted Merkle openings and both relations: (c) | No published theorem found; the in-repo substrate has unsalted leaves **[E]** |
 | 6 | Parameter calculation after 1, 2, 5 | The form `t^2·eps + t^3/2^lambda` of the Chiesa–Manohar–Spooner bound was seen only in search excerpts **[U]** |
 | 7 | By design: fixed query count, integer arithmetic: (b) | Nothing is implemented for the ballot relation |
-| 8 | Classical ROM only (Chiesa–Fenzi **[U]**, preconditions not read); QROM: (c) | No published theorem found |
+| 8 | Simulation-extractability, a sufficient route, in the classical ROM only (Chiesa–Fenzi **[U]**, preconditions not read); credential-origin unforgeability in the QROM: (c) | No published theorem found |
 
 The STARK route has extraction available in the QROM at abstract level, which
 the VOLE-in-the-head route lacks. It has more unproven zero-knowledge theory
 and a size near or above the target (250–600 KiB **[E]**, unmeasured).
 **[R]** No demonstrated impossibility of meeting 256 KiB has been established.
+A narrow standard-hash STARK remains the fallback research candidate **[R]**
+(section 11.5).
 
 ## 8. Concrete security
 
@@ -566,6 +633,11 @@ review gives **[R]**. The bound therefore does not certify 128 query bits at
 `lambda` = 256, and certifies about 59 at `lambda` = 128. It does not prove an
 attack at that cost.
 
+**[R][D]** Worked at the floor of section 8.8. On the fast row
+`tau + d_zk = 40`, so the quadratic term with its maximum prefactor is
+`40 · (tau + d_zk) · Q^2 / 2^lambda = 40 · 40 = 1,600` at `Q = 2^128`. The
+published bound is vacuous there. This is not evidence of an attack.
+
 **[D]** In the chosen-message bound the reprogramming term
 `2·Q_sig·3·sqrt(3·sqrt(Q_1)·2^-lambda)` is about
 `2^3.4 · Q_sig · Q_1^(1/4) · 2^(-lambda/2)`. For `Q_sig = 2^20` and
@@ -578,12 +650,12 @@ for a multiplicative loss in the number of signing queries" **[P]** (section
 
 ### 8.2 What it does not cover
 
-- **Adversarially registered leaves.** The theorems are single-user games with
+- **Adversarially registered entries.** The theorems are single-user games with
   the key produced by the challenger; the proof replaces that honest key by a
   random one **[P]** (v3 section 10.7). Nothing covers adversarially chosen or
   multiple public keys.
 - **The ring relation.** The lossy step makes FAEST's single statement false.
-  A ballot statement stays true through the adversary's own leaves **[D]**.
+  A ballot statement stays true through the adversary's own entries **[D]**.
 - **Grinding and signer randomness.** The QROM proof is for a variant in which
   the signer's randomness is sampled instead of derived, only one grinding
   counter is attempted, and one hash is replaced by a fixed function **[P]**
@@ -595,11 +667,12 @@ for a multiplicative loss in the number of signing queries" **[P]** (section
   inference **[E]**.
 - **Larger witnesses.** Theorem 10.30 assumes `l + d_zk − 1 ≤ 2^12`,
   `C + 1 ≤ 2^13` and `d_zk ∈ {7, 14}` **[P]**; Lemmas 4.6 and 4.7 state the
-  universal-hash errors under those limits. Every leading-candidate proof
-  exceeds them (section 9). **[D]** From the proofs' own expressions the
-  VOLE-hash error grows by a factor of about 2^7.0 at `l` = 18,912, 2^8.7 at
-  23,712 and 2^12.9 at 42,912; the constraint-hash term is unaffected in
-  practice. How the larger error propagates into the soundness bound was not
+  universal-hash errors under those limits. Both proofs of the construction
+  exceed them: `l` = 17,984 and 35,648 (section 9.7). **[D]** From the proofs'
+  own expressions the VOLE-hash error grows by a factor of about 2^7.0 at
+  `l` = 18,912, 2^8.7 at 23,712 and 2^12.9 at 42,912; the constraint-hash term
+  is unaffected in practice. The factors at the construction's two witness
+  lengths, and their propagation into the soundness bound, have not been
   derived.
 - **Adaptive statements.** Theorem 10.46 and Lemma 10.49 are stated for static
   adversaries **[P]**. The ballot needs adaptive soundness over the list,
@@ -630,26 +703,40 @@ accounting, not category 1 relabelled as 128 quantum bits **[R]**.
 | 512 bits | 2^170.7 | 2^204.8 | 2^256 |
 
 **[R]** Same-function key search against `S` targets costs about
-`2^(256/2)/sqrt(S)` oracle evaluations: about 2^123 at `S = 1,000` **[D]**.
-Wider commitments do not increase key entropy. Translating evaluations into
-quantum gates needs an explicit calculation.
+`2^(k/2)/sqrt(S)` oracle evaluations for a `k`-bit secret. For a 256-bit
+secret that is about 2^123 at `S = 1,000` **[D]**, below the floor of
+section 8.8. For the construction's 384-bit secret it is about 2^187 **[D]**.
+The 384-bit credential removes the immediate multi-target sizing problem of a
+256-bit secret **[R]**. Wider commitments do not increase key entropy.
+Translating evaluations into quantum gates needs an explicit calculation.
 
-Digest lengths per role in the leading candidate:
+Lengths per role in the construction **[R]**:
 
-| Role | Length | Basis |
-| --- | --- | --- |
-| `sk` | 256 bits | Key search as above |
-| `C` | 768 bits | Injectivity arithmetic of section 8.4, not collision resistance |
-| `nf` | 512 bits | Collision of nullifiers across credentials: 2^170.7 BHT queries **[D]** |
-| Leaf, node, `R`, `B` | 512 bits (SHA3-512) | As `nf` |
-| `scope`, `policy_hash` | 256 bits, fixed by the ballot design | Not analysed. Increasing `R` alone does not resolve a collision-critical 256-bit bottleneck elsewhere **[R]** |
-| Proof-system internals at `lambda` = 256 | Seeds 256; leaf commitments 768; tree commitments and message digest 512; challenges 2,112 / 832 / 256; IV 128 | The reference's role-specific lengths, kept unchanged **[R]**; consistent with the specification's `3·lambda`, `2·lambda`, `8·lambda + 64`, `3·lambda + 64` and `lambda` **[P]** |
+| Role | Length |
+| --- | ---: |
+| Credential secret | 384 bits |
+| Credential commitment `C` | 1,024 bits |
+| `nf`, `R`, `B`, scope, policy digest, proposal-content digest | 512 bits |
+| Construction identifier | 128-bit literal identifier; not a collision-security claim |
+| Transcript message digest at the measurement row | 512 bits |
+| Backend GGM seeds | 256 bits |
+| Backend leaf commitments | 768 bits |
+| Backend aggregate commitments | 512 bits |
+| Backend challenges | 2,112 / 832 / 256 bits |
+| Backend IV / grinding counter | 128 / 32 bits |
+
+There are no membership-tree leaf or node digests. The backend lengths are
+consistent with the specification's `3·lambda`, `2·lambda`, `8·lambda + 64`,
+`3·lambda + 64` and `lambda` at `lambda` = 256 **[P]**. A 512-bit digest gives
+about 2^170.7 BHT collision queries **[D]**. The ballot design fixes no
+256-bit length for `scope` or `policy_hash`; their lengths follow its
+section 5 item 6 **[C]**.
 
 ### 8.4 Commitment injectivity
 
 Without an extractor, soundness gives only the existence of a witness. The
 number of distinct accepted nullifiers is then bounded by the number of pairs
-(leaf, key) that open a registered leaf. That equals `S` only if no registered
+(entry, key) that open a registered commitment. That equals `S` only if no registered
 commitment has two preimages. Computational collision resistance is not
 enough, because the reduction cannot output the two preimages **[D]**. FAEST
 states exactly this stronger notion for its Even–Mansour variant and calls it
@@ -665,48 +752,68 @@ expected number of distinct colliding key pairs is about `2^(2k − n − 1)`:
 | 256 bits | four blocks, 512 bits | 1/2 |
 | 256 bits | five blocks, 640 bits | 2^-129 |
 | 256 bits | six blocks, 768 bits | 2^-257 |
+| 384 bits | SHAKE256, 1,024 bits | 2^-257 |
 
-Six blocks avoid relying on near-certain injectivity of a four-block
-commitment, which the arithmetic does not support. The figure holds in the
-ideal-cipher model only. Actual AES does not inherit a global multi-key
-injectivity theorem from ordinary PRP security; the required multi-key binding
-assumption must be stated explicitly **[R]**.
+The AES rows are the arithmetic behind the compared alternatives. Actual AES
+does not inherit a global multi-key injectivity theorem from ordinary PRP
+security, which is one reason the hybrid was not chosen **[R]** (section 10.1).
+For the construction, an ideal random map from 384 bits to 1,024 bits in a
+fixed context has about 2^-257 expected colliding key pairs **[R][D]**. Neither
+the key-search calculation of section 8.3 nor this one proves the concrete
+scheme secure: adaptive context selection and SHAKE's concrete sponge
+construction must be addressed **[R]**.
 
 ### 8.5 Why no parameter tuple can be certified today
 
-- No theorem covers the ring relation, adversarial registrations, the joint
+- No theorem covers the list relation, adversarial registrations, the joint
   simulator or the registration proof (section 7).
-- The one published QROM bound, applied to plain FAEST, reaches about 2^123
-  queries at `lambda` = 256, below a 2^128-query reading (section 8.1).
-- Multi-target key search at `S = 1,000` is about 2^123 evaluations
-  (section 8.3).
-- Every candidate witness is outside the stated hypotheses of the
-  universal-hash lemmas (section 8.2).
-- The security metric, the success probability that defines a break and the
-  lifetime numbers of registrations, proofs, scopes and queries are not fixed
-  (section 10).
+- The one published QROM bound, applied to plain FAEST, is vacuous at the
+  contract's floor of 2^128 queries on the fast row and reaches about 2^123
+  queries at `lambda` = 256 (section 8.1). Chosen-message losses make the
+  lifetime calculation more demanding still **[R]**.
+- That theorem does not directly cover this relation, its enlarged witness or
+  the complete implemented grinding behaviour **[R]** (section 8.2).
+- Both witnesses are outside the stated hypotheses of the universal-hash
+  lemmas (section 8.2).
+- The quantitative, domain-separated QROM analysis of the commitment and
+  nullifier uses of SHAKE256 is not written. Adaptive context selection and
+  SHAKE's concrete sponge construction must be addressed in it **[R]**
+  (section 8.4).
+- The metric and lifetime envelope are fixed (section 8.8). No ledger computed
+  against them exists.
 
-The second-opinion review states that there is no final parameter tuple it can
-honestly certify **[R]**. This record agrees.
+The second-opinion review states that there is no presently justified tuple it
+can designate as satisfying the contract **[R]**. This record agrees. The
+approximate 123-bit key-only calculation is not a lifetime security
+certificate. A hypothetical wider-field, wider-seed, SHAKE-PRG backend is new
+protocol research, not a change of `lambda` to 384 **[R]**. Gate 6 stays closed
+until an actual construction and ledger meet it.
 
-### 8.6 Measurement baseline
+### 8.6 Measurement rows
 
-Proposed **[R]** for a first measurement only. It is not a security claim and
-not a selection.
+Decided **[R]** for measurement only. Neither row is a security claim or a
+selection. They are harness alternatives; the released protocol eventually
+accepts exactly one qualified row.
+
+| Row | `lambda` | `tau` | `w_grind` | `T_open` | `d_zk` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| First: fast | 256 | 33 | 8 | 229 | 7 |
+| Comparison: small | 256 | 22 | 6 | 225 | 7 |
 
 | Role | Experimental choice |
 | --- | --- |
-| Credential master secret | 256 uniformly random bits |
-| VOLE field and security parameter | `lambda` = 256 |
-| Performance baseline | FAEST v3 fast row: `tau` = 33, `w_grind` = 8, `T_open` = 229 |
-| Credential commitment `C` | Six AES blocks, 768 bits |
+| Credential master secret | 384 uniformly random bits |
+| Credential commitment `C` | SHAKE256, 1,024 output bits |
 | Nullifier `nf` | SHAKE256, 512 output bits |
-| Credential root `R` | SHA3-512, 512 bits |
-| Public context digest | SHA3-512 |
-| Proof-system internals | The exact reference's role-specific lengths |
+| Sealed-list digest `R`, body-context digest `B` | SHA3-512 |
+| Keccak witness | States committed after rounds 2, 4, ..., 22; rounds 23 and 24 evaluated forward with the exposed output bits constrained |
+| Not used at first | Inverse-chi grouping; degree-14 masking |
+| Proof-system internals | The role-specific lengths of section 8.3 |
 
-The custom relation's degree, masks and checks must be recalculated. The
-reference tuple is not a transferable theorem.
+The custom relation's degree, masks and checks are recalculated for the actual
+constraint implementation. The reference tuple is not a transferable theorem.
+The small row is chosen only if it supplies a useful resource trade-off and
+then meets the same security gate **[R]**.
 
 ### 8.7 Anonymity is computational
 
@@ -715,21 +822,52 @@ section 3.1), `C` is public at registration and `nf` is public in the ballot.
 An unbounded adversary can search for the `sk` that opens each registered `C`
 and recompute its nullifier in every scope. No profile that instantiates
 section 3.1 can therefore give statistical anonymity; this is a property of
-the ballot design, not of the leading candidate. Ballot design section 4
-already scopes ballot anonymity as resting on "the post-quantum primitives of
-`P`" **[C]**.
+the ballot design, not of the construction. Ballot design section 4 already
+scopes ballot anonymity as resting on "the post-quantum primitives of `P`"
+**[C]**.
 
-For the leading candidate those primitives are: AES-256 one-wayness and
-pseudorandomness with plaintexts shared across seats, keyed SHAKE256
-pseudorandomness given the AES commitment, and zero knowledge of the proof
-system in the QROM (gate 5, not proved). Ballots and registrations stay on
-chain permanently, so a later break of any of these identifies past voters
-retrospectively **[E]**. The lifetime envelope of section 10 item 1 must
-cover that horizon.
+For the construction those primitives are: SHAKE256 behaving sufficiently like
+the modelled oracles in its commitment and nullifier uses, which remains an
+explicit primitive assumption; the backend's PRG and commitment assumptions,
+with AES in the initial measurement implementation; and zero knowledge of the
+proof system in the QROM (gate 5, not proved) **[R]**. Ballots and
+registrations stay on chain permanently, so a later break of any of these
+identifies past voters retrospectively **[E]**. The archive horizon of
+section 8.8 covers that exposure. Changing profiles does not erase it **[R]**.
+
+### 8.8 Security contract and lifetime envelope
+
+The stated reading of gate 6 **[R]**; ballot design section 5 carries it
+**[C]**. The literal query-security floor is retained.
+
+| Quantity | Requirement |
+| --- | ---: |
+| Computational break | Forgery success ≥ 1/2, or anonymity distinguishing gap ≥ 1/2 |
+| Required work for a break | At least 2^128 total quantum queries to modeled primitives and oracles |
+| Accounting | Deployment-wide, including reduction overhead and all targets |
+| Archive horizon | 100 years per network and profile instance |
+| Body scopes | At most 2^24 |
+| Sealed seats per body | At most 1,000 |
+| Registrations, including alternates | At most 2^34 |
+| Honest prover transcripts per credential | At most 2^10, counting fresh proof generations |
+| Total registration plus ballot transcripts | At most 2^44 |
+| Accepted ballots | One per credential and body |
+| Unconditional statistical bad-event budget | At most 2^-128 over the lifetime |
+
+- Repeated transmission of identical proof bytes is not a new prover
+  transcript.
+- The ceilings are analysis ceilings, not new consensus lifetime counters.
+  Exceeding one requires reassessment.
+- A gate-depth metric is not substituted to rescue a row without the
+  corresponding reversible-circuit, parallelism, depth and reduction analysis.
+- **No parameter tuple is certified under this contract** (section 8.5). The
+  fast row of section 8.6 is implemented as the first measurement row only.
 
 ## 9. Resource projections
 
-Analytical projection only. Nothing has been built or measured.
+Analytical projection only. No measurement is recorded. Sections 9.2 to 9.6
+are the projections made while comparing candidates. Section 9.7 gives the
+counts for the construction to develop.
 
 ### 9.1 Formula
 
@@ -789,7 +927,8 @@ wire framing are extra and were not projected.
 - V2 proves AES-256 and SHAKE256 at every `lambda`, so its witness length does
   not change with the row. V3 assumes a 96-byte commitment computed by one
   SHAKE256 call over 116 input bytes (one permutation); a wider input or
-  output adds permutations.
+  output adds permutations. The construction of section 6 has a 132-byte input
+  and a 128-byte output, still one permutation per evaluation **[D]**.
 - The selected 768-bit commitment is committed as witness and bound by a
   degree-2 multiplexer over the public list.
 
@@ -798,8 +937,8 @@ wire framing are extra and were not projected.
 | Variant | Relation |
 | --- | --- |
 | V1 | AES-only published shape transplanted onto a v3 backend: commitment of 2 / 4 / 4 blocks, CBC-chain tag of 2 / 3 / 4 encryptions with a 128-bit output, per-member gated last-round constraints |
-| V2 | The leading candidate of section 6 |
-| V3 | Two-SHAKE public list: commitment and nullifier both SHAKE256 in the relation |
+| V2 | The hybrid: six-block AES-256 commitment with a public SHAKE256 mask, and a SHAKE256 nullifier in the relation (compared alternative, section 4) |
+| V3 | Two-SHAKE public list in the earlier projection shape: 256-bit `sk` and a 96-byte commitment. The construction of section 6 differs (384-bit `sk`, 128-byte commitment); its counts are in section 9.7 |
 | V4 | AES-only with a statistically injective commitment (3 / 4 / 5 blocks) and a 256-bit tag. The tag construction is an assumption of this projection with no security analysis |
 
 No one has specified or implemented V1 or V4 on a v3 backend.
@@ -841,7 +980,7 @@ a 256-bit credential with a weaker proof. Worked example, V2 (b) at 256f:
 | V3 (c) | 13,056 | 20,698 | 30,874 | 32,066 | 45,722 | 46,458 | 65,604 |
 
 Against the 256 KiB target: every V2 figure is under it, including the
-unoptimised degree-2 form at the measurement-baseline row (188,760 B, 72%).
+unoptimised degree-2 form on the 256f row (188,760 B, 72%).
 Only V3 (a) at 256f exceeds it (316,668 B, 121%). These sizes do not establish
 security. The witness-length hypothesis of Theorem 10.30 is
 `l + d_zk − 1 ≤ 2^12`, that is `l ≤ 4,090` at `d_zk = 7` **[P]**. For
@@ -853,10 +992,11 @@ misses it by 6 bits. For `pi_reg`, V1 at all three levels (1,472 / 3,008 /
 Proof size does not depend on `S` in any variant. Verifier public data does
 **[D]**:
 
-| Variant | Bytes per leaf | `S = 3` | `S = 500` | `S = 1,000` |
+| Variant | Bytes per entry | `S = 3` | `S = 500` | `S = 1,000` |
 | --- | ---: | ---: | ---: | ---: |
 | V1 (128 / 192 / 256) | 32 / 64 / 64 | 96 / 192 / 192 | 16,000 / 32,000 / 32,000 | 32,000 / 64,000 / 64,000 |
 | V2, V3 | 96 | 288 | 48,000 | 96,000 |
+| Construction of section 6 | 128 | 384 | 64,000 | 128,000 |
 | V4 (128 / 192 / 256) | 48 / 64 / 80 | 144 / 192 / 240 | 24,000 / 32,000 / 40,000 | 48,000 / 64,000 / 80,000 |
 
 Work depends on `S` in every variant. For V2 and V3, selection is `O(S)`
@@ -884,6 +1024,13 @@ phase is extra.
 | V2 (c), 256f | 8.3 | 13 ms | 46 ms | 0.6 s |
 | V2 (c), 256s | 8.2 | 100 ms | 380 ms | 1.5 s |
 | V3 (c), 256f | 11.4 | 18 ms | 63 ms | 0.83 s |
+| Construction `pi_vote` (section 9.7), 256f | 15.6 | 25 ms | 86 ms | 1.1 s |
+| Construction `pi_vote` (section 9.7), 256s | 15.4 | about 190 ms | about 0.7 s | about 2.8 s |
+
+The two construction rows use the same scaling, with a VOLE length of the
+witness length plus 80 bits (256f) or 120 bits (256s) **[D]**. Their 256s
+figures are back-derived from this table's rounded V2 (c) entry. None of these
+machines is a baseline of section 11.4.
 
 Phone proving for V2 (c) at 256f scales to about 56 ms on the Pixel 6a anchor
 **[E]**. Peak prover memory and verifier workspace were not projected. A
@@ -906,285 +1053,335 @@ the official reference can select hardware or platform cryptography at build
   gates and about 224 KB at slow `lambda` = 256, agrees with V3 (a): 213,834 B
   with the last-round saving, 222,634 B without.
 
-### 9.7 Against the section 5 targets
+### 9.7 Analytical counts for the two measurement rows
 
-| Target | Status |
+Derived, not measured. The witness lengths and sizes are reported by the
+second-opinion review **[R]** and reproduce under the working form of
+section 9.1 **[D]**: for example `pi_vote` on the fast row is
+11,748 + 33 × 35,648 / 8 = 158,796. They assume the Keccak grouping of
+section 8.6: 11 committed states of 1,600 bits, 17,600 bits per permutation.
+
+| Proof | Witness bits | Fast row, proof bytes | Small row, proof bytes |
+| --- | ---: | ---: | ---: |
+| `pi_reg` | 384 + 17,600 = 17,984 | 85,932 | 60,010 |
+| `pi_vote` | 384 + 35,200 + 64 = 35,648 | 158,796 | 108,586 |
+
+These exclude statement and envelope framing. They are regenerated from the
+actual constraint implementation, and the universal-hash bounds are re-derived
+for the larger witness and constraint count **[R]**.
+
+Thresholds **[R]**. The same hard limits apply at every roster size and to
+both proofs:
+
+| `S` | Complete canonical proof envelope | Uncached validator verification | Verifier workspace | Phone proving | Phone peak prover memory |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 3 | ≤ 262,144 B | ≤ 250 ms | ≤ 64 MiB | p95 ≤ 10 s | ≤ 256 MiB |
+| 500 | ≤ 262,144 B | ≤ 250 ms | ≤ 64 MiB | p95 ≤ 10 s | ≤ 256 MiB |
+| 1,000 | ≤ 262,144 B | ≤ 250 ms | ≤ 64 MiB | p95 ≤ 10 s | ≤ 256 MiB |
+
+- The ballot envelope size includes its proof, public fields, stamp and
+  framing. Shared seal and list evidence is separate, capped at 160 KiB
+  (163,840 B **[D]**) for the list-context object.
+- Verification measurements include fresh list decoding and digest
+  validation, transcript preparation and late-invalid proofs. They exclude
+  network and disk retrieval. Memory includes list and transcript buffers.
+- **Cold-input total at `S = 1,000`.** The fast `pi_vote` proof plus the raw
+  list alone is 158,796 + 128,000 = 286,796 bytes, before other framing
+  **[R][D]**. The 256 KiB envelope limit is not a claim that all cold
+  verification inputs fit inside 256 KiB. On the small row the same sum is
+  108,586 + 128,000 = 236,586 bytes **[D]**.
+
+### 9.8 Against the section 5 limits
+
+| Limit | Status |
 | --- | --- |
-| Proof ≤ 256 KiB | Projected to hold for V2 with margin **[D]**. Not measured |
-| Verification ≤ 250 ms on the pinned minimum validator CPU | Cannot be judged. The CPU is not defined. Illustrations for V2 (c): about 13 ms (256f) to 100 ms (256s) on the architecture-specific implementation, and about 0.6 s (256f) to 1.5 s (256s) scaled from the published reference-implementation times, which are not established to be scalar or portable **[E]** |
+| Proof envelope ≤ 256 KiB | The fast `pi_vote` proof object is projected at 158,796 B, 61% of the limit, before public fields, stamp and framing **[D]**. Not measured |
+| Verification ≤ 250 ms on the minimum validator baseline | Cannot be judged. The baseline is named (section 11.4) but no run on it exists. The illustrations of section 9.5 are for other machines **[E]** |
 | Verifier workspace ≤ 64 MiB | Not projected |
-| Phone proving p95 ≤ 10 s | Cannot be judged. The devices are not defined. Scaled anchors suggest a wide margin **[E]** |
+| Phone proving p95 ≤ 10 s | Cannot be judged without runs on the baseline phones. Scaled anchors suggest a wide margin **[E]** |
 | Phone prover memory ≤ 256 MiB | Not projected |
 
-Neither hardware baseline is defined anywhere in the repository **[C]**: the
-phrases "pinned minimum validator CPU" and "supported baseline Android and iOS
-devices" occur only in the ballot design itself.
+## 10. Decisions
 
-## 10. Decisions that are the owner's
+### 10.1 Decisions taken
 
-Engineering cannot make these implicitly. Each item names the consequence of
-either answer and the section that supports it.
+On 2026-10-11 the owner delegated the open decisions of this record to the
+second-opinion review, under the instruction that this is the first release,
+backward compatibility is not needed and the best design is chosen. Each row is
+a design decision of that review **[R]**. None is a security proof, a profile
+selection or a qualification.
 
-1. **Security metric and lifetime envelope.** The resource metric for gate 6
-   (quantum queries through the actual reduction, or a gate-and-depth cost
-   model), the success probability that defines a break, and the lifetime
-   numbers of registrations, proofs, scopes and adversarial queries, over the
-   horizon of section 8.7.
-   *If queries through the reduction:* no FAEST row is certified by the
-   published bound even at `lambda` = 256 (about 2^123, section 8.1), and
-   256-bit digests are insufficient in collision roles (section 8.3).
-   *If a gate-and-depth model:* the cost model and its depth limit must be
-   written down before any ledger can be computed; gate 6's "follow the
-   actual reduction" then needs a stated reading.
-2. **Public-list verifier and evidence contract.** Whether `pi_vote` may prove
-   selection from the sealed list with the root rebuilt outside the proof.
-   This changes ballot design sections 3.1 (`Ballot_P(sk, i, path; m)`), 3.3
-   (the relation proves the real-leaf encoding), 3.5 (index and path under
-   `R`), 3.9 (full-verification inputs) and 12.2 step 3 (in-relation leaf,
-   node and padding encodings), as tabulated in section 6.4.
-   "Instantiation-neutral" is not clear authorization to leave the change
-   implicit **[R]**.
-   *If yes:* those clauses are amended and the carrier of the `S` real-leaf
-   values is specified (section 6.4).
-   *If no:* the leading candidate is out. What remains is a Merkle path
-   inside the proof, projected at 134,304–468,154 B at `lambda` = 256, or the
-   STARK route (section 4).
-3. **Gate 8 wording.** Simulation-extractability as written, or a permitted
-   equivalent such as the anti-copy formulation with its own cross-message,
-   cross-relation argument (section 7.3). Ballot design section 3.2
-   ("Possession proof") states simulation-extractability a second time and
-   must be amended together with gate 8 if an equivalent is permitted.
-   *If as written:* gate 8 needs a QROM simulation-extractability proof that
-   was not found for either route (sections 7.1 and 7.4).
-   *If an equivalent is permitted:* gate 8 reduces to the unforgeability
-   argument of gate 2 plus joint zero knowledge, which are still class (c).
-4. **AES binding assumption.** Whether multi-key key binding and injectivity
-   of the six-block AES-256 commitment may be an explicit assumption
-   (section 8.4).
-   *If yes:* it is stated and reviewed as class (d).
-   *If no:* gate 3 needs extraction (gates 1 and 2) or a commitment with a
-   proved binding argument, which changes the relation.
-5. **Keyed-SHAKE assumption.** Whether pseudorandomness of SHAKE256 keyed by
-   `sk`, given the AES commitment of the same `sk`, may be an explicit
-   assumption (sections 6.2 and 7.1, gate 4).
-   *If yes:* it is stated and reviewed as class (d).
-   *If no:* the nullifier needs another construction; the AES-only form was
-   rejected (section 6.2).
-6. **Arithmetisation-oriented hash.** Whether the STARK row of section 4 that
-   uses Poseidon2 or Rescue-Prime in the relation is admissible, with its
-   further assumption on a non-standardised hash.
-   *If yes:* that row becomes a comparison candidate with its own parameter
-   review.
-   *If no:* the STARK route is limited to SHA-2/SHA-3 in the relation
-   (250–600 KiB **[E]**).
-7. **Hardware baselines.** The minimum validator CPU, including whether AES
-   and carry-less-multiply acceleration is guaranteed, the supported phones,
-   and whether the mandatory portable fallback must itself meet 250 ms.
-   *Until answered:* the 250 ms and phone targets cannot be judged or
-   falsified (sections 9.7 and 11.4).
-   *If the portable path must meet 250 ms:* the scaled reference-code
-   illustrations (0.6–1.5 s **[E]**, section 9.5) suggest it may not.
-8. **Proof work.** Gates 1, 2, 5 and 8 need new written QROM arguments that no
-   published theorem supplies (section 7.1). Decide whether that work is
-   commissioned, who owns it and who reviews it, or whether the profile waits
-   for published results.
-   *If commissioned:* it is new cryptographic research with no assured
-   outcome.
-   *If not:* measurement can only falsify the engineering targets; it cannot
-   move the candidate toward selection.
-9. **What "discharge section 5" requires at ballot design 12.2 step 2.**
-   Whether phone proving and memory measurements and independent proof review
-   must be complete before `P` is selected and schemas start, or may remain
-   as listed obligations until step 5 (section 11.1).
-   *If complete before selection:* selection waits for the full measurement
-   campaign and for review.
-   *If deferred:* the ballot design text should say so, because step 2 as
-   written does not.
-10. **A standalone measurement harness.** Whether an isolated implementation
-    and measurement of the candidate is authorized before items 1–9 are
-    settled. Section 11.2 records a recommendation for an in-tree
-    implementation **[R]**; an in-tree harness makes item 11 a precondition,
-    an out-of-tree one does not.
-    *If authorized:* the work of section 11.2 can start, and its runs are
-    exploratory (section 11.3).
-    *If the owner intends that nothing be built until a profile can be
-    selected:* this record is a stop report, and engineering does not read it
-    as permission to advance stages **[R]**.
-11. **Placement and dependencies.** Where a VOLE-in-the-head engine lives
-    under the shared-backend rule of [zk_delivery_plan.md](zk_delivery_plan.md)
-    ("Shared proof backend and complete IVM proof"). That rule names one
-    shared FASTPQ owner and lists the distinct families that keep their
-    roles; it does not list VOLE-in-the-head **[C]**. The review reads the
-    rule as one shared STARK owner, not a prohibition of a distinct family
-    **[R]**. New crates and third-party dependencies need explicit approval.
-    *If a distinct family is admitted:* the rule's list is extended in that
-    specification.
-    *If not:* no VOLE-in-the-head candidate can be built in tree.
+| Item | Decision | Stated in |
+| --- | --- | --- |
+| Construction | Two-SHAKE public-list construction with a flat commitment to the sealed ordered list, as the single construction to develop. The earlier hybrid recommendation is changed: avoiding its extra credential assumptions is worth the projected increase in proof size. No security-qualified normative profile is selected | Section 6 |
+| Security metric and lifetime envelope | The literal 2^128 quantum-query floor through the actual reduction, with deployment-wide accounting and a 100-year archive horizon. No parameter tuple is certified | Section 8.8; ballot design section 5 |
+| Public-list verifier and evidence contract | Flat digest of the ordered list; the list bytes are published in finalized block data at seal; every verifier holds a validated list or an immutable context authenticated to the seal | Section 6.4; ballot design sections 3.1, 3.3, 3.5, 3.8, 3.9 and 12.2 |
+| Gate 8 wording | Adaptive cross-relation registration unforgeability replaces simulation-extractability. Gate 1's knowledge requirement stays a separate obligation | Section 7.3; ballot design sections 3.2 and 5 |
+| AES binding assumption | Not made a dependency. Multi-key injectivity of `k -> AES_k(p_0) \|\| ... \|\| AES_k(p_5)` does not follow from single-key PRP security. It leaves the normative candidate with the hybrid | Section 4 |
+| Keyed-SHAKE assumption given the AES commitment | Not made a dependency; it leaves with the hybrid. The two-SHAKE construction instead needs a quantitative, domain-separated QROM analysis of its commitment and nullifier uses, with concrete SHAKE as an explicit primitive assumption | Sections 4 and 8.7 |
+| Arithmetisation-oriented hash | Not admissible in this profile, in its commitments or its transcript. Algebraic universal hashes inside the proof protocol are a different category, subject to their proved error bounds | Ballot design section 5 |
+| Hardware baselines | Intel Xeon Silver 4310 (one physical core, base frequency), Pixel 6a and iPhone SE third generation. The portable scalar path must be correct and bounded; it need not meet 250 ms | Section 11.4; ballot design section 5 |
+| Proof work | The written-argument standard of section 11.1. Complete reductions may await independent review; missing reductions may not. The review states that it can write and check the arguments in a follow-up, with no assured outcome | Sections 7.1 and 11.1 |
+| What selection requires | Profile selection is distinguished from activation qualification. Selection needs complete internal evidence; independent review and the validator and phone launch measurements may remain enumerated obligations | Section 11.1; ballot design section 12.2 step 2 |
+| Standalone implementation | An in-tree, standalone experimental implementation, following FAEST specification v3.0. The owner authorised it, the download of the official test vectors and the patching of dependencies | Sections 11.2 and 11.3 |
+| Placement and dependencies | VOLE-in-the-head is a distinct mathematical family with exactly one reusable owner crate, `crates/iroha_zkp_vole`. The pinned `aes` 0.8.4 dependency is minimally patched to expose portable types and to put hardware dispatch behind a positive feature | Section 11.2; [zk_delivery_plan.md](zk_delivery_plan.md), "Shared proof backend and complete IVM proof" |
+| Draw seed | Attempt identity stays out of the ranking seed | Ballot design section 9 |
+| Idle-chain latency and casting clock | Bounded native-slot progress, casting-clock due work and late processing as requirements on the SCCP-owned governance clock; `parliament_sccp_attempt_latency_ms()` is `None` until a qualified bound exists | Ballot design sections 9 and 11; wording owned by [sccp.md](sccp.md) |
 
 Whether computational anonymity is acceptable is not a separate decision:
 section 8.7 shows it follows from ballot design section 3.1 for every profile.
 
-Any change to the qualification-before-integration order of ballot design
-section 12.2, and the eventual record of activation qualification, are also
-the owner's.
+### 10.2 Still requiring the owner
+
+The owner has authorised downloading the official test vectors and patching
+dependencies. Two items remain:
+
+1. **Access to the named hardware.** Any access or expenditure needed for the
+   validator and phone measurements on the baselines of section 11.4. Until
+   then those launch measurements remain open.
+2. **The qualification record.** The eventual record of activation
+   qualification. Until the owner supplies it,
+   `parliament_binding_ballot_available()` remains false.
 
 ## 11. Evidence required and order of work
 
-### 11.1 Minimum evidence before selection can be considered
+### 11.1 Selection rule
 
-Ballot design section 12.2 step 2 reads "Discharge section 5 and select `P`"
-**[C]**. Read literally, section 5 includes the phone targets and the full
-measurement inventory (cold runs, late-failing invalid proofs, thermal effects
-and cancellation). Step 5 separately places "complete proof review" later
-**[C]**. The review lists the six items below as what it would require before
-integration **[R]**. Its item 6 lets phone qualification and independent
-review remain outstanding at that point. That is the review's reading, not
-the design's text; this record does not adopt it as the selection bar. Which
-reading governs is section 10 item 9. The list is a minimum under either
-reading:
+Ballot design section 12.2 step 2 distinguishes profile selection from
+activation qualification **[C]**. Selection, and steps 3 to 5, may proceed only
+when all of these are true **[R]**:
 
-1. Exact relations, encodings, domains and immutable parameters, including the
-   approved list-verification contract.
-2. Complete written arguments for every gate under explicit assumptions, not
-   "should extend from FAEST".
-3. A concrete lifetime security ledger, including statistical error and every
-   relevant reduction loss.
-4. A functioning deterministic implementation, reference and component
-   vectors, and adversarial relation tests.
-5. Measured proof sizes and bounded verifier costs at `S = 3`, 500 and 1,000,
-   with a credible resource envelope.
-6. A precise list of the remaining independent-review and phone-qualification
-   obligations, with activation still disabled.
+1. One exact construction and parameter row are frozen; no unresolved relation
+   or transcript choice remains.
+2. Every gate has a complete written argument under the standard below.
+3. The actual lifetime ledger meets the contract of section 8.8.
+4. The standalone prover and verifier implement that exact protocol and pass
+   meaningful adversarial and component checks.
+5. Complete envelope sizes, deterministic work and allocation bounds and
+   measurements at all three roster sizes are recorded.
+6. All remaining independent review, external conformance, hardware, phone,
+   lifecycle and network qualification obligations are enumerated.
+7. `parliament_binding_ballot_available()` remains false.
 
-A complete exact-protocol argument awaiting independent review can be
-compatible with review remaining a launch gate. A missing foundational
-argument that needs new research is not a completed qualification step.
-Independent review can find errors in a written argument; it cannot review an
-argument that has not been written **[R]**.
+**The present record fails conditions 2 and 3, so production schemas and Core
+integration do not start.** Condition 1 does not hold either: the relation is
+chosen but no parameter row is frozen. Conditions 4 and 5 are in progress
+**[E]**.
 
-### 11.2 Recommended order
+**Written-argument standard [R].** An argument counts as complete, awaiting
+independent review, only when it contains:
 
-**[R]** A small, state-free in-tree implementation directed by a pinned
-specification, reusing established primitive implementations and keeping
-external implementations as differential references. The available Rust
-`faest` crate states compatibility with specification version 2 and no
-security audit, and exposes whole signatures only **[P]** (crate manifest,
-README and `src/lib.rs`, read through summaries); the official reference
-implements version 3 **[P]**. Their known-answer tests are not
+- the exact protocol, relations, encodings and randomness behaviour;
+- the security game, corruption model, oracle access and winning condition;
+- explicit primitive assumptions, distinct from properties being proved;
+- every simulator or extractor and every game transition;
+- precise citations and verification of every imported theorem hypothesis;
+- quantitative loss terms, including lifetime, multi-user, grinding,
+  reprogramming, witness-length and constraint-count effects;
+- the numerical substitution into the contract of section 8.8;
+- an explicit list of exclusions and remaining implementation and review
+  obligations.
+
+A lemma that assumes "this ballot proof is quantum unforgeable" does not count
+as a proof of ballot unforgeability. An unresolved theorem is a gap, even if
+its expected result sounds plausible. Independent proof review may remain
+pending; missing foundational arguments may not **[R]**.
+
+Measurements on the implementer's machine can support construction feasibility
+and selection. They do not satisfy the named validator or phone launch
+measurements **[R]**.
+
+### 11.2 Implementation route
+
+**[R]** unless marked. The backend follows FAEST specification v3.0, which the
+review dates 1 September 2026 and the official site identifies as the current
+submission. It is implemented in tree from that specification.
+
+| Crate | Role |
+| --- | --- |
+| `crates/iroha_zkp_vole` | Reusable, state-free VOLE-in-the-head backend. The one owner of that family under the shared-backend rule. Experimental and unqualified |
+| `crates/iroha_parliament_ballot_proof` | Fixed experimental profile, context and list validation, and the ballot relations. Standalone; nothing in Core depends on it |
+
+The review placed the ballot relations under
+`crates/iroha_core_privacy/src/parliament_ballot/` **[R]**. The standalone
+experiment keeps them in a separate leaf crate so that nothing is wired into
+Core before selection; their placement at integration is settled with ballot
+design section 12.2 step 4. Governance state transitions stay in Core.
+
+| Area | Modules |
+| --- | --- |
+| Backend | `params`, `field`, `prg`, `bavc`, `vole`, `crt`, `universal_hash`, `quicksilver`, `transcript`, `codec`, `randomness`, `allocation`, `arch` |
+| Ballot | `profile`, `context`, `credential`, `sealed_list`, `selector`, `registration_relation`, `vote_relation` |
+
+- **Reuse.** The pinned `sha3`, Norito, `zeroize` and the existing randomness
+  interfaces. `aes` 0.8.4 supplies the full-block backend PRGs, without a
+  dependency on `iroha_sccp_rpc` to reach it.
+- **No new AES.** No new production AES implementation with exposed round
+  states is written. The relation has no AES witness.
+- **AES dependency patch.** Unmodified `aes` 0.8.4 uses x86 hardware
+  autodetection and does not expose the feature-controlled portable API needed
+  here. The pinned dependency receives a minimal, provenance-preserving patch:
+  explicit portable AES types; hardware modules and dispatch behind a positive
+  Cargo feature; the constant-time software fallback kept; the backend's
+  acceleration feature selects the accelerated provider; without it the
+  portable types are selected explicitly, despite Cargo feature unification.
+  AES arithmetic and key expansion are not changed. No runtime environment
+  toggle is substituted.
+- **No second driver.** The backend is not another FASTPQ or STARK driver.
+
+The available Rust `faest` crate states compatibility with specification
+version 2 and no security audit, and exposes whole signatures only **[P]**
+(crate manifest, README and `src/lib.rs`, read through summaries). It is not
+the backend. Known-answer tests of different specification versions are not
 interchangeable.
 
-1. Resolve the construction: games, assumptions, relation, specification
-   version, hardware baselines and the owner of proof work. Produce exact
-   circuit counts.
-2. **Reproduce plain FAEST first.** Match same-version full-signature
-   known-answer tests with fixed key, message and random tape, and
-   cross-verify with the reference.
-3. Match intermediate vectors: AES key expansion and round states; field
-   basis, endianness and reduction; PRGs; GGM commit, open and reconstruct;
-   VOLE consistency; universal hashes; transcript challenges and grinding.
-4. Implement an independent native relation evaluator, then the proof
-   constraints. Test wrong commitments and nullifiers, unconstrained states,
-   invalid selectors, padding, `i ≥ S`, reordered lists, altered contexts and
-   messages, and registration-copy attempts.
-5. Bound the verifier: canonical parser, checked lengths, allocation
-   accounting, late-failure tests, mutations and fuzzing.
-6. Measure the portable implementation, then add feature-gated accelerated
-   paths. Require identical fixed-randomness proof bytes and identical
-   verification results, charges and error behaviour.
-7. Measure the complete candidate at `S = 3`, 500 and 1,000.
+### 11.3 Test strategy
 
-Component known-answer tests establish conformance, not ballot security.
-"Deterministic prover" means deterministic given an explicit random tape, never
-fixed or reused production randomness. The phone prover needs constant-time
-secret arithmetic, no secret-indexed tables, branches or roster accesses,
-reviewed randomness handling and clearing of keys, round states, seeds and
-masks on success, error and cancellation **[R]**.
+Confidence is built in layers **[R]**:
 
-### 11.3 Measurement record
+- independently structured native Boolean evaluators against the polynomial
+  constraints;
+- exhaustive reduced selector and gadget tests, and deliberate constraint
+  mutations;
+- independent field-arithmetic and CRT oracles;
+- BAVC and VOLE identities, opening and reconstruction, and transcript tests;
+- wrong contexts, changed messages, malformed selectors and incorrect outputs;
+- bounded-parser fuzzing, truncation, trailing bytes and late failures;
+- cancellation, randomness-failure and zeroization checks;
+- byte parity between the portable and accelerated paths under fixed
+  randomness;
+- locally generated regression fixtures, labelled self-generated.
+
+Self-generated fixtures do not establish independent conformance **[R]**. The
+official FAEST v3.0.2 test vectors are available under the MIT licence and are
+used for component and full-signature conformance of the backend **[U]**
+(reported by the implementation work; not verified by this record).
+Bidirectional cross-verification with a pinned official implementation remains
+to be added **[R]**.
+
+Conformance of the backend to FAEST vectors establishes that the backend
+computes FAEST. It does not establish ballot security: the ballot relation has
+no official vectors. "Deterministic prover" means deterministic given an
+explicit random tape, never fixed or reused production randomness. The phone
+prover needs constant-time secret arithmetic, no secret-indexed tables,
+branches or list accesses, reviewed randomness handling and clearing of keys,
+round states, seeds and masks on success, error and cancellation **[R]**.
+
+### 11.4 Measurement record
+
+Minimum measurement baselines **[R]**:
+
+| Role | Baseline |
+| --- | --- |
+| Validator | One physical core of an Intel Xeon Silver 4310 at its 2.10 GHz base frequency, turbo disabled, idle SMT sibling, Linux x86-64; AES-NI, PCLMUL and AVX2 allowed; no AVX-512 requirement |
+| Android | Pixel 6a, Tensor, 6 GB RAM |
+| iOS | iPhone SE, third generation, A15 |
+
+The portable scalar path must preserve results, proof bytes under fixed
+randomness, work charges and memory limits. It need not meet 250 ms. That
+limit belongs to the accelerated build of the minimum validator baseline.
+Slower hardware receives no claim that it supports the qualified validator
+throughput **[R]**. The implementer's Mac can establish only timing and memory
+on that exact machine and build, genuine scalar measurements with acceleration
+disabled, ARM accelerated measurements and local deterministic parity. It
+cannot qualify the Intel baseline, either phone, x86 parity or phone thermal
+behaviour **[R]**.
 
 Each run records, following ballot design section 5 and the repository's
 evidence conventions (`zk_delivery_plan.md` H.1–H.3, `iroha_measurement`):
 
 - full source commit and tree state; artifact, build profile and
-  configuration identity; the pinned specification version;
-- a named hardware record with observed host facts, and for phones the device,
-  OS and thermal state;
+  configuration identity; the pinned specification version; the parameter row;
+- a named hardware record with observed host facts, the OS, compiler and build
+  flags, and for phones the device, OS, battery operation and thermal state;
 - the exact inventory: `pi_reg` and `pi_vote`, prove and verify, at `S = 3`,
   500 and 1,000, on the portable path and each accelerated path;
-- exact proof bytes; verification time cold and warm; verification time for
-  late-failing invalid proofs and malformed encodings;
-- verifier peak memory against the 64 MiB target; prover wall time with a
-  stated sample count for p95, after sustained load, and with cancellation;
-  prover peak memory; the grinding-retry distribution;
+- exact proof and envelope bytes, and the total cold input including the list;
+- verification time cold and warm, including fresh list decoding and digest
+  validation and transcript preparation, and excluding network and disk
+  retrieval; verification time for late-failing invalid proofs and malformed
+  encodings; distributions and the maximum observed valid and late-invalid
+  times, not only averages;
+- verifier peak memory against the 64 MiB limit, including list and
+  transcript buffers; prover wall time with a stated sample count for p95,
+  after sustained load, and with cancellation; prover peak memory; the
+  grinding-retry distribution;
 - logical work counters (hash calls, field multiplications, AES blocks) from
   which `B_work` and `B_bytes` are derived;
 - byte-identical accept and reject results across paths;
-- measured values kept separate from targets and projections; raw failures
+- measured values kept separate from limits and projections; raw failures
   retained; a statement of what was not run; no private witness or key in the
   record.
 
 Exploratory runs before the profile is frozen never count as qualification.
 
-### 11.4 What would falsify the leading candidate
+### 11.5 What stops selection or switches the construction
 
-Thresholds, hardware records and the designated verification path are fixed
-and recorded before a qualifying run (section 11.3, section 10 item 7). Until
-they are, the measurement criteria below cannot be evaluated. The stop
-conditions follow the second-opinion review **[R]**; the observable form given
-to each is this record's **[E]**.
+Selection and integration stop again if any of these occurs **[R]**:
 
-- **Proof.** No complete written argument for gates 1, 2, 5 and 8 exists when
-  the measured candidate is otherwise ready for selection, or review concludes
-  the ring relation cannot be proved.
-- **Security floor.** The ledger of section 11.1 item 3 cannot reach the floor
-  fixed under section 10 item 1.
-- **Owner decisions.** The public-list contract, the AES binding assumption or
-  the keyed-SHAKE assumption is not accepted (section 10 items 2, 4 and 5).
-- **Targets.** For `pi_reg` or `pi_vote` at `S = 3`, 500 or 1,000, on the
-  designated path, including late-failing invalid proofs, any of these is
-  measured and no explicit profile and resource review approves a relaxation:
-  - proof above 262,144 B;
-  - worst-case uncached verification above 250 ms on the pinned minimum
-    validator CPU;
-  - verifier workspace above 64 MiB;
-  - phone proving p95 above 10 s on a supported baseline device;
-  - phone peak prover memory above 256 MiB.
+- a foundational game, simulator, extractor or reduction is missing or fails;
+- the ledger fails the contract of section 8.8;
+- the implementation needs an unproved protocol deviation;
+- adversarial tests expose an unconstrained witness, transcript substitution
+  or determinism defect;
+- the final secure parameters exceed a hard resource limit;
+- a primitive assumption is stronger than the recorded approved design.
 
-  The two memory targets were not projected (section 9.7).
+A performance experiment may continue to investigate such a blocker, clearly
+labelled experimental **[R]**.
+
+The construction is switched when the final security argument fails, or when
+the secure implementation exceeds a hard limit after straightforward grouping
+and streaming work. A narrow standard-hash STARK is then evaluated under the
+same requirements. Digests are not shortened, the security metric is not
+weakened and limits are not raised silently. If the two-SHAKE construction
+passes, it is retained even if the hybrid benchmarks faster **[R]**.
+
+Observable forms of the resource conditions, this record's **[E]**:
+
+- **Limits.** For `pi_reg` or `pi_vote` at `S = 3`, 500 or 1,000, including
+  late-failing invalid proofs: an envelope above 262,144 B; worst-case
+  uncached verification above 250 ms on the accelerated build of the minimum
+  validator baseline; verifier workspace above 64 MiB; phone proving p95 above
+  10 s on a baseline phone; phone peak prover memory above 256 MiB; a
+  list-context object above 160 KiB. The two memory limits were not projected
+  (section 9.8).
 - **Capacity.** The worst-case per-ballot verification charge, including
   public-list processing (section 6.4), does not permit the capacity rule of
   ballot design section 3.6 at `S = 1,000`: 1,000 ballots for each of `K`
   concurrent attempts within the per-block budget at the minimum block
   cadence.
-- **Parity.** Any accept, reject, charge or error difference between
-  accelerated and portable paths.
+- **Parity.** Any accept, reject, proof-byte, charge or error difference
+  between accelerated and portable paths under fixed randomness.
 
 ## 12. What independent review must cover
 
 - The exact relations, encodings and domain separation of section 6,
-  including the selector and the `i < S` constraint.
-- A written argument for each of the eight gates, with the game definitions,
-  for both proofs under one `sk`.
+  including the prefix-form selector, the exclusion of positions at or beyond
+  `S`, and the transcript binding of the list bytes.
+- A written argument for each of the eight gates under the standard of
+  section 11.1, with the game definitions, for both proofs under one `sk`.
 - Applicability of the QROM Fiat–Shamir analysis to the actual protocol:
-  adaptive statements, adversarially registered leaves, grinding and the
+  adaptive statements, adversarially registered entries, grinding and the
   retry loop, the unmodelled detail, and the re-derived universal-hash errors
   for witnesses beyond the published limits.
-- The concrete security ledger: every reduction loss, statistical error and
-  its accumulation, multi-target use, and the digest length of every role,
-  including the 256-bit `scope` and `policy_hash`.
-- The primitive assumptions: multi-key binding and injectivity of the AES
-  commitment; AES pseudorandomness with plaintexts shared across seats; keyed
-  SHAKE256 pseudorandomness given the commitment.
-- The public-list contract, the carrier of the list and its effect on
-  independent full verification (section 6.4).
+- The concrete security ledger against the contract of section 8.8: every
+  reduction loss, statistical error and its accumulation, multi-target use,
+  and the length of every role in section 8.3.
+- The role audit of existing 32-byte values (section 6.1).
+- The primitive assumptions: SHAKE256 as the modelled oracles in its
+  commitment and nullifier uses, including adaptive context selection and the
+  concrete sponge; the backend's PRG and commitment assumptions.
+- The public-list contract, the publication of the list at seal and its effect
+  on independent full verification (section 6.4).
 - The arithmetic of this record that has had one reader only: section 8.1's
-  chosen-message terms, the Keccak grouping of section 9.2 and every
-  `d_zk = 14` figure.
+  chosen-message terms, the Keccak grouping of sections 8.6 and 9.2, the
+  counts of section 9.7 and every `d_zk = 14` figure.
 - The implementation: conformance to the pinned specification, bounded and
   deterministic verification, identical results across hardware,
   malformed-input behaviour, constant-time and randomness handling in the
-  prover. Source inspection alone does not establish resistance to physical
-  side channels **[R]**.
+  prover, and the patch to the pinned `aes` dependency. Source inspection alone
+  does not establish resistance to physical side channels **[R]**.
 
 ## 13. References
 
@@ -1211,6 +1408,12 @@ specifications were supplied from memory and not checked against the sources
 | NIST, *Post-Quantum Cryptography: Security (Evaluation Criteria)*. <https://csrc.nist.gov/projects/post-quantum-cryptography/post-quantum-cryptography-standardization/evaluation-criteria/security-(evaluation-criteria)> | Full, through a tool summary |
 | *Zcash Protocol Specification*. <https://zips.z.cash/protocol/protocol.pdf> | Part: sections 4.16 and 8.4 |
 | Semaphore v4 circuit. <https://github.com/semaphore-protocol/semaphore> | Code: `semaphore.circom`, through a tool summary |
+| NIST, *FIPS 202: SHA-3 Standard*. <https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.202.pdf> | Not read by us; cited by the second-opinion review |
+| FAEST official specifications and resources. <https://faest.info/resources.html> | Not read by us; cited by the second-opinion review |
+| FAEST official test vectors, version 3.0.2, MIT licence | Not read by this record; used by the implementation work (section 11.3) |
+| Intel, Xeon Silver 4310 specifications. <https://www.intel.com/content/www/us/en/products/sku/215277/intel-xeon-silver-4310-processor-18m-cache-2-10-ghz/specifications.html> | Not read by us; cited by the second-opinion review |
+| Google, Pixel phone hardware specifications. <https://support.google.com/pixelphone/answer/7158570> | Not read by us; cited by the second-opinion review |
+| Apple, iPhone SE (3rd generation) technical specifications. <https://support.apple.com/en-ie/111866> | Not read by us; cited by the second-opinion review |
 
 **VOLE-in-the-head and ring signatures**
 

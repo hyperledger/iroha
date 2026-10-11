@@ -306,16 +306,28 @@ fn commit_sccp_parameters(state: &State) {
     setup.commit_world_overlay_for_testing().unwrap();
 }
 
+/// A keeper advance of the Ethereum light client that decodes and proves nothing: eligible
+/// for the SCCP fee exemption from any authority whenever SCCP exists (`specs/sccp.md` §4.19).
+fn sccp_keeper_advance() -> Vec<InstructionBox> {
+    use iroha_sccp::light_client::{ethereum::EthereumLcAdvanceV1, proof::SccpLcAdvanceV1};
+    vec![InstructionBox::from(
+        iroha_data_model::isi::sccp::AdvanceSccpLightClientV1 {
+            network: iroha_data_model::bridge::SccpNetworkV1::EthereumMainnet,
+            expected_state_hash: None,
+            advance: SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
+                updates: Vec::new(),
+            })
+            .to_bytes()
+            .expect("bounded advance"),
+        },
+    )]
+}
+
 #[test]
 fn a_failed_sccp_exempt_transaction_is_charged_within_its_signed_intent() {
     let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
-    // Fault evidence is eligible whenever SCCP exists; this one fails its signature check at
-    // execution. One instruction: base fee 1 + one instruction at 1.
-    let fault = || {
-        vec![InstructionBox::from(
-            crate::smartcontracts::isi::sccp::test_support::SampleInstructions::fault(),
-        )]
-    };
+    // A keeper advance is eligible whenever SCCP exists; this one fails at execution because
+    // no light client is installed. One instruction: base fee 1 + one instruction at 1.
     for (limit, balance_after) in [(Some(2_u32), 8_u32), (Some(1), 10), (None, 10)] {
         let (state, asset) = priced_fixture(None);
         commit_sccp_parameters(&state);
@@ -323,14 +335,17 @@ fn a_failed_sccp_exempt_transaction_is_charged_within_its_signed_intent() {
             || FeePaymentIntent::authority(Vec::new(), None),
             |maximum| payment(&asset, maximum),
         );
-        let source = carrier(&state, vec![input(&state, fault(), intent, false)]);
+        let source = carrier(
+            &state,
+            vec![input(&state, sccp_keeper_advance(), intent, false)],
+        );
         let (mut block, _recording) = recorded_network_block(&state, &source);
         execute(&mut block, &source).unwrap();
         let row = network_row(&block, 0);
         let reason = format!("{:?}", row.result.0);
-        assert!(row.result.is_err(), "{limit:?}: the fault evidence fails");
+        assert!(row.result.is_err(), "{limit:?}: the advance fails");
         assert!(
-            reason.contains("SCCP fault"),
+            reason.contains("SCCP light client"),
             "{limit:?}: the failure keeps its own reason: {reason}"
         );
         assert_eq!(
@@ -349,16 +364,14 @@ fn a_failed_sccp_exempt_transaction_is_charged_within_its_signed_intent() {
 #[test]
 fn an_sccp_shape_that_is_not_eligible_pays_the_ordinary_fee() {
     let _fee_guard = crate::status::nexus_fee_test_lock().lock().unwrap();
-    // Without SCCP in the parent World nothing is exempt: fault evidence is an ordinary
+    // Without SCCP in the parent World nothing is exempt: a keeper advance is an ordinary
     // transaction, quoted at admission and charged on failure like any other.
     let (state, asset) = priced_fixture(None);
     let source = carrier(
         &state,
         vec![input(
             &state,
-            vec![InstructionBox::from(
-                crate::smartcontracts::isi::sccp::test_support::SampleInstructions::fault(),
-            )],
+            sccp_keeper_advance(),
             FeePaymentIntent::authority(Vec::new(), None),
             false,
         )],
@@ -369,7 +382,7 @@ fn an_sccp_shape_that_is_not_eligible_pays_the_ordinary_fee() {
     assert!(row.result.is_err());
     let reason = format!("{:?}", row.result.0);
     assert!(
-        !reason.contains("SCCP fault"),
+        !reason.contains("SCCP light client"),
         "fee admission refuses it before execution: {reason}"
     );
     assert_eq!(balance(&block, &asset, &ALICE_ID), Quantity::from(10_u32));

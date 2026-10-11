@@ -1409,22 +1409,10 @@ macro_rules! with_world_overlay_fields {
             merge_global_state_root,
             sccp_parameters,
             sccp_reset_nonce,
-            sccp_bridge_keys,
-            sccp_bridge_key_owners,
-            sccp_rosters,
-            sccp_roster_current,
-            sccp_heartbeat_marker,
             sccp_block_leaves,
             sccp_block_commitments,
             sccp_history,
             sccp_history_leaves,
-            sccp_attestation_subjects,
-            sccp_attestation_status,
-            sccp_attestation_signatures,
-            sccp_attestation_faults,
-            sccp_member_last_signed,
-            sccp_handoff_stalled,
-            sccp_prune_cursor,
             sccp_outbound_messages,
             sccp_outbound_by_nonce,
             sccp_control_messages,
@@ -4595,22 +4583,6 @@ pub struct WorldData {
     /// Genesis reset nonce of this Taira identity (§4.18).
     #[norito(skip)]
     pub(crate) sccp_reset_nonce: Cell<Option<[u8; 32]>>,
-    /// Bridge-key state per peer (§4.2.1).
-    #[norito(skip)]
-    pub(crate) sccp_bridge_keys:
-        Storage<PeerId, iroha_data_model::sccp::keys::SccpBridgeKeyStateV1>,
-    /// Permanent bridge-key address to owning peer index; an address is never reused (§4.2.1).
-    #[norito(skip)]
-    pub(crate) sccp_bridge_key_owners: Storage<[u8; 20], PeerId>,
-    /// Bridge roster generations by generation number (§4.3.1).
-    #[norito(skip)]
-    pub(crate) sccp_rosters: Storage<u64, iroha_data_model::sccp::roster::SccpBridgeRosterV1>,
-    /// Current bridge roster generation (§4.3.1).
-    #[norito(skip)]
-    pub(crate) sccp_roster_current: Cell<u64>,
-    /// Generation whose heartbeat block was forced (§4.3.2).
-    #[norito(skip)]
-    pub(crate) sccp_heartbeat_marker: Cell<Option<u64>>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     #[norito(skip)]
     pub(crate) sccp_block_leaves:
@@ -4618,37 +4590,13 @@ pub struct WorldData {
     /// Block commitment roots of SCCP-bearing heights (§4.5).
     #[norito(skip)]
     pub(crate) sccp_block_commitments:
-        Storage<u64, iroha_data_model::sccp::attestation::SccpBlockCommitmentV1>,
+        Storage<u64, iroha_data_model::sccp::commitment::SccpBlockCommitmentV1>,
     /// History accumulator size and peaks (§3.5).
     #[norito(skip)]
-    pub(crate) sccp_history: Cell<iroha_data_model::sccp::attestation::SccpHistoryStateV1>,
+    pub(crate) sccp_history: Cell<iroha_data_model::sccp::commitment::SccpHistoryStateV1>,
     /// History leaves by index as `(height, leaf)` (§3.5).
     #[norito(skip)]
     pub(crate) sccp_history_leaves: Storage<u64, (u64, [u8; 32])>,
-    /// Attestation subjects by height (§4.6).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_subjects:
-        Storage<u64, iroha_data_model::sccp::attestation::SccpAttestationSubjectV1>,
-    /// Attestation signer bitmaps by subject height (§4.6).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_status:
-        Storage<u64, iroha_data_model::sccp::attestation::SccpAttestationStatusV1>,
-    /// Stored attestation signatures by `(height, signer_index)` (§4.8).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_signatures: Storage<(u64, u8), [u8; 65]>,
-    /// Equivocation faults by `(address, height)` (§4.11).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_faults:
-        Storage<([u8; 20], u64), iroha_data_model::sccp::keys::SccpAttestationFaultRecordV1>,
-    /// Last height each bridge-key address signed (§4.9 liveness).
-    #[norito(skip)]
-    pub(crate) sccp_member_last_signed: Storage<[u8; 20], u64>,
-    /// Stalled rotation heights to the outgoing generation (§4.3.3).
-    #[norito(skip)]
-    pub(crate) sccp_handoff_stalled: Storage<u64, u64>,
-    /// Resumable position of the bounded pruning step (§4.10).
-    #[norito(skip)]
-    pub(crate) sccp_prune_cursor: Cell<iroha_data_model::sccp::keys_index::SccpPruneCursorV1>,
     /// Outbound message records by message id (§4.4).
     #[norito(skip)]
     pub(crate) sccp_outbound_messages:
@@ -5608,23 +5556,6 @@ pub struct WorldBlockFields<'world> {
     /// Genesis reset nonce of this Taira identity (§4.18).
     #[norito(skip)]
     pub(crate) sccp_reset_nonce: CellField<'world, Option<[u8; 32]>>,
-    /// Bridge-key state per peer (§4.2.1).
-    #[norito(skip)]
-    pub(crate) sccp_bridge_keys:
-        StorageField<'world, PeerId, iroha_data_model::sccp::keys::SccpBridgeKeyStateV1>,
-    /// Permanent bridge-key address to owning peer index; an address is never reused (§4.2.1).
-    #[norito(skip)]
-    pub(crate) sccp_bridge_key_owners: StorageField<'world, [u8; 20], PeerId>,
-    /// Bridge roster generations by generation number (§4.3.1).
-    #[norito(skip)]
-    pub(crate) sccp_rosters:
-        StorageField<'world, u64, iroha_data_model::sccp::roster::SccpBridgeRosterV1>,
-    /// Current bridge roster generation (§4.3.1).
-    #[norito(skip)]
-    pub(crate) sccp_roster_current: CellField<'world, u64>,
-    /// Generation whose heartbeat block was forced (§4.3.2).
-    #[norito(skip)]
-    pub(crate) sccp_heartbeat_marker: CellField<'world, Option<u64>>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     #[norito(skip)]
     pub(crate) sccp_block_leaves:
@@ -5632,42 +5563,14 @@ pub struct WorldBlockFields<'world> {
     /// Block commitment roots of SCCP-bearing heights (§4.5).
     #[norito(skip)]
     pub(crate) sccp_block_commitments:
-        StorageField<'world, u64, iroha_data_model::sccp::attestation::SccpBlockCommitmentV1>,
+        StorageField<'world, u64, iroha_data_model::sccp::commitment::SccpBlockCommitmentV1>,
     /// History accumulator size and peaks (§3.5).
     #[norito(skip)]
     pub(crate) sccp_history:
-        CellField<'world, iroha_data_model::sccp::attestation::SccpHistoryStateV1>,
+        CellField<'world, iroha_data_model::sccp::commitment::SccpHistoryStateV1>,
     /// History leaves by index as `(height, leaf)` (§3.5).
     #[norito(skip)]
     pub(crate) sccp_history_leaves: StorageField<'world, u64, (u64, [u8; 32])>,
-    /// Attestation subjects by height (§4.6).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_subjects:
-        StorageField<'world, u64, iroha_data_model::sccp::attestation::SccpAttestationSubjectV1>,
-    /// Attestation signer bitmaps by subject height (§4.6).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_status:
-        StorageField<'world, u64, iroha_data_model::sccp::attestation::SccpAttestationStatusV1>,
-    /// Stored attestation signatures by `(height, signer_index)` (§4.8).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_signatures: StorageField<'world, (u64, u8), [u8; 65]>,
-    /// Equivocation faults by `(address, height)` (§4.11).
-    #[norito(skip)]
-    pub(crate) sccp_attestation_faults: StorageField<
-        'world,
-        ([u8; 20], u64),
-        iroha_data_model::sccp::keys::SccpAttestationFaultRecordV1,
-    >,
-    /// Last height each bridge-key address signed (§4.9 liveness).
-    #[norito(skip)]
-    pub(crate) sccp_member_last_signed: StorageField<'world, [u8; 20], u64>,
-    /// Stalled rotation heights to the outgoing generation (§4.3.3).
-    #[norito(skip)]
-    pub(crate) sccp_handoff_stalled: StorageField<'world, u64, u64>,
-    /// Resumable position of the bounded pruning step (§4.10).
-    #[norito(skip)]
-    pub(crate) sccp_prune_cursor:
-        CellField<'world, iroha_data_model::sccp::keys_index::SccpPruneCursorV1>,
     /// Outbound message records by message id (§4.4).
     #[norito(skip)]
     pub(crate) sccp_outbound_messages: StorageField<
@@ -6336,27 +6239,11 @@ impl WorldBlock<'_> {
                 $(append_merge_cell_delta(&mut out, stringify!($field), &self.$field);)*
             };
         }
-        cell!(
-            sccp_parameters,
-            sccp_reset_nonce,
-            sccp_roster_current,
-            sccp_heartbeat_marker,
-            sccp_history,
-            sccp_prune_cursor,
-        );
+        cell!(sccp_parameters, sccp_reset_nonce, sccp_history,);
         storage!(
-            sccp_bridge_keys,
-            sccp_bridge_key_owners,
-            sccp_rosters,
             sccp_block_leaves,
             sccp_block_commitments,
             sccp_history_leaves,
-            sccp_attestation_subjects,
-            sccp_attestation_status,
-            sccp_attestation_signatures,
-            sccp_attestation_faults,
-            sccp_member_last_signed,
-            sccp_handoff_stalled,
             sccp_outbound_messages,
             sccp_outbound_by_nonce,
             sccp_control_messages,
@@ -7230,56 +7117,17 @@ pub struct WorldTransaction<'block, 'world> {
         CellTransaction<'block, 'world, Option<iroha_data_model::sccp::params::SccpParametersV1>>,
     /// Genesis reset nonce of this Taira identity (§4.18).
     pub(crate) sccp_reset_nonce: CellTransaction<'block, 'world, Option<[u8; 32]>>,
-    /// Bridge-key state per peer (§4.2.1).
-    pub(crate) sccp_bridge_keys:
-        StorageTransaction<'block, PeerId, iroha_data_model::sccp::keys::SccpBridgeKeyStateV1>,
-    /// Permanent bridge-key address to owning peer index; an address is never reused (§4.2.1).
-    pub(crate) sccp_bridge_key_owners: StorageTransaction<'block, [u8; 20], PeerId>,
-    /// Bridge roster generations by generation number (§4.3.1).
-    pub(crate) sccp_rosters:
-        StorageTransaction<'block, u64, iroha_data_model::sccp::roster::SccpBridgeRosterV1>,
-    /// Current bridge roster generation (§4.3.1).
-    pub(crate) sccp_roster_current: CellTransaction<'block, 'world, u64>,
-    /// Generation whose heartbeat block was forced (§4.3.2).
-    pub(crate) sccp_heartbeat_marker: CellTransaction<'block, 'world, Option<u64>>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     pub(crate) sccp_block_leaves:
         StorageTransaction<'block, (u64, u32), iroha_data_model::sccp::control::SccpLeafRefV1>,
     /// Block commitment roots of SCCP-bearing heights (§4.5).
     pub(crate) sccp_block_commitments:
-        StorageTransaction<'block, u64, iroha_data_model::sccp::attestation::SccpBlockCommitmentV1>,
+        StorageTransaction<'block, u64, iroha_data_model::sccp::commitment::SccpBlockCommitmentV1>,
     /// History accumulator size and peaks (§3.5).
     pub(crate) sccp_history:
-        CellTransaction<'block, 'world, iroha_data_model::sccp::attestation::SccpHistoryStateV1>,
+        CellTransaction<'block, 'world, iroha_data_model::sccp::commitment::SccpHistoryStateV1>,
     /// History leaves by index as `(height, leaf)` (§3.5).
     pub(crate) sccp_history_leaves: StorageTransaction<'block, u64, (u64, [u8; 32])>,
-    /// Attestation subjects by height (§4.6).
-    pub(crate) sccp_attestation_subjects: StorageTransaction<
-        'block,
-        u64,
-        iroha_data_model::sccp::attestation::SccpAttestationSubjectV1,
-    >,
-    /// Attestation signer bitmaps by subject height (§4.6).
-    pub(crate) sccp_attestation_status: StorageTransaction<
-        'block,
-        u64,
-        iroha_data_model::sccp::attestation::SccpAttestationStatusV1,
-    >,
-    /// Stored attestation signatures by `(height, signer_index)` (§4.8).
-    pub(crate) sccp_attestation_signatures: StorageTransaction<'block, (u64, u8), [u8; 65]>,
-    /// Equivocation faults by `(address, height)` (§4.11).
-    pub(crate) sccp_attestation_faults: StorageTransaction<
-        'block,
-        ([u8; 20], u64),
-        iroha_data_model::sccp::keys::SccpAttestationFaultRecordV1,
-    >,
-    /// Last height each bridge-key address signed (§4.9 liveness).
-    pub(crate) sccp_member_last_signed: StorageTransaction<'block, [u8; 20], u64>,
-    /// Stalled rotation heights to the outgoing generation (§4.3.3).
-    pub(crate) sccp_handoff_stalled: StorageTransaction<'block, u64, u64>,
-    /// Resumable position of the bounded pruning step (§4.10).
-    pub(crate) sccp_prune_cursor:
-        CellTransaction<'block, 'world, iroha_data_model::sccp::keys_index::SccpPruneCursorV1>,
     /// Outbound message records by message id (§4.4).
     pub(crate) sccp_outbound_messages: StorageTransaction<
         'block,
@@ -9054,50 +8902,17 @@ pub struct WorldView<'world> {
         CellView<'world, Option<iroha_data_model::sccp::params::SccpParametersV1>>,
     /// Genesis reset nonce of this Taira identity (§4.18).
     pub(crate) sccp_reset_nonce: CellView<'world, Option<[u8; 32]>>,
-    /// Bridge-key state per peer (§4.2.1).
-    pub(crate) sccp_bridge_keys:
-        StorageView<'world, PeerId, iroha_data_model::sccp::keys::SccpBridgeKeyStateV1>,
-    /// Permanent bridge-key address to owning peer index; an address is never reused (§4.2.1).
-    pub(crate) sccp_bridge_key_owners: StorageView<'world, [u8; 20], PeerId>,
-    /// Bridge roster generations by generation number (§4.3.1).
-    pub(crate) sccp_rosters:
-        StorageView<'world, u64, iroha_data_model::sccp::roster::SccpBridgeRosterV1>,
-    /// Current bridge roster generation (§4.3.1).
-    pub(crate) sccp_roster_current: CellView<'world, u64>,
-    /// Generation whose heartbeat block was forced (§4.3.2).
-    pub(crate) sccp_heartbeat_marker: CellView<'world, Option<u64>>,
     /// Leaf references by `(height, commitment_index)` (§4.5).
     pub(crate) sccp_block_leaves:
         StorageView<'world, (u64, u32), iroha_data_model::sccp::control::SccpLeafRefV1>,
     /// Block commitment roots of SCCP-bearing heights (§4.5).
     pub(crate) sccp_block_commitments:
-        StorageView<'world, u64, iroha_data_model::sccp::attestation::SccpBlockCommitmentV1>,
+        StorageView<'world, u64, iroha_data_model::sccp::commitment::SccpBlockCommitmentV1>,
     /// History accumulator size and peaks (§3.5).
     pub(crate) sccp_history:
-        CellView<'world, iroha_data_model::sccp::attestation::SccpHistoryStateV1>,
+        CellView<'world, iroha_data_model::sccp::commitment::SccpHistoryStateV1>,
     /// History leaves by index as `(height, leaf)` (§3.5).
     pub(crate) sccp_history_leaves: StorageView<'world, u64, (u64, [u8; 32])>,
-    /// Attestation subjects by height (§4.6).
-    pub(crate) sccp_attestation_subjects:
-        StorageView<'world, u64, iroha_data_model::sccp::attestation::SccpAttestationSubjectV1>,
-    /// Attestation signer bitmaps by subject height (§4.6).
-    pub(crate) sccp_attestation_status:
-        StorageView<'world, u64, iroha_data_model::sccp::attestation::SccpAttestationStatusV1>,
-    /// Stored attestation signatures by `(height, signer_index)` (§4.8).
-    pub(crate) sccp_attestation_signatures: StorageView<'world, (u64, u8), [u8; 65]>,
-    /// Equivocation faults by `(address, height)` (§4.11).
-    pub(crate) sccp_attestation_faults: StorageView<
-        'world,
-        ([u8; 20], u64),
-        iroha_data_model::sccp::keys::SccpAttestationFaultRecordV1,
-    >,
-    /// Last height each bridge-key address signed (§4.9 liveness).
-    pub(crate) sccp_member_last_signed: StorageView<'world, [u8; 20], u64>,
-    /// Stalled rotation heights to the outgoing generation (§4.3.3).
-    pub(crate) sccp_handoff_stalled: StorageView<'world, u64, u64>,
-    /// Resumable position of the bounded pruning step (§4.10).
-    pub(crate) sccp_prune_cursor:
-        CellView<'world, iroha_data_model::sccp::keys_index::SccpPruneCursorV1>,
     /// Outbound message records by message id (§4.4).
     pub(crate) sccp_outbound_messages: StorageView<
         'world,
@@ -20994,38 +20809,14 @@ macro_rules! world_ro_accessors {
             cell_ref sccp_parameters: Option<iroha_data_model::sccp::params::SccpParametersV1>;
             /// Genesis reset nonce of this Taira identity (§4.18).
             cell_ref sccp_reset_nonce: Option<[u8; 32]>;
-            /// Bridge-key state per peer (§4.2.1).
-            storage sccp_bridge_keys: PeerId => iroha_data_model::sccp::keys::SccpBridgeKeyStateV1;
-            /// Permanent bridge-key address to owning peer index; an address is never reused (§4.2.1).
-            storage sccp_bridge_key_owners: [u8; 20] => PeerId;
-            /// Bridge roster generations by generation number (§4.3.1).
-            storage sccp_rosters: u64 => iroha_data_model::sccp::roster::SccpBridgeRosterV1;
-            /// Current bridge roster generation (§4.3.1).
-            cell_ref sccp_roster_current: u64;
-            /// Generation whose heartbeat block was forced (§4.3.2).
-            cell_ref sccp_heartbeat_marker: Option<u64>;
             /// Leaf references by `(height, commitment_index)` (§4.5).
             storage sccp_block_leaves: (u64, u32) => iroha_data_model::sccp::control::SccpLeafRefV1;
             /// Block commitment roots of SCCP-bearing heights (§4.5).
-            storage sccp_block_commitments: u64 => iroha_data_model::sccp::attestation::SccpBlockCommitmentV1;
+            storage sccp_block_commitments: u64 => iroha_data_model::sccp::commitment::SccpBlockCommitmentV1;
             /// History accumulator size and peaks (§3.5).
-            cell_ref sccp_history: iroha_data_model::sccp::attestation::SccpHistoryStateV1;
+            cell_ref sccp_history: iroha_data_model::sccp::commitment::SccpHistoryStateV1;
             /// History leaves by index as `(height, leaf)` (§3.5).
             storage sccp_history_leaves: u64 => (u64, [u8; 32]);
-            /// Attestation subjects by height (§4.6).
-            storage sccp_attestation_subjects: u64 => iroha_data_model::sccp::attestation::SccpAttestationSubjectV1;
-            /// Attestation signer bitmaps by subject height (§4.6).
-            storage sccp_attestation_status: u64 => iroha_data_model::sccp::attestation::SccpAttestationStatusV1;
-            /// Stored attestation signatures by `(height, signer_index)` (§4.8).
-            storage sccp_attestation_signatures: (u64, u8) => [u8; 65];
-            /// Equivocation faults by `(address, height)` (§4.11).
-            storage sccp_attestation_faults: ([u8; 20], u64) => iroha_data_model::sccp::keys::SccpAttestationFaultRecordV1;
-            /// Last height each bridge-key address signed (§4.9 liveness).
-            storage sccp_member_last_signed: [u8; 20] => u64;
-            /// Stalled rotation heights to the outgoing generation (§4.3.3).
-            storage sccp_handoff_stalled: u64 => u64;
-            /// Resumable position of the bounded pruning step (§4.10).
-            cell_ref sccp_prune_cursor: iroha_data_model::sccp::keys_index::SccpPruneCursorV1;
             /// Outbound message records by message id (§4.4).
             storage sccp_outbound_messages: [u8; 32] => iroha_data_model::sccp::outbound::SccpOutboundMessageRecordV1;
             /// Outbound message ids by `(network, revision, nonce)` (§4.4).
@@ -24547,22 +24338,10 @@ impl WorldTransaction<'_, '_> {
             merge_global_state_root: _,
             sccp_parameters: _,
             sccp_reset_nonce: _,
-            sccp_bridge_keys: _,
-            sccp_bridge_key_owners: _,
-            sccp_rosters: _,
-            sccp_roster_current: _,
-            sccp_heartbeat_marker: _,
             sccp_block_leaves: _,
             sccp_block_commitments: _,
             sccp_history: _,
             sccp_history_leaves: _,
-            sccp_attestation_subjects: _,
-            sccp_attestation_status: _,
-            sccp_attestation_signatures: _,
-            sccp_attestation_faults: _,
-            sccp_member_last_signed: _,
-            sccp_handoff_stalled: _,
-            sccp_prune_cursor: _,
             sccp_outbound_messages: _,
             sccp_outbound_by_nonce: _,
             sccp_control_messages: _,
@@ -24862,22 +24641,10 @@ impl WorldTransaction<'_, '_> {
         self.kaigi_account_dependencies.apply();
         self.sccp_parameters.apply();
         self.sccp_reset_nonce.apply();
-        self.sccp_bridge_keys.apply();
-        self.sccp_bridge_key_owners.apply();
-        self.sccp_rosters.apply();
-        self.sccp_roster_current.apply();
-        self.sccp_heartbeat_marker.apply();
         self.sccp_block_leaves.apply();
         self.sccp_block_commitments.apply();
         self.sccp_history.apply();
         self.sccp_history_leaves.apply();
-        self.sccp_attestation_subjects.apply();
-        self.sccp_attestation_status.apply();
-        self.sccp_attestation_signatures.apply();
-        self.sccp_attestation_faults.apply();
-        self.sccp_member_last_signed.apply();
-        self.sccp_handoff_stalled.apply();
-        self.sccp_prune_cursor.apply();
         self.sccp_outbound_messages.apply();
         self.sccp_outbound_by_nonce.apply();
         self.sccp_control_messages.apply();
@@ -28495,44 +28262,6 @@ impl State {
         block.commit_world_overlay_for_testing()?;
         Ok(started_at.elapsed())
     }
-    /// Detect deterministic start-of-block work for the exact committed successor.
-    ///
-    /// The ordinary block-start hooks run in a discarded overlay, so this also
-    /// covers scheduled work without an external entrypoint, such as privacy
-    /// protocol-limit tightening. The same predicate excludes that work from a pristine merge
-    /// execution carrier and admits the ordinary carrier which must apply it.
-    /// A stale parent or concurrent state publication returns `None`.
-    pub(crate) fn deterministic_start_work_pending(
-        &self,
-        header: &BlockHeader,
-    ) -> Result<Option<bool>, StateBlockStartError<iroha_data_model::executor::IvmAdmissionError>>
-    {
-        let generation = self.state_view_generation();
-        let next_height = u64::try_from(self.committed_height())
-            .ok()
-            .and_then(|h| h.checked_add(1));
-        if generation % 2 != 0
-            || next_height != Some(header.height().get())
-            || header.is_genesis()
-            || header.prev_block_hash() != self.latest_block_hash_fast()
-        {
-            return Ok(None);
-        }
-        // SCCP heartbeat block-start work is judged against the committed parent (§4.3.2).
-        let sccp_heartbeat_pending = {
-            let view = self.world_view();
-            crate::smartcontracts::isi::sccp::hook::heartbeat_start_work_pending(&view, header)
-        };
-        let probe = self.try_block(header.clone())?;
-        let pending = sccp_heartbeat_pending
-            || !probe.world.merge_execution_write_set_bytes().is_empty()
-            || !probe.world.external_event_buf.is_empty();
-        drop(probe);
-        Ok(
-            is_stable_state_view_generation(generation, self.state_view_generation())
-                .then_some(pending),
-        )
-    }
     /// Create a block for synchronous tests and development callers.
     ///
     /// Contention waits on its original release observation after all failed
@@ -28786,11 +28515,6 @@ impl State {
         Self::apply_block_start_private_settlement_expiry(&mut sb, now_h)
             .map_err(StateBlockStartError::Storage)?;
         Self::apply_block_start_parliament_enactments(&mut sb, now_h)?;
-        // SCCP block-start work (the heartbeat marker, `specs/sccp.md` §4.3.2) runs with the
-        // due Parliament certificates, before the block's transactions.
-        let sccp_header = sb._curr_block;
-        crate::smartcontracts::isi::sccp::hook::apply_block_start(&mut sb, &sccp_header)
-            .map_err(StateBlockStartError::Storage)?;
         let current_slot =
             current_axt_slot_from_block(&sb._curr_block, sb.nexus.axt.slot_length_ms);
         // Keep independent transaction phases in separate frames. Unoptimized

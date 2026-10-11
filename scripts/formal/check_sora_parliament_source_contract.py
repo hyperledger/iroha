@@ -1518,7 +1518,7 @@ def require_block_start_enactment_phases(state: str) -> None:
         "        let current_slot =",
         state_path,
     )
-    # This small statement region contains only the original height and the three
+    # This small statement region contains only the original height and the two
     # unconditional calls. Ignore line comments, but reject hidden conditions,
     # substituted owners/heights, duplicate calls, or swapped execution order.
     phases = re.sub(r"//[^\n]*", "", phases)
@@ -1527,9 +1527,6 @@ def require_block_start_enactment_phases(state: str) -> None:
         "Self::apply_block_start_private_settlement_expiry(&mut sb, now_h)"
         ".map_err(StateBlockStartError::Storage)?;"
         "Self::apply_block_start_parliament_enactments(&mut sb, now_h)?;"
-        "let sccp_header = sb._curr_block;"
-        "crate::smartcontracts::isi::sccp::hook::apply_block_start(&mut sb, &sccp_header)"
-        ".map_err(StateBlockStartError::Storage)?;"
     )
     if re.sub(r"\s+", "", phases) != re.sub(r"\s+", "", expected):
         raise RuntimeError(f"{state_path}: start phases must use the original block and height in order")
@@ -1556,8 +1553,6 @@ def require_block_start_enactment_phases(state: str) -> None:
         "letcontinuation=before_start(&mutsb).map_err(StateBlockStartError::Stage)?;",
         "Self::apply_block_start_private_settlement_expiry(&mutsb,now_h).map_err(StateBlockStartError::Storage)?;",
         "Self::apply_block_start_parliament_enactments(&mutsb,now_h)?;",
-        "letsccp_header=sb._curr_block;",
-        "crate::smartcontracts::isi::sccp::hook::apply_block_start(&mutsb,&sccp_header).map_err(StateBlockStartError::Storage)?;",
         "sb.start_of_block_effects_applied=true;",
         "sb.capture_execution_output_capacity();",
         "letresult=after_start(&mutsb,continuation).map_err(StateBlockStartError::Stage)?;",

@@ -8,7 +8,7 @@
 //! view projections) and is persisted by the SCCP snapshot envelope.
 //!
 //! **Stored invariants.** Some maps carry a structural invariant between key and value (for
-//! example a roster is stored under its own generation). Each map's `valid_entry` is the single
+//! example a route is stored under its own network). Each map's `valid_entry` is the single
 //! definition of that rule: `insert` refuses an entry that breaks it, and snapshot restore
 //! rejects one, so every committed state restores. The counter maps [`pending_counts`] and
 //! [`governance_revisions`] hold no zero entries: absent means zero, and [`set_pending_counts`]
@@ -20,15 +20,10 @@ use core::ops::RangeBounds;
 use iroha_data_model::{
     bridge::SccpNetworkV1,
     sccp::{
-        attestation::{
-            SccpAttestationStatusV1, SccpAttestationSubjectV1, SccpBlockCommitmentV1,
-            SccpHistoryStateV1,
-        },
+        commitment::{SccpBlockCommitmentV1, SccpHistoryStateV1},
         control::{SccpControlRecordV1, SccpLeafRefV1},
         governance::SccpGovernanceSubjectV1,
         inbound::SccpInboundRecordV1,
-        keys::{SccpAttestationFaultRecordV1, SccpBridgeKeyStateV1},
-        keys_index::SccpPruneCursorV1,
         light_client::{
             SCCP_LC_GENESIS_PROFILE_VERSION_V1, SccpLcCheckpointV1, SccpLcConsensusSetV1,
             SccpLcProfileActivationV1, SccpLightClientV1,
@@ -36,10 +31,8 @@ use iroha_data_model::{
         outbound::SccpOutboundMessageRecordV1,
         params::{SCCP_MESSAGES_MAX_PER_BLOCK_V1, SccpParametersV1},
         registry::SccpRouteV1,
-        roster::SccpBridgeRosterV1,
     },
 };
-use iroha_model_base::peer::PeerId;
 use mv::storage::StorageReadOnly;
 
 /// Generate the typed helpers of one SCCP storage map, optionally with a stored invariant
@@ -173,29 +166,6 @@ cell_value! {
     reset_nonce => sccp_reset_nonce: Option<[u8; 32]>
 }
 storage_map! {
-    /// Bridge-key state per peer (§4.2.1).
-    bridge_keys => sccp_bridge_keys: PeerId => SccpBridgeKeyStateV1
-}
-storage_map! {
-    /// Permanent bridge-key address to owning peer index; addresses are never reused (§4.2.1).
-    /// The zero address is never an owner.
-    bridge_key_owners => sccp_bridge_key_owners: [u8; 20] => PeerId,
-    valid(address, _peer) => *address != [0; 20]
-}
-storage_map! {
-    /// Bridge roster generations by generation number (§4.3.1), each under its own generation.
-    rosters => sccp_rosters: u64 => SccpBridgeRosterV1,
-    valid(generation, roster) => *generation == roster.generation
-}
-cell_value! {
-    /// Current bridge roster generation (§4.3.1).
-    roster_current => sccp_roster_current: u64
-}
-cell_value! {
-    /// Generation whose heartbeat block was forced (§4.3.2).
-    heartbeat_marker => sccp_heartbeat_marker: Option<u64>
-}
-storage_map! {
     /// Leaf references by `(height, commitment_index)` (§4.5); see [`super::leaves`]. Indices
     /// stay below the 512-leaf block limit.
     block_leaves => sccp_block_leaves: (u64, u32) => SccpLeafRefV1,
@@ -214,35 +184,6 @@ cell_value! {
 storage_map! {
     /// History leaves by index as `(height, leaf)` (§3.5).
     history_leaves => sccp_history_leaves: u64 => (u64, [u8; 32])
-}
-storage_map! {
-    /// Attestation subjects by height (§4.6), each under its own height.
-    attestation_subjects => sccp_attestation_subjects: u64 => SccpAttestationSubjectV1,
-    valid(height, subject) => *height == subject.height
-}
-storage_map! {
-    /// Attestation signer bitmaps by subject height (§4.6).
-    attestation_status => sccp_attestation_status: u64 => SccpAttestationStatusV1
-}
-storage_map! {
-    /// Stored attestation signatures by `(height, signer_index)` (§4.8).
-    attestation_signatures => sccp_attestation_signatures: (u64, u8) => [u8; 65]
-}
-storage_map! {
-    /// Equivocation faults by `(address, height)` (§4.11).
-    attestation_faults => sccp_attestation_faults: ([u8; 20], u64) => SccpAttestationFaultRecordV1
-}
-storage_map! {
-    /// Last height each bridge-key address signed (§4.9 liveness).
-    member_last_signed => sccp_member_last_signed: [u8; 20] => u64
-}
-storage_map! {
-    /// Stalled rotation heights to the outgoing generation (§4.3.3).
-    handoff_stalled => sccp_handoff_stalled: u64 => u64
-}
-cell_value! {
-    /// Resumable position of the bounded pruning step (§4.10).
-    prune_cursor => sccp_prune_cursor: SccpPruneCursorV1
 }
 storage_map! {
     /// Outbound message records by message id (§4.4).
@@ -372,48 +313,55 @@ pub fn set_pending_counts(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::smartcontracts::isi::sccp::test_support::{
-        blank_state, header, peer, sample_bridge_key_state, sample_route,
-    };
+    use crate::smartcontracts::isi::sccp::test_support::{blank_state, header, sample_route};
 
     #[test]
     fn storage_helpers_write_read_iterate_and_roll_back() {
         let state = blank_state();
         let mut block = state.block(header(3));
+        let record = |paused| SccpControlRecordV1 {
+            paused,
+            height: 3,
+            commitment_index: 0,
+            leaf: [1; 32],
+            proposal_id: [2; 32],
+        };
         {
             let mut stx = block.transaction();
-            assert!(bridge_keys::is_empty(&*stx.world));
-            let first = peer(1);
-            let second = peer(2);
+            assert!(control_messages::is_empty(&*stx.world));
+            let first = (SccpNetworkV1::EthereumMainnet, 1, 1);
+            let second = (SccpNetworkV1::BscMainnet, 1, 1);
             assert_eq!(
-                bridge_keys::insert(&mut stx, first.clone(), sample_bridge_key_state(1)),
+                control_messages::insert(&mut stx, second, record(false)),
                 Ok(None)
             );
             assert_eq!(
-                bridge_keys::insert(&mut stx, second.clone(), sample_bridge_key_state(2)),
+                control_messages::insert(&mut stx, first, record(true)),
                 Ok(None)
             );
-            assert_eq!(bridge_keys::len(&*stx.world), 2);
-            assert!(bridge_keys::contains(&*stx.world, &first));
+            assert_eq!(control_messages::len(&*stx.world), 2);
+            assert!(control_messages::contains(&*stx.world, &first));
             assert_eq!(
-                bridge_keys::get(&*stx.world, &second),
-                Some(&sample_bridge_key_state(2))
+                control_messages::get(&*stx.world, &second),
+                Some(&record(false))
             );
-            let keys: Vec<_> = bridge_keys::iter(&*stx.world)
-                .map(|(key, _)| key.clone())
+            let keys: Vec<_> = control_messages::iter(&*stx.world)
+                .map(|(key, _)| *key)
                 .collect();
-            let mut sorted = keys.clone();
-            sorted.sort();
-            assert_eq!(keys, sorted, "iteration is in ascending key order");
             assert_eq!(
-                bridge_keys::remove(&mut stx, first.clone()),
-                Some(sample_bridge_key_state(1))
+                keys,
+                vec![first, second],
+                "iteration is in ascending key order"
             );
-            assert!(!bridge_keys::contains(&*stx.world, &first));
+            assert_eq!(
+                control_messages::remove(&mut stx, first),
+                Some(record(true))
+            );
+            assert!(!control_messages::contains(&*stx.world, &first));
             // Dropping the transaction rolls every write back.
         }
         let stx = block.transaction();
-        assert!(bridge_keys::is_empty(&*stx.world));
+        assert!(control_messages::is_empty(&*stx.world));
     }
 
     #[test]
@@ -440,26 +388,25 @@ mod tests {
         let state = blank_state();
         let mut block = state.block(header(3));
         let mut stx = block.transaction();
-        assert_eq!(*roster_current::get(&*stx.world), 0);
-        assert_eq!(roster_current::set(&mut stx, 7), 0);
-        assert_eq!(roster_current::set(&mut stx, 8), 7);
-        assert_eq!(*roster_current::get(&*stx.world), 8);
+        assert_eq!(*reset_nonce::get(&*stx.world), None);
+        assert_eq!(reset_nonce::set(&mut stx, Some([7; 32])), None);
+        assert_eq!(reset_nonce::set(&mut stx, Some([8; 32])), Some([7; 32]));
+        assert_eq!(*reset_nonce::get(&*stx.world), Some([8; 32]));
         assert_eq!(*parameters::get(&*stx.world), None);
         assert_eq!(
             parameters::set(&mut stx, Some(SccpParametersV1::taira_default())),
             None
         );
         assert!(parameters::get(&*stx.world).is_some());
-        assert_eq!(heartbeat_marker::set(&mut stx, Some(3)), None);
         assert_eq!(
-            prune_cursor::set(
+            history::set(
                 &mut stx,
-                SccpPruneCursorV1 {
-                    signatures_height: 2,
-                    rotation_height: 1,
+                SccpHistoryStateV1 {
+                    size: 1,
+                    peaks: vec![[3; 32]],
                 }
             ),
-            SccpPruneCursorV1::default()
+            SccpHistoryStateV1::default()
         );
     }
 
@@ -470,7 +417,7 @@ mod tests {
         let mut stx = block.transaction();
         let subject = SccpGovernanceSubjectV1::Route(SccpNetworkV1::EthereumMainnet);
         assert_eq!(governance_revision(&*stx.world, &subject), 0);
-        governance_revisions::insert(&mut stx, subject.clone(), 4).expect("a nonzero revision");
+        governance_revisions::insert(&mut stx, subject, 4).expect("a nonzero revision");
         assert_eq!(governance_revision(&*stx.world, &subject), 4);
         routes::insert(
             &mut stx,
@@ -483,8 +430,6 @@ mod tests {
 
     #[test]
     fn inserts_refuse_entries_that_break_a_stored_invariant() {
-        use crate::smartcontracts::isi::sccp::test_support::{peer, sample_roster};
-        use iroha_data_model::sccp::attestation::SccpBlockCommitmentV1;
         let state = blank_state();
         let mut block = state.block(header(3));
         let mut stx = block.transaction();
@@ -492,8 +437,6 @@ mod tests {
             let error = result.expect_err("the entry breaks its map's invariant");
             assert!(error.to_string().contains("stored invariant"), "{error}");
         };
-        refused(bridge_key_owners::insert(&mut stx, [0; 20], peer(1)).map(drop));
-        refused(rosters::insert(&mut stx, 2, sample_roster(1, 5)).map(drop));
         refused(
             block_leaves::insert(
                 &mut stx,
@@ -551,15 +494,17 @@ mod tests {
             ),
             Ok(None)
         );
-        assert!(bridge_key_owners::is_empty(&*stx.world));
-        assert!(rosters::is_empty(&*stx.world));
         assert!(block_leaves::is_empty(&*stx.world));
         assert!(block_commitments::is_empty(&*stx.world));
         assert!(routes::is_empty(&*stx.world));
         assert!(governance_revisions::is_empty(&*stx.world));
         assert!(pending_counts::is_empty(&*stx.world));
-        assert!(rosters::valid_entry(&1, &sample_roster(1, 5)));
-        assert_eq!(rosters::insert(&mut stx, 1, sample_roster(1, 5)), Ok(None));
+        let route = sample_route(SccpNetworkV1::EthereumMainnet);
+        assert!(routes::valid_entry(&SccpNetworkV1::EthereumMainnet, &route));
+        assert_eq!(
+            routes::insert(&mut stx, SccpNetworkV1::EthereumMainnet, route),
+            Ok(None)
+        );
     }
 
     #[test]
@@ -578,9 +523,9 @@ mod tests {
             "a count back at zero leaves no entry"
         );
         let subject = SccpGovernanceSubjectV1::Parameters;
-        assert_eq!(set_governance_revision(&mut stx, subject.clone(), 3), 0);
+        assert_eq!(set_governance_revision(&mut stx, subject, 3), 0);
         assert_eq!(governance_revision(&*stx.world, &subject), 3);
-        assert_eq!(set_governance_revision(&mut stx, subject.clone(), 0), 3);
+        assert_eq!(set_governance_revision(&mut stx, subject, 0), 3);
         assert!(governance_revisions::is_empty(&*stx.world));
     }
 }

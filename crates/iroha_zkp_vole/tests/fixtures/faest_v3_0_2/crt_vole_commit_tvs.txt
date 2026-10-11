@@ -1,0 +1,19 @@
+# Converted from faest-ref v3.0.2 tests/crt_vole_commit_tvs.hpp (values unmodified).
+# Upstream SHA-256: abf2576f0d109fd32580983d16055c93bcf0bfc2f9be546d856f477a8f08d4cc
+# Format: name = lowercase hex (uint8_t array) | [decimal,...] (uint16_t array) | decimal (integer).
+crt_tvs_128s.delta_bytes = 48b0cd3a0376847be0cd11b27d440d01
+crt_tvs_128s.expected_crt_delta_bytes = 6ac6b3b25a186b071ef2d0605f8c6a01
+crt_tvs_128f.delta_bytes = 7155b8f0de65bed193b8615bcde689
+crt_tvs_128f.expected_crt_delta_bytes = 25f814fbde0061334fb6821d98355800
+crt_tvs_192s.delta_bytes = 49d91c112872024170cb793722cd1580e4e91d5cb59303
+crt_tvs_192s.expected_crt_delta_bytes = 62ae067ab3aa6910a6b5d8fca62ff1bcfe9827e772ca0f00
+crt_tvs_192f.delta_bytes = c3810c22de83098321348f823551318d7b22fc5e63c487
+crt_tvs_192f.expected_crt_delta_bytes = e56b35bca77f7629e9ee23a3ac92259c333e0b99ffd56c00
+crt_tvs_256s.delta_bytes = e7f61cdcb6b27046ea1d0f5e46e14aa4e9a48e420bf92ac236068a3bd3644603
+crt_tvs_256s.expected_crt_delta_bytes = 8d7f3a9a43461a86760652cd78e2a50241b08bd34406c1fc38fd6de8ed422602
+crt_tvs_256f.delta_bytes = c71cec3bd615f11126dd9a17edba5ce5c6074241eac4f1f6038c99412e2451
+crt_tvs_256f.expected_crt_delta_bytes = 1ae59cb8e7f8ec2247f80ae7ac4590b3b2ef1f24bcee2723641f9d0330997b00
+crt_tvs_em_192s.delta_bytes = 1e5725a9736afb97f8547f0c5d1b74f35b0d3b3664e866
+crt_tvs_em_192s.expected_crt_delta_bytes = f67661b1bd97f611c6686c7a43acd6a2b1a41cc3f7b34500
+crt_tvs_em_192f.delta_bytes = df375c86d96f62df17604c5b85fd82a228df4f5f312ec0
+crt_tvs_em_192f.expected_crt_delta_bytes = 6eed14ff61afc260e8ae61adf68530219ae64a13ef3d2500
