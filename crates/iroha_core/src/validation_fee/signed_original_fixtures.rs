@@ -76,7 +76,9 @@ pub(super) fn signed_fee_registry_root_fixture_with_config(
     (chain, authority, code, code_hash)
 }
 
-fn signed_fee_registry_fixture() -> (
+fn signed_fee_registry_fixture(
+    config: crate::sumeragi::test_chain::TestChainConfig,
+) -> (
     crate::sumeragi::test_chain::CertifiedTestChain,
     ValidationFeeTreasuryPayoutBindingV1,
     crate::executor::ContractRuntimeExecutionContext,
@@ -86,7 +88,8 @@ fn signed_fee_registry_fixture() -> (
         isi::smart_contract_code::CommitContractDeployment,
         smart_contract::{ContractAddress, ContractAlias},
     };
-    let (mut chain, authority, code, code_hash) = signed_fee_registry_root_fixture();
+    let (mut chain, authority, code, code_hash) =
+        signed_fee_registry_root_fixture_with_config(config);
     let signer = key_pair(55);
     let address =
         ContractAddress::derive(&chain.network_id(), &authority, 0, DataSpaceId::UNIVERSAL)
@@ -127,11 +130,27 @@ pub(crate) fn signed_payout_lifecycle_registry_fixture() -> (
     crate::sumeragi::test_chain::CertifiedTestChain,
     ValidationFeeTreasuryPayoutBindingV1,
 ) {
+    let deployer = AccountId::new(key_pair(55).public_key().clone());
+    signed_payout_lifecycle_registry_fixture_with_config(
+        crate::sumeragi::test_chain::TestChainConfig::new(
+            validation_fee_payout_world(&deployer),
+            1_000,
+        ),
+    )
+}
+
+/// The same signed deployments over the caller's original genesis configuration.
+pub(crate) fn signed_payout_lifecycle_registry_fixture_with_config(
+    config: crate::sumeragi::test_chain::TestChainConfig,
+) -> (
+    crate::sumeragi::test_chain::CertifiedTestChain,
+    ValidationFeeTreasuryPayoutBindingV1,
+) {
     use iroha_data_model::{
         isi::smart_contract_code::CommitContractDeployment,
         smart_contract::{ContractAddress, ContractAlias},
     };
-    let (mut chain, mut binding, _, code) = signed_fee_registry_fixture();
+    let (mut chain, mut binding, _, code) = signed_fee_registry_fixture(config);
     let signer = key_pair(55);
     let authority = AccountId::new(signer.public_key().clone());
     let pool = ContractAddress::derive(

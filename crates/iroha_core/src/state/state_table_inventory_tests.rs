@@ -1871,14 +1871,6 @@ const CONSTRUCTION_USES: &[ConstructionUse] = &[
         owner: UseOwner::Other(Use::Name, "Prelude re-export of the Merkle tree type"),
     },
     ConstructionUse {
-        path: "crates/iroha_data_model/src/kagemusha/kagemusha_wallet_v1/load_finality.rs",
-        uses: &[("MerkleTree", 1)],
-        owner: UseOwner::Other(
-            Use::Test,
-            "Shape-only counted event path fixture in the native Load finality canonical encoding tests; it creates no verified certificate or State-content commitment",
-        ),
-    },
-    ConstructionUse {
         path: "crates/iroha_data_model/src/nexus/privacy.rs",
         uses: &[("MerkleTree", 2)],
         owner: UseOwner::Other(Use::Test, "Fixtures of the inline lane-privacy tests"),
@@ -3042,6 +3034,8 @@ struct WitnessFamily {
 const SCCP_FAMILY: &str = "sccp_state_delta";
 
 const FEE_REWARDS: &str = "crates/iroha_core/src/validation_fee_rewards.rs";
+const REWARD_EXPOSURE: &str = "crates/iroha_core/src/validation_fee_rewards/exposure.rs";
+const REWARD_EXPOSURE_MODEL: &str = "crates/iroha_data_model/src/validation_fee_rewards.rs";
 const CASTING: &str = "crates/iroha_core/src/tle_release/casting.rs";
 const FINALIZED_SOURCE: &str =
     "crates/iroha_core/src/state/fastpq_quantity_capture/commitment_journal/finalized_source.rs";
@@ -3306,6 +3300,7 @@ const WITNESS_FAMILIES: &[WitnessFamily] = &[
         derivation: &[
             (FEE_REWARDS, "pub(crate) fn capture_fee_evidence("),
             (FEE_REWARDS, "fn pending_fee_evidence_records("),
+            (FEE_REWARDS, "fn collect_pending_fee_evidence_records("),
             (
                 "crates/iroha_core/src/validation_fee_rewards/head_tree.rs",
                 "fn read_root(world: &impl WorldReadOnly) -> Result<Option<NodeRef>, ExecutionAttemptError<String>> {",
@@ -3348,6 +3343,41 @@ const WITNESS_FAMILIES: &[WitnessFamily] = &[
             (
                 FEE_REWARDS,
                 "let mut key = vec![FEE_EVIDENCE_RECORD_TAG_V1];",
+            ),
+        ],
+    },
+    WitnessFamily {
+        id: "reward_exposure_archive",
+        tags: &["RewardExposureArchive"],
+        key: "tag byte 0xDC followed by the hash of the protected ExposureArchive StatePath UTF-8 bytes",
+        value: "canonical ValidationFeeExposureArchive row as written, including the chronological stake page and its predecessor reference",
+        reads: false,
+        fields: &[],
+        source: "changed resident reward tails, excluding deleted rows; the reference archive_hash hashes the entire canonical wrapper including its predecessor, and cold reads authenticate the original ordinary_writes_root before following that content hash; no independent table root",
+        derivation: &[(REWARD_EXPOSURE, "pub(super) fn capture_archive(")],
+        accessors: &[(
+            "smart_contract_state",
+            Access::Field("world.smart_contract_state"),
+        )],
+        digests: &[],
+        // Capture copies an existing protected row verbatim. As for AMX and
+        // fee records, its nested row fields are not separately walked here.
+        value_types: &[],
+        hashes: &[],
+        opaque: &[],
+        evidence: &[
+            (FEE_REWARDS, "exposure::capture_archive(block, witness)?;"),
+            (
+                REWARD_EXPOSURE_MODEL,
+                "witness[1..].copy_from_slice(Hash::new(key.as_ref().as_bytes()).as_ref());",
+            ),
+            (
+                REWARD_EXPOSURE,
+                "Some(bytes) if Hash::new(bytes) == reference.archive_hash => {",
+            ),
+            (
+                "crates/iroha_core/src/query/native_receipts/reward_history.rs",
+                "if value.len() > MAX_REWARD_EXPOSURE_ARCHIVE_BYTES || Hash::new(value) != expected_hash {",
             ),
         ],
     },
@@ -8758,7 +8788,12 @@ fn every_listed_commitment_has_one_owner_and_disposition() {
 fn witness_families_cover_every_witness_key_tag() {
     let witnessed = witnessed_fields();
     let tags = witness_key_tags();
-    for tag in ["AmxRecord", "AssetBalance", "FeeRecord"] {
+    for tag in [
+        "AmxRecord",
+        "AssetBalance",
+        "FeeRecord",
+        "RewardExposureArchive",
+    ] {
         assert!(tags.iter().any(|known| known == tag), "{tag}");
     }
     let rows = rows();
@@ -8806,6 +8841,10 @@ fn witness_families_cover_every_witness_key_tag() {
             "world.parameters",
             "world.smart_contract_state"
         ]
+    );
+    assert_eq!(
+        fields_of("reward_exposure_archive"),
+        ["world.smart_contract_state"]
     );
     let sccp = sccp_write_set_fields();
     assert!(sccp.len() > 1 && sccp.iter().all(|field| field.starts_with("world.sccp_")));

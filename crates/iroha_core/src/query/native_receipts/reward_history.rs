@@ -134,17 +134,12 @@ pub(crate) fn committed_fee_evidence(
     height: u64,
 ) -> Attempt<FeeEvidenceBlockProofV1> {
     let source = committed_writes(view, height)?;
-    let (proof, root) =
+    let (proof, root, evaluated_height) =
         crate::receiver_snapshot::fee_evidence_block_proof_attempt_v1(source.witness.get())?;
-    if root != source.root
-        || !proof.verify(root)
-        || proof
-            .snapshot_witness
-            .commitment()
-            .map_err(ExecutionAttemptError::Rejected)?
-            .evaluated_height
-            != height
-    {
+    // The typed builder has verified the full fixed-key SMT path and complete
+    // corpus against this root. Reuse its once-decoded authenticated height;
+    // boolean/String proof helpers would erase a later local decode refusal.
+    if root != source.root || evaluated_height != height {
         return Err("original fee corpus differs from its committed execution".into());
     }
     Ok(proof)

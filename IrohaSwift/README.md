@@ -2618,8 +2618,8 @@ canonical Swift package always requires the real ABI28 NoritoBridge artifact.
 
 `ValidatorStakingNoritoV1` decodes first-release authority generations, epoch
 authorizations, signed all-edge beacon DKG records, committee transitions,
-typed registration, bond, withdrawal and slash plans, bounded reward claims with an explicit optional fee-custody
-payment, and peer rebinding. Its Rust-authored fixture is
+typed registration, bond, withdrawal and slash plans, bounded reward claims with
+one mandatory exact funded XOR payment, and peer rebinding. Its Rust-authored fixture is
 `fixtures/validator_staking/norito_v1.tsv`; the consumer tests also reject
 truncated records, malformed peer bindings, invalid withdrawal hash widths or markers,
 retired reward-plan layouts, invalid fee custody and

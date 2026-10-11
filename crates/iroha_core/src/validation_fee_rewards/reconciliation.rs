@@ -971,6 +971,26 @@ mod tests {
             assert!(validate(&stx.world, &binding).is_err());
             stx.world.smart_contract_state.insert(revision, bytes);
             validate(&stx.world, &binding).unwrap();
+            let original = account(2);
+            let recovered = account(4);
+            for current in [&original, &recovered] {
+                if current == &recovered {
+                    beneficiary::rekey_beneficiary(stx, &original, &recovered).unwrap();
+                }
+                let key = validation_fee_beneficiary_alias_key(&binding, current).unwrap();
+                let bytes = stx.world.smart_contract_state.remove(key.clone()).unwrap();
+                assert!(validate(&stx.world, &binding).is_err());
+                let substituted = ValidationFeeRewardBeneficiaryAlias {
+                    account_id: current.clone(),
+                    beneficiary_id: account(3),
+                };
+                stx.world
+                    .smart_contract_state
+                    .insert(key.clone(), norito::to_bytes(&substituted).unwrap());
+                assert!(validate(&stx.world, &binding).is_err());
+                stx.world.smart_contract_state.insert(key, bytes);
+                validate(&stx.world, &binding).unwrap();
+            }
         });
     }
 
