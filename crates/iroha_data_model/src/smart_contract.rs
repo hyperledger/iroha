@@ -1279,7 +1279,9 @@ mod contract_address_tests {
         });
         assert!(matches!(
             decoded,
-            Err(norito::json::Error::DecodeResourceLimit)
+            Err(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
         ));
         assert!(usage.total_allocated_bytes() < exact);
     }

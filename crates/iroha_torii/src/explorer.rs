@@ -1212,7 +1212,17 @@ fn require_canonical_cursor_text<K: ExplorerCursorKeyText>(
 impl CanonicalExplorerCursorKey for AccountId {
     fn parse_canonical_cursor_key(key: &str) -> Result<Self, ExplorerCursorError> {
         let parsed = json::JsonObjectKeyOwned::from_json_key_text(key).map_err(|error| {
-            if matches!(error, json::Error::DecodeResourceLimit) {
+            if matches!(
+                error,
+                json::Error::DecodeResourceLimit
+                    | json::Error::DecodeResource(
+                        norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+                            | norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                    )
+            ) {
                 ExplorerCursorError::ByteLimitExceeded
             } else {
                 ExplorerCursorError::InvalidKey
@@ -1224,7 +1234,17 @@ impl CanonicalExplorerCursorKey for AccountId {
 impl CanonicalExplorerCursorKey for DomainId {
     fn parse_canonical_cursor_key(key: &str) -> Result<Self, ExplorerCursorError> {
         let parsed = json::JsonObjectKeyOwned::from_json_key_text(key).map_err(|error| {
-            if matches!(error, json::Error::DecodeResourceLimit) {
+            if matches!(
+                error,
+                json::Error::DecodeResourceLimit
+                    | json::Error::DecodeResource(
+                        norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+                            | norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                    )
+            ) {
                 ExplorerCursorError::ByteLimitExceeded
             } else {
                 ExplorerCursorError::InvalidKey
@@ -1238,7 +1258,17 @@ impl CanonicalExplorerCursorKey for AssetId {
         let encoded = json::to_json_bounded_boxed(key, EXPLORER_CURSOR_MAX_KEY_BYTES * 6 + 2)
             .map_err(|_| ExplorerCursorError::ByteLimitExceeded)?;
         let parsed = json::from_slice::<Self>(&encoded).map_err(|error| {
-            if matches!(error, json::Error::DecodeResourceLimit) {
+            if matches!(
+                error,
+                json::Error::DecodeResourceLimit
+                    | json::Error::DecodeResource(
+                        norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+                            | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+                            | norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                    )
+            ) {
                 ExplorerCursorError::ByteLimitExceeded
             } else {
                 ExplorerCursorError::InvalidKey
@@ -1283,7 +1313,17 @@ impl CanonicalExplorerCursorKey for RwaId {
     }
 }
 fn explorer_identifier_decode_error(error: json::Error) -> ExplorerCursorError {
-    if matches!(error, json::Error::DecodeResourceLimit) {
+    if matches!(
+        error,
+        json::Error::DecodeResourceLimit
+            | json::Error::DecodeResource(
+                norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+                    | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+                    | norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            )
+    ) {
         ExplorerCursorError::ByteLimitExceeded
     } else {
         ExplorerCursorError::InvalidKey
@@ -2167,8 +2207,8 @@ mod tests {
         trigger::DataTriggerSequence,
     };
     use iroha_model_base::domain::DomainId;
+    use iroha_model_base::metadata::Metadata;
     use iroha_model_base::topology::DataSpaceId;
-    use iroha_model_base::{metadata::Metadata, name::Name};
     use iroha_primitives::numeric::Quantity;
     use iroha_test_samples::{ALICE_ID, ALICE_KEYPAIR, BOB_ID};
     use std::{iter, num::NonZeroU32, time::Duration as StdDuration};

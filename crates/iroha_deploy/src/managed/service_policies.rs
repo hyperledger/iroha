@@ -2,7 +2,7 @@
 //! These exact public choices alone never authorize current native use or serving.
 
 use super::native_operation::{encode, invalid};
-use super::service_authority::ServiceAuthority;
+use super::service_authority::{OriginalServiceIntent, ServiceAuthority};
 use super::{ManagedCustodyEnrollmentInterval, Result};
 use crate::localnet::service_authorities::{
     NetworkServiceAuthorityRole as NetworkRole, StreamTokenAuthorityRole as Role,
@@ -118,6 +118,14 @@ impl GeneratedServicePolicies {
     /// Derive only from the authenticated whole original profile, never today's UTC/deadline.
     pub(super) fn select(authority: &ServiceAuthority) -> Result<Self> {
         let intent = authority.original_intent()?;
+        // Preserve the standalone producer's original error order: construction failure
+        // returns before its success-only close, including under active decode admission.
+        let selected = Self::select_from_intent(&intent)?;
+        intent.finish()?;
+        Ok(selected)
+    }
+
+    fn select_from_intent(intent: &OriginalServiceIntent<'_>) -> Result<Self> {
         let plans = intent.provider_plans()?;
         let reserve = ReserveAuthorityPolicyV1 {
             version: RESERVE_AUTHORITY_POLICY_VERSION_V1,
@@ -330,9 +338,43 @@ impl GeneratedServicePolicies {
             .reputation
             .validate()
             .map_err(|_| invalid("invalid generated recorder policy"))?;
-        intent.finish()?;
         Ok(selected)
     }
+
+    // The caller holds the exact original intent and closes its full image on every
+    // ordinary result. Only the nested immutable image traversals consolidate; preserve
+    // each operation-lock/scope observation at the standalone producer's boundaries.
+    pub(super) fn validate_projection(&self, intent: &OriginalServiceIntent<'_>) -> Result<()> {
+        let bytes = encode(self, MAX_BYTES)?;
+        intent.validate_policy_custody()?;
+        let selected = Self::select_from_intent(intent)?;
+        intent.validate_policy_custody()?;
+        if bytes != encode(&selected, MAX_BYTES)? {
+            return Err(invalid("original generated service policies changed"));
+        }
+        Ok(())
+    }
+
+    /// Repeat the complete canonical comparison inside a closed runtime original read.
+    /// Active or owned inputs keep the standalone producer and its physical admission order.
+    pub(super) fn validate_in_runtime(
+        &self,
+        authority: &ServiceAuthority,
+        read: &super::service_authority::RuntimeOriginalRead<'_>,
+    ) -> Result<()> {
+        if !read.eligible(authority)? {
+            return self.validate(authority);
+        }
+        let bytes = encode(self, MAX_BYTES)?;
+        let intent = authority.original_intent_in_runtime(read)?;
+        let selected = Self::select_from_intent(&intent)?;
+        intent.finish_in_runtime(read)?;
+        if bytes != encode(&selected, MAX_BYTES)? {
+            return Err(invalid("original generated service policies changed"));
+        }
+        Ok(())
+    }
+
     /// Compare complete original semantic intent; decoded bytes grant no current authority.
     pub(super) fn validate(&self, authority: &ServiceAuthority) -> Result<()> {
         let bytes = encode(self, MAX_BYTES)?;

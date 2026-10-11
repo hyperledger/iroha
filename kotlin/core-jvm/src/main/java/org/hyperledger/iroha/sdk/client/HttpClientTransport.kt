@@ -21,9 +21,13 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Function
 import org.hyperledger.iroha.sdk.address.requireCanonicalI105Address
+import org.hyperledger.iroha.sdk.address.AccountAddress
+import org.hyperledger.iroha.sdk.address.algorithmForCurveId
 import org.hyperledger.iroha.sdk.crypto.Blake3
 import org.hyperledger.iroha.sdk.crypto.Ed25519PublicKeyAdmission
 import org.hyperledger.iroha.sdk.crypto.IrohaHash
+import org.hyperledger.iroha.sdk.crypto.NativeSignerBridge
+import org.hyperledger.iroha.sdk.crypto.SigningAlgorithm
 import org.hyperledger.iroha.sdk.consensus.SUMERAGI_LANES_JSON_MAX_BYTES
 import org.hyperledger.iroha.sdk.consensus.SUMERAGI_STATUS_JSON_MAX_BYTES
 import org.hyperledger.iroha.sdk.consensus.SumeragiLaneStatus
@@ -725,6 +729,119 @@ class HttpClientTransport private constructor(
             }
         }
         return result
+    }
+
+    /**
+     * Submit one explicit enrollment action with fresh account authentication and no automatic retry.
+     *
+     * Retain [enrollment] before dispatch. A timeout or Pending preserves the same native attempt:
+     * recovery explicitly resubmits its exact originals with fresh [canonicalAuth]. The callback
+     * must throw when the captured actor/account or enrollment attempt changes, and must be safe
+     * on the completion thread. The caller checks ownership again before Native admits a returned
+     * permit or credential. Neither HTTP success nor a Ready result confers enrollment authority.
+     */
+    fun enrollKagemushaWalletV1(
+        enrollment: ToriiKagemushaWalletEnrollmentRequestV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: Runnable,
+    ): CompletableFuture<ToriiKagemushaWalletEnrollmentResponseV1> {
+        val startedAt = System.nanoTime()
+        val timeoutNanos = try { config.requestTimeout().toNanos() } catch (_: ArithmeticException) { Long.MAX_VALUE }
+        fun requireWithinDeadline() {
+            if (System.nanoTime() - startedAt >= timeoutNanos) {
+                throw java.util.concurrent.TimeoutException("KAGEMUSHA enrollment request deadline elapsed")
+            }
+        }
+        requireCurrentOwner.run()
+        val request = buildKagemushaWalletEnrollmentRequestV1(enrollment, canonicalAuth)
+        val result = CompletableFuture<ToriiKagemushaWalletEnrollmentResponseV1>()
+        val upstream = try {
+            requireCurrentOwner.run()
+            notifyRequest(request)
+            requireCurrentOwner.run()
+            requireWithinDeadline()
+            executor.execute(request)
+        } catch (error: Throwable) {
+            try { notifyFailure(request, error) } catch (observerError: Throwable) {
+                if (observerError !== error) error.addSuppressed(observerError)
+            }
+            result.completeExceptionally(error)
+            return result
+        }
+        result.whenComplete { _, _ -> if (result.isCancelled) upstream.cancel(false) }
+        upstream.whenComplete { response, failure ->
+            if (result.isDone) return@whenComplete
+            if (upstream.isCancelled) { result.cancel(false); return@whenComplete }
+            try {
+                if (failure != null) throw unwrapCompletion(failure)
+                requireCurrentOwner.run()
+                requireWithinDeadline()
+                requireExactSignedResponseProvenance(request, response, "KAGEMUSHA enrollment")
+                val body = response.body
+                require(body.isNotEmpty() && body.size <= ToriiKagemushaWalletEnrollmentResponseV1.MAXIMUM_BYTES) {
+                    "KAGEMUSHA enrollment response is empty or exceeds its bound"
+                }
+                requireExactOptionalContentLength(response.headers, body.size, "KAGEMUSHA enrollment")
+                if (response.statusCode != 200) throw ToriiApiException.fromResponse(
+                    response.statusCode, response.headers, body, "KAGEMUSHA enrollment")
+                requireExactHeader(response.headers, "Content-Type", APPLICATION_NORITO, "KAGEMUSHA enrollment")
+                requireAbsentOrIdentityEncoding(response.headers, "KAGEMUSHA enrollment")
+                val decoded = enrollment.decodeResponse(body)
+                notifyResponse(request, ClientResponse(response.statusCode, body, response.message))
+                requireCurrentOwner.run()
+                requireWithinDeadline()
+                result.complete(decoded)
+            } catch (error: Throwable) {
+                try { notifyFailure(request, error) } catch (observerError: Throwable) {
+                    if (observerError !== error) error.addSuppressed(observerError)
+                }
+                result.completeExceptionally(error)
+            }
+        }
+        return result
+    }
+
+    /** Build the exact canonical body and fresh account signature for one issuer operation. */
+    internal fun buildKagemushaWalletEnrollmentRequestV1(
+        enrollment: ToriiKagemushaWalletEnrollmentRequestV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+    ): TransportRequest {
+        config.requireLocalSigningContext()
+        require(config.baseUri().scheme.equals("https", ignoreCase = true)) {
+            "KAGEMUSHA enrollment requires an HTTPS Torii endpoint"
+        }
+        require(config.baseUri().rawUserInfo == null && config.baseUri().rawQuery == null &&
+            config.baseUri().rawFragment == null) {
+            "KAGEMUSHA enrollment base URI must not contain user information, query or fragment"
+        }
+        require(!config.requestTimeout().isZero) { "KAGEMUSHA enrollment requires a positive request timeout" }
+        require(!CanonicalRequestSigner.isCanonicalAsciiAccountAlias(canonicalAuth.accountId)) {
+            "KAGEMUSHA enrollment requires the expected canonical account, not an alias"
+        }
+        val forbiddenHeaders = CANONICAL_AUTH_HEADERS + setOf(
+            "X-Iroha-Witness", "X-Iroha-Operator-Public-Key", "X-Iroha-Operator-Signature",
+            "X-Iroha-Operator-Timestamp-Ms", "X-Iroha-Operator-Nonce", "Content-Type",
+            "Content-Encoding", "Accept", "Accept-Encoding", "Cache-Control",
+        )
+        require(config.defaultHeaders().keys.none { name -> forbiddenHeaders.any { it.equals(name, ignoreCase = true) } }) {
+            "KAGEMUSHA enrollment authentication, encoding and cache headers are owned by the transport"
+        }
+        val controller = requireNotNull(AccountAddress.parseEncoded(canonicalAuth.accountId, null).singleKeyPayload()) {
+            "KAGEMUSHA enrollment requires the direct single account signer"
+        }
+        val request = buildExactNoritoPostRequest(ToriiKagemushaWalletEnrollmentRequestV1.ROUTE,
+            enrollment.canonicalWire(), ToriiKagemushaWalletEnrollmentResponseV1.MAXIMUM_BYTES.toLong(),
+            canonicalAuth, requestNoStore = true)
+        val message = CanonicalRequestSigner.canonicalRequestSignatureMessage(
+            config.requireLocalSigningContext().networkId(), request.method, request.uri, request.body,
+            request.headers.getValue(CanonicalRequestSigner.HEADER_TIMESTAMP_MS).single().toLong(),
+            request.headers.getValue(CanonicalRequestSigner.HEADER_NONCE).single())
+        require(NativeSignerBridge.verifyDetached(
+            SigningAlgorithm.fromAlgorithmName(algorithmForCurveId(controller.curveId)), controller.publicKey,
+            message, Base64.getDecoder().decode(request.headers.getValue(CanonicalRequestSigner.HEADER_SIGNATURE).single()))) {
+            "KAGEMUSHA enrollment signature does not match the direct account controller"
+        }
+        return request
     }
 
     /** One native BLS certificate and exact Load event inclusion. The response remains DATA

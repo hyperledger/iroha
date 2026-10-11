@@ -150,7 +150,61 @@ fn names_cannot_escape_the_context_root() {
     for name in ["local", "Acme_2", "private-test"] {
         validate_name(name).unwrap();
     }
-    assert!(validate_name(&"x".repeat(49)).is_err());
+    for length in [48, 49, 63] {
+        validate_name(&"x".repeat(length)).unwrap();
+    }
+    assert!(validate_name(&"x".repeat(64)).is_err());
+}
+
+#[test]
+fn full_length_dataspace_names_retain_distinct_native_directory_identity() {
+    let _resources = super::native_test_guard();
+    let temporary = tempfile::tempdir().unwrap();
+    let store = ManagedStore::open(&temporary.path().join("managed")).unwrap();
+    let networks = PrivateDirectory::open(store.root().join("networks")).unwrap();
+    for length in [49, 63] {
+        let prefix = "a".repeat(length - 1);
+        let names = [format!("{prefix}b"), format!("{prefix}c")];
+        assert_eq!(&names[0][..48], &names[1][..48]);
+        for name in &names {
+            iroha_wallet::namespace::resolve_private_owner_alias(name, "admin").unwrap();
+            let network = networks.ensure_child(name).unwrap();
+            network
+                .write_atomic("identity", name.as_bytes(), PublishMode::CreateNew)
+                .unwrap();
+            let attachment = store
+                .publish_attachment(name, &[("identity", name.as_bytes())])
+                .unwrap();
+            assert_eq!(attachment.path().file_name().unwrap(), name.as_str());
+        }
+        for name in &names {
+            let reopened = store.directory(name).unwrap();
+            assert_eq!(reopened.path().file_name().unwrap(), name.as_str());
+            assert_eq!(
+                reopened.read("identity", 64).unwrap().as_slice(),
+                name.as_bytes()
+            );
+            let attachment = store
+                .attachments_directory()
+                .unwrap()
+                .unwrap()
+                .open_child(name)
+                .unwrap();
+            assert_eq!(
+                attachment.read("identity", 64).unwrap().as_slice(),
+                name.as_bytes()
+            );
+        }
+    }
+    let invalid = "a".repeat(64);
+    assert!(iroha_wallet::namespace::resolve_private_owner_alias(&invalid, "admin").is_err());
+    assert!(store.directory(&invalid).is_err());
+    assert!(
+        store
+            .publish_attachment(&invalid, &[("identity", b"invalid")])
+            .is_err()
+    );
+    assert!(!store.root().join("attachments").join(&invalid).exists());
 }
 
 #[test]
@@ -269,7 +323,7 @@ fn managed_private_preparation_retains_owner_scope_and_listener_token_after_spaw
             .to_string()
             .contains("different immutable root identity")
     );
-    assert!(store.up_retained(&request).is_err());
+    assert!(store.up_retained(&request, &prepared.context).is_err());
     assert_eq!(store.prepared("private").unwrap(), prepared);
     assert_eq!(
         &*iroha_fs::read_private(&prepared.context.client_config, MAX_METADATA).unwrap(),
@@ -329,6 +383,17 @@ fn stopped_context_selection_retains_identity_and_never_exposes_keys() {
     assert_eq!(restored.context(None).unwrap(), selected);
 }
 
+// These selection-only controls supply a status DTO, not native readiness evidence. The
+// deadline/identity observer itself is exercised by the dedicated startup-selection tests.
+fn selection_ready(context: &ManagedContext) -> ManagedStatus {
+    ManagedStatus {
+        context: context.clone(),
+        phase: ManagedPhase::Ready,
+        running_peers: 4,
+        failure: None,
+    }
+}
+
 #[test]
 fn explicit_deployment_startup_preserves_absent_and_existing_workspace_selection() {
     let _resources = super::native_test_guard();
@@ -341,7 +406,9 @@ fn explicit_deployment_startup_preserves_absent_and_existing_workspace_selection
     // Exercise the actual selection owner used after either startup Ready exit. These
     // retained contexts do not claim live validators or substitute a readiness proof.
     let target = store::StartupSelection::for_requested_context(Some("b"));
-    target.apply(&store, "b").unwrap();
+    target
+        .apply(&store, &b.context, || Ok(selection_ready(&b.context)))
+        .unwrap();
     assert!(matches!(store.context(None), Err(Error::NoSelection)));
     assert!(!store.root().join("active.json").exists());
 
@@ -349,7 +416,9 @@ fn explicit_deployment_startup_preserves_absent_and_existing_workspace_selection
     let original = private.read("active.json", MAX_METADATA).unwrap();
     for _ in 0..2 {
         // A fresh deployment and exact-journal resume use the same explicit-target policy.
-        target.apply(&store, "b").unwrap();
+        target
+            .apply(&store, &b.context, || Ok(selection_ready(&b.context)))
+            .unwrap();
         assert_eq!(private.read("active.json", MAX_METADATA).unwrap(), original);
         assert_eq!(store.context(None).unwrap(), a.context);
     }
@@ -364,7 +433,9 @@ fn explicit_deployment_startup_preserves_absent_and_existing_workspace_selection
     let target = store::StartupSelection::for_requested_context(Some("a"));
     store.select("b").unwrap();
     let current = private.read("active.json", MAX_METADATA).unwrap();
-    target.apply(&store, "a").unwrap();
+    target
+        .apply(&store, &a.context, || Ok(selection_ready(&a.context)))
+        .unwrap();
     assert_eq!(private.read("active.json", MAX_METADATA).unwrap(), current);
     assert_eq!(store.context(None).unwrap(), b.context);
 }
@@ -378,15 +449,17 @@ fn ordinary_and_default_startup_still_select_the_ready_environment() {
     let (_, _, b) = fixture(&root, "b");
     // Default auto-creation has no previous selection and must persist its ready context.
     store::StartupSelection::for_requested_context(None)
-        .apply(&store, "a")
+        .apply(&store, &a.context, || Ok(selection_ready(&a.context)))
         .unwrap();
     assert_eq!(store.context(None).unwrap(), a.context);
     // Ordinary local/private up and explicit up_retained use Select, independently of the
     // deployment override. These checks concern selection, not native startup qualification.
-    store::StartupSelection::Select.apply(&store, "b").unwrap();
+    store::StartupSelection::Select
+        .apply(&store, &b.context, || Ok(selection_ready(&b.context)))
+        .unwrap();
     assert_eq!(store.context(None).unwrap(), b.context);
     store::StartupSelection::for_requested_context(None)
-        .apply(&store, "a")
+        .apply(&store, &a.context, || Ok(selection_ready(&a.context)))
         .unwrap();
     assert_eq!(store.context(None).unwrap(), a.context);
 }

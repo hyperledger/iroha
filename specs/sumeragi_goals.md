@@ -151,7 +151,7 @@ diagnostics select the current native proof, wallet, AMX and ordinary committed-
 finality owners; removed module paths and omitted current controls fail the source guard.
 Ordinary Clippy and documentation checks derive their explicit feature selection
 from current manifests, including implicit optional-dependency features. They keep
-all supported diagnostic features and exclude only the seven owned mutation selectors;
+all supported diagnostic features and exclude only the owned mutation selectors;
 dedicated jobs compile those selectors as their owning unit tests. SDK public-read,
 Deploy bootstrap and Torii canonical-outcome custody controls have separate test-only
 selectors; their named

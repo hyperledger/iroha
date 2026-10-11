@@ -621,8 +621,85 @@ async fn autoscale_proxy_authority_uses_pinned_committee_not_disjoint_manifest_b
     let wrong_manifest_peer_id = PeerId::new(wrong_manifest_peer_keypair.public_key().clone());
     let lane_id = LaneId::new(1);
     let route = RoutingDecision::new(lane_id, DataSpaceId::UNIVERSAL);
-    let mut app = mk_app_state_for_tests();
-    let pinned_peer_ids;
+    let mut autoscale_lane = iroha_data_model::nexus::LaneConfig {
+        id: lane_id,
+        alias: "elastic-lane-1".to_owned(),
+        ..iroha_data_model::nexus::LaneConfig::default()
+    };
+    autoscale_lane.metadata.insert(
+        iroha_data_model::nexus::AUTOSCALE_META_MANAGED.to_owned(),
+        "true".to_owned(),
+    );
+    autoscale_lane.metadata.insert(
+        iroha_data_model::nexus::AUTOSCALE_META_CREATED_HEIGHT.to_owned(),
+        "1".to_owned(),
+    );
+    let pinned_peer_ids =
+        pin_autoscale_lane_committee_for_test(&mut autoscale_lane, &pinned_keypairs);
+    let lane_catalog = iroha_data_model::nexus::LaneCatalog::new(
+        NonZeroU32::new(2).expect("non-zero lane count"),
+        vec![
+            iroha_data_model::nexus::LaneConfig::default(),
+            autoscale_lane,
+        ],
+    )
+    .expect("pinned autoscale lane catalog");
+    let mut nexus = iroha_config::parameters::actual::Nexus {
+        lane_catalog,
+        ..iroha_config::parameters::actual::Nexus::default()
+    };
+    nexus.autoscale.enabled = true;
+    nexus.autoscale.min_lane_id = NonZeroU32::new(1).expect("non-zero min lanes");
+    nexus.autoscale.max_lane_id_exclusive = NonZeroU32::new(2).expect("non-zero max lanes");
+    nexus.lane_config =
+        iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
+    let mut members = pinned_keypairs
+        .iter()
+        .enumerate()
+        .map(|(index, key)| {
+            (
+                checked_torii_test_account_id(
+                    0x76 + u8::try_from(index).expect("four original pinned validators"),
+                    "pinned autoscale validator account",
+                ),
+                key.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+    members.push((
+        wrong_manifest_validator.clone(),
+        wrong_manifest_peer_keypair.clone(),
+    ));
+    let labels = vec![
+        "pinned-autoscale-0".to_owned(),
+        "pinned-autoscale-1".to_owned(),
+        "pinned-autoscale-2".to_owned(),
+        "pinned-autoscale-3".to_owned(),
+        "wrong-autoscale-manifest".to_owned(),
+    ];
+    // The pinned roster is the genuine signed global committee. The disjoint
+    // manifest peer is introduced by paid H2 and becomes live at paid H3.
+    let mut app = native_ingress_with_registered_route_peers_for_test(
+        World::default(),
+        iroha_config::parameters::actual::Nexus::default(),
+        &members,
+        &labels,
+    );
+    let global_route =
+        super::lane_authority_route(RoutingDecision::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL));
+    let original_global_authority = app
+        .state
+        .resolve_route_authority(global_route)
+        .expect("genuine paid global authority before routing projection");
+    // This isolated routing projection uses the canonical fixture owner, which
+    // requires no committed runtime catalog. It supplies no native finality,
+    // execution or storage authority; the executed global schedule stays intact.
+    app.state
+        .install_synthetic_routing_snapshot_for_testing(nexus);
+    assert_eq!(
+        app.state.resolve_route_authority(global_route).unwrap(),
+        original_global_authority
+    );
     {
         let app_mut = Arc::get_mut(&mut app).expect("unique app state");
         app_mut.local_peer_id = Some(wrong_manifest_peer_id.clone());
@@ -642,48 +719,8 @@ async fn autoscale_proxy_authority_uses_pinned_committee_not_disjoint_manifest_b
         }));
         let (_online_tx, online_rx) = tokio::sync::watch::channel(online);
         app_mut.online_peers = OnlinePeersProvider::new(online_rx);
-        let state = Arc::get_mut(&mut app_mut.state).expect("unique state");
-        ensure_runtime_peer_binding_for_test(
-            state,
-            &wrong_manifest_validator,
-            &wrong_manifest_peer_keypair,
-            "wrong-autoscale-manifest",
-        );
-        let mut autoscale_lane = iroha_data_model::nexus::LaneConfig {
-            id: lane_id,
-            alias: "elastic-lane-1".to_owned(),
-            ..iroha_data_model::nexus::LaneConfig::default()
-        };
-        autoscale_lane.metadata.insert(
-            iroha_data_model::nexus::AUTOSCALE_META_MANAGED.to_owned(),
-            "true".to_owned(),
-        );
-        autoscale_lane.metadata.insert(
-            iroha_data_model::nexus::AUTOSCALE_META_CREATED_HEIGHT.to_owned(),
-            "1".to_owned(),
-        );
-        pinned_peer_ids =
-            pin_autoscale_lane_committee_for_test(&mut autoscale_lane, &pinned_keypairs);
-        let lane_catalog = iroha_data_model::nexus::LaneCatalog::new(
-            NonZeroU32::new(2).expect("non-zero lane count"),
-            vec![
-                iroha_data_model::nexus::LaneConfig::default(),
-                autoscale_lane,
-            ],
-        )
-        .expect("pinned autoscale lane catalog");
-        let mut nexus = iroha_config::parameters::actual::Nexus {
-            lane_catalog,
-            ..iroha_config::parameters::actual::Nexus::default()
-        };
-        nexus.autoscale.enabled = true;
-        nexus.autoscale.min_lane_id = NonZeroU32::new(1).expect("non-zero min lanes");
-        nexus.autoscale.max_lane_id_exclusive = NonZeroU32::new(2).expect("non-zero max lanes");
-        nexus.lane_config =
-            iroha_config::parameters::actual::LaneConfig::from_catalog(&nexus.lane_catalog);
-        *state.nexus.write() = nexus;
         install_lane_manifest_registry_with_torii_urls_for_test(
-            state,
+            &app_mut.state,
             &[(
                 lane_id,
                 vec![(
@@ -693,14 +730,12 @@ async fn autoscale_proxy_authority_uses_pinned_committee_not_disjoint_manifest_b
                 )],
             )],
         );
-        state.update_latest_block_header_cache_for_tests(BlockHeader::new(
-            NonZeroU64::new(1).expect("non-zero authority height"),
-            None,
-            None,
-            0,
-            0,
-        ));
     }
+    assert_eq!(
+        app.state.view().height(),
+        3,
+        "original paid authority height"
+    );
     assert_eq!(
         app.state
             .resolve_lane_committee(iroha_core::state::LaneAuthorityRoute::new(
@@ -738,8 +773,13 @@ async fn autoscale_proxy_authority_uses_pinned_committee_not_disjoint_manifest_b
         statuses.iter().all(|status| status.torii_url.is_none()),
         "a URL belonging to a non-authoritative manifest peer must not decorate a pinned peer"
     );
+    // Height-bound routing reads the original retained schedule, whose three
+    // slots start at the actual paid H3 cut. A retired genesis slot is not an
+    // alternate authority source for this current State.
+    let retained_height = original_global_authority.authority_height();
+    assert_eq!(retained_height, 3, "the original paid authority cut");
     let historical_statuses =
-        super::authoritative_lane_peer_statuses_at_height(app.as_ref(), route, 1);
+        super::authoritative_lane_peer_statuses_at_height(app.as_ref(), route, retained_height);
     assert_eq!(
         historical_statuses
             .iter()
@@ -753,6 +793,20 @@ async fn autoscale_proxy_authority_uses_pinned_committee_not_disjoint_manifest_b
             .iter()
             .all(|status| status.torii_url.is_none()),
         "height-bound routing must ignore URLs from non-authoritative manifest peers"
+    );
+    assert!(matches!(
+        app.state
+            .resolve_route_authority_at_height(super::lane_authority_route(route), 1,),
+        Err(
+            iroha_core::state::LaneAuthorityError::InvalidAuthoritySource {
+                authority_height: 1,
+                ..
+            }
+        ),
+    ));
+    assert!(
+        super::authoritative_lane_peer_statuses_at_height(app.as_ref(), route, 1).is_empty(),
+        "a retired slot must fail closed instead of substituting current or manifest authority",
     );
     let candidates = super::torii_proxy_candidate_peer_ids(
         app.as_ref(),
@@ -1125,12 +1179,11 @@ async fn torii_proxy_candidates_exclude_self_sender_visited_and_fail_closed_when
 #[cfg(all(feature = "app_api", feature = "connect"))]
 #[tokio::test]
 async fn local_nexus_read_fanout_completes_without_recursive_self_proxying() {
-    let mut app = mk_app_state_for_tests_with_world(world_with_account(&ALICE_ID));
-    let local_peer_id =
-        checked_torii_test_peer_id(0x67, "derive local Nexus fanout peer fixture key");
-    Arc::get_mut(&mut app)
-        .expect("unique local Nexus fanout app")
-        .local_peer_id = Some(local_peer_id.clone());
+    let app = native_ingress_app_with_world_for_test(world_with_account(&ALICE_ID));
+    let local_peer_id = app
+        .local_peer_id
+        .clone()
+        .expect("original four-validator authority");
     let request = ToriiProxyRequestV1 {
         schema_version: TORII_PROXY_REQUEST_VERSION_V1,
         request_id: Hash::new(b"local-nexus-fanout-terminates"),
@@ -1608,12 +1661,33 @@ async fn forward_incoming_torii_proxy_request_reaches_authoritative_peer() {
         0x73,
         "derive internal Torii forward relay B validator fixture key",
     );
-    let mut app = mk_app_state_for_tests();
+    let bindings = vec![
+        (
+            authoritative_validator.clone(),
+            authoritative_keypair.clone(),
+        ),
+        (sender_validator.clone(), sender_keypair.clone()),
+        (relay_validator_a.clone(), relay_keypair_a.clone()),
+        (relay_validator_b.clone(), relay_keypair_b.clone()),
+    ];
+    let labels = vec![
+        "authoritative".to_owned(),
+        "sender".to_owned(),
+        "relay-a".to_owned(),
+        "relay-b".to_owned(),
+    ];
+    let mut app = native_proxy_authority_app_for_test(&bindings, &labels);
+    // Keep the production actor admission queues live until the exact forwarded
+    // request is accepted and inspected; no peer sockets are started here.
+    let (network, mut actor) = iroha_core::IrohaNetwork::actor_admission_for_tests(
+        local_peer_id.clone(),
+        std::collections::HashSet::from([authoritative_peer_id.clone()]),
+        std::num::NonZeroUsize::new(1).expect("one forwarded request"),
+    );
     {
         let app_mut = Arc::get_mut(&mut app).expect("unique app state");
-        let (online_tx, online_rx) = tokio::sync::watch::channel(std::collections::HashSet::new());
-        online_tx
-            .send(std::collections::HashSet::from([
+        let (_online_tx, online_rx) =
+            tokio::sync::watch::channel(std::collections::HashSet::from([
                 Peer::new(
                     "127.0.0.1:10001".parse().expect("valid local address"),
                     local_keypair.public_key().clone(),
@@ -1624,42 +1698,14 @@ async fn forward_incoming_torii_proxy_request_reaches_authoritative_peer() {
                         .expect("valid authoritative address"),
                     authoritative_keypair.public_key().clone(),
                 ),
-            ]))
-            .expect("online peers update should succeed");
+            ]));
         app_mut.online_peers = OnlinePeersProvider::new(online_rx);
+        // This ingress observer is deliberately outside the genuine four-seat
+        // committee; only the original authoritative peer is online for forwarding.
         app_mut.local_peer_id = Some(local_peer_id.clone());
-        app_mut.p2p = Some(iroha_core::IrohaNetwork::closed_for_tests());
-    }
-    {
-        let mut topology = app.state.commit_topology.block();
-        topology.clear();
-        topology.push(authoritative_peer_id.clone());
-        topology.commit();
-    }
-    {
-        let app_mut = Arc::get_mut(&mut app).expect("unique app state");
-        let state = Arc::get_mut(&mut app_mut.state).expect("unique state");
-        ensure_runtime_peer_binding_for_test(
-            state,
-            &authoritative_validator,
-            &authoritative_keypair,
-            "authoritative",
-        );
-        ensure_runtime_peer_binding_for_test(state, &sender_validator, &sender_keypair, "sender");
-        ensure_runtime_peer_binding_for_test(
-            state,
-            &relay_validator_a,
-            &relay_keypair_a,
-            "relay-a",
-        );
-        ensure_runtime_peer_binding_for_test(
-            state,
-            &relay_validator_b,
-            &relay_keypair_b,
-            "relay-b",
-        );
+        app_mut.p2p = Some(network);
         install_lane_manifest_registry_for_test(
-            state,
+            &app_mut.state,
             &[(
                 LaneId::SINGLE,
                 vec![
@@ -1673,24 +1719,53 @@ async fn forward_incoming_torii_proxy_request_reaches_authoritative_peer() {
     }
     let route = RoutingDecision::new(LaneId::SINGLE, DataSpaceId::UNIVERSAL);
     let request_id = Hash::new(b"torii-proxy-forward-success");
+    let deadline_unix_ms = super::torii_proxy_test_deadline_unix_ms();
+    let expected_visited = vec![sender_peer_id.clone(), local_peer_id.clone()];
     let app_for_response = app.clone();
     let authoritative_peer_for_response = authoritative_peer_id.clone();
     let request_id_for_response = request_id.clone();
     let response_task = tokio::spawn(async move {
         tokio::time::timeout(Duration::from_secs(1), async {
             loop {
-                let has_pending = app_for_response.torii_proxy_pending.lock().contains_key(&(
-                    request_id_for_response,
-                    authoritative_peer_for_response.clone(),
-                ));
-                if has_pending {
+                let admitted = actor.drain_posts(|post| {
+                    assert_eq!(post.peer_id, authoritative_peer_for_response);
+                    let iroha_core::NetworkMessage::ToriiProxyRequest(request) = &post.data else {
+                        panic!("expected the admitted forwarded Torii request");
+                    };
+                    assert_eq!(request.schema_version, TORII_PROXY_REQUEST_VERSION_V1);
+                    assert_eq!(request.request_id, request_id_for_response);
+                    assert_eq!(request.deadline_unix_ms, deadline_unix_ms);
+                    assert_eq!(request.hop_count, 2);
+                    assert_eq!(request.max_hops, 3);
+                    assert_eq!(request.visited_peer_ids, expected_visited);
+                    let ToriiProxyRequestKindV1::SignedQueryRouteScan {
+                        query_bytes,
+                        expected_route,
+                        response_format,
+                    } = &request.request
+                    else {
+                        panic!("the original signed-query request kind must be preserved");
+                    };
+                    assert!(query_bytes.is_empty());
+                    assert_eq!(*expected_route, ToriiRouteHintV1::from(route));
+                    assert_eq!(*response_format, ToriiProxyResponseFormatV1::Norito);
+                    assert!(
+                        app_for_response.torii_proxy_pending.lock().contains_key(&(
+                            request_id_for_response,
+                            authoritative_peer_for_response.clone(),
+                        )),
+                        "the response fence must remain while actual dispatch is admitted"
+                    );
+                });
+                assert!(admitted <= 1, "one exact forwarded request is admitted");
+                if admitted == 1 {
                     break;
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         })
         .await
-        .expect("forwarded Torii proxy request should become pending");
+        .expect("forwarded Torii proxy request should reach the actor queue");
         super::process_incoming_torii_proxy_response(
             &app_for_response,
             authoritative_peer_for_response,
@@ -1713,7 +1788,7 @@ async fn forward_incoming_torii_proxy_request_reaches_authoritative_peer() {
         ToriiProxyRequestV1 {
             schema_version: TORII_PROXY_REQUEST_VERSION_V1,
             request_id,
-            deadline_unix_ms: super::torii_proxy_test_deadline_unix_ms(),
+            deadline_unix_ms,
             hop_count: 1,
             max_hops: 3,
             visited_peer_ids: vec![sender_peer_id.clone()],

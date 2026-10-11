@@ -53,7 +53,9 @@ fn domain_json_key_accounts_punycode_normalization_before_idna() {
     });
     assert!(matches!(
         rejected,
-        Err(norito::json::Error::DecodeResourceLimit)
+        Err(norito::json::Error::DecodeResource(
+            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+        ))
     ));
     assert_eq!(usage.total_allocated_bytes(), 0);
 }
@@ -83,7 +85,12 @@ fn domain_key_accounts_canonicalization_before_owner_allocations() {
         allocation_limit(expected_allocation - 1),
         || <crate::domain::DomainId as JsonObjectKeyOwned>::from_json_key_text(key),
     );
-    assert!(matches!(rejected, Err(json::Error::DecodeResourceLimit)));
+    assert!(matches!(
+        rejected,
+        Err(json::Error::DecodeResource(
+            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+        ))
+    ));
     assert_eq!(usage.total_allocated_bytes(), 0);
 
     let (noncanonical, usage) =

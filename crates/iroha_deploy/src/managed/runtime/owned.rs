@@ -36,6 +36,8 @@ impl GeneratedLaunch {
     }
 
     fn validate(&self) -> Result<()> {
+        #[cfg(all(test, unix))]
+        tests::batch_validation_tests::revision();
         self.require_active()?;
         self.owner.validate_for(&self.original, &self.revision)?;
         self.require_active()
@@ -420,6 +422,76 @@ pub(super) struct OwnedGateway {
     provider: ProviderId,
 }
 impl OwnedGateway {
+    /// One callback-free observation of the three providers of an exact shared launch.
+    /// Only the inactive decoder path uses this round. Full aggregate material and interval
+    /// validation bracket all original provider projections and direct-child observations;
+    /// no validation result survives this call or crosses a startup effect.
+    pub(super) fn validate_shared_round(
+        prepared: &PreparedLocalnet,
+        live: &[Self; 3],
+        budget: &activation::Budget,
+    ) -> std::result::Result<(), super::progress::Failure> {
+        let plans = budget.call(|_| {
+            live[0]
+                .original_provider_plans(prepared)?
+                .ok_or_else(|| invalid("original provider plans absent"))
+        })?;
+        budget.call(|_| {
+            let launch = &live[0].launch;
+            if live
+                .iter()
+                .any(|gateway| !Arc::ptr_eq(launch, &gateway.launch))
+            {
+                return Err(invalid(
+                    "gateway round belongs to different original launches",
+                ));
+            }
+            launch.validate()?;
+            #[cfg(all(test, unix))]
+            tests::batch_validation_tests::after_entry();
+            let result = (|| {
+                for (index, (plan, gateway)) in plans.iter().zip(live).enumerate() {
+                    if plan.provider_id() != gateway.provider() {
+                        return Err(budget.progress.unconfirmed());
+                    }
+                    budget.call(|_| {
+                        gateway.launch.owner.validate_gateway_compliance_pair(
+                            prepared,
+                            gateway.provider,
+                            || {
+                                gateway.require_running()?;
+                                gateway.require_original(prepared)?;
+                                #[cfg(all(test, unix))]
+                                tests::batch_validation_tests::before_binding(index);
+                                Ok(())
+                            },
+                        )?;
+                        gateway.require_running()
+                    })?;
+                    #[cfg(all(test, unix))]
+                    tests::batch_validation_tests::after_provider(index);
+                    #[cfg(not(all(test, unix)))]
+                    let _ = index;
+                }
+                Ok(())
+            })();
+            // Close on every ordinary result, even cancellation or expiry inside the round.
+            // Evaluate all child observations before propagating material or child failures.
+            // The enclosing Budget::call then preserves clock/cancellation precedence.
+            let material = launch.validate();
+            #[cfg(all(test, unix))]
+            tests::batch_validation_tests::exit_material(&material);
+            let children = live.each_ref().map(|gateway| gateway.require_running());
+            material?;
+            for child in children {
+                child?;
+            }
+            Ok(result)
+        })??;
+        budget.check()?;
+        Ok(())
+    }
+
     pub(super) fn provider(&self) -> ProviderId {
         self.provider
     }
@@ -506,6 +578,8 @@ impl OwnedGateway {
     }
 
     fn require_running(&self) -> Result<()> {
+        #[cfg(all(test, unix))]
+        tests::batch_validation_tests::running(self.provider);
         self.launch.require_active()?;
         if self
             .child
@@ -518,20 +592,20 @@ impl OwnedGateway {
         }
         self.launch.require_active()
     }
-}
-impl LiveGatewayProcess for OwnedGateway {
-    fn validate(
-        &mut self,
-        prepared: &PreparedLocalnet,
-        plan: &RetainedGatewayCompliancePlan,
-    ) -> Result<()> {
-        self.require_running()?;
+    fn require_original(&self, prepared: &PreparedLocalnet) -> Result<()> {
         if prepared != &self.launch.original {
             return Err(invalid(
                 "the observed gateway belongs to another original generation",
             ));
         }
-        self.launch.validate()?;
+        Ok(())
+    }
+
+    fn validate_binding(
+        &self,
+        prepared: &PreparedLocalnet,
+        plan: &RetainedGatewayCompliancePlan,
+    ) -> Result<()> {
         let expected = self
             .original_gateway_compliance_plan(prepared)?
             .ok_or_else(|| invalid("original gateway plan absent"))?;
@@ -542,6 +616,19 @@ impl LiveGatewayProcess for OwnedGateway {
         {
             return Err(invalid("the observed gateway compliance binding differs"));
         }
+        Ok(())
+    }
+}
+impl LiveGatewayProcess for OwnedGateway {
+    fn validate(
+        &mut self,
+        prepared: &PreparedLocalnet,
+        plan: &RetainedGatewayCompliancePlan,
+    ) -> Result<()> {
+        self.require_running()?;
+        self.require_original(prepared)?;
+        self.launch.validate()?;
+        self.validate_binding(prepared, plan)?;
         self.require_running()
     }
 }

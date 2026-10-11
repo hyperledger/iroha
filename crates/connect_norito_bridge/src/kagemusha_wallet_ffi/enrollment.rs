@@ -23,6 +23,7 @@ pub(crate) enum Action<'a> {
     RetainedResult,
     CompleteAppleCollection,
     Abandon,
+    AbandonLedgerInstruction,
 }
 impl From<native::Error> for Failure {
     fn from(error: native::Error) -> Self {
@@ -104,6 +105,10 @@ pub(super) fn perform<F: advance::KagemushaWalletFsV1, P: advance::KagemushaWall
             None => response(20, Vec::new()),
         },
         Action::Abandon => abandonment(owner.abandon()?)?,
+        Action::AbandonLedgerInstruction => match owner.abandonment_ledger_instruction()? {
+            Some(bytes) => response(59, bytes),
+            None => response(58, Vec::new()),
+        },
         Action::AppleOriginals => {
             let originals = owner.apple_collection_originals()?;
             let mut bytes = Vec::new();
@@ -169,7 +174,7 @@ pub(crate) fn bounds(selector: u32) -> Result<[usize; 3]> {
         9 => [2048, 0, 0],
         11 | 19 => [16_384, 4096, 16_384],
         12 => [native::RESULT_MAX_BYTES, 4096, 0],
-        13 | 16 | 17 | 18 => [0; 3],
+        13 | 16 | 17 | 18 | 20 => [0; 3],
         14 => [1, 0, 0],
         15 => [1, 65_536, 0],
         _ => return Err(Failure::code(INVALID)),
@@ -234,6 +239,7 @@ pub(crate) fn request<'a>(
         7 => Action::Load,
         8 => Action::BeginOpen,
         10 => Action::Abandon,
+        20 => Action::AbandonLedgerInstruction,
         9 if !first.is_empty() => Action::AcceptPermit(first),
         _ => return Err(Failure::code(INVALID)),
     })
@@ -242,6 +248,21 @@ pub(crate) fn request<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn abandonment_ledger_instruction_accepts_no_foreign_original_or_chain() {
+        assert!(matches!(
+            request(20, [&[], &[], &[]], &[]).unwrap(),
+            Action::AbandonLedgerInstruction
+        ));
+        for originals in [
+            [&[1][..], &[][..], &[][..]],
+            [&[][..], &[1][..], &[][..]],
+            [&[][..], &[][..], &[1][..]],
+        ] {
+            assert!(request(20, originals, &[]).is_err());
+        }
+        assert!(request(20, [&[], &[], &[]], &[&[1]]).is_err());
+    }
     #[test]
     fn abandonment_results_are_explicit_and_exact_through_the_c_result() {
         use native::EnrollmentAbandonmentV1 as A;
@@ -280,7 +301,7 @@ mod tests {
     }
     #[test]
     fn original_enrollment_bounds_are_per_role_and_unused_fields_are_rejected() {
-        for selector in 0..=19 {
+        for selector in 0..=20 {
             let limits = bounds(selector).unwrap();
             for slot in 0..3 {
                 let long = vec![0; limits[slot] + 1];
@@ -289,7 +310,7 @@ mod tests {
                 assert!(request(selector, originals, &[]).is_err());
             }
         }
-        assert!(request(20, [&[]; 3], &[]).is_err());
+        assert!(request(21, [&[]; 3], &[]).is_err());
         assert!(request(19, [&[]; 3], &[]).is_err());
         assert!(matches!(
             request(19, [b"JWT", b"DPoP", b"root"], &[]).unwrap(),

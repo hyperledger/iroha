@@ -150,6 +150,18 @@ impl DeveloperWorkspace {
         let store = ManagedStore::open(&self.root)?;
         let context = store.context(name)?;
         let prepared = store.prepared(&context.name)?;
+        self.network_from_prepared(&context, prepared)
+    }
+
+    fn network_from_prepared(
+        &self,
+        selected: &ManagedContext,
+        prepared: PreparedLocalnet,
+    ) -> Result<ManagedNetwork> {
+        ensure!(
+            prepared.context == *selected,
+            "managed generation changed before loading network credentials"
+        );
         let config = prepared.context.load_client_config()?;
         let operator = prepared.load_operator_key_pair()?;
         let network = ManagedNetwork {
@@ -190,9 +202,9 @@ impl DeveloperWorkspace {
         let store = ManagedStore::open(&self.root)?;
         let mut request = self.runtime.localnet_request(name, Duration::from_secs(30));
         match store.context(Some(name)) {
-            Ok(_) => {
+            Ok(context) => {
                 request.service_profile = store.prepared(name)?.service_profile;
-                Ok(store.up_retained(&request)?)
+                Ok(store.up_retained(&request, &context)?)
             }
             Err(iroha_deploy::managed::Error::Io(error))
                 if error.kind() == std::io::ErrorKind::NotFound =>
@@ -354,7 +366,9 @@ impl DeveloperWorkspace {
             },
             progress,
         )?;
-        Ok(target.finish(&store, run.receipt, run.journal)?)
+        let mut report = target.finish(&store, run.receipt, run.journal)?;
+        report.lifecycle = run.lifecycle;
+        Ok(report)
     }
 
     /// Recover an exact retained journal using its selected environment without rebuilding.
@@ -393,7 +407,9 @@ impl DeveloperWorkspace {
             },
             progress,
         )?;
-        Ok(target.finish(&store, run.receipt, run.journal)?)
+        let mut report = target.finish(&store, run.receipt, run.journal)?;
+        report.lifecycle = run.lifecycle;
+        Ok(report)
     }
 
     fn deployment_runtime(
@@ -866,12 +882,43 @@ mod tests {
         assert_create_refuses_retained_context(&desktop, "fixture");
         let network = desktop.network(None).unwrap();
         assert_eq!(network.prepared().peers.len(), 4);
+        // The selected identity must survive the second metadata read, before credentials
+        // or an observation object can be acquired from a replacement generation.
+        for field in ["network", "account", "endpoint", "dataspace"] {
+            let mut stale = context.clone();
+            match field {
+                "network" => stale.network_id.push('x'),
+                "account" => stale.account_id.push('x'),
+                "endpoint" => stale.torii_url.push('x'),
+                _ => stale.dataspace_id += 1,
+            }
+            let error = desktop
+                .network_from_prepared(&stale, network.prepared().clone())
+                .err()
+                .unwrap();
+            assert_eq!(
+                error.to_string(),
+                "managed generation changed before loading network credentials",
+                "{field}"
+            );
+        }
+        let mut unreadable = network.prepared().clone();
+        unreadable.context.client_config = temporary.path().join("absent-client.toml");
+        assert_eq!(
+            desktop
+                .network_from_prepared(&context, unreadable)
+                .err()
+                .unwrap()
+                .to_string(),
+            "managed generation changed before loading network credentials",
+            "identity refusal precedes even a missing credential source"
+        );
         // Even a deliberately absent registry context cannot affect a local source build.
         // The desktop adapter must preserve Musubi's lazy registry discovery boundary.
         let source = temporary.path().join("offline.ko");
         std::fs::write(
             &source,
-            "seiyaku Offline { view fn quote(int cups) -> int { return cups * 10; } }",
+            "seiyaku Offline { view fn quote(int cups) authorize(anyone) -> int { return cups * 10; } }",
         )
         .unwrap();
         assert_eq!(

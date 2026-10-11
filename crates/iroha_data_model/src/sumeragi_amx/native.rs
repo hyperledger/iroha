@@ -59,6 +59,76 @@ mod tests {
     use super::*;
     use iroha_crypto::{Algorithm, KeyPair};
     use iroha_model_base::{domain::DomainId, topology::DataSpaceId};
+
+    #[test]
+    fn initial_native_source_validation_matches_canonical_empty_state_and_error_order() {
+        use crate::sumeragi_finality::{
+            authenticated_genesis, test_fixtures::NativeFinalityFixture,
+        };
+        use iroha_model_base::topology::DataSpaceId;
+        let fixture = NativeFinalityFixture::start("native-source-parity");
+        let epoch = authenticated_genesis(fixture.genesis())
+            .unwrap()
+            .into_parts()
+            .0;
+        let global =
+            super::super::AmxForeignInstanceV1::new(fixture.verifier().instance().0, epoch)
+                .unwrap();
+        let genesis = fixture.genesis().encode_wire().unwrap();
+        // This is a shape-validator parity control. Authentication is independently
+        // exercised through genuine H2 in the Core returned-context tests.
+        let successor = genesis.clone();
+        let custody = AccountId::new(
+            KeyPair::from_seed(vec![31; 32], Algorithm::Ed25519)
+                .public_key()
+                .clone(),
+        );
+        let canonical = |global, genesis, successor, label| NativeAmxParticipantStateV1 {
+            global_genesis: genesis,
+            global_successor: successor,
+            global_chain_label: label,
+            participant: AmxParticipantStateV1::new(DataSpaceId::new(19), global),
+            custody: custody.clone(),
+            escrows: Vec::new(),
+        };
+        for (genesis, successor, label) in [
+            (
+                genesis.clone(),
+                successor.clone(),
+                b"native-source-parity".to_vec(),
+            ),
+            (
+                Vec::new(),
+                successor.clone(),
+                b"native-source-parity".to_vec(),
+            ),
+            (
+                genesis.clone(),
+                Vec::new(),
+                b"native-source-parity".to_vec(),
+            ),
+            (genesis.clone(), successor.clone(), vec![0xff]),
+            (genesis.clone(), successor.clone(), Vec::new()),
+        ] {
+            let actual = NativeAmxParticipantStateV1::validate_initial_sources(
+                &global, &genesis, &successor, &label,
+            );
+            let expected = canonical(global.clone(), genesis, successor, label).validate();
+            assert_eq!(actual, expected);
+        }
+        let mut malformed = global.clone();
+        malformed.current.version = 0;
+        let original = malformed.validate().unwrap_err();
+        assert_eq!(
+            NativeAmxParticipantStateV1::validate_initial_sources(&malformed, &[], &[], &[0xff]),
+            Err(original.clone())
+        );
+        assert_eq!(
+            canonical(malformed, Vec::new(), Vec::new(), vec![0xff]).validate(),
+            Err(original)
+        );
+    }
+
     #[test]
     fn native_monetary_leg_roundtrips_and_binds_every_effect() {
         let id = |seed| {
@@ -210,22 +280,53 @@ pub struct NativeAmxParticipantStateV1 {
     /// Original Yes escrows in strict transaction order; closed custody remains protected.
     pub escrows: Vec<AmxTransferEscrowV1>,
 }
+fn validate_original_sources(
+    genesis: &[u8],
+    successor: &[u8],
+    label: &[u8],
+) -> Result<(), AmxError> {
+    if genesis.is_empty()
+        || successor.is_empty()
+        || std::str::from_utf8(label)
+            .ok()
+            .is_none_or(|label| iroha_primitives::chain_id::validate_chain_id(label).is_err())
+    {
+        return Err(AmxError::State(
+            "native AMX lost its complete original global source",
+        ));
+    }
+    Ok(())
+}
+
 impl NativeAmxParticipantStateV1 {
+    /// Validate the original sources before constructing an initially empty participant.
+    ///
+    /// This shares the complete tracker and original-wire/label checks with `validate`.
+    /// It does not authenticate genesis/H2, admit storage or grant execution authority.
+    /// Empty initial prepared/held/escrow collections have no additional ordering relations.
+    ///
+    /// # Errors
+    /// Rejects an invalid tracked context or missing/noncanonical original source label,
+    /// in the same tracker-before-source order as the canonical participant validator.
+    pub fn validate_initial_sources(
+        global: &super::AmxForeignInstanceV1,
+        genesis: &[u8],
+        successor: &[u8],
+        label: &[u8],
+    ) -> Result<(), AmxError> {
+        global.validate()?;
+        validate_original_sources(genesis, successor, label)
+    }
     /// Check local scope, canonical order and consistency with every unsettled Yes vote.
     /// # Errors
     /// Rejects any malformed participant or detached/mismatched monetary record.
     pub fn validate(&self) -> Result<(), AmxError> {
         self.participant.validate()?;
-        if self.global_genesis.is_empty()
-            || self.global_successor.is_empty()
-            || std::str::from_utf8(&self.global_chain_label)
-                .ok()
-                .is_none_or(|label| iroha_primitives::chain_id::validate_chain_id(label).is_err())
-        {
-            return Err(AmxError::State(
-                "native AMX lost its complete original global source",
-            ));
-        }
+        validate_original_sources(
+            &self.global_genesis,
+            &self.global_successor,
+            &self.global_chain_label,
+        )?;
         let ds = self.participant.dataspace;
         if self.escrows.windows(2).any(|pair| pair[0].tx >= pair[1].tx) {
             return Err(AmxError::State(

@@ -40,6 +40,59 @@ impl OriginalReadPass<'_, '_> {
     }
 }
 
+// Borrowed only inside one complete callback-free graph direction. Its original directory
+// is the exact object behind the enrollment root Arc, not a pathname or inode-equivalence key.
+// No reader, scope or freshness result can escape the native root's ordinary-result exit.
+pub(in crate::managed) struct GraphRootReadPass<'borrow, 'scope> {
+    root: &'borrow PrivateDirectory,
+    reader: &'borrow mut iroha_fs::PrivateReadScope<'scope>,
+}
+impl GraphRootReadPass<'_, '_> {
+    pub(in crate::managed) fn covers(&self, root: &PrivateDirectory) -> bool {
+        !norito::core::decode_limits_active() && std::ptr::eq(self.root, root)
+    }
+    pub(in crate::managed) fn read<T>(
+        &mut self,
+        read: impl FnOnce(&mut iroha_fs::PrivateReadScope<'_>) -> Result<T>,
+    ) -> Result<T> {
+        #[cfg(test)]
+        crate::managed::stream_token_custody::body_history::graph_root_scope_tests::record(
+            crate::managed::stream_token_custody::body_history::graph_root_scope_tests::Point::SharedInventory,
+        );
+        read(self.reader)
+    }
+}
+
+// Each direction keeps its own existing tree bracket. This additional root read bracket
+// replaces repeated full-ancestry checks for that same anchor, never its native inventories.
+// Body/attempt suffix checks, leaf reads/decodes, permissions, identity and absence are intact.
+// Root custody closes on every ordinary result before the outer tree/snapshot exits; its
+// refusal wins an inner semantic error. A root change wholly restored within this read-only
+// direction may be unseen. This is not atomic, retained authority or a scope across effects.
+fn with_graph_root<T>(
+    current: &History,
+    snapshot: Option<&SnapshotReadPass<'_>>,
+    read: impl FnOnce(Option<&mut GraphRootReadPass<'_, '_>>) -> Result<T>,
+) -> Result<T> {
+    #[cfg(test)]
+    let original =
+        crate::managed::stream_token_custody::body_history::graph_root_scope_tests::original_recipe(
+        );
+    #[cfg(not(test))]
+    let original = false;
+    if original || snapshot.is_none() || norito::core::decode_limits_active() {
+        return read(None);
+    }
+    let root = current.scope.enrollment()?.root();
+    root.read_scope(|reader| {
+        #[cfg(test)]
+        crate::managed::stream_token_custody::body_history::graph_root_scope_tests::record(
+            crate::managed::stream_token_custody::body_history::graph_root_scope_tests::Point::DirectionBracket,
+        );
+        read(Some(&mut GraphRootReadPass { root, reader }))
+    })
+}
+
 pub(super) fn validate(current: &History) -> Result<()> {
     validate_bounded(current, MAX_RETAINED_BODIES)
 }
@@ -51,6 +104,8 @@ pub(super) fn validate_predecessor(prior: &VerifiedUnsignedClosure) -> Result<()
 }
 
 fn validate_bounded(current: &History, maximum: usize) -> Result<()> {
+    #[cfg(test)]
+    let _graph_timing = finish_timing::phase(finish_timing::Phase::GraphValidate);
     #[cfg(test)]
     let _closure_timing = finish_timing::phase_in_closure(finish_timing::Phase::ClosureFullGraph);
     let mut predecessors = [None; MAX_RETAINED_BODIES - 1];
@@ -73,7 +128,7 @@ fn validate_bounded(current: &History, maximum: usize) -> Result<()> {
     // predecessor, preserve that common path without replaying it a second time.
     if count == 0 {
         return with_native_read_tree(current, |tree| {
-            current.require_current_local_in_tree(None, tree, None)
+            current.require_current_local_in_tree(None, tree, None, None)
         });
     }
     // Authenticate all ancestors before the selected node, then recheck in reverse order.
@@ -89,19 +144,43 @@ fn validate_bounded(current: &History, maximum: usize) -> Result<()> {
         // this does not retain interior leaf-error timing or an atomic snapshot.
         let originals = pass.map(|snapshot| OriginalReadPass { snapshot });
         with_native_read_tree(current, |mut tree| {
-            for prior in predecessors[..count].iter().rev().flatten() {
-                prior.require_retained_local(pass, tree.as_deref_mut(), originals.as_ref())?;
-            }
-            current.require_current_local_in_tree(pass, tree.as_deref_mut(), originals.as_ref())
+            with_graph_root(current, pass, |mut root_read| {
+                for prior in predecessors[..count].iter().rev().flatten() {
+                    prior.require_retained_local(
+                        pass,
+                        tree.as_deref_mut(),
+                        originals.as_ref(),
+                        root_read.as_deref_mut(),
+                    )?;
+                }
+                current.require_current_local_in_tree(
+                    pass,
+                    tree.as_deref_mut(),
+                    originals.as_ref(),
+                    root_read,
+                )
+            })
         })?;
         #[cfg(test)]
         after_forward_for_test()?;
         with_native_read_tree(current, |mut tree| {
-            current.require_current_local_in_tree(pass, tree.as_deref_mut(), originals.as_ref())?;
-            for prior in predecessors[..count].iter().flatten() {
-                prior.require_retained_local(pass, tree.as_deref_mut(), originals.as_ref())?;
-            }
-            Ok(())
+            with_graph_root(current, pass, |mut root_read| {
+                current.require_current_local_in_tree(
+                    pass,
+                    tree.as_deref_mut(),
+                    originals.as_ref(),
+                    root_read.as_deref_mut(),
+                )?;
+                for prior in predecessors[..count].iter().flatten() {
+                    prior.require_retained_local(
+                        pass,
+                        tree.as_deref_mut(),
+                        originals.as_ref(),
+                        root_read.as_deref_mut(),
+                    )?;
+                }
+                Ok(())
+            })
         })
     })
 }
@@ -274,7 +353,7 @@ impl History {
     ) -> Result<()> {
         with_native_read_tree(self, |tree| {
             let originals = snapshot.map(|snapshot| OriginalReadPass { snapshot });
-            self.require_current_local_in_tree(snapshot, tree, originals.as_ref())
+            self.require_current_local_in_tree(snapshot, tree, originals.as_ref(), None)
         })
     }
     pub(in crate::managed) fn test_original_binding(
@@ -297,5 +376,16 @@ impl History {
             self.purpose,
             self.semantic,
         )
+    }
+}
+
+#[cfg(test)]
+impl History {
+    // Exercise owner rejection and a decoder installed after the real read scope entry.
+    pub(in crate::managed) fn test_graph_root_scope<T>(
+        root: &PrivateDirectory,
+        read: impl FnOnce(&mut GraphRootReadPass<'_, '_>) -> Result<T>,
+    ) -> Result<T> {
+        root.read_scope(|reader| read(&mut GraphRootReadPass { root, reader }))
     }
 }

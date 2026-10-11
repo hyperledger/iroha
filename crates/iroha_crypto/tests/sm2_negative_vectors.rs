@@ -1,8 +1,6 @@
 //! Negative SM2 verification vectors modelled after `BouncyCastle` and `GmSSL` suites.
 #![cfg(feature = "sm")]
-#[path = "sm2_negative_vector_fixture.rs"]
-mod fixture;
-use fixture::{apply_mutation, load_negative_vectors};
+use super::sm2_negative_vector_fixture::{apply_mutation, load_negative_vectors};
 use iroha_crypto::{Sm2PrivateKey, Sm2PublicKey, Sm2Signature};
 #[test]
 fn sm2_negative_vectors_reject() {

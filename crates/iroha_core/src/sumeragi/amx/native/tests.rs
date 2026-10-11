@@ -856,8 +856,13 @@ fn native_amx_global_source_requires_signed_parent_real_h2_and_exact_instance() 
         let result = super::authenticated_global_source(chain, parent, genesis, successor, &budget);
         assert_eq!(
             budget.reserved_bytes(),
-            before,
-            "every completed source check or refusal must release its original shared controls and scratch slots"
+            before
+                + result
+                    .as_ref()
+                    .ok()
+                    .and_then(|owner| owner.allocation_bytes())
+                    .unwrap_or(0),
+            "completed scratch retires while the returned context retains its exact original graph charge"
         );
         result
     };
@@ -868,13 +873,17 @@ fn native_amx_global_source_requires_signed_parent_real_h2_and_exact_instance() 
         &successor_wire,
     )
     .unwrap();
-    assert_eq!(authenticated.instance, global.instance().0);
+    assert_eq!(authenticated.canonical().instance, global.instance().0);
     assert_eq!(
-        authenticated.current,
+        authenticated.canonical().current,
         authenticated_genesis(global.genesis())
             .map(|genesis| genesis.into_parts().0)
             .unwrap()
     );
+    // A separate test oracle preserves the original canonical equality while the
+    // returned funded owner retires before subsequent scratch/refusal controls.
+    let expected = authenticated.canonical().clone();
+    drop(authenticated);
     let before = budget.reserved_bytes();
     let original_limit = budget.limit_bytes();
     budget.set_limit_bytes(before);
@@ -975,8 +984,9 @@ fn native_amx_global_source_requires_signed_parent_real_h2_and_exact_instance() 
             &genesis_wire,
             &successor_wire
         )
-        .unwrap(),
-        authenticated
+        .unwrap()
+        .canonical(),
+        &expected
     );
     let private = CertifiedTestChain::start(private_config(&global, FIRST)).unwrap();
     assert!(
@@ -1607,8 +1617,18 @@ pub(super) fn with_paid_prepare_retry_fixture(
     paid_borrowed_custody::with_paid_prepare_retry_fixture(test);
 }
 
+pub(super) fn with_paid_multisig_prepare_retry_fixture(
+    test: impl FnOnce(&CertifiedTestChain, InstructionBox, KeyPair),
+) {
+    paid_borrowed_custody::with_paid_multisig_prepare_retry_fixture(test);
+}
+
 pub(super) fn with_paid_prepare_pruning_fixture(
     test: impl FnOnce(&CertifiedTestChain, [InstructionBox; 3], KeyPair, [[u8; 32]; 2]),
 ) {
     paid_borrowed_custody::with_paid_prepare_pruning_fixture(test);
 }
+
+mod returned_context;
+
+mod multisig_semantic;

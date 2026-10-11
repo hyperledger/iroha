@@ -493,3 +493,6 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod public_witness_tests;

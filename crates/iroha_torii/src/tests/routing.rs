@@ -779,6 +779,7 @@ mod tests {
                         .path(),
                     axum::routing::get(crate::handler_bridge_finality_attestation_latest),
                 )
+                .layer(axum::middleware::from_fn(crate::enforce_route_timeout))
                 .layer(axum::middleware::from_fn(crate::capture_response_format))
                 .layer(axum::middleware::from_fn(crate::coalesce_accept_headers))
                 .layer(axum::middleware::from_fn(

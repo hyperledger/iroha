@@ -694,20 +694,31 @@ fn soracloud_public_input_spills_to_heap_from_heap_backed_name() -> Result<()> {
 fn soracloud_vm_output_decoder_enforces_heap_ownership() -> Result<()> {
     let response_payload = vec![0x5A; Memory::INPUT_SIZE as usize + 1];
     let response_tlv = make_pointer_tlv(PointerType::Blob, &response_payload);
-    let mut vm = IVM::new(u64::MAX);
-    let response_pointer = vm.alloc_host_tlv(&response_tlv)?;
+    let (mut vm, output_kind) = soracloud_echo_vm(&response_tlv, EntrypointValueKindV1::Blob)?;
+    let response_pointer = vm.public_call_result_word(0)?;
     assert!((Memory::HEAP_START..Memory::INPUT_START).contains(&response_pointer));
-    vm.set_register(10, response_pointer);
-    let (decoded, content_type) = decode_vm_output(&vm, "query", "read", "service", "v1")
-        .map_err(|error| eyre::eyre!("{}", error.message))?;
+    let (decoded, content_type) =
+        decode_vm_output(&vm, output_kind, "query", "read", "service", "v1")
+            .map_err(|error| eyre::eyre!("{}", error.message))?;
     assert_eq!(decoded, response_payload);
     assert_eq!(content_type.as_deref(), Some("application/octet-stream"));
-    let mut forged = IVM::new(u64::MAX);
-    forged.store_bytes(Memory::HEAP_START, &response_tlv)?;
-    forged.set_register(10, Memory::HEAP_START);
+    let unowned = Memory::HEAP_START + vm.memory.heap_limit()
+        - u64::try_from(response_tlv.len()).expect("fixture envelope fits heap");
+    vm.store_bytes(unowned, &response_tlv)?;
     assert!(
-        decode_vm_output(&forged, "query", "read", "service", "v1").is_err(),
-        "an unallocated HEAP response must fail provenance validation"
+        vm.validate_tlv(unowned).is_err(),
+        "bytes in unused heap capacity are unowned"
+    );
+    vm.memory.store_u64(vm.register(10), unowned)?;
+    assert!(
+        decode_vm_output(&vm, output_kind, "query", "read", "service", "v1").is_err(),
+        "a genuine completed table must still reject an unallocated HEAP response"
+    );
+    vm.memory.store_u64(vm.register(10), response_pointer)?;
+    assert_eq!(
+        decode_vm_output(&vm, output_kind, "query", "read", "service", "v1")?.0,
+        response_payload,
+        "restored original owned result remains valid"
     );
     Ok(())
 }
@@ -2422,7 +2433,9 @@ fn soracloud_entrypoint(name: &str, entry_pc: u64) -> ivm::EmbeddedEntrypointDes
         entry_pc,
     }
 }
-fn soracloud_contract_artifact_with_words(entrypoints: &[&str], code_words: &[u32]) -> Vec<u8> {
+fn soracloud_contract_artifact_with_functions(
+    functions: Vec<(ivm::EmbeddedEntrypointDescriptor, Vec<u32>)>,
+) -> Vec<u8> {
     let metadata = ivm::ProgramMetadata {
         version_major: 1,
         version_minor: 1,
@@ -2431,27 +2444,40 @@ fn soracloud_contract_artifact_with_words(entrypoints: &[&str], code_words: &[u3
         max_cycles: 0,
         abi_version: 1,
     };
+    let mut entrypoints = Vec::new();
+    let mut callables = Vec::new();
+    let mut code_words = Vec::new();
+    for (mut entry, body) in functions {
+        entry.entry_pc = u64::try_from(code_words.len() * 4).expect("fixture PC fits u64");
+        callables.push(ivm::call::EmbeddedCallableV1 {
+            entry_pc: entry.entry_pc,
+            frame_bytes: 0,
+            arguments: entry.argument_schema.as_ref().map_or_else(
+                ivm::call::CallSchemaV1::empty,
+                |schema| {
+                    ivm::call::CallSchemaV1::from_entrypoint_arguments(schema)
+                        .expect("fixture public argument schema")
+                },
+            ),
+            results: ivm::call::CallSchemaV1::from_entrypoint_type(
+                entry.return_schema.as_ref().expect("fixture return schema"),
+            )
+            .expect("fixture public result schema"),
+        });
+        entrypoints.push(entry);
+        code_words.extend(body);
+    }
     let contract_interface = ivm::EmbeddedContractInterfaceV1 {
         permissions: Vec::new(),
         events: Vec::new(),
-        callables: Vec::new(),
+        callables,
         seiyaku_name: "TestContract".to_owned(),
         compiler_fingerprint: "irohad-soracloud-tests".to_owned(),
         abi_hash: ivm::syscalls::compute_abi_hash(ivm::SyscallPolicy::AbiV1),
         features_bitmap: 0,
         access_set_hints: None,
         kotoba: Vec::new(),
-        entrypoints: entrypoints
-            .iter()
-            .enumerate()
-            .map(|(index, name)| {
-                let entry_pc = u64::try_from(index)
-                    .expect("test entrypoint index fits u64")
-                    .checked_mul(4)
-                    .expect("test entrypoint pc fits u64");
-                soracloud_entrypoint(name, entry_pc)
-            })
-            .collect(),
+        entrypoints,
         error_messages: Vec::new(),
         error_types: Vec::new(),
         enum_types: Vec::new(),
@@ -2464,9 +2490,154 @@ fn soracloud_contract_artifact_with_words(entrypoints: &[&str], code_words: &[u3
     }
     bytes
 }
+fn soracloud_unit_return_words() -> Vec<u32> {
+    use ivm::{encoding::wide as enc, instruction::wide};
+    vec![
+        enc::encode_store(wide::memory::STORE64, 12, 0, 0),
+        enc::encode_ri(wide::arithmetic::ADDI, 10, 12, 0),
+        enc::encode_ri(wide::arithmetic::ADDI, 11, 0, 1),
+        enc::encode_rr(wide::control::JALR, 0, 1, 0),
+    ]
+}
 fn simple_soracloud_contract_artifact(entrypoints: &[&str]) -> Vec<u8> {
-    let code_words = vec![ivm::encoding::wide::encode_halt(); entrypoints.len()];
-    soracloud_contract_artifact_with_words(entrypoints, &code_words)
+    soracloud_contract_artifact_with_functions(
+        entrypoints
+            .iter()
+            .map(|name| (soracloud_entrypoint(name, 0), soracloud_unit_return_words()))
+            .collect(),
+    )
+}
+fn soracloud_leaf(kind: EntrypointValueKindV1) -> ivm::EntrypointValueTypeV1 {
+    ivm::EntrypointValueTypeV1 {
+        nodes: vec![EntrypointValueTypeNodeV1::Leaf(kind)],
+    }
+}
+fn soracloud_typed_entrypoint(
+    name: &str,
+    fields: &[(&str, EntrypointValueKindV1)],
+    result: ivm::EntrypointValueTypeV1,
+) -> ivm::EmbeddedEntrypointDescriptor {
+    let mut entrypoint = soracloud_entrypoint(name, 0);
+    entrypoint.argument_schema = (!fields.is_empty()).then(|| ivm::EntrypointArgumentSchemaV1 {
+        fields: fields
+            .iter()
+            .map(|(name, kind)| {
+                iroha_data_model::smart_contract::entrypoint::EntrypointArgumentFieldV1 {
+                    name: (*name).to_owned(),
+                    ty: soracloud_leaf(*kind),
+                }
+            })
+            .collect(),
+    });
+    entrypoint.params = fields
+        .iter()
+        .map(
+            |(name, kind)| iroha_data_model::smart_contract::manifest::EntrypointParamDescriptor {
+                name: (*name).to_owned(),
+                type_name: soracloud_leaf(*kind)
+                    .canonical_type_name()
+                    .expect("leaf type name"),
+            },
+        )
+        .collect();
+    entrypoint.return_type = result.canonical_type_name();
+    entrypoint.return_schema = Some(result);
+    entrypoint
+}
+fn soracloud_echo_return_words(argument_index: u8) -> Vec<u32> {
+    use ivm::{encoding::wide as enc, instruction::wide};
+    vec![
+        enc::encode_load(
+            wide::memory::LOAD64,
+            5,
+            10,
+            i8::try_from(argument_index * 8).expect("fixture argument offset"),
+        ),
+        enc::encode_store(wide::memory::STORE64, 12, 5, 0),
+        enc::encode_ri(wide::arithmetic::ADDI, 10, 12, 0),
+        enc::encode_ri(wide::arithmetic::ADDI, 11, 0, 1),
+        enc::encode_rr(wide::control::JALR, 0, 1, 0),
+    ]
+}
+fn soracloud_query_echo_artifact(name: &str, metadata: bool) -> Vec<u8> {
+    soracloud_contract_artifact_with_functions(vec![(
+        soracloud_typed_entrypoint(
+            name,
+            &[
+                (
+                    "_request_body",
+                    if metadata {
+                        EntrypointValueKindV1::Blob
+                    } else {
+                        EntrypointValueKindV1::Json
+                    },
+                ),
+                ("_request_meta", EntrypointValueKindV1::Json),
+                ("observed_height", EntrypointValueKindV1::Int),
+            ],
+            soracloud_leaf(EntrypointValueKindV1::Json),
+        ),
+        soracloud_echo_return_words(u8::from(metadata)),
+    )])
+}
+fn soracloud_update_artifact(names: &[&str]) -> Vec<u8> {
+    soracloud_contract_artifact_with_functions(
+        names
+            .iter()
+            .map(|name| {
+                (
+                    soracloud_typed_entrypoint(
+                        name,
+                        &[
+                            ("_request_body", EntrypointValueKindV1::Blob),
+                            ("execution_sequence", EntrypointValueKindV1::Int),
+                            ("observed_height", EntrypointValueKindV1::Int),
+                        ],
+                        ivm::EntrypointValueTypeV1 {
+                            nodes: vec![EntrypointValueTypeNodeV1::Unit],
+                        },
+                    ),
+                    soracloud_unit_return_words(),
+                )
+            })
+            .collect(),
+    )
+}
+fn soracloud_echo_vm(
+    body_tlv: &[u8],
+    kind: EntrypointValueKindV1,
+) -> Result<(IVM, SoracloudOutputKind)> {
+    let bundle = load_deployment_bundle_fixture()?;
+    let temp_dir = canonical_runtime_fixture_tempdir()?;
+    let request = sample_ordered_mailbox_request(
+        &bundle,
+        "query",
+        sample_mailbox_message(&bundle, "query", b"echo".to_vec()),
+    );
+    let artifact = soracloud_contract_artifact_with_functions(vec![(
+        soracloud_typed_entrypoint("echo", &[("_request_body", kind)], soracloud_leaf(kind)),
+        soracloud_echo_return_words(0),
+    )]);
+    let contract = prepare_contract(Arc::from(artifact))?;
+    let mut vm = IVM::new(u64::MAX);
+    vm.load_prepared(&contract)?;
+    let (arguments, output_kind) = prepare_soracloud_invocation(
+        &mut vm,
+        &contract,
+        "echo",
+        SoracloudInvocationInput {
+            body_tlv,
+            metadata_tlv: None,
+            execution_sequence: None,
+            observed_height: 17,
+        },
+    )?;
+    vm.set_host(
+        SoracloudIvmHost::new(request, temp_dir.path().to_path_buf(), BTreeMap::new())
+            .with_prepared_arguments(arguments),
+    );
+    vm.run()?;
+    Ok((vm, output_kind))
 }
 fn bundle_handler(
     bundle: &SoraDeploymentBundleV1,

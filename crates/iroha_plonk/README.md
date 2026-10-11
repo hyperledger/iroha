@@ -1,8 +1,9 @@
 # iroha_plonk
 
 The Iroha-native PIPA-v1 PLONKish/IPA proof system (`specs/plonk_ipa_v1.md`),
-built on `iroha_pasta`. The vendored halo2 stack is a test oracle only
-(`crates/iroha_plonk_oracle`); this crate never depends on it.
+built on `iroha_pasta`. Independent captured vectors and native reference tests
+pin arithmetic and protocol behavior. The temporary vendored proof oracle is
+retired; there is no second production proof engine.
 
 PIPA-R uses explicit `CircuitDescriptorV2` admission (`DescriptorBinding::new_v2`
 or `decode_v2`) and `KeygenConfigV2::pipa_r`. Its RP57 transcript runs in the
@@ -101,6 +102,10 @@ Stage ENGINE-3 (tasks T12 and T13) provides:
   cannot opt out of the binding) and is drawn in the `BlindingScheduleV1`
   order. The quotient is evaluated on exactly `d - 1` cosets by a compiled,
   hash-consed expression DAG and recombined with a Vandermonde solve.
+  Gate terms use fixed groups of eight with shared public challenge powers;
+  omitted gates keep their original zero-valued positions and the final partial
+  group uses serial Horner evaluation. Both-field tests compare the full
+  quotient against the independent serial evaluator and retain proof-byte goldens.
   `Witness::from_circuit` checks that a circuit matches its key (copies
   through the key's copy digest, in constant memory) and moves the
   synthesized advice into the zeroizing witness; `Witness::from_columns`
@@ -127,10 +132,19 @@ randomness owner. Do not continue or publish a partially written IPA transcript.
 The ordinary APIs invoke the same implementation with no token, and an
 uncancelled token preserves proof bytes and arithmetic ordering.
 
-In oracle mode (`--cfg iroha_plonk_oracle`) `create_proof_oracle` reproduces
-vendored halo2-axiom proof bytes, and `verify_full_oracle` accepts vendored
-proofs (checked for Committed and Direct instances on both curves, with and
-without selector compression).
+Unit-test-only `create_proof_oracle` and `verify_full_oracle` reproduce and
+check the retained independent proof vectors. These hooks are never compiled
+into shipping binaries.
+
+For a singleton, unrotated fixed-table lookup, the prover derives a public bit
+bound from the entire authenticated fixed column. Membership-checked usable
+rows of the permuted input and table therefore fit that bound. The commitment
+validates every prefix scalar and computes the same sum using fewer secret MSM
+windows; full-width random padding and the original blind are unchanged. Tuple,
+rotated and compound tables retain the general commitment path. Neither random
+draw order nor transcript messages change. Optional commitment tables retain
+their existing path after prefix validation, and all scratch shares the process
+64 MiB ceiling. The MSM remains variable-time in its digit bucket access.
 
 Rules this crate enforces:
 
@@ -150,18 +164,10 @@ Rules this crate enforces:
 - verifier MSMs use complete formulas only; memory budgets change speed,
   never verdicts;
 - provers draw randomness only from `ProverRandomness`; fixed seeds exist
-  only in unit tests and oracle builds;
+  only in unit tests;
 - key generation refuses imported tables that copy, enable a selector or set
   a fixed value at or beyond the usable rows;
 - nothing panics on misuse: errors are typed.
-
-Oracle mode (the injected vendored `transcript_repr`, `fe_to_fe` Poseidon
-point absorption and caller-seeded prover randomness) is compiled only with
-`--cfg iroha_plonk_oracle` (and in this crate's unit tests); it is never a
-Cargo feature. `build.rs` only declares the cfg for `check-cfg`. The oracle
-run is enforced by `.github/workflows/native_prover_parity.yml`; `ORACLE_BUILD` reports the cfg, and
-every shipping root that links this crate asserts `!ORACLE_BUILD` at compile
-time.
 
 Offline compiler recovery can use `keys::source_fingerprint_v2` to identify
 exact witnessless public source tables before generating commitments. It runs the
@@ -212,6 +218,6 @@ Validate:
 cargo test -p iroha_plonk
 cargo test -p iroha_plonk --release --test pinned_params -- --include-ignored
 cargo test -p iroha_plonk --release --lib measure_prove_and_verify -- --ignored --nocapture
-RUSTFLAGS="--cfg iroha_plonk_oracle" cargo test -p iroha_plonk --lib  # own target dir
-cargo test -p iroha_plonk_oracle --test plonk_cs_parity
+cargo test -p iroha_plonk --release --lib captured_goldens
+cargo test -p iroha_plonk --release --lib bounded_tests
 ```

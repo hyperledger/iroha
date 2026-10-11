@@ -2090,6 +2090,8 @@ int32_t connect_norito_kagemusha_wallet_account_display_v1(const uint8_t* origin
  * Output:18 local challenge32,19 fixed FFI target161(slot32,key65,challenge32,binding32),
  * 20 pending,21 abandoned,22 Bootstrap selected,23 E5 challenge32,24 exact E5<=524288,
  * 25 exact E6<=262144,26 complete-source runtime ready,27 issuer dispatch DATA<=16384,28 exact signed Abandon<=1024,37 authenticated selection(scale:u32BE + asset original<=1024). All carry the same handle in sequence.
+ * Selector20 permanently abandons and returns 59 with the exact canonical Abandon ledger
+ * instruction (<=65536 bytes, same handle in sequence), or58 empty for the local form.
  * Abandon10 returns 58 (empty) for the local no-marker form, which has nothing to submit, or 28
  * with the exact retained signed Abandonment frame (marker form) for the holder's account to submit.
  * E6 is not ledger activation. Payment bounds remain10000. */

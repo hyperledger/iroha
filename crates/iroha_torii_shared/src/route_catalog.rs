@@ -2689,6 +2689,11 @@ pub mod sumeragi {
     /// Read a self-contained bridge finality proof.
     pub const BRIDGE_FINALITY: RouteDescriptor =
         public_get("bridge.finality_proof.read", "/v1/bridge/finality/{height}");
+    /// Read at most 64 consecutive self-contained full proofs under one finite source owner.
+    pub const BRIDGE_FINALITY_INTERVAL: RouteDescriptor = public_get(
+        "bridge.finality_interval.read",
+        "/v1/bridge/finality/interval/{from}/{to}",
+    );
     /// Read a challenge-bound node-signed durable-tip finality attestation.
     pub const BRIDGE_FINALITY_ATTESTATION: RouteDescriptor = public_get(
         "bridge.finality_attestation.read",
@@ -2726,6 +2731,7 @@ pub mod sumeragi {
         PRIVATE_ROOT_REGISTRATION,
         PRIVATE_ROOT_ANCHOR,
         BRIDGE_FINALITY,
+        BRIDGE_FINALITY_INTERVAL,
         BRIDGE_FINALITY_ATTESTATION,
         BRIDGE_FINALITY_ATTESTATION_LATEST,
         BRIDGE_FINALITY_BUNDLE,

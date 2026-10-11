@@ -99,11 +99,11 @@ impl MusubiPublicationInstallation {
         if !canonical_dns_name(&tls_server_name) {
             return Err("TLS server name must be canonical lowercase DNS");
         }
-        let broker_key_file = private_path(required(self.broker_key_file)?)?;
-        let pin_key_file = private_path(required(self.pin_key_file)?)?;
-        let tls_certificate_file = private_path(required(self.tls_certificate_file)?)?;
-        let tls_private_key_file = private_path(required(self.tls_private_key_file)?)?;
-        let tls_root_certificate_file = private_path(required(self.tls_root_certificate_file)?)?;
+        let broker_key_file = private_path(&required(self.broker_key_file)?)?;
+        let pin_key_file = private_path(&required(self.pin_key_file)?)?;
+        let tls_certificate_file = private_path(&required(self.tls_certificate_file)?)?;
+        let tls_private_key_file = private_path(&required(self.tls_private_key_file)?)?;
+        let tls_root_certificate_file = private_path(&required(self.tls_root_certificate_file)?)?;
         let readback_request_timeout_ms = self
             .readback_request_timeout_ms
             .unwrap_or(defaults::musubi_publication::READBACK_REQUEST_TIMEOUT_MS);
@@ -163,8 +163,8 @@ fn nonzero_hex(value: String) -> core::result::Result<[u8; 32], &'static str> {
     }
     Ok(bytes)
 }
-fn private_path(value: WithOrigin<PathBuf>) -> core::result::Result<PathBuf, &'static str> {
-    if value.clone().into_tuple().0.as_os_str().is_empty() {
+fn private_path(value: &WithOrigin<PathBuf>) -> core::result::Result<PathBuf, &'static str> {
+    if value.value().as_os_str().is_empty() {
         return Err("original private file paths must not be empty");
     }
     Ok(value.resolve_relative_path())

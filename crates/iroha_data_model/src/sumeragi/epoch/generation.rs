@@ -73,22 +73,7 @@ impl ValidatorGenerationV1 {
     /// # Errors
     /// Rejects a zero network, a non-`3f + 1` roster, non-BLS keys and unordered or repeated keys.
     pub fn validate(&self) -> Result<(), ValidatorEpochAuthorizationErrorV1> {
-        let n = self.validators.len();
-        if self.network_id.as_bytes() == &[0; 32]
-            || !(4..=MAX_VALIDATORS).contains(&n)
-            || !(n - 1).is_multiple_of(3)
-        {
-            return Err(invalid());
-        }
-        let mut previous: Option<&[u8]> = None;
-        for validator in &self.validators {
-            let key = bls_key(validator)?;
-            if previous.is_some_and(|previous| previous >= key) {
-                return Err(invalid());
-            }
-            previous = Some(key);
-        }
-        Ok(())
+        validate_roster(self.network_id, self.validators.iter())
     }
 
     /// Hash the network, generation and exact ordered roster with a fixed-width transcript.
@@ -96,20 +81,80 @@ impl ValidatorGenerationV1 {
     /// # Errors
     /// Rejects an invalid generation.
     pub fn generation_id(&self) -> Result<[u8; 32], ValidatorEpochAuthorizationErrorV1> {
-        self.validate()?;
-        let count = u32::try_from(self.validators.len()).map_err(|_| invalid())?;
-        let mut hasher = Sha256::new();
-        hasher.update(GENERATION_DOMAIN_V1);
-        hasher.update([0]);
-        hasher.update(GENERATION_VERSION_V1.to_le_bytes());
-        hasher.update(self.network_id.as_bytes());
-        hasher.update(self.generation.to_le_bytes());
-        hasher.update(count.to_le_bytes());
-        for validator in &self.validators {
-            hasher.update(bls_key(validator)?);
-        }
-        Ok(hasher.finalize().into())
+        generation_id_from_roster(self.network_id, self.generation, self.validators.iter())
     }
+
+    /// Hash the same generation transcript from the original complete committee peers.
+    /// This validates only roster geometry and grants no source or signing authority.
+    ///
+    /// # Errors
+    /// Preserves network, key shape and ordering refusal before the canonical hash.
+    pub(crate) fn generation_id_from_committee(
+        network_id: NetworkId,
+        generation: u64,
+        committee: &[ValidatorCommitteeMemberV1],
+    ) -> Result<[u8; 32], ValidatorEpochAuthorizationErrorV1> {
+        generation_id_from_roster(
+            network_id,
+            generation,
+            committee.iter().map(|member| &member.validator),
+        )
+    }
+}
+
+// Pure borrowed projection of the original roster. It carries no certificate,
+// source grant or retained graph; callers establish those independently.
+fn validate_roster<'a, I>(
+    network_id: NetworkId,
+    validators: I,
+) -> Result<(), ValidatorEpochAuthorizationErrorV1>
+where
+    I: ExactSizeIterator<Item = &'a PeerId>,
+{
+    let n = validators.len();
+    if network_id.as_bytes() == &[0; 32]
+        || !(4..=MAX_VALIDATORS).contains(&n)
+        || !(n - 1).is_multiple_of(3)
+    {
+        return Err(invalid());
+    }
+    let mut previous: Option<&[u8]> = None;
+    for validator in validators {
+        let key = bls_key(validator)?;
+        if previous.is_some_and(|previous| previous >= key) {
+            return Err(invalid());
+        }
+        previous = Some(key);
+    }
+    Ok(())
+}
+
+/// Derive the canonical generation transcript from exact borrowed original peers.
+/// This pure relation retains no graph and grants no signing or source authority.
+///
+/// # Errors
+/// Preserves network, geometry, key shape and ordering validation before hashing.
+pub(super) fn generation_id_from_roster<'a, I>(
+    network_id: NetworkId,
+    generation: u64,
+    validators: I,
+) -> Result<[u8; 32], ValidatorEpochAuthorizationErrorV1>
+where
+    I: ExactSizeIterator<Item = &'a PeerId> + Clone,
+{
+    validate_roster(network_id, validators.clone())?;
+    let count = u32::try_from(validators.len()).map_err(|_| invalid())?;
+    let mut hasher = Sha256::new();
+    hasher.update(GENERATION_DOMAIN_V1);
+    hasher.update([0]);
+    hasher.update(GENERATION_VERSION_V1.to_le_bytes());
+    hasher.update(network_id.as_bytes());
+    hasher.update(generation.to_le_bytes());
+    hasher.update(count.to_le_bytes());
+    for validator in validators {
+        hasher.update(bls_key(validator)?);
+    }
+    Ok(hasher.finalize().into())
 }
 
 fn bls_key(validator: &PeerId) -> Result<&[u8], ValidatorEpochAuthorizationErrorV1> {

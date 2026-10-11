@@ -1,8 +1,8 @@
 //! Complete genuine `ArchiveReceive` owner chain and same-original no-op evidence.
 //!
-//! The predecessor requires genuine installed ordinary-finality Load originals.
-//! These retained composition assertions require an explicit fixture and do not
-//! run until that provider is installed; compilation is not proof qualification.
+//! The predecessor requires genuine installed native-BLS-authorized Load originals.
+//! The explicit ignored entry points use fresh originals for each reconstructed
+//! predecessor; compilation is not proof qualification.
 #![allow(clippy::duplicate_mod)]
 #[path = "common/archive_objects.rs"]
 mod archive_objects;
@@ -17,6 +17,8 @@ mod common;
 #[path = "compact_catalog.rs"]
 /// Shared genuine compact predecessor fixtures; never release-catalog admission.
 pub mod compact_catalog;
+#[path = "a_archive_recursive/native_load_tests.rs"]
+mod native_load_tests;
 #[path = "common/receive_objects.rs"]
 #[allow(dead_code)]
 mod receive_objects;
@@ -981,6 +983,22 @@ fn replay_native_checkpoints(
         retained.len(),
         native::A_STAGE_COUNT + native::W_STAGE_COUNT
     );
+    for object in 0..3 {
+        for offset in [0, input.own[object].len() - 1] {
+            let mut bad = input.clone();
+            bad.own[object][offset] ^= 1;
+            assert!(
+                prover.prepare(bad, budget).is_err(),
+                "own tape {object}/{offset}"
+            );
+        }
+    }
+    let mut bad = input.clone();
+    bad.sigma[0] ^= 1;
+    assert!(
+        prover.prepare(bad, budget).is_err(),
+        "own sigma differs from Q0"
+    );
     let session = prover.prepare(input.clone(), budget).unwrap();
     assert!(
         session.terminal(foreign, budget).is_err(),
@@ -1577,7 +1595,6 @@ fn prove_chain(source: archive_q::ArchiveSource) {
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
 pub fn genuine_archive_receive_accepts_and_removes_pending(fixture: compact_catalog::LoadFixture) {
     let source = archive_q::build(
         compact_catalog::compact_payer_send(&fixture),
@@ -1587,7 +1604,6 @@ pub fn genuine_archive_receive_accepts_and_removes_pending(fixture: compact_cata
     prove_chain(source);
 }
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
 pub fn genuine_archive_receive_invalid_proof_retains_adjusted_pending(
     fixture: compact_catalog::LoadFixture,
 ) {
@@ -1600,7 +1616,6 @@ pub fn genuine_archive_receive_invalid_proof_retains_adjusted_pending(
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
 pub fn genuine_archive_receive_full_envelope_tail_retains_adjusted_pending(
     fixture: compact_catalog::LoadFixture,
 ) {

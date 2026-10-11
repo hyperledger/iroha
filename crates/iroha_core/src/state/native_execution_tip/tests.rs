@@ -306,3 +306,324 @@ fn snapshot_json_preserves_genesis_undo_absence_distinction() {
     assert!(empty.matches_original(None, None));
     assert!(!empty.matches_original(None, Some(None)));
 }
+
+#[test]
+fn restore_preserves_original_pool_refusal_release_and_same_source_retry() {
+    // Unrelated tests may pin the process-global reclamation epoch.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::native_execution_tip::tests::restore_preserves_original_pool_refusal_release_and_same_source_retry",
+    ) {
+        return;
+    }
+    use crate::{execution_attempt::ExecutionAttemptError, state::deserialize::StateRestoreError};
+    use iroha_allocation::AllocationRefusal;
+    use std::task::{Context, Waker};
+
+    let mut chain = chain();
+    chain.commit(Vec::new());
+    let view = chain.state().view();
+    let hashes: Vec<_> = view.block_hashes().iter().copied().collect();
+    let refused_claim = snapshot_claim(chain.state());
+    let retry_claim = snapshot_claim(chain.state());
+    let pool = chain.state().ivm_execution_budget();
+    let mut registration = crate::unit_test_support::release_registration(&pool);
+    // The waiter is an original fixture owner, admitted before measuring request work.
+    let reserved = pool.reserved_bytes();
+    let blocker = pool
+        .try_reserve_bytes(pool.limit_bytes().checked_sub(reserved).unwrap())
+        .unwrap();
+    assert!(blocker.belongs_to(&pool));
+    let original = CertifiedChain::from_pinned(
+        view.chain_id(),
+        view.network_id(),
+        &hashes,
+        chain.kura(),
+        &pool,
+    )
+    .err()
+    .expect("the actual original native source must refuse its full pool");
+    let ExecutionAttemptError::Deferred(original) = original else {
+        panic!("fixture must obtain the original source's typed local refusal: {original:?}");
+    };
+    let Some(AllocationRefusal::Capacity {
+        reserved_bytes,
+        limit_bytes,
+        release,
+        ..
+    }) = original.allocation_refusal()
+    else {
+        panic!("fixture must retain the exact original pool release: {original:?}");
+    };
+    assert_eq!(*reserved_bytes, pool.limit_bytes());
+    assert_eq!(*limit_bytes, pool.limit_bytes());
+    let release = release.clone();
+    chain.kura().reset_canonical_query_reads_for_test();
+    let refused = refused_claim
+        .restore(
+            &pool,
+            view.chain_id(),
+            view.network_id(),
+            &hashes,
+            chain.kura(),
+        )
+        .map_err(StateRestoreError::from);
+    let occupied = pool.reserved_bytes();
+    let reads = chain.kura().canonical_query_reads_for_test();
+    let pending = registration.poll_wait(&release, &mut Context::from_waker(Waker::noop()));
+    drop(blocker);
+    let ready = registration.poll_wait(&release, &mut Context::from_waker(Waker::noop()));
+    // Retire contention before any assertion, including the causal before-fix assertion.
+    assert_eq!(occupied, pool.limit_bytes());
+    assert_eq!(reads, (0, 0), "refused backing never reads a native body");
+    assert!(pending.is_pending());
+    assert!(ready.is_ready());
+    let error = refused
+        .err()
+        .expect("full original pool must refuse restore");
+    let StateRestoreError::ExecutionDeferred(actual) = error else {
+        panic!(
+            "native tip restore must preserve the original pool refusal as ExecutionDeferred: {error:?}"
+        );
+    };
+    assert_eq!(
+        actual, original,
+        "original release and all refusal fields survive restore"
+    );
+    let crate::snapshot::TryReadError::StateExecutionDeferred(exported) =
+        crate::snapshot::TryReadError::from(StateRestoreError::ExecutionDeferred(actual))
+    else {
+        panic!("the snapshot boundary must preserve the typed original refusal");
+    };
+    assert_eq!(exported, original);
+    assert_eq!(pool.reserved_bytes(), reserved);
+    let restored = retry_claim
+        .restore(
+            &pool,
+            view.chain_id(),
+            view.network_id(),
+            &hashes,
+            chain.kura(),
+        )
+        .map_err(StateRestoreError::from)
+        .expect("identical native source retries after original release");
+    assert_eq!(*restored.view().get(), view.native_execution_tip());
+    assert_eq!(
+        *restored.predecessor_view().get(),
+        *view.native_execution_tip_predecessor.get()
+    );
+    assert!(
+        pool.reserved_bytes() > reserved,
+        "the restored Cell owns its original pool charge"
+    );
+    drop(restored);
+    let retired = TipCell::allocation_layouts()
+        .into_iter()
+        .map(|layout| layout.size())
+        .sum::<usize>();
+    // The original State view still pins both retired EBR generations. Their
+    // physical backing must remain charged until that reader releases its epoch.
+    assert_eq!(pool.reserved_bytes(), reserved + retired);
+    assert!(
+        view.block_hashes()
+            .iter()
+            .copied()
+            .eq(hashes.iter().copied())
+    );
+    drop(view);
+    drop((chain, registration, release, exported, original));
+    collect_retired_restore_owners(&pool);
+}
+
+fn collect_retired_restore_owners(pool: &AllocationBudget) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while pool.reserved_bytes() != 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "restored native owners did not reclaim after the original readers released: {}",
+            pool.reserved_bytes()
+        );
+        crossbeam_epoch::pin().flush();
+        std::thread::yield_now();
+    }
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+fn restore_decode_context(
+    pool: &AllocationBudget,
+    bytes: usize,
+) -> norito::core::DecodeBudgetContext {
+    norito::core::DecodeBudgetContext::try_new_owned(
+        norito::DecodeLimits::new(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            bytes,
+            norito::core::MAX_VALUE_NESTING_DEPTH,
+        ),
+        pool,
+    )
+    .expect("the original fixture pool funds its cumulative decoder control")
+}
+
+#[test]
+fn restore_preserves_cumulative_prefix_decode_refusal_and_same_source_retry() {
+    // Unrelated tests may pin the process-global reclamation epoch.
+    if crate::unit_test_support::run_in_isolated_harness(
+        "state::native_execution_tip::tests::restore_preserves_cumulative_prefix_decode_refusal_and_same_source_retry",
+    ) {
+        return;
+    }
+    use crate::{execution_attempt::ExecutionAttemptError, state::deserialize::StateRestoreError};
+    let mut chain = chain();
+    chain.commit(Vec::new());
+    chain.commit(Vec::new());
+    let view = chain.state().view();
+    let hashes: Vec<_> = view.block_hashes().iter().copied().collect();
+    let refused_claim = snapshot_claim(chain.state());
+    let retry_claim = snapshot_claim(chain.state());
+    let pool = chain.state().ivm_execution_budget();
+    let baseline = pool.reserved_bytes();
+    // Calibrate only the actual canonical constructor, under its original pool and codec.
+    // H3 restoration then enters walk(2, 3), so its next genuine prefix decode must refuse.
+    let calibration = restore_decode_context(&pool, usize::MAX);
+    calibration.with(|| {
+        let _reader = CertifiedChain::from_pinned(
+            view.chain_id(),
+            view.network_id(),
+            &hashes,
+            chain.kura(),
+            &pool,
+        )
+        .expect("actual original constructor establishes its own canonical demand");
+    });
+    let constructor_bytes = usize::try_from(calibration.consumed_allocated_bytes()).unwrap();
+    assert!(constructor_bytes > 0);
+    drop(calibration);
+    assert_eq!(pool.reserved_bytes(), baseline);
+    let reference = restore_decode_context(&pool, constructor_bytes);
+    let original = reference.with(|| {
+        let reader = CertifiedChain::from_pinned(
+            view.chain_id(),
+            view.network_id(),
+            &hashes,
+            chain.kura(),
+            &pool,
+        )
+        .expect("finite allowance must complete the original constructor before prefix refusal");
+        reader
+            .walk(2, 3)
+            .next()
+            .unwrap()
+            .err()
+            .expect("next actual prefix decode must refuse")
+    });
+    let ExecutionAttemptError::Deferred(original) = original else {
+        panic!("fixture must obtain a typed original prefix refusal: {original:?}");
+    };
+    assert_eq!(
+        original.reason(),
+        ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+    );
+    assert!(
+        original.allocation_refusal().is_none(),
+        "codec accounting has no invented pool release"
+    );
+    assert_eq!(
+        reference.consumed_allocated_bytes(),
+        u64::try_from(constructor_bytes).unwrap()
+    );
+    drop(reference);
+    let counter = restore_decode_context(&pool, constructor_bytes);
+    let reserved = pool.reserved_bytes();
+    let refused = counter.with(|| {
+        refused_claim
+            .restore(
+                &pool,
+                view.chain_id(),
+                view.network_id(),
+                &hashes,
+                chain.kura(),
+            )
+            .map_err(StateRestoreError::from)
+    });
+    assert_eq!(
+        counter.consumed_allocated_bytes(),
+        u64::try_from(constructor_bytes).unwrap()
+    );
+    assert_eq!(
+        pool.reserved_bytes(),
+        reserved,
+        "all incomplete native graphs retire"
+    );
+    let error = refused
+        .err()
+        .expect("the actual finite prefix allowance must refuse restore");
+    let StateRestoreError::ExecutionDeferred(actual) = error else {
+        panic!(
+            "native tip restore must preserve the cumulative prefix decode refusal as ExecutionDeferred: {error:?}"
+        );
+    };
+    assert_eq!(actual, original);
+    let restored = retry_claim
+        .restore(
+            &pool,
+            view.chain_id(),
+            view.network_id(),
+            &hashes,
+            chain.kura(),
+        )
+        .map_err(StateRestoreError::from)
+        .expect("identical native prefix retries after caller decode scope");
+    assert_eq!(*restored.view().get(), view.native_execution_tip());
+    assert_eq!(
+        *restored.predecessor_view().get(),
+        *view.native_execution_tip_predecessor.get()
+    );
+    drop(restored);
+    let retired = TipCell::allocation_layouts()
+        .into_iter()
+        .map(|layout| layout.size())
+        .sum::<usize>();
+    assert_eq!(pool.reserved_bytes(), reserved + retired);
+    drop(counter);
+    assert_eq!(pool.reserved_bytes(), baseline + retired);
+    drop(view);
+    drop((chain, actual, original));
+    collect_retired_restore_owners(&pool);
+}
+
+#[test]
+fn restore_keeps_corrupt_native_history_a_completed_schema_rejection() {
+    use crate::state::deserialize::StateRestoreError;
+    let mut chain = chain();
+    chain.commit(Vec::new());
+    let view = chain.state().view();
+    let claim = snapshot_claim(chain.state());
+    let hashes: Vec<_> = view.block_hashes().iter().copied().collect();
+    let pool = chain.state().ivm_execution_budget();
+    let reserved = pool.reserved_bytes();
+    // This mutates real durable H2 bytes, leaving its pinned slot/hash and cached body intact.
+    chain
+        .kura()
+        .corrupt_native_frame_for_test(NonZeroUsize::new(2).unwrap());
+    let error = claim
+        .restore(
+            &pool,
+            view.chain_id(),
+            view.network_id(),
+            &hashes,
+            chain.kura(),
+        )
+        .map_err(StateRestoreError::from)
+        .err()
+        .expect("corrupt native history cannot establish authority");
+    let StateRestoreError::Serialization(norito::json::Error::InvalidField { field, message }) =
+        error
+    else {
+        panic!("corrupt native history remains a completed schema rejection: {error:?}");
+    };
+    assert_eq!(field, "native_execution_tip");
+    assert!(!message.is_empty());
+    assert_eq!(pool.reserved_bytes(), reserved);
+    assert_eq!(view.native_execution_tip().unwrap().height(), 2);
+}

@@ -17,7 +17,7 @@ workspace = true
 [features]
 default = []
 # Deterministic fake crypto, test harness helpers and the simulator.
-sim = []
+sim = ["dep:sha2"]
 # Test-only: lets `build.rs` compile in the §13.4 mutation named by `SUMERAGI_MUTATION`
 # (`cfg(sumeragi_mutation = "<ID>")`). Without this feature no build is ever mutated. Used by
 # `scripts/sumeragi_mutation_gate.py`; never enable it in a production build.
@@ -31,3 +31,17 @@ iroha_primitives = { workspace = true, default-features = false, features = ["si
 # identity (`iroha_core::release_identity::wire_schema_hash`).
 iroha_schema = { workspace = true }
 norito = { workspace = true, default-features = false, features = ["base-codec", "simd-accel"] }
+
+# The fake hash implementation is compiled only by `sim` or the crate's unit tests.
+sha2 = { version = "0.10.9", default-features = false, features = ["std"], optional = true }
+
+[dev-dependencies]
+sha2 = { version = "0.10.9", default-features = false, features = ["std"] }
+
+# sha2's AArch64 SHA instructions retain runtime detection and a portable fallback.
+# Its assembly dependency rejects Windows, which keeps the ordinary portable backend.
+[target.'cfg(all(target_arch = "aarch64", not(target_os = "windows")))'.dependencies]
+sha2 = { version = "0.10.9", default-features = false, features = ["std", "asm"], optional = true }
+
+[target.'cfg(all(target_arch = "aarch64", not(target_os = "windows")))'.dev-dependencies]
+sha2 = { version = "0.10.9", default-features = false, features = ["std", "asm"] }

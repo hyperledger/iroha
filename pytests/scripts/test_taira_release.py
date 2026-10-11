@@ -2784,20 +2784,30 @@ class TairaPrepareTests(unittest.TestCase):
             with self.assertRaisesRegex(release.PrepareError, "symlink escapes"):
                 release.canonical_source_snapshot(self.root, self.args.expected_commit, entries)
 
-    def test_canonical_mode_is_explicit_linux_prepare_selection(self):
+    def test_canonical_mode_is_explicit_for_each_prepare_command(self):
         options = ["--expected-commit", self.args.expected_commit,
                    "--expected-signer", self.args.expected_signer,
                    "--output-dir", str(self.out), "--zig", str(self.zig),
                    "--zig-sha256", self.args.zig_sha256,
                    "--cargo-zigbuild", str(self.zigbuild),
                    "--cargo-zigbuild-sha256", self.args.cargo_zigbuild_sha256]
-        self.assertEqual(release.parser().parse_args(["prepare", *options]).source_mode, "captured")
-        self.assertEqual(release.parser().parse_args(["prepare", "--source-mode", "canonical-checkout", *options]).source_mode,
-                         "canonical-checkout")
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            release.parser().parse_args(["prepare-native-runtime", "--source-mode", "canonical-checkout",
-                                       "--expected-commit", self.args.expected_commit,
-                                       "--expected-signer", self.args.expected_signer, "--output-dir", str(self.out)])
+        native_options = ["--expected-commit", self.args.expected_commit,
+                          "--expected-signer", self.args.expected_signer,
+                          "--output-dir", str(self.out)]
+        for command, arguments in (
+            ("prepare", options),
+            ("prepare-native-runtime", native_options),
+            ("prepare-client", [*native_options, "--bin", "iroha"]),
+        ):
+            with self.subTest(command=command):
+                self.assertEqual(release.parser().parse_args([command, *arguments]).source_mode,
+                                 "captured")
+                self.assertEqual(release.parser().parse_args(
+                    [command, "--source-mode", "canonical-checkout", *arguments]).source_mode,
+                    "canonical-checkout")
+                with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                    release.parser().parse_args(
+                        [command, "--source-mode", "unchecked", *arguments])
 
 
 if __name__ == "__main__":

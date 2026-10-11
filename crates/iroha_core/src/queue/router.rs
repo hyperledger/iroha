@@ -8704,10 +8704,10 @@ fn account_matches_literal_or_encoded(
     pattern: &str,
     authority: &AccountId,
 ) -> Result<bool, ExecutionDeferred> {
-    use iroha_data_model::account::address::{AccountAddress, AccountAddressError};
+    use iroha_data_model::account::address::AccountAddress;
     match AccountAddress::parse_encoded(pattern, None).and_then(|address| address.to_account_id()) {
         Ok(parsed) => Ok(parsed == *authority),
-        Err(AccountAddressError::DecodeResourceLimit) => {
+        Err(error) if error.is_decode_resource_limit() => {
             #[cfg(all(test, sumeragi_core_mutation = "HC40"))]
             return Ok(false);
             #[cfg(not(all(test, sumeragi_core_mutation = "HC40")))]

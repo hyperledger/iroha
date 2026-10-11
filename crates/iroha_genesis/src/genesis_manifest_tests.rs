@@ -373,7 +373,9 @@ fn with_consensus_meta_preserves_original_parameter_refusal_and_retry() {
     assert!(
         matches!(
             error.downcast_ref::<norito::json::Error>(),
-            Some(norito::json::Error::DecodeResourceLimit)
+            Some(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
         ),
         "{error:?}"
     );

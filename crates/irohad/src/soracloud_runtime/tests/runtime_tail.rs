@@ -92,7 +92,8 @@ fn vm_deferrals_are_local_unavailable_and_never_deterministic_faults() -> Result
         sample_mailbox_message(&bundle, "update", b"retry-me".to_vec()),
     );
     let active = VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity);
-    let allocation = VMError::AllocationDeferred(iroha_allocation::AllocationRefusal::DemandOverflow);
+    let allocation =
+        VMError::AllocationDeferred(iroha_allocation::AllocationRefusal::DemandOverflow);
     for (error, label) in [
         (active, "execution_deferred"),
         (allocation, "allocation_deferred"),
@@ -119,6 +120,66 @@ fn vm_deferrals_are_local_unavailable_and_never_deterministic_faults() -> Result
             .expect("runtime state")
             .health_status,
         SoraServiceHealthStatusV1::Degraded,
+    );
+    Ok(())
+}
+#[test]
+fn vm_nested_call_faults_keep_distinct_deterministic_mailbox_labels_when_metered() -> Result<()> {
+    let bundle = load_deployment_bundle_fixture()?;
+    let request = sample_ordered_mailbox_request(
+        &bundle,
+        "update",
+        sample_mailbox_message(&bundle, "update", b"nested-call".to_vec()),
+    );
+    let permission = deterministic_mailbox_failure_result(
+        request.clone(),
+        "permission_denied",
+        SoraServiceHealthStatusV1::Degraded,
+    );
+    let mut commitments = Vec::new();
+    for (error, label) in [
+        (VMError::ReentrantCall, "reentrant_call"),
+        (VMError::CallDepthExceeded, "call_depth_exceeded"),
+    ] {
+        let expected = deterministic_mailbox_failure_result(
+            request.clone(),
+            label,
+            SoraServiceHealthStatusV1::Degraded,
+        );
+        assert_ne!(
+            expected.runtime_receipt.result_commitment,
+            permission.runtime_receipt.result_commitment,
+            "distinct canonical faults must not collapse into a coarse permission label"
+        );
+        commitments.push(expected.runtime_receipt.result_commitment);
+        let metered = VMError::metered(7, error.clone());
+        assert_eq!(metered.metered_gas(), Some(7));
+        for error in [error, metered] {
+            assert_eq!(vm_error_label(&error), label);
+            assert_eq!(
+                vm_error_kind(&error),
+                SoracloudRuntimeExecutionErrorKind::Internal,
+            );
+            assert!(error.execution_deferral().is_none());
+            let actual = ordered_mailbox_vm_failure(request.clone(), &error)
+                .expect("nested-call refusal is a deterministic runtime result");
+            assert_eq!(actual, expected);
+            assert_eq!(
+                actual.runtime_state.expect("runtime state").health_status,
+                SoraServiceHealthStatusV1::Degraded
+            );
+            assert!(actual.state_mutations.is_empty());
+            assert!(actual.outbound_mailbox_messages.is_empty());
+            assert!(actual.response_bytes.is_empty());
+            assert_eq!(
+                actual.runtime_receipt.mailbox_message_id,
+                Some(request.mailbox_message.message_id)
+            );
+        }
+    }
+    assert_ne!(
+        commitments[0], commitments[1],
+        "distinct guest faults must have distinct receipts"
     );
     Ok(())
 }

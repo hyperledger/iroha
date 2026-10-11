@@ -9,8 +9,11 @@ use iroha_schema::IntoSchema;
 use norito::codec::{Decode, Encode};
 use sha2::{Digest as _, Sha256};
 
-use super::ValidatorGenerationV1;
+use super::{
+    ValidatorCommitteeMemberV1, ValidatorGenerationV1, generation::generation_id_from_roster,
+};
 use crate::{DeriveJsonDeserialize, DeriveJsonSerialize, NetworkId};
+use iroha_model_base::peer::PeerId;
 
 /// Sole first-release scheduling authorization layout version.
 const AUTHORIZATION_VERSION_V1: u16 = 1;
@@ -161,20 +164,55 @@ impl ValidatorEpochAuthorizationV1 {
         generation: &ValidatorGenerationV1,
         last_height: u64,
     ) -> Result<Self, ValidatorEpochAuthorizationErrorV1> {
+        Self::genesis_from_roster(
+            generation.network_id,
+            generation.generation,
+            generation.validators.iter(),
+            last_height,
+        )
+    }
+
+    /// Construct the same generation-zero authorization from the original committee.
+    /// No roster graph is copied; this shape relation confers no authentication.
+    ///
+    /// # Errors
+    /// Preserves the original roster-before-authorization refusal order.
+    pub(crate) fn genesis_from_committee(
+        network_id: NetworkId,
+        committee: &[ValidatorCommitteeMemberV1],
+        last_height: u64,
+    ) -> Result<Self, ValidatorEpochAuthorizationErrorV1> {
+        Self::genesis_from_roster(
+            network_id,
+            0,
+            committee.iter().map(|member| &member.validator),
+            last_height,
+        )
+    }
+
+    fn genesis_from_roster<'a, I>(
+        network_id: NetworkId,
+        generation: u64,
+        validators: I,
+        last_height: u64,
+    ) -> Result<Self, ValidatorEpochAuthorizationErrorV1>
+    where
+        I: ExactSizeIterator<Item = &'a PeerId> + Clone,
+    {
         let authorization = Self {
             version: AUTHORIZATION_VERSION_V1,
-            network_id: generation.network_id,
+            network_id,
             epoch: 0,
             first_height: 1,
             last_height,
-            authority_generation: generation.generation,
-            authority_id: generation.generation_id()?,
+            authority_generation: generation,
+            authority_id: generation_id_from_roster(network_id, generation, validators.clone())?,
             beacon: BeaconEpochBindingV1::Bootstrap,
             previous_authorization_id: [0; 32],
             transition_id: [0; 32],
             decision: ValidatorEpochDecisionV1::Genesis,
         };
-        authorization.validate_against_generation(generation)?;
+        authorization.validate_against_roster(network_id, generation, validators)?;
         Ok(authorization)
     }
 
@@ -242,11 +280,44 @@ impl ValidatorEpochAuthorizationV1 {
         &self,
         generation: &ValidatorGenerationV1,
     ) -> Result<(), ValidatorEpochAuthorizationErrorV1> {
+        self.validate_against_roster(
+            generation.network_id,
+            generation.generation,
+            generation.validators.iter(),
+        )
+    }
+
+    /// Check the same authorization relation against the original committee peers.
+    /// No separately copied generation graph participates in the comparison.
+    ///
+    /// # Errors
+    /// Preserves authorization-first validation and network/generation short circuits.
+    pub(crate) fn validate_against_committee(
+        &self,
+        network_id: NetworkId,
+        generation: u64,
+        committee: &[ValidatorCommitteeMemberV1],
+    ) -> Result<(), ValidatorEpochAuthorizationErrorV1> {
+        self.validate_against_roster(
+            network_id,
+            generation,
+            committee.iter().map(|member| &member.validator),
+        )
+    }
+
+    fn validate_against_roster<'a, I>(
+        &self,
+        network_id: NetworkId,
+        generation: u64,
+        validators: I,
+    ) -> Result<(), ValidatorEpochAuthorizationErrorV1>
+    where
+        I: ExactSizeIterator<Item = &'a PeerId> + Clone,
+    {
         self.validate()?;
-        let expected_generation = generation.generation;
-        if self.network_id != generation.network_id
-            || self.authority_generation != expected_generation
-            || self.authority_id != generation.generation_id()?
+        if self.network_id != network_id
+            || self.authority_generation != generation
+            || self.authority_id != generation_id_from_roster(network_id, generation, validators)?
         {
             return Err(invalid("epoch_authorization.generation"));
         }

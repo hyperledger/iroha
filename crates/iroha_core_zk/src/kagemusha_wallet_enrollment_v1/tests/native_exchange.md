@@ -57,6 +57,16 @@ conservation, Archive, and an actual verified Unload package. It exports the exa
 Unload claim for separate node execution. Its result explicitly does **not** claim ledger
 settlement, four-validator network qualification, physical attestation or phone gates.
 
+The Archive checks use both delivery forms: A accepts B's exact Receive package;
+B accepts C's folded CreditStatus. Each payer verifies the produced Archive
+package, folds the complete outgoing backlog, reopens the same custody, and
+replays the acknowledgement without another signature or monetary change. B's
+final CreditStatus must expose an empty pending-outgoing root. The four exact
+acknowledgement/Archive originals are retained with their lengths and hashes in
+`archive_originals`; every original must fit 10,000 bytes. These new checks are
+pending compilation and execution on the current candidate; their registration
+does not establish either Archive branch's acceptance.
+
 The software-key file is test-only private custody, not a portable wallet format or runtime
 API. Never distribute it with the public target. Consumer execution changes A's selected
 state; retrying a failed acceptance run must reconcile its retained state, never overwrite

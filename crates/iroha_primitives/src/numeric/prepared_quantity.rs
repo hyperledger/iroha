@@ -277,13 +277,37 @@ impl AsMut<[u8]> for QuantityJsonText {
     }
 }
 
-/// Original prepared backing or exact canonical decoding refusal.
-#[derive(Debug)]
-pub enum QuantityDestinationError {
+/// Original-pool or exact-layout refusal before any Quantity field is decoded.
+///
+/// The constructor returns this inline cause beside the unchanged original charge.
+/// Canonical decoding and destination geometry errors belong to the later fill.
+#[derive(Clone, Copy, Debug)]
+pub enum QuantityBackingError {
     /// The retained physical allocation is charged to a different finite pool.
     ForeignPool,
     /// Exact-layout validation or physical allocator refusal, without reacquisition.
     Allocation(ChargedBufferFromChargeError),
+}
+impl core::fmt::Display for QuantityBackingError {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::ForeignPool => formatter.write_str("quantity backing belongs to another pool"),
+            Self::Allocation(error) => error.fmt(formatter),
+        }
+    }
+}
+impl std::error::Error for QuantityBackingError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Allocation(error) => Some(error),
+            Self::ForeignPool => None,
+        }
+    }
+}
+
+/// Exact canonical decoding refusal or mismatch with the retained destination.
+#[derive(Debug)]
+pub enum QuantityDestinationError {
     /// Canonical scalar/decode-scope cause, left intact for the enclosing observer.
     Codec(Error),
     /// The actual input cannot fill this exact previously admitted backing.
@@ -297,8 +321,6 @@ pub enum QuantityDestinationError {
 impl core::fmt::Display for QuantityDestinationError {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::ForeignPool => formatter.write_str("quantity backing belongs to another pool"),
-            Self::Allocation(error) => error.fmt(formatter),
             Self::Codec(error) => error.fmt(formatter),
             Self::Geometry {
                 admitted_digits,
@@ -313,9 +335,8 @@ impl core::fmt::Display for QuantityDestinationError {
 impl std::error::Error for QuantityDestinationError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Allocation(error) => Some(error),
             Self::Codec(error) => Some(error),
-            Self::ForeignPool | Self::Geometry { .. } => None,
+            Self::Geometry { .. } => None,
         }
     }
 }
@@ -353,16 +374,71 @@ impl PreparedQuantityDecode {
         budget: &AllocationBudget,
     ) -> Result<ChargedQuantity, QuantityDecodeAdmissionError> {
         let mut retained = None;
+        Self::decode_payload_retained(bytes, budget, &mut retained)?;
+        retained
+            .ok_or(QuantityDecodeAdmissionError::Incomplete)?
+            .finish()
+            .map_err(|_| QuantityDecodeAdmissionError::Incomplete)
+    }
+
+    /// Recheck canonical Quantity fields without replacing retained native digits.
+    ///
+    /// Uses the same scalar walk and nominal backing admission as an original
+    /// attempt. The enclosing owner authenticates its unchanged source and keeps
+    /// the original Quantity allocation; this function creates no value graph.
+    ///
+    /// # Errors
+    /// Preserves every original field, cumulative-work and numeric-domain error.
+    pub fn recheck_payload(bytes: &[u8]) -> Result<(), Error> {
+        QuantityDecodePlan::decode_payload_with_probe(bytes, true).map(|_| ())
+    }
+
+    /// Fill or resume the original mantissa backing through the canonical field walk.
+    ///
+    /// Admission remains before scale/domain validation. A later refusal leaves
+    /// the exact digits in `destination`, without refund, clone or replacement.
+    /// Re-entry consumes the ordinary logical work in the enclosing original
+    /// context; it does not reset counters or change any ceiling. The enclosing
+    /// record owner must authenticate the unchanged source before each call.
+    ///
+    /// # Errors
+    /// Returns the unchanged codec, physical admission or destination cause.
+    pub fn decode_payload_retained(
+        bytes: &[u8],
+        budget: &AllocationBudget,
+        destination: &mut Option<Self>,
+    ) -> Result<(), QuantityDecodeAdmissionError> {
+        if let Some(retained) = destination.as_mut() {
+            if !retained.belongs_to(budget) {
+                return Err(QuantityDecodeAdmissionError::Incomplete);
+            }
+            retained.reset();
+        }
         let plan = {
             let mut retain_mantissa = |payload: &[u8]| {
                 let canonical = crate::bigint::CanonicalNativeDigits::from_payload(payload);
                 canonical.reserve_decode_backing()?;
-                let mut digits = ChargedBuffer::new(canonical.as_slice().len(), budget)
-                    .map_err(DecodeIntoError::Destination)?;
-                for &digit in canonical.as_slice() {
-                    digits.push_reserved(digit);
+                if destination.is_none() {
+                    let digits = ChargedBuffer::new(canonical.as_slice().len(), budget)
+                        .map_err(DecodeIntoError::Destination)?;
+                    *destination = Some(Self {
+                        digits,
+                        scale: None,
+                    });
                 }
-                retained = Some(digits);
+                let retained = destination
+                    .as_mut()
+                    .ok_or_else(|| DecodeIntoError::Codec(Error::LengthMismatch))?;
+                if retained.digits.capacity() != canonical.as_slice().len() {
+                    return Err(DecodeIntoError::Codec(Error::LengthMismatch));
+                }
+                if retained.digits.as_slice().is_empty() {
+                    for &digit in canonical.as_slice() {
+                        retained.digits.push_reserved(digit);
+                    }
+                } else if retained.digits.as_slice() != canonical.as_slice() {
+                    return Err(DecodeIntoError::Codec(Error::LengthMismatch));
+                }
                 Ok::<_, DecodeIntoError<ChargedBufferError>>(())
             };
             let mut fields = NumericPlanFields::new(&mut retain_mantissa);
@@ -373,10 +449,11 @@ impl PreparedQuantityDecode {
             }
             fields.finish()?
         };
-        let digits = retained.ok_or(QuantityDecodeAdmissionError::Incomplete)?;
-        // Valid Quantity's canonical magnitude is positive, minimal and bounded
-        // by the same scalar relation. This exact filled Vec cannot resize.
-        Ok(Self::bind_complete(digits, plan.scale))
+        destination
+            .as_mut()
+            .ok_or(QuantityDecodeAdmissionError::Incomplete)?
+            .scale = Some(plan.scale);
+        Ok(())
     }
 
     /// Physically allocate the exact final magnitude before decoding a value.
@@ -388,12 +465,12 @@ impl PreparedQuantityDecode {
         plan: &QuantityDecodePlan,
         budget: &AllocationBudget,
         charge: AllocationCharge,
-    ) -> Result<Self, (AllocationCharge, QuantityDestinationError)> {
+    ) -> Result<Self, (AllocationCharge, QuantityBackingError)> {
         if !charge.belongs_to(budget) {
-            return Err((charge, QuantityDestinationError::ForeignPool));
+            return Err((charge, QuantityBackingError::ForeignPool));
         }
         let mut digits = ChargedBuffer::try_from_charge(plan.digit_count, charge)
-            .map_err(|(charge, error)| (charge, QuantityDestinationError::Allocation(error)))?;
+            .map_err(|(charge, error)| (charge, QuantityBackingError::Allocation(error)))?;
         // Initialize every fixed native digit before exposing its original slice;
         // append remains inside exact admitted capacity and invokes no graph Clone.
         let zeroes = [0 as NativeBigDigit; MAX_MANTISSA_BYTES / UNBOUNDED_BIGINT_DIGIT_BYTES];
@@ -500,7 +577,7 @@ impl ChargedQuantity {
     /// The caller retains the enclosing source, keys, record/control storage and same
     /// cumulative decoder context. It must defer refunds beyond any State or storage
     /// guards. This leaf retains no partially parsed text/digits on failure and does
-    /// not close the admitted NPoS record/key or later authority-graph obligations.
+    /// not close the admitted `NPoS` record/key or later authority-graph obligations.
     ///
     /// # Errors
     /// Preserves the original JSON/resource cause or exact pool/allocator refusal.
@@ -549,16 +626,15 @@ impl ChargedQuantity {
             // unchanged kernel fills and owns it without growth or replacement.
             unsafe { quantity_mantissa_from_canonical_le_bytes_with(magnitude, allocate) }
         })?;
-        let charge = match digit_charge {
-            Some(charge) => charge,
-            None => {
-                debug_assert!(value.is_zero());
-                let empty = ChargedBuffer::<NativeBigDigit>::new(0, budget)?;
-                // SAFETY: zero owns no allocation; pair its same-pool zero charge
-                // immediately with the already allocation-free canonical zero.
-                let (_, charge) = unsafe { empty.into_allocation_parts() };
-                charge
-            }
+        let charge = if let Some(charge) = digit_charge {
+            charge
+        } else {
+            debug_assert!(value.is_zero());
+            let empty = ChargedBuffer::<NativeBigDigit>::new(0, budget)?;
+            // SAFETY: zero owns no allocation; pair its same-pool zero charge
+            // immediately with the already allocation-free canonical zero.
+            let (_, charge) = unsafe { empty.into_allocation_parts() };
+            charge
         };
         Ok(Self { value, charge })
     }

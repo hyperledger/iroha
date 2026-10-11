@@ -28,7 +28,7 @@ public struct KagemushaWalletCallV1: Sendable {
   /// deletionReviewDiscarded55, notDeleted56, epochProgress57. Retired kinds41/43 are rejected.
   /// Enrollment18...28 and localAbandoned58 (the no-marker enrollment abandonment, which has
   /// nothing to submit) are projected by the separate enrollment owner.
-  static let statusRange: ClosedRange<Int32> = 0...58
+  static let statusRange: ClosedRange<Int32> = 0...59
   public let status: Int32
   public let sequenceLow: UInt64
   public let sequenceHigh: UInt64
@@ -41,9 +41,9 @@ public struct KagemushaWalletCallV1: Sendable {
   init(status: Int32, sequenceLow: UInt64, sequenceHigh: UInt64, detail: UInt32, bytes: Data) throws
   {
     guard Self.statusRange.contains(status), ![41, 43].contains(status), bytes.count <= kagemushaWalletOutputBoundV1(status),
-      [1, 10, 12, 13, 15, 17, 18, 19, 23, 24, 25, 27, 28, 30, 31, 33, 36, 37, 38, 40, 42, 44, 45, 47, 48, 49, 53, 54, 57].contains(status) ? !bytes.isEmpty : bytes.isEmpty,
+      [1, 10, 12, 13, 15, 17, 18, 19, 23, 24, 25, 27, 28, 30, 31, 33, 36, 37, 38, 40, 42, 44, 45, 47, 48, 49, 53, 54, 57, 59].contains(status) ? !bytes.isEmpty : bytes.isEmpty,
       ![12, 14, 17, 30, 31, 32, 34, 35, 36, 40, 46, 47, 48, 50, 54, 55, 56].contains(status) || (sequenceLow == 0 && sequenceHigh == 0 && detail == 0),
-      !([13, 15, 16, 53, 58].contains(status) || (18...28).contains(status) || (37...39).contains(status))
+      !([13, 15, 16, 53, 58, 59].contains(status) || (18...28).contains(status) || (37...39).contains(status))
         || (sequenceLow > 0 && sequenceLow <= UInt64(Int64.max) && sequenceHigh == 0 && detail == 0),
       !(50...52).contains(status) || detail == 0,
       ![13, 15, 18, 23].contains(status) || bytes.count == 32,
@@ -755,7 +755,7 @@ func kagemushaWalletCallbacksV1(_ platform: KagemushaWalletApplePlatformV1)
 func kagemushaWalletOutputBoundV1(_ status: Int32) -> Int {
   switch status {
   case 17, 27, 30, 36, 48: return 16_384
-  case 40: return 65_536
+  case 40, 59: return 65_536
   case 24: return KagemushaWalletEnrollmentV1.REQUEST_MAX_BYTES
   case 25: return 262_144
   case 28: return 1024

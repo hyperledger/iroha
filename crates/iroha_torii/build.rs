@@ -8,10 +8,15 @@ use std::{env, fs, path::Path};
 
 const CFG: &str = "sumeragi_torii_mutation";
 const ENV: &str = "SUMERAGI_TORII_MUTATION";
-const IDS: &[&str] = &["TOR1", "TOR2"];
+const IDS: &[&str] = &["TOR1", "TOR2", "TOR3"];
 
 fn main() {
-    println!("cargo:rustc-check-cfg=cfg(sumeragi_torii_mutation, values(\"TOR1\", \"TOR2\"))");
+    let values = IDS
+        .iter()
+        .map(|id| format!("{id:?}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    println!("cargo:rustc-check-cfg=cfg({CFG}, values({values}))");
     println!("cargo:rerun-if-env-changed={ENV}");
     println!("cargo:rerun-if-changed=build.rs");
     let rustflags = env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_default();

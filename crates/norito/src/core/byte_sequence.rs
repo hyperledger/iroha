@@ -57,12 +57,21 @@ pub(super) fn read_byte_value(bytes: &[u8]) -> Result<u8, Error> {
 /// Visit every length-prefixed element span of a sequence with a known count.
 ///
 /// Returns the total sequence payload length consumed from the front of `bytes`.
-pub(super) fn visit_binary_sequence_with_count(
+/// The caller obtains `count` through the original sequence admission kernel and
+/// retains the advertised layout/decode context. This allocates no span or element graph.
+/// A containing field must still require complete consumption and decode each element
+/// with its canonical leaf kernel. This traversal authenticates no application value.
+///
+/// # Errors
+/// Preserves the original count, advertised layout, span, field and cumulative refusal.
+#[doc(hidden)]
+pub fn visit_binary_sequence_with_count(
     bytes: &[u8],
     flags: u8,
     count: usize,
     mut visit: impl FnMut(SequenceSpan) -> Result<(), Error>,
 ) -> Result<usize, Error> {
+    validate_header_flags(flags)?;
     let (declared_count, mut offset) = inspect_seq_len_slice(bytes)?;
     if declared_count != count {
         return Err(Error::LengthMismatch);
@@ -188,5 +197,44 @@ mod tests {
         };
         assert_eq!(error.to_string(), "invalid public key");
         assert!(!error.is_decode_resource_limit());
+    }
+
+    #[test]
+    fn original_borrowed_sequence_visitor_rejects_reserved_layout_count_and_truncated_spans() {
+        for flags in [0, header_flags::COMPACT_LEN] {
+            let _flags = DecodeFlagsGuard::enter(flags);
+            let values = [0x11, 0x22, 0x33];
+            let bytes = encode(&values);
+            let (count, _) = read_seq_len_slice(&bytes).unwrap();
+            let mut visited = Vec::new();
+            let used = visit_binary_sequence_with_count(&bytes, flags, count, |span| {
+                assert!(std::ptr::eq(
+                    span.get(&bytes)?.as_ptr(),
+                    bytes[span.start..].as_ptr()
+                ));
+                visited.push(span.get(&bytes)?[0]);
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(visited, values);
+            assert_eq!(used, bytes.len());
+            assert!(
+                visit_binary_sequence_with_count(&bytes, flags, count + 1, |_| Ok(())).is_err()
+            );
+            assert!(
+                visit_binary_sequence_with_count(&bytes[..bytes.len() - 1], flags, count, |_| Ok(
+                    ()
+                ))
+                .is_err()
+            );
+            assert!(visit_binary_sequence_with_count(&bytes, 0xff, count, |_| Ok(())).is_err());
+            let mut trailing = bytes.clone();
+            trailing.push(0x55);
+            assert_eq!(
+                visit_binary_sequence_with_count(&trailing, flags, count, |_| Ok(())).unwrap(),
+                used,
+                "enclosing canonical field must independently reject this explicit suffix"
+            );
+        }
     }
 }

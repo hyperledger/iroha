@@ -762,8 +762,11 @@ check runs.
     case;
   - this step's σ and τ, and every input package's Ω, σ and τ;
   - every signature it owns: the Request and receiver credential only in
-    Λ_recv; ordinary Load receipts in Λ_load; certificates, credentials, and policy,
-    list, time and credential updates in the step that consumes them;
+    Λ_recv; certificates, credentials, and policy, list, time and credential
+    updates in the step that consumes them;
+  - in Λ_load, the exact ordinary receipt terms and replay insertion bound to
+    the credential-authorized Advance. Native BLS finality and receipt-event
+    inclusion are checked before that signature under §6.1, not in Λ_load;
   - the Request's account digests against the credential each belongs to:
     Λ_send checks the payer account digest against the payer's own
     credential, and Λ_recv checks the receiver account digest against the
@@ -874,14 +877,18 @@ Post-commit failure is contained:
   before Advance, and in-circuit only in the receiver's own Λ_recv. Fee terms
   are checked against the payer's own policy.
 - Ordinary Load receipts, certificates, fee schedules, credentials, and policy, list,
-  time and credential updates have no failure branch. The issuer and ledger
-  roles of §2.3 sign them. A peer can relay them but cannot forge or re-encode
+  time and credential updates have no failure branch. The issuer roles of §2.3
+  sign their objects; native BLS finality authenticates ledger Load receipts as
+  specified in §6.1. A peer can relay them but cannot forge or re-encode
   them (§8), so only a verifier defect can make them fail in-circuit. The next
   two rules target that defect.
 - Native and in-circuit verifiers accept exactly the same set for every object
   that Λ verifies after a native check: Ω including its deferred values, σ, τ,
   the Request, Credited evidence, ordinary Load receipts, fee schedules, certificates,
   credentials, and policy, list, time and credential updates.
+  For ordinary Load receipts this equivalence covers canonical transcript and
+  monetary-term binding. Native BLS finality and event inclusion remain the
+  explicit pre-Advance trust boundary of §6.1; Λ does not repeat those checks.
 - Every signature that Λ verifies uses a P-256 gadget that is complete for every
   input the native verifier accepts.
 
@@ -1407,7 +1414,9 @@ finality runs and structural fixtures do not establish those gates.
 a ledger-directed claim with a domain-separated nullifier derived from scheme,
 wallet and redemption ordinal. The ledger verifies the complete committed
 package, including Ω of its predecessor and the §3.2 consumer checks, and pays
-its bound account exactly once at face value. Unload is possible only from a
+the face amount exactly once: the bound account receives it in full when the
+online charge is zero; otherwise the displayed quote's charge is withheld for
+its fixed beneficiary and the account receives the remainder. Unload is possible only from a
 folded head, and its amount is bounded by `balance − burned_total` with
 Ω(pred)'s `burned_total`. Retry returns
 the original result. No timeout restores an uncertain redemption to the wallet.

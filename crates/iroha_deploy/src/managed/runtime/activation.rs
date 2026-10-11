@@ -462,11 +462,14 @@ impl Recheck {
     }
 }
 
-fn validate_gateways(
+pub(super) fn validate_gateways(
     prepared: &PreparedLocalnet,
     live: &mut [OwnedGateway; 3],
     budget: &Budget,
 ) -> std::result::Result<(), Failure> {
+    if !norito::core::decode_limits_active() {
+        return OwnedGateway::validate_shared_round(prepared, live, budget);
+    }
     let plans = budget.call(|_| {
         live[0]
             .original_provider_plans(prepared)?

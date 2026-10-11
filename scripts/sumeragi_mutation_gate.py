@@ -48,6 +48,8 @@ Purpose
     `SUMERAGI_SDK_MUTATION` and `SUMERAGI_DEPLOY_MUTATION`.
     `--torii` selects Torii canonical-outcome custody unit tests in the test profile
     with `SUMERAGI_TORII_MUTATION`.
+    `--norito` selects canonical decode-origin unit tests in the test profile
+    with `SUMERAGI_NORITO_MUTATION`.
     Each test-only feature guards only its own crate, without mutating dependencies.
 
 Prerequisites
@@ -73,6 +75,7 @@ Examples
     scripts/sumeragi_mutation_gate.py --core --strict --jobs 1
     scripts/sumeragi_mutation_gate.py --daemon --only HC93 --strict --jobs 1
     scripts/sumeragi_mutation_gate.py --torii --only TOR1 --strict --jobs 1
+    scripts/sumeragi_mutation_gate.py --norito --strict --jobs 1
 """
 
 from __future__ import annotations
@@ -448,8 +451,10 @@ CORE_MUTATIONS = [
        "sumeragi::evidence::codec_tests::persisted_root_decode_refusal_retains_original_validation_cut_for_retry"]),
     m("HC8", "executor: classify local payload decode refusal as cached invalid data",
       ["sumeragi::executor::publication_tests::payload_decode_refusal_retains_available_owner_without_negative_cache"]),
-    m("HC10", "history: skip original query scratch admission before signed RS16 reconstruction",
-      ["sumeragi::certified_chain::tests::state_certificate::state_certificate_signed_availability_scratch_uses_original_query_allowance"]),
+    m("HC10", "history: skip original caller scratch admission before proposal/RS16 reconstruction",
+      ["sumeragi::certified_chain::tests::state_certificate::state_certificate_signed_availability_scratch_uses_original_query_allowance",
+       "sumeragi::certified_chain::terminal_selection::tests::terminal_amx_prefix_refuses_original_payload_scratch_without_advancing",
+       "sumeragi::certified_chain::terminal_selection::tests::terminal_amx_prefix_refuses_original_rs16_scratch_without_advancing"]),
     m("HC11", "history: use a warm decoded body instead of rereading the pinned durable certificate",
       ["sumeragi::certified_chain::tests::durable_certificate_read_rejects_checksum_valid_corruption_after_cache_warm"]),
     m("HC12", "beacon: allocate children before complete original prepaid session admission",
@@ -509,9 +514,26 @@ CORE_MUTATIONS = [
        'validation_fee::tests::registry_refusal_tests::signed_fee_runtime_read_does_not_turn_scope_refusal_into_a_nonmatching_origin',
        'validation_fee::tests::registry_refusal_tests::original_retained_fee_registry_does_not_publish_local_decode_refusal_as_malformed',
        'smartcontracts::isi::world::isi::tests::signed_payout_scope_refusal_cannot_publish_a_parliament_terminal_outcome']),
-    m("HC32", "reward credit readers: turn original alias or owner decode refusal into malformed durable leaves",
+    m("HC32", "original decode refusals: erase reward-credit, native worker and Kaigi retryability",
       ["validation_fee_rewards::tests::original_fee_credit_alias_decode_refusal_preserves_balance_and_retries",
-       "validation_fee_rewards::tests::original_fee_credit_owner_decode_refusal_preserves_exact_binding_and_retries"]),
+       "validation_fee_rewards::tests::original_fee_credit_owner_decode_refusal_preserves_exact_binding_and_retries",
+       "sumeragi::executor::publication_tests::context_proof_decoder_refusal_retains_original_inputs_and_retries",
+       "sumeragi::executor::publication_tests::native_context_archive_decoder_refusal_retains_original_execution_and_retries",
+       'smartcontracts::isi::kaigi::typed_deferral_tests::stored_record_refusal_is_sticky_and_retries_original_json_without_publication',
+       'smartcontracts::isi::kaigi::typed_deferral_tests::indexed_record_refusal_preserves_unregister_guard_and_original_retry',
+       'state::deserialize::kaigi_typed_deferral_tests::restored_kaigi_record_refusal_is_deferred_and_retries_original_snapshot',
+       'smartcontracts::isi::kaigi::relay_typed_deferral_tests::registration_refusal_preserves_original_relay_retirement_and_retry',
+       'smartcontracts::isi::kaigi::relay_typed_deferral_tests::feedback_refusal_preserves_both_original_relay_rows_and_retry',
+       'smartcontracts::isi::kaigi::relay_typed_deferral_tests::allowlist_refusal_prevents_domain_metadata_publication_and_retries_original_json',
+       'smartcontracts::isi::kaigi::relay_typed_deferral_tests::checked_record_writer_refusal_keeps_original_create_unpublished_and_retries',
+       'state::deserialize::kaigi_relay_typed_deferral_tests::restored_registration_refusal_retains_original_snapshot_and_retry',
+       'state::deserialize::kaigi_relay_typed_deferral_tests::restored_allowlist_refusal_retains_original_snapshot_and_retry',
+       'state::world_construction_tests::world_constructor_registration_refusal_is_fallible_and_retries_original_source',
+       'state::world_construction_tests::world_constructor_record_refusal_is_fallible_and_retries_original_source',
+       'smartcontracts::isi::kaigi::relay_typed_deferral_tests::lineage_refusal_preserves_original_relay_retirement_and_retry',
+       'smartcontracts::isi::kaigi::relay_typed_deferral_tests::primary_alias_refusal_preserves_original_registration_and_retry',
+       'execution_attempt::tests::json_scoped_refusal_preserves_original_context_source_and_retry',
+       'smartcontracts::isi::kaigi::relay_typed_deferral_tests::live_manifest_dependency_refusal_preserves_original_route_and_retry']),
     m("HC33", "credit refusal classifier: borrow any active scope for a global or inner format limit",
       ["execution_attempt::tests::norito_global_archive_cap_is_terminal_inside_an_outer_decode_scope",
        "execution_attempt::tests::norito_inner_format_limits_are_terminal_under_a_wider_outer_scope"]),
@@ -593,7 +615,7 @@ CORE_MUTATIONS = [
       ['validation_fee_rewards::tests::canonical_network_xor_is_required_before_fee_reward_state_changes',
        'state::network_xor::tests::network_xor_rejects_wrong_definition_scope_and_precision',
        'smartcontracts::isi::staking::tests::staking_registration_rejects_wrong_xor_shape_with_transaction_rollback',
-       'smartcontracts::isi::staking::tests::reward_claim_rejects_wrong_xor_shape_with_transaction_rollback']),
+       'validation_fee_rewards::tests::public_fee_reward_claim_rejects_wrong_network_xor_without_writes_and_retries_original_plan']),
     m("HC59", "beacon reducer: retain a well-formed but unverified partial signature",
       ['beacon::tests::threshold_beacon_inline_reducer_rejects_invalid_share_without_losing_original_slots']),
     m("HC60", "publication preparation: erase the original pool refusal at scheduler handoff",
@@ -616,9 +638,9 @@ CORE_MUTATIONS = [
       ['executor::opaque_monetary_tests::raw_ivm_staking_trigger_requires_signed_monetary_plan',
        'executor::opaque_monetary_tests::supplied_proved_staking_effects_require_signed_monetary_plan']),
     m("HC67", "live multisig proposal: classify a local decoder refusal as malformed authority",
-      ['smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_decode_refusal_retries_original_signed_xor_claim']),
+      ['smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_decode_refusal_retries_original_signed_xor_transfer']),
     m("HC68", "retained multisig proposal: accept an unapproved body or rebound physical row",
-      ['smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_body_binding_rolls_back_original_signed_xor_claim',
+      ['smartcontracts::isi::multisig::tests::proposal_attempt::live_multisig_proposal_body_binding_rolls_back_original_signed_xor_transfer',
        'smartcontracts::isi::multisig::tests::proposal_attempt::proposal_migration_validates_original_physical_key_and_body_before_writes',
        'queue::router::tests::persisted_multisig_body_binding_and_local_refusal_reach_signed_queue_admission',
        'state::deserialize::decode_tests::restored_multisig_proposals_require_exact_body_and_preserve_local_read_refusal']),
@@ -922,6 +944,52 @@ CORE_MUTATIONS = [
        "state::block_proofs::native_proof_reader_tests::native_block_proof_preserves_original_cumulative_metadata_refusal",
        "sumeragi::finality::compact_source::tests::compact_source_preserves_original_cumulative_metadata_refusal_before_body_io"]),
 
+    m("HC207", "restricted home admission: omit original authenticated private-root binding",
+      ["smartcontracts::isi::domain::isi::private_root_home_tests::restricted_home_requires_original_private_root_not_global_missing_or_foreign_scope"]),
+    m("HC208", "restricted private home admission: omit both original captured route coordinates",
+      ["smartcontracts::isi::domain::isi::private_root_home_tests::original_private_home_requires_both_exact_captured_routes"]),
+    m("HC209", "restricted private home admission: omit canonical original physical geometry",
+      ["smartcontracts::isi::domain::isi::private_root_home_tests::original_private_home_requires_canonical_single_root_geometry"]),
+    m("HC210", "finite finality interval: discard completed original prefix between consecutive outputs",
+      ["sumeragi::finality::proof_reader_tests::finite_finality_interval_under_original_codec_checks_each_real_quorum_once"]),
+    m("HC211", "finite finality interval: omit final original raw source join",
+      ["sumeragi::finality::interval::tests::finite_interval_rejects_earlier_real_qc_changed_after_verification_before_publication"]),
+    m("HC212", "finite finality interval: omit original deadline and cancellation stop",
+      ["sumeragi::finality::interval::tests::finite_interval_stop_retires_real_original_cursor_without_next_native_read"]),
+    m("HC213", "portable proof destination: omit actual original compact public-key backing charge",
+      ["sumeragi::finality::proof_destination::tests::original_proof_destination_charges_each_actual_compact_key_before_clone_and_refunds"]),
+    m("HC214", "finite finality State source: omit final one-shot captured-generation membership join",
+      ["state::finality_proof_interval::tests::interval_post_read_writer_refusal_retires_response_and_preserves_original_release"]),
+
+    m("HC215", "native AMX original policy: discard completed signed policy on metadata refusal retry",
+      ["query::native_receipts::amx_read::issuer_tests::public_amx_signed_policy_retains_completed_npos_stage_on_metadata_refusal"]),
+    m("HC216", "native execution tip restore: erase original history deferral into a schema rejection",
+      ["state::native_execution_tip::tests::restore_preserves_original_pool_refusal_release_and_same_source_retry",
+       "state::native_execution_tip::tests::restore_preserves_cumulative_prefix_decode_refusal_and_same_source_retry"]),
+    m("HC217", "restarted native Prepared intent: omit final original namespace join after instruction admission",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::restarted_paid_intent_delivers_exact_native_prepared_relay_and_refunds_original_pool",
+       "sumeragi::amx::native::tests::paid_borrowed_custody::restarted_paid_intent_final_namespace_refusal_retains_exact_funded_instruction_until_original_retry"]),
+    m("HC218", "restarted native Prepared intent: omit authenticated full-witness completeness before delivery",
+      ["sumeragi::amx::native::tests::paid_borrowed_custody::restarted_paid_intent_refuses_authenticated_row_subset_before_any_delivery"]),
+    m("HC219", "returned native AMX context: replace original-pool retained graph with the uncharged epoch clone",
+      ["sumeragi::amx::native::tests::returned_context::native_amx_returned_global_context_keeps_every_original_graph_charge_until_retirement"]),
+
+    m("HC220", "Core upload account key: erase original decoder refusal into a terminal diagnostic",
+      ["state::account_key_refusal_tests::upload_account_key_preserves_original_refusal_fields_scope_and_same_source_retry"]),
+
+    m("HC221", "Fallible World construction: restore expect on the original shared initializer result",
+      ['state::world_construction_tests::world_constructor_registration_refusal_is_fallible_and_retries_original_source',
+       'state::world_construction_tests::world_constructor_record_refusal_is_fallible_and_retries_original_source',
+       'state::world_construction_tests::world_constructor_rejects_malformed_kaigi_without_panicking']),
+
+    m("HC222", "partial native AMX Worker decode: retire original controls and member prefix after refusal",
+      ["sumeragi::executor::amx_retry_tests::partial_amx_worker_leg_refusal_retains_original_controls_and_release_wait",
+       "sumeragi::executor::amx_retry_tests::partial_amx_worker_leg_refusal_retains_completed_source_prefix_without_reallocation",
+       "sumeragi::executor::amx_retry_tests::partial_amx_worker_leg_refusal_retains_original_multisig_member_prefix_without_reallocation"]),
+
+    m("HC223", "original AMX Worker replay: omit resumption of a preceding parked original occurrence",
+      ["sumeragi::executor::amx_retry_tests::rejected_amx_worker_occurrence_retains_source_prefix_and_replays_before_later_partial_occurrence"]),
+
 ]
 
 
@@ -959,6 +1027,51 @@ MODEL_MUTATIONS = [
     m("DM14", "initial chain parameters: reopen constructor-authenticated metadata",
       ["sumeragi_finality::tests::initial_chain_parameters_reuses_constructor_authenticated_metadata_under_one_pass_budget"]),
 
+
+    m("DM15", "original signed genesis policy: repeat completed exact instruction decoding",
+      ["sumeragi_finality::genesis::original_policy::tests::original_completed_policy_survives_metadata_refusal_without_another_decode"]),
+
+    m("DM16", "signed epoch validation: reconstruct a temporary owning generation roster",
+      ["sumeragi::epoch::tests::epoch_validation_retains_original_signed_roster_without_generation_allocation"]),
+    m("DM17", "NPoS validation: reconstruct fixed synthetic identity during original record transfer",
+      ["parameter::system::npos_json::tests::admitted_npos_record_moves_exact_original_quantity_backing_and_funded_charge_ledger",
+       "parameter::system::tests::sumeragi_npos_synthetic_identity_is_exact_and_validation_never_allocates",
+       "nexus::committee::tests::frozen_policy_validation_borrows_fixed_synthetic_identity_without_allocation"]),
+
+    m("DM18", "committee readiness: reconstruct a temporary owning generation roster",
+      ["nexus::committee::tests::public_readiness_borrows_original_roster_with_only_canonical_transcript_work"]),
+    m("DM19", "committee Activate validation: reconstruct a temporary owning generation roster",
+      ["nexus::committee::tests::public_activation_borrows_original_generation_beyond_existing_readiness_work"]),
+    m("DM20", "multisig contract recognition: turn original scoped JSON refusal into nonmatch",
+      ["smart_contract::multisig_call::tests::canonical_recognition_preserves_original_scoped_refusal_and_same_envelope_retry"]),
+    m("DM21", "canonical address decoder: erase original scoped and unscoped resource causes",
+      ["account::address::tests::canonical_address_json_preserves_original_refusal_fields_scope_and_retry", "account::address::tests::account_address_value_and_map_key_json_decoders_are_borrowed_and_measured", "account::address::tests::address_resource_conversions_preserve_fields_and_anonymous_bounds_without_minting_scope"]),
+    m("DM22", "canonical account parser: replace original address cause with a fieldless bound",
+      ["account::json_tests::canonical_account_json_preserves_original_refusal_fields_scope_and_retry", "account::json_tests::account_id_json_roundtrips_large_multisig_as_canonical_i105", "account::json_tests::account_id_value_and_map_key_json_decoders_are_borrowed_and_measured", "account::json_tests::canonical_account_public_parser_preserves_original_address_cause_and_diagnostics"]),
+    m("DM23", "numeric I105 resource refusal: continue later canonical candidates",
+      ["account::address::tests::numeric_i105_resource_refusal_stops_at_original_candidate_without_later_allocations"]),
+    m("DM24", "expected I105 prefix diagnostics: retry a terminal resource refusal",
+      ["account::address::tests::expected_i105_prefix_diagnostics_do_not_retry_original_resource_refusal"]),
+
+    m("DM25", "persisted AccountId storage keys: erase original typed refusal at canonical delegation",
+      ["json_key_codec::tests::account_storage_keys_preserve_original_refusal_fields_scope_and_retry"]),
+    m("DM26", "persisted role assignment keys: erase original account refusal at canonical delegation",
+      ["role::native_assignment_tests::role_assignment_storage_keys_preserve_original_account_refusal_and_retry"]),
+    m("DM27", "Kaigi participant metadata: erase original typed refusal at canonical map delegation",
+      ["kaigi::tests::kaigi_participant_metadata_preserves_original_account_refusal_and_canonical_map"]),
+    m("DM28", "instruction archive: retry after original borrowed-pair refusal",
+      ["isi::instruction_decode_refusal_tests::archived_instruction_refusal_stops_without_allocating_an_owned_pair_retry"]),
+    m("DM29", "instruction slice: erase original scoped resource refusal",
+      ["isi::instruction_decode_refusal_tests::instruction_slice_retains_original_scoped_refusal_and_retry"]),
+    m("DM30", "instruction JSON: stringify original nested binary refusal",
+      ["isi::instruction_decode_refusal_tests::instruction_json_retains_original_scoped_refusal_and_retry"]),
+    m("DM31", "instruction base64: omit cumulative scratch admission",
+      ["isi::instruction_decode_refusal_tests::instruction_base64_scratch_is_admitted_before_decode_and_retries_original_input"]),
+    m("DM32", "structured asset instructions: erase original canonical account refusal",
+      ["isi::instruction_decode_refusal_tests::structured_asset_instructions_preserve_original_account_refusal_and_retry"]),
+    m("DM33", "native AMX multisig semantic cause: allocate a String on original retained replay",
+      ["sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_threshold_replay_preserves_original_cause_without_diagnostic_allocations",
+       "sumeragi_amx::native::leg_decode::tests::invalid_native_multisig_member_replay_preserves_original_cause_without_diagnostic_allocations"]),
 
 ]
 
@@ -1041,13 +1154,36 @@ TORII_MUTATIONS = [
        "tests_runtime_handlers::prepared_submit_outcome_cached_applied_refuses_removed_original_membership"]),
     m("TOR2", "Pipeline pending refresh: use execution capacity before original query admission and mutate the cache on refusal",
       ["tests_runtime_handlers::pipeline_status_pending_refresh_retains_original_query_refusal_and_pending_source"]),
+    m("TOR3", "Finite finality HTTP stop control: retire original query credit before an unpolled worker error or deadline result",
+      ["finality_interval::tests::failed_and_timed_out_workers_keep_original_credit_until_unpolled_stop_control_retires"]),
+
+]
+
+
+NORITO_MUTATIONS = [
+    m("NC1", "Direct canonical JSON: omit original active-counter family capture",
+      ["core::decode_attempt::tests::direct_json_refusal_keeps_original_context_and_retry"]),
+    m("NC2", "Decode provenance: accept a saved refusal without its observer root and boundary",
+      ["core::decode_attempt::tests::direct_attempt_replay_under_same_counter_owner_is_invalid",
+       "core::decode_attempt::tests::direct_attempt_cross_thread_replay_with_original_shared_context_is_invalid",
+       "core::decode_attempt::tests::direct_nested_attempts_preserve_parent_origin_and_refuse_old_sibling",
+       "core::decode_attempt::tests::already_active_direct_attempt_rejects_later_foreign_thread_root"]),
+    m("NC3", "Decode provenance: wrap an exhausted observer identity sequence",
+      ["core::decode_attempt::tests::observer_boundary_sequence_exhaustion_never_wraps"]),
+    m("NC4", "JSON resource conversion: discard original unscoped decoder fields",
+      ["json::tests::core_resource_errors_roundtrip_exact_fields_without_fresh_scope",
+       "json::tests::direct_json_parser_retains_unscoped_fields_and_same_input_retry"]),
+    m("NC5", "JSON resource conversion: turn malformed input into allocator refusal",
+      ["json::tests::non_resource_core_errors_cannot_become_json_allocator_refusals"]),
 ]
 
 
 def package_options(args):
+    """Select the actual implementation owner without propagating a mutation to dependencies."""
+    if getattr(args, "norito", False):
+        return "norito", "mutation-testing", "SUMERAGI_NORITO_MUTATION"
     if getattr(args, "torii", False):
         return "iroha_torii", "mutation-testing", "SUMERAGI_TORII_MUTATION"
-    """Select the actual implementation owner without propagating a mutation to dependencies."""
     if getattr(args, "sdk", False):
         return "iroha", "mutation-testing", "SUMERAGI_SDK_MUTATION"
     if getattr(args, "deploy", False):
@@ -1123,6 +1259,7 @@ def cargo_test(args, target_dir, mutation, filters, seeds, timeout, log_path, no
     env.pop("SUMERAGI_SDK_MUTATION", None)
     env.pop("SUMERAGI_DEPLOY_MUTATION", None)
     env.pop("SUMERAGI_TORII_MUTATION", None)
+    env.pop("SUMERAGI_NORITO_MUTATION", None)
     crate, features, mutation_env = package_options(args)
     env.pop("SUMERAGI_SIM_SEED", None)
     env.pop("SUMERAGI_SIM_SEED_BASE", None)
@@ -1133,7 +1270,7 @@ def cargo_test(args, target_dir, mutation, filters, seeds, timeout, log_path, no
     else:
         env.pop("SUMERAGI_SIM_SEEDS", None)
     env["CARGO_TARGET_DIR"] = str(target_dir)
-    profile = ("test" if any(getattr(args, owner, False) for owner in ("model", "sdk", "deploy", "torii")) else
+    profile = ("test" if any(getattr(args, owner, False) for owner in ("model", "sdk", "deploy", "torii", "norito")) else
                (getattr(args, "core_profile", None) or "test") if getattr(args, "core", False) else None)
     profile_options = ["--profile", profile] if profile else ["--release"]
     cmd = ["cargo", "test", "--locked", "-p", crate, *profile_options, "--features", features, "--lib"]
@@ -1270,10 +1407,12 @@ def build(args, target_dir, mutation, log_path):
                 detail=detail, log=str(log_path))
 
 
-def has_switch(mid, *, core=False, daemon=False, model=False, sdk=False, deploy=False, torii=False):
-    if sum((core, daemon, model, sdk, deploy, torii)) > 1:
+def has_switch(mid, *, core=False, daemon=False, model=False, sdk=False, deploy=False, torii=False, norito=False):
+    if sum((core, daemon, model, sdk, deploy, torii, norito)) > 1:
         raise ValueError("a mutation has exactly one implementation owner")
-    if torii:
+    if norito:
+        cfg, source = "sumeragi_norito_mutation", REPO / "crates" / "norito" / "src"
+    elif torii:
         cfg, source = "sumeragi_torii_mutation", REPO / "crates" / "iroha_torii" / "src"
     elif sdk:
         cfg, source = "sumeragi_sdk_mutation", REPO / "crates" / "iroha" / "src"
@@ -1323,7 +1462,9 @@ def evaluate(args, target_dir, mu):
         result.update(verdict="error", reason="no named test selectors")
         return result
     started = time.monotonic()
-    if getattr(args, "torii", False):
+    if getattr(args, "norito", False):
+        present = has_switch(mu.id, norito=True)
+    elif getattr(args, "torii", False):
         present = has_switch(mu.id, torii=True)
     elif getattr(args, "sdk", False):
         present = has_switch(mu.id, sdk=True)
@@ -1418,6 +1559,8 @@ def main():
                        help="qualify registered Deploy managed-bootstrap custody rules with owning unit tests in the test profile")
     owner.add_argument("--torii", action="store_true",
                        help="qualify registered Torii canonical-outcome custody rules with owning unit tests in the test profile")
+    owner.add_argument("--norito", action="store_true",
+                       help="qualify registered Norito decode-origin rules with owning unit tests in the test profile")
     parser.add_argument("--only", help="comma-separated mutation ids (default: all)")
     parser.add_argument("--jobs", type=int, default=1,
                         help="parallel jobs, each with its own target sub-directory")
@@ -1426,7 +1569,7 @@ def main():
     parser.add_argument("--seeds", type=int, default=200,
                         help="SUMERAGI_SIM_SEEDS for the scenarios (default 200)")
     parser.add_argument("--target-dir", type=Path,
-                        help="dedicated target root (default: target/sumeragi-mutants; --core: target/sumeragi-core-mutants; --daemon: target/sumeragi-daemon-mutants; --model: target/sumeragi-model-mutants; --sdk: target/sumeragi-sdk-mutants; --deploy: target/sumeragi-deploy-mutants; --torii: target/sumeragi-torii-mutants)")
+                        help="dedicated target root (default: target/sumeragi-mutants; --core: target/sumeragi-core-mutants; --daemon: target/sumeragi-daemon-mutants; --model: target/sumeragi-model-mutants; --sdk: target/sumeragi-sdk-mutants; --deploy: target/sumeragi-deploy-mutants; --torii: target/sumeragi-torii-mutants; --norito: target/sumeragi-norito-mutants)")
     parser.add_argument("--skip-baseline", action="store_true",
                         help="do not run the unmutated build")
     parser.add_argument("--strict", action="store_true",
@@ -1449,7 +1592,8 @@ def main():
     if args.strict and args.skip_baseline:
         parser.error("--strict requires the unmutated baseline")
     if args.target_dir is None:
-        name = ("sumeragi-torii-mutants" if args.torii else
+        name = ("sumeragi-norito-mutants" if args.norito else
+                "sumeragi-torii-mutants" if args.torii else
                 "sumeragi-sdk-mutants" if args.sdk else
                 "sumeragi-deploy-mutants" if args.deploy else
                 "sumeragi-model-mutants" if args.model else
@@ -1459,7 +1603,7 @@ def main():
     args.target_dir = args.target_dir.resolve()
     if args.core_profile is not None and not args.core:
         parser.error("--core-profile requires --core; protocol and daemon qualification use release")
-    table = (TORII_MUTATIONS if args.torii else SDK_MUTATIONS if args.sdk else DEPLOY_MUTATIONS if args.deploy else
+    table = (NORITO_MUTATIONS if args.norito else TORII_MUTATIONS if args.torii else SDK_MUTATIONS if args.sdk else DEPLOY_MUTATIONS if args.deploy else
              MODEL_MUTATIONS if args.model else DAEMON_MUTATIONS if args.daemon else
              CORE_MUTATIONS if args.core else MUTATIONS)
     by_id = index_mutations(table)
@@ -1546,7 +1690,7 @@ def main():
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "command": sys.argv,
         "package": package_options(args)[0],
-        "profile": ("test" if args.model or args.sdk or args.deploy or args.torii else
+        "profile": ("test" if args.model or args.sdk or args.deploy or args.torii or args.norito else
                     (args.core_profile or "test") if args.core else "release"),
         "seeds": None if args.fast else args.seeds,
         "fast": args.fast,

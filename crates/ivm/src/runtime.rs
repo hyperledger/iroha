@@ -147,4 +147,95 @@ mod tests {
         #[cfg(debug_assertions)]
         assert_eq!(crate::argument_record_decode_count(), 1);
     }
+
+    struct SoracloudTemplateHost {
+        arguments: PreparedArgumentRecord,
+        inner: crate::host::DefaultHost,
+    }
+    impl IVMHost for SoracloudTemplateHost {
+        fn prepared_entrypoint_arguments(&self) -> Option<PreparedArgumentRecord> {
+            Some(self.arguments.clone())
+        }
+        fn prepare_syscall(&self, number: u32, vm: &IVM) -> Result<u64, VMError> {
+            self.inner.prepare_syscall(number, vm)
+        }
+        fn syscall(&mut self, number: u32, vm: &mut IVM) -> Result<u64, VMError> {
+            self.inner.syscall(number, vm)
+        }
+        fn as_any(&mut self) -> &mut dyn Any {
+            self
+        }
+    }
+    #[test]
+    fn compiler_soracloud_template_uses_exact_context_schema_and_completed_json_result() {
+        let source = include_str!(
+            "../../iroha_cli/src/soracloud/templates/v1/static/single_api_contract.ko"
+        )
+        .replace("__CONTRACT_NAME__", "CanonicalSoracloud")
+        .replace("__APP_NAME__", "canonical-app");
+        let (program, _) = kotodama_lang::compiler::Compiler::new()
+            .compile_source_with_manifest(&source)
+            .expect("compile actual CLI Soracloud template");
+        let contract =
+            crate::prepare_contract(Arc::from(program)).expect("canonical compiled contract");
+        let descriptor = contract
+            .entrypoint_descriptor("serve_healthz")
+            .expect("template query");
+        let schema = descriptor
+            .argument_schema
+            .as_ref()
+            .expect("template context fields");
+        assert_eq!(
+            schema
+                .fields
+                .iter()
+                .map(|field| field.name.as_str())
+                .collect::<Vec<_>>(),
+            ["_request_body", "_request_meta", "observed_height"]
+        );
+        assert_eq!(
+            schema
+                .fields
+                .iter()
+                .map(|field| field.ty.nodes.as_slice())
+                .collect::<Vec<_>>(),
+            [
+                &[ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                    ivm_abi::entrypoint::EntrypointValueKindV1::Blob
+                )][..],
+                &[ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                    ivm_abi::entrypoint::EntrypointValueKindV1::Json
+                )][..],
+                &[ivm_abi::entrypoint::EntrypointValueTypeNodeV1::Leaf(
+                    ivm_abi::entrypoint::EntrypointValueKindV1::Int
+                )][..],
+            ]
+        );
+        let canonical = ivm_abi::arguments::encode_argument_record_from_json(schema,
+            &Json::from(norito::json!({"_request_body": "0x616263", "_request_meta": {"method": "GET"}, "observed_height": "17"})))
+            .expect("exact authenticated template fields");
+        let arguments =
+            crate::prepare_argument_record_with_gas_limit(schema, Arc::from(canonical), u64::MAX)
+                .expect("prepare canonical template input");
+        let mut vm = IVM::new(u64::MAX);
+        vm.load_prepared(&contract).unwrap();
+        vm.select_entrypoint("serve_healthz").unwrap();
+        arguments.precharge_vm(&mut vm).unwrap();
+        vm.set_host(SoracloudTemplateHost {
+            arguments,
+            inner: crate::host::DefaultHost::new(),
+        });
+        vm.run().expect("execute actual compiler-produced query");
+        assert_eq!(vm.call_result_word_count().unwrap(), 1);
+        let tlv = vm
+            .validate_tlv(vm.public_call_result_word(0).unwrap())
+            .unwrap();
+        assert_eq!(tlv.type_id, crate::pointer_abi::PointerType::Json);
+        let json: Json = norito::decode_canonical(tlv.payload).unwrap();
+        let value: norito::json::Value = norito::json::from_str(json.get()).unwrap();
+        assert_eq!(
+            value,
+            norito::json!({"app": "canonical-app", "observed_height": "17", "route": "/api/healthz", "status": "ready"})
+        );
+    }
 }

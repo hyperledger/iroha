@@ -33,7 +33,21 @@ What exists so far:
   lock; Windows relies on the trusted inherited handle's writer exclusion.
   Binary verification, worker loading, activation and Ready publication share the original
   startup budget. A same-boot continuous deadline includes suspend across the handoff;
-  clock failures refuse startup. Later renewal and maintenance turns have separate budgets.
+  clock failures refuse startup. Selection preparation, including fresh generation validation,
+  precedes the foreground's final matching Ready observation within that deadline. Only the
+  atomic workspace-selection write follows admission. This uninterruptible persistence cannot
+  retroactively time out readiness or stop its worker; publication errors remain explicit and
+  may have published, as specified by the native filesystem owner. Whole-command latency still
+  includes selection persistence. Later renewal and maintenance turns have separate budgets.
+  A callback-free gateway observation round binds all three providers to the exact same
+  owned launch. It checks the complete aggregate revision and current interval at entry and
+  on every ordinary exit, preserving each provider's fresh compliance projections and child
+  observations. The closing material check and all final child observations run before any
+  inner failure propagates; deadline/cancellation refusal still takes precedence. Active
+  codec budgets retain the original per-provider validation recipe. The inactive round
+  observes aggregate material twice rather than once per provider, so it makes no claim to
+  identical sampling of an external change fully restored between those boundaries. No
+  result crosses bootstrap effects, callbacks or the next gateway round.
   Within worker admission, the current executable reuses the retained launcher's content hash
   only after a fresh native open rejoins its exact path, identity and unchanged snapshot.
   Both opened files are revalidated; different paths still receive full content admission.
@@ -188,9 +202,22 @@ Runtime selection and startup polling reopen only existing bootstrap custody; ex
 initialization owns its creation. Polling uses the retained renderer's exact generation and closes
 its original profile checks on successful and failed child admission. Missing bootstrap state is
 refused without reconstruction.
-Each existing child acquires its own operation lock and rechecks the retained files and native
-paths; the constructor also rechecks the parent before returning. Active Norito decode budgets, and
-parents opened under those budgets, retain the complete profile-capture path.
+The final runtime policy comparison borrows that same original intent outside active decode
+budgets and owned-profile admission. It retains complete policy construction, canonical encoding,
+equality and the original operation-lock observations. Only two nested immutable profile scans
+consolidate into the enclosing full-image entry and unconditional ordinary-result exit. No child
+read, current interval or finality check is shared. A profile change completely restored between
+these observations may be unseen; the read is not an atomic snapshot or a reusable authority.
+Within one RuntimeSelection read, existing child constructors and bootstrap policy projections
+borrow only its exact captured image. All original operation-lock and provider-scope observations
+remain at their old boundaries, while immutable image scans consolidate into the enclosing full
+entry and unconditional ordinary-result exit. Each child still acquires its own lock and freshly
+reads its mutable records. Initial-enrollment histories, wallet inspection, runtime components,
+launch configurations and current intervals retain their separate checks. This constructor scope
+never escapes the selection read or crosses a startup effect. A profile change fully restored
+between image observations can be unseen; this is not an atomic snapshot. Foreign captures and
+constructor parents are refused. Active Norito decode budgets and parents opened under those
+budgets retain the original complete profile-capture recipe.
 Each read-only bootstrap traversal and child census owns a separate cache of up to three
 immutable checkpoint imports, keyed by their complete bytes, network and chain. Fresh custody
 and transaction checks still run for every child. Each cache ends with its traversal; active

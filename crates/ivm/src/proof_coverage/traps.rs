@@ -274,11 +274,12 @@ pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
     // The SoraCloud host. Its public inputs are built before the run.
     producer!(
         "crates/irohad/src/soracloud_runtime.rs",
-        PrepareRejection: [DecodeError, NoritoInvalid],
+        PrepareRejection: [DecodeError, NoritoInvalid, PermissionDenied],
         SyscallTrap: [
             AbiTypeNotAllowed, DecodeError, Metered, NoritoInvalid, NotImplemented, OutOfGas,
             PermissionDenied, UnknownSyscall,
         ],
+        LocalDeferral: [ExecutionDeferred],
     ),
     producer!(
         "crates/ivm/src/analysis/static_state_keys.rs",
@@ -307,6 +308,7 @@ pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
         InitializationTrap: [DecodeError, NoritoInvalid, OutOfGas],
         InterpreterTrap: [DecodeError],
         SyscallTrap: [DecodeError, NoritoInvalid],
+        LocalDeferral: [ExecutionDeferred],
     ),
     producer!(
         "crates/ivm/src/byte_merkle_tree.rs",
@@ -762,6 +764,7 @@ pub const VM_ERROR_PRODUCERS: &[ProducerFile] = &[
         InitializationTrap: [NoritoInvalid],
         InterpreterTrap: [NoritoInvalid],
         SyscallTrap: [NoritoInvalid],
+        LocalDeferral: [ExecutionDeferred],
     ),
     producer!(
         "crates/ivm_abi/src/state_cursor.rs",

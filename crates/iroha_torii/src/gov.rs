@@ -1615,7 +1615,7 @@ pub async fn handle_gov_citizen_status(
         "/v1/gov/citizens/{account_id}",
     )
     .map_err(|err| {
-        crate::routing::conversion_error(format!("invalid account_id: {}", err.reason()))
+        crate::routing::conversion_error(format!("invalid account_id: {}", err.code_str()))
     })?;
     let world = state.world_view();
     let record = world.citizens().get(&account).cloned();
@@ -1706,7 +1706,7 @@ fn parse_account_literal_from_state(
     raw: &str,
     telemetry: &MaybeTelemetry,
     context: &'static str,
-) -> Result<iroha_data_model::account::AccountId, iroha_model_base::error::ParseError> {
+) -> Result<iroha_data_model::account::AccountId, iroha_data_model::account::AccountIdParseError> {
     parse_account_literal_with_state(state, raw, telemetry, context)
         .map(|(account_id, _)| account_id)
 }
@@ -1717,7 +1717,7 @@ fn parse_authority_literal(
     context: &'static str,
 ) -> Result<iroha_data_model::account::AccountId, crate::Error> {
     parse_account_literal_from_state(state, raw, telemetry, context).map_err(|err| {
-        crate::routing::conversion_error(format!("invalid authority: {}", err.reason()))
+        crate::routing::conversion_error(format!("invalid authority: {}", err.code_str()))
     })
 }
 fn parse_canonical_authority_literal(
@@ -2766,7 +2766,7 @@ pub async fn handle_gov_ballot_plain_with_policy(
         CONTEXT_GOV_BALLOT_PLAIN_AUTHORITY,
     )
     .map_err(|err| {
-        crate::routing::conversion_error(format!("invalid authority: {}", err.reason()))
+        crate::routing::conversion_error(format!("invalid authority: {}", err.code_str()))
     })?;
     ensure_authenticated_authority(authenticated_account, &authority_id)?;
     validate_governance_selector_v1("referendum_id", &body.referendum_id)
@@ -2784,7 +2784,9 @@ pub async fn handle_gov_ballot_plain_with_policy(
         &telemetry,
         CONTEXT_GOV_BALLOT_PLAIN_OWNER,
     )
-    .map_err(|err| crate::routing::conversion_error(format!("invalid owner: {}", err.reason())))?;
+    .map_err(|err| {
+        crate::routing::conversion_error(format!("invalid owner: {}", err.code_str()))
+    })?;
     if owner != authority_id {
         return Err(crate::routing::conversion_error(
             "authority must equal owner".into(),

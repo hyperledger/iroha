@@ -83,7 +83,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("borrow entrypoint argument schema");
     let record = encode_argument_record_from_json(schema, &arguments)
         .expect("encode canonical borrow argument record");
-    let input_name: Name = "trigger_event_json"
+    let input_name: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
         .parse()
         .expect("public input key is a Name");
     let host = WsvHost::new_with_subject(wsv, user_subject).with_public_inputs(BTreeMap::from([(

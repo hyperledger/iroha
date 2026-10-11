@@ -124,15 +124,16 @@ impl ManagedStore {
         timeout: std::time::Duration,
     ) -> Result<ManagedStatus> {
         let (name, retained) = match self.context(requested) {
-            Ok(context) => (context.name, true),
-            Err(Error::NoSelection) if requested.is_none() => ("local".into(), false),
+            Ok(context) => (context.name.clone(), Some(context)),
+            Err(Error::NoSelection) if requested.is_none() => ("local".into(), None),
             Err(error) => return Err(error),
         };
         let mut request = runtime.localnet_request(&name, timeout);
-        let status = if retained {
+        let status = if let Some(expected) = retained.as_ref() {
             request.service_profile = self.prepared(&name)?.service_profile;
             self.up_retained_with_selection(
                 &request,
+                expected,
                 super::store::StartupSelection::for_requested_context(requested),
             )?
         } else {

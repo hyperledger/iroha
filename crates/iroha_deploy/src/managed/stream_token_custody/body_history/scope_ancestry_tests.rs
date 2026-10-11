@@ -238,7 +238,7 @@ fn graph_scope_ancestry_preserves_missing_foreign_and_parser_scope_recipes() {
         history.root.read_tree_scope(|tree| {
             let result = norito::core::with_decode_limits_measured(limits(usize::MAX), || {
                 counted(original, None, || {
-                    outcome(evidence.revalidate_in_tree(Some(&snapshot), tree))
+                    outcome(evidence.revalidate_in_tree(Some(&snapshot), tree, None))
                 })
             });
             Ok::<_, Error>(result)
@@ -376,7 +376,7 @@ fn graph_scope_ancestry_closes_native_mutations_and_every_ordinary_result() {
             history.root.as_ref()
         };
         let (result, counts) = counted(false, Some(hook), || {
-            anchor.read_tree_scope(|tree| evidence.revalidate_in_tree(Some(&snapshot), tree))
+            anchor.read_tree_scope(|tree| evidence.revalidate_in_tree(Some(&snapshot), tree, None))
         });
         drop(restore);
         assert_eq!((counts.full, counts.tree, counts.inventories), (0, 1, 1));

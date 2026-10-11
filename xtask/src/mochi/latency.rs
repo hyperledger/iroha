@@ -30,8 +30,7 @@ const REMOTE_CASES: [&str; 4] = [
     "ready_private_local_package",
 ];
 const PACKAGE: &str = "manifest-version = 1\n\n[package]\nnamespace = \"latency\"\nname = \"package\"\nversion = \"0.1.0\"\nedition = \"1\"\nabi-version = 1\n\n[[contract]]\nname = \"package\"\npath = \"contract.ko\"\n";
-const PACKAGE_SOURCE: &str =
-    "seiyaku LatencyPackage { view fn quote(int cups) -> int { return cups * 30; } }";
+const PACKAGE_SOURCE: &str = "seiyaku LatencyPackage { view fn quote(int cups) authorize(anyone) -> int { return cups * 30; } }";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Outcome {
@@ -825,6 +824,29 @@ mod tests {
             .iter()
             .find(|item| item.get("case").and_then(Value::as_str) == Some(case))
             .unwrap()
+    }
+
+    #[test]
+    fn package_fixture_compiles_with_explicit_open_view_authorization() {
+        let (_, manifest) = kotodama_lang::compiler::Compiler::new()
+            .compile_source_with_manifest(PACKAGE_SOURCE)
+            .expect("compile the exact latency package source offline");
+        assert_eq!(manifest.seiyaku_name.as_deref(), Some("LatencyPackage"));
+        let quote = manifest
+            .entrypoints
+            .as_ref()
+            .unwrap()
+            .iter()
+            .find(|entrypoint| entrypoint.name == "quote")
+            .unwrap();
+        assert_eq!(
+            quote.kind,
+            iroha_data_model::smart_contract::manifest::EntryPointKind::View
+        );
+        assert_eq!(
+            quote.authorization,
+            iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone
+        );
     }
 
     #[test]

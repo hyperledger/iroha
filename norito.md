@@ -394,10 +394,16 @@ Canonical artifact admission uses `decode_canonical_for_admission` for the compl
 single decode and exact canonical-byte comparison. Its opaque result distinguishes
 actual allocator failure, an original enclosing admission-budget refusal, and invalid
 input. Canonical/default/schema budgets are checked before enclosing operational budgets
-at each resource check. The original emitting layer and fresh attempt family are carried
-privately in the Rust error, so equal numeric ceilings, cumulative consumption and nested
-attempts do not guess provenance. Reconstructing a resource error from copied fields, or
-returning one retained from an earlier attempt, cannot establish current local origin.
+at each resource check. The original emitting layer, counter family and process-unique
+observer root/boundary are carried privately in the Rust error, so equal numeric ceilings,
+cumulative consumption and nested attempts do not guess provenance. Direct JSON parsers
+and checked writers retain the actual refusing caller layer even without an inner framed
+scope. Immediate descendant errors can return to their active parent; an earlier direct
+attempt, an earlier sibling or another thread cannot acquire a later boundary, including
+under the same shared counters after a fresh refusal was swallowed. Reconstructing a
+resource error from copied fields also cannot establish current local origin. Observer
+identities never wrap; after finite identity exhaustion, later budget-layer errors fail
+local classification closed. The counter context and prepared attempt sequence are unchanged.
 The numeric active-limit helper never relabels a carried protocol error. Canonical
 re-encoding failures without decoder provenance remain invalid input. This adds no wire
 fields, second decode, allocation-pool owner or release notification. IVM `CNTR` and
@@ -405,7 +411,12 @@ fields, second decode, allocation-pool owner or release notification. IVM `CNTR`
 and schema limits remain deterministic artifact rejections. The JSON parser and bounded
 canonical writer preserve the same opaque refusal across binary `Json` fields, including
 trigger metadata; copying diagnostic fields or formatting JSON errors cannot replace its
-scope identity. JSON body, nesting, and arithmetic-overflow bounds remain protocol failures.
+scope identity. Unscoped binary/JSON conversions retain the complete `DecodeResourceError`
+fields in `json::Error::DecodeResource`; only `ScopedDecodeResource` carries private observer
+provenance. The fieldless `DecodeResourceLimit` remains an anonymous checked-bound or fieldless-owner
+category, never a substitute for an actual recorded decoder refusal. Non-resource core
+errors remain terminal JSON diagnostics and cannot become allocator refusals. JSON body,
+intrinsic nesting, and arithmetic-overflow bounds remain protocol failures.
 
 
 Closed named and tuple records can opt into `#[norito(decode_fields)]`. Their ordinary

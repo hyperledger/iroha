@@ -5,7 +5,7 @@
 //! record, and retains that exact allocation through publication retries. Readers never
 //! substitute current State or reconstruct missing historical values from a root.
 
-mod prepared_intents;
+pub(crate) mod prepared_intents;
 mod read;
 #[cfg(test)]
 pub(crate) use prepared_intents::test_helpers as prepared_intent_test_helpers;
@@ -49,6 +49,9 @@ pub enum NativeContextArchiveError {
     /// Preserve the original pool's exact capacity or allocator refusal.
     #[error(transparent)]
     Allocation(#[from] ChargedBufferError),
+    /// Original lane-state proof, retaining scratch custody or captured decoder provenance.
+    #[error("native context archive proof: {0}")]
+    Proof(#[from] iroha_data_model::sumeragi_finality::NativeLaneStateProofError),
     /// Canonical framing failed before any record could be published.
     #[error(transparent)]
     Codec(#[from] norito::Error),
@@ -58,19 +61,22 @@ pub enum NativeContextArchiveError {
 }
 
 impl NativeContextArchiveError {
-    /// Whether the original pool or physical allocator may admit the unchanged retry.
-    /// A pool ceiling refusal may require local reconfiguration. The archive record byte
-    /// limit, impossible demand, malformed layout and source mismatches require recovery.
+    /// Whether the original pool, allocator or captured caller decoder may admit the unchanged retry.
+    /// An archive buffer ceiling refusal may require local reconfiguration. The proof's original
+    /// scratch hard ceiling, record byte limit, impossible demand, malformed layout and source
+    /// mismatches require recovery. Encoder errors do not borrow a decoder scope.
     pub fn is_local_refusal(&self) -> bool {
-        matches!(
-            self,
+        match self {
             Self::Allocation(
                 ChargedBufferError::Admission(
                     iroha_allocation::AllocationRefusal::Capacity { .. }
-                        | iroha_allocation::AllocationRefusal::ExceedsLimit { .. },
-                ) | ChargedBufferError::Allocator { .. }
-            )
-        )
+                    | iroha_allocation::AllocationRefusal::ExceedsLimit { .. },
+                )
+                | ChargedBufferError::Allocator { .. },
+            ) => true,
+            Self::Proof(original) => original.is_local_refusal(),
+            _ => false,
+        }
     }
 }
 
@@ -286,14 +292,7 @@ impl NativeContextArchive {
                 witness,
                 &self.budget,
             )
-            .map_err(|error| match error {
-                iroha_data_model::sumeragi_finality::NativeLaneStateProofError::Scratch(error) => {
-                    NativeContextArchiveError::Allocation(error)
-                }
-                _ => NativeContextArchiveError::Source(
-                    "original ordinary writes differ from native result",
-                ),
-            })?;
+            .map_err(NativeContextArchiveError::Proof)?;
         if original_path != result.get().native_lanes {
             return Err(NativeContextArchiveError::Source(
                 "original ordinary writes differ from native result",
@@ -404,6 +403,16 @@ impl NativeContextArchive {
     /// survive every local refusal. The returned bytes still need native execution authentication.
     pub fn read_job(self, height: u64, carrier_hash: HashOf<BlockHeader>) -> NativeContextRead {
         NativeContextRead::new(self, height, carrier_hash)
+    }
+
+    // Byte acquisition only. The application reader must select the carrier from its
+    // captured authenticated State history and validate every original intent coordinate.
+    pub(crate) fn prepared_intent_read_job(
+        self,
+        height: u64,
+        carrier_hash: HashOf<BlockHeader>,
+    ) -> NativeContextRead {
+        NativeContextRead::new_named(self, RecordName::intent(height, carrier_hash, false))
     }
 
     /// Read exact original canonical bytes for a separately selected carrier identity.
@@ -523,20 +532,6 @@ fn open_archive_directory(root: &File, create: bool) -> io::Result<File> {
         ));
     }
     Ok(directory)
-}
-#[cfg(unix)]
-fn open_record(directory: &File, height: u64, hash: HashOf<BlockHeader>) -> io::Result<File> {
-    let name = RecordName::new(height, hash, false);
-    let file = File::from(rustix::fs::openat(
-        directory,
-        name.as_str(),
-        rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::NOFOLLOW | rustix::fs::OFlags::CLOEXEC,
-        rustix::fs::Mode::empty(),
-    )?);
-    if !file.metadata()?.is_file() {
-        return Err(io::Error::other("native context record is not a file"));
-    }
-    Ok(file)
 }
 fn verify_bytes(mut file: File, expected: &[u8]) -> io::Result<()> {
     if !file.metadata()?.is_file() || file.metadata()?.len() != expected.len() as u64 {
@@ -691,7 +686,7 @@ fn verify_named_file(_directory: &File, _name: &str, _file: &File) -> io::Result
     ))
 }
 #[cfg(not(unix))]
-fn open_record(_directory: &File, _height: u64, _hash: HashOf<BlockHeader>) -> io::Result<File> {
+fn open_named_record(_directory: &File, _name: &RecordName) -> io::Result<File> {
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "descriptor-relative native context archive is required",

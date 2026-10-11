@@ -124,8 +124,7 @@ impl ConsensusContext {
     #[must_use]
     pub const fn preimage_len(self) -> usize {
         match self {
-            Self::Proposal => 165,
-            Self::Prepare | Self::Commit => 165,
+            Self::Proposal | Self::Prepare | Self::Commit => 165,
             Self::TimeoutWithoutHighQc => 102,
             Self::TimeoutWithHighQc => 110,
             Self::Echo => 101,

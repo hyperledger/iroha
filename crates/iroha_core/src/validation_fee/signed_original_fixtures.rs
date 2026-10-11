@@ -81,7 +81,6 @@ fn signed_fee_registry_fixture(
 ) -> (
     crate::sumeragi::test_chain::CertifiedTestChain,
     ValidationFeeTreasuryPayoutBindingV1,
-    crate::executor::ContractRuntimeExecutionContext,
     Vec<u8>,
 ) {
     use iroha_data_model::{
@@ -102,7 +101,7 @@ fn signed_fee_registry_fixture(
             expected_deploy_nonce: 0,
             contract_address: address.clone(),
             code_hash,
-            contract_alias: alias.clone(),
+            contract_alias: alias,
             lease_expiry_ms: None,
             expected_previous_contract_address: None,
         }
@@ -115,14 +114,8 @@ fn signed_fee_registry_fixture(
         "actual signed deployment must publish successfully: {:?}",
         chain.committed(2).block().execution_outputs()
     );
-    let binding = treasury_payout_binding(address.clone(), &code);
-    let runtime = crate::executor::ContractRuntimeExecutionContext {
-        contract_address: address,
-        contract_subject: binding.treasury_account_id.clone(),
-        contract_alias: Some(alias),
-        entrypoint: binding.entrypoint.to_string(),
-    };
-    (chain, binding, runtime, code)
+    let binding = treasury_payout_binding(address, &code);
+    (chain, binding, code)
 }
 
 /// Two genuinely signed deployments used by the Parliament reader regression.
@@ -131,15 +124,14 @@ pub(crate) fn signed_payout_lifecycle_registry_fixture() -> (
     ValidationFeeTreasuryPayoutBindingV1,
 ) {
     let deployer = AccountId::new(key_pair(55).public_key().clone());
-    signed_payout_lifecycle_registry_fixture_with_config(
-        crate::sumeragi::test_chain::TestChainConfig::new(
-            validation_fee_payout_world(&deployer),
-            1_000,
-        ),
-    )
+    let config = crate::sumeragi::test_chain::TestChainConfig::new(
+        validation_fee_payout_world(&deployer),
+        1_000,
+    );
+    signed_payout_lifecycle_registry_fixture_with_config(config)
 }
 
-/// The same signed deployments over the caller's original genesis configuration.
+/// Execute the same two signed deployments with the caller's original genesis policy.
 pub(crate) fn signed_payout_lifecycle_registry_fixture_with_config(
     config: crate::sumeragi::test_chain::TestChainConfig,
 ) -> (
@@ -150,7 +142,7 @@ pub(crate) fn signed_payout_lifecycle_registry_fixture_with_config(
         isi::smart_contract_code::CommitContractDeployment,
         smart_contract::{ContractAddress, ContractAlias},
     };
-    let (mut chain, mut binding, _, code) = signed_fee_registry_fixture(config);
+    let (mut chain, mut binding, code) = signed_fee_registry_fixture(config);
     let signer = key_pair(55);
     let authority = AccountId::new(signer.public_key().clone());
     let pool = ContractAddress::derive(

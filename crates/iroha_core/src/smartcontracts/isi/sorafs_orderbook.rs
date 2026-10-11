@@ -837,7 +837,7 @@ fn canonical_owner(
     let parsed = AccountId::parse_encoded(literal).map_err(|error| {
         invalid_parameter(format!(
             "invalid orderbook owner account: {}",
-            error.reason()
+            error.code_str()
         ))
     })?;
     if parsed.to_string().as_bytes() != owner_bytes {

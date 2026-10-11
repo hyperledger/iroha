@@ -2,14 +2,13 @@
 
 use super::StateReadOnly;
 use iroha_allocation::{
-    AllocationBudget, AllocationCharge, ChargedBuffer, ChargedBufferError, RetainedPayload,
-    SharedFromChargeError,
+    AllocationBudget, ChargedBuffer, ChargedBufferError, RetainedPayload, SharedFromChargeError,
 };
 use iroha_crypto::Hash;
 use iroha_data_model::{
     ValidationFail,
     smart_contract::event::{
-        ContractEmissionAdmissionErrorV1, ContractEmissionV1, ContractEmissionsV1,
+        ContractEmissionAdmissionErrorV1, ContractEmissionsV1, PreparedContractEmissionsV1,
     },
 };
 
@@ -24,17 +23,12 @@ pub(super) enum DrainedContractEvents {
     OutputLimit,
 }
 
-struct PreparedEvents {
-    payload: RetainedPayload<Vec<ContractEmissionV1>>,
-    control: AllocationCharge,
-}
-
 /// Move-only staging; callbacks append to this owner instead of their own output rows.
 pub(super) struct ContractEventJournal {
     maximum_bytes: Result<u64, String>,
     call: Option<Hash>,
     entries: Option<ChargedBuffer<OwnedContractEmission>>,
-    prepared: Option<PreparedEvents>,
+    prepared: Option<PreparedContractEmissionsV1>,
     payload_bytes: u64,
     overflow: bool,
     rejected: bool,
@@ -249,18 +243,22 @@ impl ContractEventJournal {
                     return Err(invariant());
                 }
             };
-            self.prepared = Some(PreparedEvents { payload, control });
+            self.prepared = Some(PreparedContractEmissionsV1::new(payload, control));
         }
-        let PreparedEvents { payload, control } = self.prepared.take().expect("prepared above");
-        match ContractEmissionsV1::try_admit(payload, control, budget) {
+        match self
+            .prepared
+            .as_mut()
+            .expect("prepared above")
+            .try_admit(budget)
+        {
             Ok(events) => {
+                self.prepared = None;
                 self.consumed = true;
                 Ok(DrainedContractEvents::Complete(events))
             }
-            Err((payload, control, error)) => {
+            Err(error) => {
                 // Retain the identical graph and shell charge on local refusal;
                 // retry never refunds/reacquires any payload reservation.
-                self.prepared = Some(PreparedEvents { payload, control });
                 Err(match error {
                     ContractEmissionAdmissionErrorV1::Shared(
                         SharedFromChargeError::Allocator { .. },

@@ -97,7 +97,12 @@ mod json_string_allocation_tests {
             core::with_decode_limits_measured(allocation_limits(exact - 1), || {
                 json::Parser::new(input).parse_string()
             });
-        assert!(matches!(decoded, Err(json::Error::DecodeResourceLimit)));
+        assert!(matches!(
+            decoded,
+            Err(json::Error::DecodeResource(
+                crate::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ));
         assert_eq!(
             rejected_usage.total_allocated_bytes(),
             0,
@@ -139,7 +144,12 @@ mod json_string_allocation_tests {
             core::with_decode_limits_measured(allocation_limits(exact - 1), || {
                 json::Parser::new(input).parse_key()
             });
-        assert!(matches!(decoded, Err(json::Error::DecodeResourceLimit)));
+        assert!(matches!(
+            decoded,
+            Err(json::Error::DecodeResource(
+                crate::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ));
         assert_eq!(rejected_usage.total_allocated_bytes(), 0);
     }
     #[test]
@@ -153,7 +163,12 @@ mod json_string_allocation_tests {
         let (rejected, usage) = core::with_decode_limits_measured(allocation_limits(5), || {
             String::json_from_value(&string_source)
         });
-        assert!(matches!(rejected, Err(json::Error::DecodeResourceLimit)));
+        assert!(matches!(
+            rejected,
+            Err(json::Error::DecodeResource(
+                crate::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ));
         assert_eq!(usage.total_allocated_bytes(), 0);
         let vec_source = json::Value::Array(vec![
             json::Value::Bool(true),
@@ -173,7 +188,12 @@ mod json_string_allocation_tests {
             core::with_decode_limits_measured(allocation_limits(bytes - 1), || {
                 Vec::<bool>::json_from_value(&vec_source)
             });
-        assert!(matches!(rejected, Err(json::Error::DecodeResourceLimit)));
+        assert!(matches!(
+            rejected,
+            Err(json::Error::DecodeResource(
+                crate::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ));
         assert_eq!(usage.total_allocated_bytes(), 0);
     }
 }

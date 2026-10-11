@@ -28,6 +28,7 @@ mod parser_pass;
 #[path = "attempts/retained_graph.rs"]
 mod retained_graph;
 pub(in crate::managed) use parser_pass::EnrollmentReadPass;
+pub(in crate::managed) use retained_graph::GraphRootReadPass;
 #[path = "attempts/scope.rs"]
 mod scope;
 use closure::{ClosurePlan, ClosureRecord};
@@ -1099,7 +1100,7 @@ impl History {
         pass: Option<&crate::managed::stream_token_custody::body_history::SnapshotReadPass<'_>>,
     ) -> Result<()> {
         retained_graph::with_native_read_tree(self, |tree| {
-            self.require_current_local_in_tree(pass, tree, None)
+            self.require_current_local_in_tree(pass, tree, None, None)
         })
     }
 
@@ -1108,6 +1109,7 @@ impl History {
         pass: Option<&crate::managed::stream_token_custody::body_history::SnapshotReadPass<'_>>,
         mut tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
         originals: Option<&retained_graph::OriginalReadPass<'_, '_>>,
+        mut root_read: Option<&mut GraphRootReadPass<'_, '_>>,
     ) -> Result<()> {
         // An inherited decoder always retains the original physical read/allocation recipe,
         // even if a caller entered this native bracket before installing its decode owner.
@@ -1132,6 +1134,7 @@ impl History {
             } else {
                 None
             },
+            root_read.as_deref_mut(),
         )?;
         // The inventory begins and ends with fresh native directory checks.
         let operation_names = self.require_operation_entry(tree.as_deref_mut(), originals)?;
@@ -1230,6 +1233,7 @@ impl History {
             self.semantic,
             pass,
             if originals.is_some() { tree } else { None },
+            root_read,
         )
     }
 
@@ -1345,7 +1349,7 @@ impl History {
         &self,
         tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
     ) -> Result<()> {
-        self.require_current_local_in_tree(None, tree, None)
+        self.require_current_local_in_tree(None, tree, None, None)
     }
 
     fn retain_root(&self, operation: &PrivateDirectory) -> Result<()> {

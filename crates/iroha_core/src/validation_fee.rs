@@ -29,7 +29,8 @@ use ivm::state_value::{
 use mv::storage::StorageReadOnly;
 pub(crate) const VALIDATION_FEE_POOL_SWAP_ENTRYPOINT: &str = "swap_exact_in_quote_public";
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-enum ValidationFeeAdmissionError {
+/// Deterministic protected fee-policy rejection retained until the caller boundary.
+pub(crate) enum ValidationFeeAdmissionError {
     #[error("malformed protected policy registry")]
     MalformedPolicyRegistryParameter,
     #[error("invalid protected policy registry: {0}")]
@@ -652,7 +653,7 @@ pub(crate) fn active_payout_binding_at_height(
     height: u64,
 ) -> Result<
     Option<ValidationFeeTreasuryPayoutBindingV1>,
-    ExecutionAttemptError<TransactionRejectionReason>,
+    ExecutionAttemptError<ValidationFeeAdmissionError>,
 > {
     active_payout_binding_in_world_at_height(&state_transaction.world, height)
 }
@@ -663,16 +664,16 @@ pub(crate) fn active_payout_binding_in_world_at_height(
     height: u64,
 ) -> Result<
     Option<ValidationFeeTreasuryPayoutBindingV1>,
-    ExecutionAttemptError<TransactionRejectionReason>,
+    ExecutionAttemptError<ValidationFeeAdmissionError>,
 > {
-    Ok(validated_policy_registry_in_world(world)
-        .map_err(|error| error.map_rejection(admission_rejection))?
-        .and_then(|registry| {
+    Ok(
+        validated_policy_registry_in_world(world)?.and_then(|registry| {
             registry
                 .payout_policies
                 .effective_entry_at_height(height)
                 .map(|entry| entry.payout_binding.clone())
-        }))
+        }),
+    )
 }
 
 /// Return the authenticated immutable custody coordinates retained by every lifecycle revision.
@@ -708,26 +709,22 @@ fn validated_policy_registry_in_world<W: WorldReadOnly + ?Sized>(
     if custom.id() != &parameter_id {
         return Err(ValidationFeeAdmissionError::MalformedPolicyRegistryParameter.into());
     }
-    let registry: ValidationFeePolicyRegistryV1 = norito::json::from_str(custom.payload().get())
-        .map_err(|error| match error {
-            norito::json::Error::DecodeResourceLimit
-                if !cfg!(all(test, sumeragi_core_mutation = "HC30")) =>
-            {
-                ExecutionAttemptError::Deferred(
-                    ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into(),
-                )
-            }
-            norito::json::Error::AllocationFailed
-                if !cfg!(all(test, sumeragi_core_mutation = "HC30")) =>
-            {
-                ExecutionAttemptError::Deferred(
-                    ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
-                )
-            }
-            _ => ExecutionAttemptError::Rejected(
+    let registry: ValidationFeePolicyRegistryV1 = norito::core::classify_decode_attempt(|| {
+        norito::json::from_str(custom.payload().get()).map_err(norito::json::Error::into_core_error)
+    })
+    .map_err(|error| {
+        #[cfg(all(test, sumeragi_core_mutation = "HC30"))]
+        {
+            let _ = error;
+            ExecutionAttemptError::Rejected(
                 ValidationFeeAdmissionError::MalformedPolicyRegistryParameter,
-            ),
-        })?;
+            )
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC30")))]
+        crate::execution_attempt::canonical_decode_attempt_error(error, |_| {
+            ValidationFeeAdmissionError::MalformedPolicyRegistryParameter
+        })
+    })?;
     registry
         .validate()
         .map_err(|err| ValidationFeeAdmissionError::InvalidPolicyRegistry(err.to_string()))?;
@@ -1275,7 +1272,10 @@ fn validate_policy_network_id(
     Ok(())
 }
 
-fn admission_rejection(error: ValidationFeeAdmissionError) -> TransactionRejectionReason {
+/// Wrap a retained policy rejection only at the transaction admission boundary.
+pub(crate) fn admission_rejection(
+    error: ValidationFeeAdmissionError,
+) -> TransactionRejectionReason {
     TransactionRejectionReason::Validation(ValidationFail::NotPermitted(format!(
         "validation-fee admission rejected transaction: {error}"
     )))

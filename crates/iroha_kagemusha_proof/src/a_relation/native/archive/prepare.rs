@@ -271,6 +271,18 @@ impl Plan {
         self.validate_original_shapes(&input)?;
         let program = self.context().operation();
         let omega = program.omega().ok_or(Error::Artifact)?;
+        support::check_hard_own_tapes(
+            input.own.each_ref().map(Vec::as_slice),
+            &input.q[1].instances,
+            core::array::from_fn(|i| input.state.predecessor.lineage[9 + i]),
+            [self.policy.root.x, self.policy.root.y],
+        )?;
+        support::check_own_sigma_tape(
+            &input.q[0].instances,
+            program.sigma.chunk_range(0).ok_or(Error::Artifact)?,
+            &input.state.statement,
+            &input.sigma,
+        )?;
         let pallas =
             AccumulatorT::<Ep>::from_bytes(&input.predecessor.pallas).map_err(|_| Error::Input)?;
         let vesta =

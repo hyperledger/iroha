@@ -69,6 +69,11 @@ store. `down` retains the ledger; `localnet reset local` deliberately retires it
 default localnet when no context has been selected. Use `context list`,
 `context show`, or `context use NAME` to inspect or select retained environments.
 
+For contracts declaring `hajimari`/`始まり`, the deployment result includes the
+canonical hook name and parameter types. Deployment does not invoke that hook;
+run it before other calls or views if it has not already succeeded. Repeat and
+resume results do not infer its current state from the artifact.
+
 `kagami package publish .` explicitly publishes a Musubi package using the retained generated
 developer client and its `dev.universal` namespace intent. Begin may start the default localnet;
 `--resume OPERATION_ID` and `--recover OPERATION_ID` require its existing selected context.
@@ -183,6 +188,9 @@ into the output directory.
 
 `kagami dataspace up ALIAS --network NETWORK`
 - Uses the installed parent profile and retains the original attachment work for recovery.
+- Defaults to the exact alias as its local context name, including valid 63-character labels.
+  `--name` selects an explicit context; managed names allow 1..63 ASCII letters, digits, `-`
+  or `_`, starting with a letter or digit. Kagami and Mochi use the same shared name bound.
 - Failed attachment reports any retained child and parent status separately, plus exact
   `dataspace status` and `localnet logs` actions for the requested context and state store.
   Observation or output failures preserve the original startup error and nonzero result.

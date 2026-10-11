@@ -16,11 +16,10 @@ use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 #[cfg(test)]
 use sorafs_manifest::gateway_compliance::{
     GATEWAY_COMPLIANCE_ACK_VERSION_V1, GATEWAY_COMPLIANCE_APPROVAL_VERSION_V1,
-    GATEWAY_COMPLIANCE_FEED_VERSION_V1, GATEWAY_COMPLIANCE_ROLLBACK_VERSION_V1,
-    GatewayComplianceAcknowledgementPayloadV1, GatewayComplianceAppealOverrideV1,
-    GatewayComplianceBaselineRuleV1, GatewayComplianceCatalogApprovalV1,
-    GatewayComplianceLegalSafetyHoldV1, GatewayComplianceRollbackPayloadV1,
-    GatewayComplianceTrustedSignerV1,
+    GATEWAY_COMPLIANCE_ROLLBACK_VERSION_V1, GatewayComplianceAcknowledgementPayloadV1,
+    GatewayComplianceAppealOverrideV1, GatewayComplianceBaselineRuleV1,
+    GatewayComplianceCatalogApprovalV1, GatewayComplianceLegalSafetyHoldV1,
+    GatewayComplianceRollbackPayloadV1, GatewayComplianceTrustedSignerV1,
 };
 #[cfg(any(test, feature = "test-fixtures"))]
 use sorafs_manifest::gateway_compliance::{

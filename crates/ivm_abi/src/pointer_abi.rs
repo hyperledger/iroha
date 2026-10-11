@@ -131,13 +131,22 @@ impl<'a> core::fmt::Debug for Tlv<'a> {
             .finish()
     }
 }
-/// Encode a V1 typed pointer envelope over the exact payload bytes.
+/// Encode the sole canonical V1 pointer envelope over the exact payload bytes.
 ///
 /// # Errors
-/// Returns [`VMError::NoritoInvalid`] when the payload length does not fit the V1 header.
+/// Rejects an unrepresentable payload or total length with [`VMError::NoritoInvalid`].
+/// Native reservation failure retains the local
+/// `ExecutionDeferred::AllocationUnavailable` result.
 pub fn encode_tlv(pointer_type: PointerType, payload: &[u8]) -> Result<Vec<u8>, VMError> {
     let payload_len = u32::try_from(payload.len()).map_err(|_| VMError::NoritoInvalid)?;
-    let mut out = Vec::with_capacity(7 + payload.len() + iroha_crypto::Hash::LENGTH);
+    let total = 7usize
+        .checked_add(payload.len())
+        .and_then(|len| len.checked_add(iroha_crypto::Hash::LENGTH))
+        .ok_or(VMError::NoritoInvalid)?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(total).map_err(|_| {
+        VMError::ExecutionDeferred(crate::error::ExecutionDeferral::AllocationUnavailable)
+    })?;
     out.extend_from_slice(&(pointer_type as u16).to_be_bytes());
     out.push(1);
     out.extend_from_slice(&payload_len.to_be_bytes());
@@ -300,6 +309,22 @@ pub fn render_pointer_types_markdown_table() -> String {
 }
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn canonical_tlv_producer_preserves_exact_v1_bytes_for_all_payload_boundaries() {
+        for len in [0usize, 1, 31, 32, 33, 255, 256, 4096] {
+            let payload = vec![0xa5; len];
+            let encoded = super::encode_tlv(PointerType::Blob, &payload).expect("canonical TLV");
+            let mut expected = Vec::new();
+            expected.extend_from_slice(&(PointerType::Blob as u16).to_be_bytes());
+            expected.push(1);
+            expected.extend_from_slice(&u32::try_from(len).unwrap().to_be_bytes());
+            expected.extend_from_slice(&payload);
+            expected.extend_from_slice(iroha_crypto::Hash::new(&payload).as_ref());
+            assert_eq!(encoded, expected, "V1 bytes at payload length {len}");
+            assert_eq!(validate_tlv_bytes(&encoded).unwrap().payload, payload);
+        }
+    }
 
     #[test]
     fn encoded_tlv_authenticates_exact_payload_and_rejects_trailing_bytes() {

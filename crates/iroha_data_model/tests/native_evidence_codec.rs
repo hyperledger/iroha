@@ -103,7 +103,12 @@ fn nested_native_evidence_resource_refusal_is_preserved_and_retryable() {
         norito::with_decode_limits_scope(json_limits, || norito::json::from_str::<Evidence>(&json))
             .unwrap_err();
     assert!(
-        matches!(error, norito::json::Error::DecodeResourceLimit),
+        matches!(
+            error,
+            norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::NestingDepthExceeded { limit: 3, .. }
+            )
+        ),
         "{error:?}"
     );
     assert_eq!(

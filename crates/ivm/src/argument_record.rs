@@ -241,7 +241,9 @@ impl PreparedArgumentRecord {
         vm.prepay_argument_decode(self.inner.decode_plan.gas())
     }
 }
-/// Prepare canonical public input supplied by a host without a predecoded record.
+/// Prepare the canonical `entrypoint_argument_record` public input from a host.
+///
+/// The firing-event JSON is a separate input and cannot substitute for this record.
 ///
 /// The same metered public-input route is used by default and custom hosts, so root preparation
 /// preserves their authorization, staged gas accounting, and canonical pointer validation.
@@ -259,7 +261,7 @@ pub(crate) fn prepare_default_call_arguments(
     // Default-root argument effects include a host syscall. Admit its one
     // detached logger before gas, allocation or descriptor writes.
     let prepared_log = vm.prepare_host_register_log()?;
-    let name: Name = "trigger_event_json"
+    let name: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
         .parse()
         .map_err(|_| VMError::DecodeError)?;
     let name_payload = canonical_norito_frame(&name).map_err(|_| VMError::DecodeError)?;
@@ -648,12 +650,29 @@ fn argument_node_word_count(
     *node_index = end;
     Ok(words)
 }
+// The canonical owner captures enclosing resource provenance before its
+// decoder scopes unwind. Protocol limits and malformed frames stay DecodeError.
+fn decode_argument_frame<T>(payload: &[u8]) -> Result<T, VMError>
+where
+    T: norito::NoritoSerialize,
+    for<'de> T: norito::NoritoDeserialize<'de>,
+{
+    norito::decode_canonical_for_admission(payload, norito::canonical_decode_limits(payload.len()))
+        .map_err(|error| match error.kind() {
+            norito::core::DecodeAttemptErrorKind::Allocator => {
+                VMError::ExecutionDeferred(crate::error::ExecutionDeferral::AllocationUnavailable)
+            }
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit => {
+                VMError::ExecutionDeferred(crate::error::ExecutionDeferral::ActiveMemoryCapacity)
+            }
+            norito::core::DecodeAttemptErrorKind::Invalid => VMError::DecodeError,
+        })
+}
 fn decode_schema(payload: &[u8]) -> Result<EntrypointArgumentSchemaV1, VMError> {
     if payload.len() > MAX_ENTRYPOINT_ARGUMENT_SCHEMA_BYTES {
         return Err(VMError::DecodeError);
     }
-    let schema: EntrypointArgumentSchemaV1 =
-        norito::decode_canonical(payload).map_err(|_| VMError::DecodeError)?;
+    let schema: EntrypointArgumentSchemaV1 = decode_argument_frame(payload)?;
     if !schema.validate() || schema.fields.len() > MAX_ENTRYPOINT_ARGUMENTS {
         return Err(VMError::DecodeError);
     }
@@ -665,7 +684,7 @@ fn decode_record(payload: &[u8]) -> Result<EntrypointArgumentRecordV1, VMError> 
     }
     #[cfg(any(test, debug_assertions))]
     RECORD_DECODE_COUNT.with(|count| count.set(count.get().saturating_add(1)));
-    norito::decode_canonical(payload).map_err(|_| VMError::DecodeError)
+    decode_argument_frame(payload)
 }
 fn validate_argument_envelope_lengths(record: &Tlv<'_>, schema: &Tlv<'_>) -> Result<(), VMError> {
     validate_argument_envelope_payload_lengths(record.payload.len(), schema.payload.len())
@@ -1597,7 +1616,12 @@ mod tests {
                 .unwrap();
         let input = encode_tlv(PointerType::NoritoBytes, &record).unwrap();
         let mut host = crate::host::DefaultHost::default().with_public_inputs(
-            std::collections::BTreeMap::from([("trigger_event_json".parse().unwrap(), input)]),
+            std::collections::BTreeMap::from([(
+                ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+                    .parse()
+                    .unwrap(),
+                input,
+            )]),
         );
         let mut vm = IVM::new(u64::MAX);
         reset_argument_record_decode_count();
@@ -1614,6 +1638,92 @@ mod tests {
             Err(VMError::PermissionDenied)
         ));
     }
+
+    #[test]
+    fn default_root_arguments_do_not_consume_trigger_event_json() {
+        use crate::host::IVMHost;
+
+        let schema = EntrypointArgumentSchemaV1 {
+            fields: vec![EntrypointArgumentFieldV1 {
+                name: "ready".into(),
+                ty: argument_type(EntrypointValueKindV1::Bool),
+            }],
+        };
+        let record =
+            encode_argument_record_from_json(&schema, &Json::new(norito::json!({"ready": true})))
+                .expect("encode original schema-bound arguments");
+        let event = Json::new(norito::json!({"firing_event": "original-event"}));
+        let event_frame = canonical_norito_frame(&event).expect("encode actual firing JSON");
+        let record_tlv = encode_tlv(PointerType::NoritoBytes, &record).unwrap();
+        let event_tlv = encode_tlv(PointerType::Json, &event_frame).unwrap();
+        let mut host = crate::host::DefaultHost::default().with_public_inputs(
+            std::collections::BTreeMap::from([
+                (
+                    "entrypoint_argument_record".parse().unwrap(),
+                    record_tlv.clone(),
+                ),
+                ("trigger_event_json".parse().unwrap(), event_tlv.clone()),
+            ]),
+        );
+        let mut vm = IVM::new(u64::MAX);
+        reset_argument_record_decode_count();
+        prepare_default_call_arguments(&mut host, &mut vm, &schema, 1)
+            .expect("default root must acquire the canonical argument-record key");
+        assert_eq!(argument_record_decode_count(), 1);
+        let argument_base = vm.register(10);
+        let result_base = vm.register(12);
+        assert_eq!(vm.load_u64(argument_base).unwrap(), 1);
+        assert_eq!((vm.register(11), vm.register(13)), (1, 1));
+        assert!(vm.gas_remaining < u64::MAX - 8);
+        let event_name: Name = "trigger_event_json".parse().unwrap();
+        let name_frame = canonical_norito_frame(&event_name).unwrap();
+        let name_pointer = vm
+            .alloc_host_tlv(&encode_tlv(PointerType::Name, &name_frame).unwrap())
+            .expect("allocate actual event input name");
+        vm.set_register(10, name_pointer);
+        let quote = host
+            .prepare_syscall(crate::syscalls::SYSCALL_GET_PUBLIC_INPUT, &vm)
+            .expect("quote event input independently of root preparation");
+        let gas = host
+            .syscall(crate::syscalls::SYSCALL_GET_PUBLIC_INPUT, &mut vm)
+            .expect("read actual firing JSON");
+        let returned = vm.validate_tlv(vm.register(10)).unwrap();
+        assert_eq!(returned.type_id, PointerType::Json);
+        assert_eq!(returned.payload, event_frame);
+        assert_eq!(
+            gas,
+            crate::gas::HOST_BYTE_GAS_BASE
+                + crate::gas::SYSCALL_GAS_PER_BYTE * u64::try_from(event_tlv.len()).unwrap()
+        );
+        assert!(gas <= quote);
+        assert_eq!(vm.load_u64(argument_base).unwrap(), 1);
+        assert_eq!(
+            (vm.register(11), vm.register(12), vm.register(13)),
+            (1, result_base, 1)
+        );
+        assert_eq!(argument_record_decode_count(), 1);
+
+        // A record placed under the event name cannot serve as the root input.
+        let mut event_only = crate::host::DefaultHost::default().with_public_inputs(
+            std::collections::BTreeMap::from([("trigger_event_json".parse().unwrap(), record_tlv)]),
+        );
+        let mut denied = IVM::new(u64::MAX);
+        assert_eq!(
+            prepare_default_call_arguments(&mut event_only, &mut denied, &schema, 1),
+            Err(VMError::PermissionDenied),
+            "default preparation must not fall back to the firing-event key"
+        );
+        assert_eq!(
+            (
+                denied.register(11),
+                denied.register(12),
+                denied.register(13)
+            ),
+            (0, 0, 0)
+        );
+        assert_eq!(argument_record_decode_count(), 1);
+    }
+
     #[test]
     fn empty_root_arguments_use_zero_descriptor_and_bounded_result_reservation() {
         let mut vm = IVM::new(u64::MAX);
@@ -3858,5 +3968,135 @@ mod tests {
             Err(VMError::DecodeError)
         ));
         RECORD_DECODE_COUNT.with(|count| assert_eq!(count.get(), 0));
+    }
+
+    #[test]
+    fn prepared_argument_record_preserves_original_enclosing_decode_refusal_and_retry() {
+        use crate::error::ExecutionDeferral;
+        use iroha_allocation::AllocationBudget;
+        use norito::core::{DecodeBudgetContext, DecodeLimits, with_decode_limits_scope};
+        let schema = EntrypointArgumentSchemaV1 {
+            fields: vec![EntrypointArgumentFieldV1 {
+                name: "ready".into(),
+                ty: argument_type(EntrypointValueKindV1::Bool),
+            }],
+        };
+        let canonical: Arc<[u8]> = Arc::from(
+            encode_argument_record_from_json(&schema, &Json::new(norito::json!({"ready": true})))
+                .unwrap(),
+        );
+        let original_pointer = canonical.as_ptr();
+        let original_bytes = canonical.to_vec();
+        let pool = AllocationBudget::new(32 * 1024 * 1024);
+        let context = DecodeBudgetContext::try_new_owned(
+            DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX),
+            &pool,
+        )
+        .unwrap();
+        let mut vm = IVM::try_new_with_memory_budget(u64::MAX, &pool).unwrap();
+        let baseline = (
+            pool.reserved_bytes(),
+            vm.remaining_gas(),
+            vm.register(10),
+            vm.register(11),
+        );
+        context.with(|| {
+            let error = with_decode_limits_scope(
+                DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+                || prepare_argument_record_with_gas_limit(&schema, canonical.clone(), u64::MAX),
+            )
+            .expect_err("the actual canonical record cannot decode under zero caller allocation");
+            assert_eq!(
+                error,
+                VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity),
+                "canonical prepared record must retain its original enclosing decoder deferral"
+            );
+            assert_eq!(
+                (
+                    pool.reserved_bytes(),
+                    vm.remaining_gas(),
+                    vm.register(10),
+                    vm.register(11)
+                ),
+                baseline
+            );
+            let prepared =
+                prepare_argument_record_with_gas_limit(&schema, canonical.clone(), u64::MAX)
+                    .expect(
+                        "unchanged original record retries after only the narrower scope retires",
+                    );
+            assert_eq!(prepared.canonical_bytes().as_ptr(), original_pointer);
+            assert_eq!(prepared.canonical_bytes(), original_bytes);
+            prepared.precharge_vm(&mut vm).unwrap();
+            prepared.install_call_arguments(&mut vm, 1).unwrap();
+            assert_eq!(vm.load_u64(vm.register(10)), Ok(1));
+            assert!(vm.allocation_budget().unwrap().same_pool(&pool));
+        });
+        let mut malformed = original_bytes.clone();
+        malformed[0] ^= 0xff;
+        let invalid = context
+            .with(|| {
+                with_decode_limits_scope(
+                    DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+                    || {
+                        prepare_argument_record_with_gas_limit(
+                            &schema,
+                            Arc::from(malformed),
+                            u64::MAX,
+                        )
+                    },
+                )
+            })
+            .unwrap_err();
+        assert_eq!(
+            invalid,
+            VMError::DecodeError,
+            "invalid framing remains a protocol rejection"
+        );
+        assert_eq!(canonical.as_ref(), original_bytes);
+        drop(vm);
+        drop(context);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn schema_bound_argument_syscall_preserves_original_decode_refusal_before_table_writes() {
+        use crate::error::ExecutionDeferral;
+        use norito::core::{DecodeBudgetContext, DecodeLimits, with_decode_limits_scope};
+        let schema = EntrypointArgumentSchemaV1 {
+            fields: vec![EntrypointArgumentFieldV1 {
+                name: "ready".into(),
+                ty: argument_type(EntrypointValueKindV1::Bool),
+            }],
+        };
+        let mut vm = install_record(&schema, &Json::new(norito::json!({"ready": true})));
+        let original = (vm.register(10), vm.register(11), vm.remaining_gas());
+        let context = DecodeBudgetContext::new(DecodeLimits::new(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+        ));
+        context.with(|| {
+            let error = with_decode_limits_scope(
+                DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+                || decode_argument_record(&mut vm),
+            )
+            .unwrap_err();
+            assert_eq!(
+                error,
+                VMError::ExecutionDeferred(ExecutionDeferral::ActiveMemoryCapacity),
+                "canonical argument schema must retain its original enclosing decoder deferral"
+            );
+            assert_eq!(
+                (vm.register(10), vm.register(11), vm.remaining_gas()),
+                original
+            );
+            decode_argument_record(&mut vm)
+                .expect("same schema and record retry under the original context");
+            assert_eq!(vm.load_u64(vm.register(10)), Ok(1));
+            assert_eq!(vm.register(11), 1);
+        });
     }
 }

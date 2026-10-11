@@ -348,6 +348,13 @@ impl Plan {
                 return Err(Error::Input);
             }
         }
+        super::support::check_hard_own_tapes(
+            input.objects.each_ref().map(Vec::as_slice),
+            &input.q[1].instances,
+            core::array::from_fn(|i| input.state.predecessor.lineage[9 + i]),
+            [self.policy.root.x, self.policy.root.y],
+        )
+        .map_err(|_| Error::Input)?;
         let class = self
             .context
             .operation()

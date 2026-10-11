@@ -1361,17 +1361,41 @@ def test_release_gate_selects_every_basic_census_test_except_the_four_peer_fixtu
      "events::data::kagemusha::tests"),
     ("iroha_data_model", "src/lib.rs", "concrete_identity_tests", "src/concrete_identity_tests.rs",
      "concrete_identity_tests"),
+    ("iroha_core", "src/query/native_context_archive/read.rs", "tests",
+     "src/query/native_context_archive/read/tests.rs", "query::native_context_archive::read::tests"),
+    ("iroha_core", "src/query/native_context_archive.rs", "prepared_intents",
+     "src/query/native_context_archive/prepared_intents.rs", "query::native_context_archive::prepared_intents::tests"),
+    ("iroha_core", "src/query/mod.rs", "native_receipts",
+     "src/query/native_receipts.rs", "query::native_receipts::tests"),
+    ("iroha_core", "src/query/native_receipts/amx_read.rs", "issuer_tests",
+     "src/query/native_receipts/amx_read/issuer_tests.rs", "query::native_receipts::amx_read::issuer_tests"),
+    ("iroha_core", "src/query/native_receipts/amx_read.rs", "certification_tests",
+     "src/query/native_receipts/amx_read/certification_tests.rs", "query::native_receipts::amx_read::certification_tests"),
+    ("iroha_core", "src/query/native_receipts/amx_read.rs", "certification_retry_tests",
+     "src/query/native_receipts/amx_read/certification_retry_tests.rs", "query::native_receipts::amx_read::certification_retry_tests"),
+    ("iroha_core", "src/query/native_receipts/lane_payload.rs", "tests",
+     "src/query/native_receipts/lane_payload/tests.rs", "query::native_receipts::lane_payload::tests"),
+    ("iroha_core", "src/query/native_receipts/ordinary_writes.rs", "tests",
+     "src/query/native_receipts/ordinary_writes/tests.rs", "query::native_receipts::ordinary_writes::tests"),
+    ("iroha_torii", "src/finality_interval.rs", "tests",
+     "src/finality_interval/tests.rs", "finality_interval::tests"),
+    ("iroha_torii", "src/lib.rs", "history_producer",
+     "src/history_producer.rs", "history_producer::tests"),
+    ("iroha_torii", "src/lib.rs", "response_memory_custody",
+     "src/response_memory_custody.rs", "response_memory_custody::tests"),
+    ("iroha_torii", "src/lib.rs", "native_projection_response",
+     "src/native_projection_response.rs", "native_projection_response::tests"),
 ))
 def test_release_gate_selects_current_amx_load_and_identity_owner_controls(
     package: str, parent: str, module: str, source: str, prefix: str
 ) -> None:
-    """Select current AMX, Load and identity owners without a frozen leaf count."""
+    """Select current AMX, archive, finality transport and identity owners, including async tests."""
 
     directory = _workspace_packages()[package]
     assert re.search(rf"\bmod\s+{re.escape(module)}\s*[;{{]",
                      (directory / parent).read_text(encoding="utf-8"))
     declarations = re.findall(
-        r"#\[test\]\s*fn\s+([A-Za-z_]\w*)\s*\(",
+        r"#\[(?:tokio::)?test(?:\([^\]]*\))?\]\s*(?:async\s+)?fn\s+([A-Za-z_]\w*)\s*\(",
         (directory / source).read_text(encoding="utf-8"),
     )
     assert declarations, (package, source)

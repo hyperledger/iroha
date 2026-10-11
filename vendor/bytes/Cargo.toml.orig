@@ -27,6 +27,7 @@ std = []
 serde = { version = "1.0.60", optional = true, default-features = false, features = ["alloc"] }
 
 [dev-dependencies]
+criterion = { workspace = true }
 serde_test = "1.0"
 
 [target.'cfg(loom)'.dev-dependencies]
@@ -39,3 +40,18 @@ rustdoc-args = ["--cfg", "docsrs"]
 unexpected_cfgs = { level = "warn", check-cfg = [
   'cfg(loom)',
 ] }
+
+[[bench]]
+name = "buf"
+path = "benches/buf.rs"
+harness = false
+
+[[bench]]
+name = "bytes"
+path = "benches/bytes.rs"
+harness = false
+
+[[bench]]
+name = "bytes_mut"
+path = "benches/bytes_mut.rs"
+harness = false

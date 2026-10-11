@@ -48,12 +48,24 @@ fn plan(runtime: &DeploymentRuntime, nonce: u64) -> Result<Plan> {
 }
 
 fn plan_for_alias(runtime: &DeploymentRuntime, nonce: u64, alias: &str) -> Result<Plan> {
+    plan_for_source(
+        runtime,
+        nonce,
+        alias,
+        "seiyaku ResumeFixture { view fn value() authorize(anyone) -> int { return 1; } }",
+    )
+}
+
+fn plan_for_source(
+    runtime: &DeploymentRuntime,
+    nonce: u64,
+    alias: &str,
+    source: &str,
+) -> Result<Plan> {
     let config = &runtime.config;
     let _profile = ChainDiscriminantGuard::enter(config.account_chain_discriminant);
     let artifact = kotodama_lang::compiler::Compiler::new()
-        .compile_source(
-            "seiyaku ResumeFixture { view fn value() authorize(anyone) -> int { return 1; } }",
-        )
+        .compile_source(source)
         .map_err(|error| eyre!(error))?;
     let verified = ivm::verify_contract_artifact(&artifact).map_err(|error| eyre!(error))?;
     let alias: ContractAlias = alias.parse()?;
@@ -513,7 +525,12 @@ fn completed_historical_resume_keeps_newer_active_pointer_and_never_dispatches()
     for preparing in [false, true] {
         let temporary = tempfile::tempdir()?;
         let offline = runtime(temporary.path(), "http://127.0.0.1:9/");
-        let original = plan(&offline, 7)?;
+        let original = plan_for_source(
+            &offline,
+            7,
+            "ResumeFixture::universal",
+            "seiyaku ResumeFixture { state int stored; 始まり(int start) { stored = start; } view fn value() authorize(anyone) -> int { return stored; } }",
+        )?;
         let receipt = complete(&original)?;
         let successor = plan(&offline, 8)?;
         complete(&successor)?;
@@ -535,6 +552,24 @@ fn completed_historical_resume_keeps_newer_active_pointer_and_never_dispatches()
         let recovered = runtime.resume(&original.journal, &mut |_| Ok(()), &mut |_| {
             panic!("historical completion entered mutable service")
         })?;
+        assert_eq!(recovered.receipt.to_json()?, receipt.to_json()?);
+        assert_eq!(
+            recovered.lifecycle,
+            Some(
+                LifecycleHook {
+                    name: "hajimari".into(),
+                    params: vec![iroha_contract_deploy::LifecycleParameter {
+                        name: "start".into(),
+                        type_name: "int".into()
+                    }],
+                }
+                .guidance(true)
+            )
+        );
+        assert_eq!(
+            std::fs::read(original.journal.join("plan.json"))?,
+            original.bytes
+        );
         assert_eq!(recovered.receipt.commit, receipt.commit);
         assert_eq!(recovered.journal, original.journal);
         assert_eq!(active(&runtime, &successor)?.read_state()?, publication);
@@ -799,6 +834,7 @@ fn replaced_slot_lock_refuses_original_owner_reads_writes_and_dispatch() -> Resu
         slot.resume(
             &DeploymentService::new(runtime.config.clone())?,
             &original.journal,
+            &original.preflight,
             &mut |_| panic!("replaced lock admitted dispatch")
         )
         .is_err()
@@ -1150,6 +1186,289 @@ fn changed_slot_lock_during_submitting_refuses_http_dispatch() -> Result<()> {
             ),
             "ownership loss must prevent signed HTTP dispatch"
         );
+    }
+    Ok(())
+}
+
+/// Replace only retained content, preserving the genuine original directory and child lock.
+fn replace_retained_plan(source: &Path, destination: &Path) -> Result<()> {
+    let source = PrivateDirectory::open(source)?;
+    let destination = PrivateDirectory::open(destination)?;
+    for name in source.entries(64)? {
+        if name == "lock" {
+            continue;
+        }
+        let bytes = source.read(&name, 32 * 1024 * 1024)?;
+        destination.write_atomic(&name, &bytes, PublishMode::Replace)?;
+    }
+    Ok(())
+}
+
+fn assert_review_binding_error<T>(result: iroha_contract_deploy::DeploymentResult<T>) {
+    assert!(
+        matches!(result, Err(DeploymentError::InvalidRequest(reason))
+        if reason == "retained deployment differs from the original reviewed plan")
+    );
+}
+
+#[test]
+fn retry_review_rejects_valid_completed_replacement_without_inspection() -> Result<()> {
+    for different_artifact in [false, true] {
+        let temporary = tempfile::tempdir()?;
+        let offline = runtime(temporary.path(), "http://127.0.0.1:9/");
+        let original = plan_for_source(
+            &offline,
+            7,
+            "ResumeFixture::universal",
+            "seiyaku ResumeFixture { state int stored; hajimari(int start) { stored = start; } view fn value() authorize(anyone) -> int { return stored; } }",
+        )?;
+        let alternate = if different_artifact {
+            plan(&offline, 8)?
+        } else {
+            plan_for_source(
+                &offline,
+                8,
+                "ResumeFixture::universal",
+                "seiyaku ResumeFixture { state int stored; hajimari(int start) { stored = start; } view fn value() authorize(anyone) -> int { return stored; } }",
+            )?
+        };
+        let original_receipt = complete(&original)?;
+        let alternate_receipt = complete(&alternate)?;
+        assert_eq!(original.preflight.authority, alternate.preflight.authority);
+        assert_eq!(
+            original.preflight.contract_alias,
+            alternate.preflight.contract_alias
+        );
+        assert_eq!(
+            original.preflight.code_hash != alternate.preflight.code_hash,
+            different_artifact
+        );
+        assert_ne!(original_receipt.commit.hash, alternate_receipt.commit.hash);
+        let state = Publication::Active {
+            journal: plan_journal_id(&original.preflight)?,
+        };
+        active(&offline, &original)?.write_state(&state)?;
+        let http = Http::new(Some(alternate_receipt.commit.clone()))?;
+        let runtime = runtime(temporary.path(), &http.origin);
+        let service = DeploymentService::new(runtime.config.clone())?;
+        assert_eq!(
+            service
+                .completed_receipt(&alternate.journal, &alternate.preflight)?
+                .unwrap()
+                .to_json()?,
+            alternate_receipt.to_json()?,
+            "alternate signed plan and complete retained evidence authenticate independently",
+        );
+        http.requests.lock().unwrap().clear();
+        let mut reviews = 0;
+        let error = runtime
+            .deploy_artifact(
+                BuiltArtifact::from_bytes(original.artifact.clone())?,
+                &AliasSelection::Exact(original.preflight.contract_alias.clone()),
+                FeePaymentIntent::authority(Vec::new(), None),
+                &mut |reviewed| {
+                    reviews += 1;
+                    assert_eq!(reviewed.to_json()?, original.preflight.to_json()?);
+                    assert!(
+                        active(&runtime, &original).is_err(),
+                        "original slot stays locked"
+                    );
+                    replace_retained_plan(&alternate.journal, &original.journal)
+                },
+                &mut |_| panic!("substituted retry reached progress"),
+            )
+            .err()
+            .expect("valid replacement must not become the reviewed deployment");
+        assert_eq!(reviews, 1);
+        assert!(
+            error
+                .to_string()
+                .contains("deployment journal differs from its authenticated slot and commit"),
+            "{error:#}"
+        );
+        assert_eq!(active(&runtime, &original)?.read_state()?, state);
+        assert_eq!(
+            std::fs::read(original.journal.join("plan.json"))?,
+            alternate.bytes
+        );
+        assert_eq!(
+            std::fs::read(original.journal.join("receipt.json"))?,
+            std::fs::read(alternate.journal.join("receipt.json"))?
+        );
+        assert_eq!(
+            std::fs::read_dir(original.journal.parent().unwrap())?.count(),
+            4,
+            "two original journal directories and the unchanged slot files only"
+        );
+        assert!(
+            http.finish()?.is_empty(),
+            "refusal precedes status reads, signing and submission"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn retry_prepare_only_rechecks_review_but_preserves_callback_refusal() -> Result<()> {
+    for accept in [false, true] {
+        let temporary = tempfile::tempdir()?;
+        let http = Http::new(None)?;
+        let runtime = runtime(temporary.path(), &http.origin);
+        let original = plan(&runtime, 7)?;
+        let alternate = plan(&runtime, 8)?;
+        let slot = active(&runtime, &original)?;
+        let state = Publication::Active {
+            journal: plan_journal_id(&original.preflight)?,
+        };
+        slot.write_state(&state)?;
+        let service = DeploymentService::new(runtime.config.clone())?;
+        let fee = FeePaymentIntent::authority(Vec::new(), None);
+        let mut reviews = 0;
+        let error = slot
+            .recover_matching(
+                &service,
+                slot::RetryRequest {
+                    code_hash: original.preflight.code_hash,
+                    alias: &original.preflight.contract_alias,
+                    fee_payment: &fee,
+                    prepare_only: true,
+                },
+                &mut |_| {
+                    reviews += 1;
+                    replace_retained_plan(&alternate.journal, &original.journal)?;
+                    if accept {
+                        Ok(())
+                    } else {
+                        bail!("original review refusal")
+                    }
+                },
+                &mut |_| panic!("prepare-only retry reached progress"),
+            )
+            .err()
+            .expect("prepare-only must not return a substituted plan");
+        assert_eq!(reviews, 1);
+        assert!(
+            error.to_string().contains(if accept {
+                "deployment journal differs from its authenticated slot and commit"
+            } else {
+                "original review refusal"
+            }),
+            "{error:#}"
+        );
+        assert_eq!(slot.read_state()?, state);
+        assert_eq!(
+            std::fs::read(original.journal.join("plan.json"))?,
+            alternate.bytes
+        );
+        assert!(!original.journal.join("attempt-0000.json").exists());
+        assert!(http.finish()?.is_empty());
+    }
+    Ok(())
+}
+
+#[test]
+fn fresh_inspection_and_receipt_reads_reject_a_valid_replacement_before_effects() -> Result<()> {
+    let temporary = tempfile::tempdir()?;
+    let offline = runtime(temporary.path(), "http://127.0.0.1:9/");
+    let original = plan(&offline, 7)?;
+    let alternate = plan(&offline, 8)?;
+    complete(&original)?;
+    let alternate_receipt = complete(&alternate)?;
+    let http = Http::new(Some(alternate_receipt.commit.clone()))?;
+    let runtime = runtime(temporary.path(), &http.origin);
+    let service = DeploymentService::new(runtime.config.clone())?;
+    let expected = service.retained_preflight(&original.journal)?;
+    assert_eq!(
+        service
+            .completed_receipt(&alternate.journal, &alternate.preflight)?
+            .unwrap()
+            .to_json()?,
+        alternate_receipt.to_json()?
+    );
+    http.requests.lock().unwrap().clear();
+    replace_retained_plan(&alternate.journal, &original.journal)?;
+    assert_eq!(
+        service.retained_preflight(&original.journal)?.to_json()?,
+        alternate.preflight.to_json()?,
+        "replacement remains fully authenticated for this same authority"
+    );
+    let before = std::fs::read(original.journal.join("receipt.json"))?;
+    assert_review_binding_error(service.inspect_journal(&original.journal, &expected));
+    assert_review_binding_error(service.completed_receipt(&original.journal, &expected));
+    assert_review_binding_error(service.current_completed_receipt(&original.journal, &expected));
+    assert_eq!(
+        std::fs::read(original.journal.join("receipt.json"))?,
+        before
+    );
+    assert_eq!(
+        std::fs::read(original.journal.join("plan.json"))?,
+        alternate.bytes
+    );
+    assert!(!original.journal.join("failed-0000.json").exists());
+    assert!(
+        http.finish()?.is_empty(),
+        "mismatch is refused before capability/finality/readback I/O"
+    );
+    Ok(())
+}
+
+#[test]
+fn resume_prepared_boundary_rejects_between_open_replacement_before_progress() -> Result<()> {
+    for completed in [false, true] {
+        let temporary = tempfile::tempdir()?;
+        let http = Http::new(None)?;
+        let runtime = runtime(temporary.path(), &http.origin);
+        let original = plan(&runtime, 7)?;
+        let alternate = plan(&runtime, 8)?;
+        if completed {
+            complete(&original)?;
+            complete(&alternate)?;
+        }
+        let state = Publication::Active {
+            journal: plan_journal_id(&original.preflight)?,
+        };
+        active(&runtime, &original)?.write_state(&state)?;
+        let source = alternate.journal.clone();
+        let destination = original.journal.clone();
+        let invoked = Arc::new(AtomicBool::new(false));
+        let hook_invoked = Arc::clone(&invoked);
+        let mut reviews = 0;
+        let error = slot::resume_open_test_support::with_before_open(
+            move || {
+                replace_retained_plan(&source, &destination).unwrap();
+                hook_invoked.store(true, Ordering::Release);
+            },
+            || {
+                runtime.resume(
+                    &original.journal,
+                    &mut |reviewed| {
+                        reviews += 1;
+                        assert_eq!(reviewed.to_json()?, original.preflight.to_json()?);
+                        Ok(())
+                    },
+                    &mut |_| panic!("foreign Prepared reached the external progress observer"),
+                )
+            },
+        )
+        .err()
+        .expect("opened record must match the original review before progress or dispatch");
+        assert_eq!(reviews, 1);
+        assert!(invoked.load(Ordering::Acquire));
+        assert!(
+            matches!(error.downcast_ref::<DeploymentError>(), Some(DeploymentError::InvalidRequest(reason))
+            if reason == "retained deployment differs from the original reviewed plan"),
+            "{error:#}"
+        );
+        assert_eq!(active(&runtime, &original)?.read_state()?, state);
+        assert_eq!(
+            std::fs::read(original.journal.join("plan.json"))?,
+            alternate.bytes
+        );
+        assert_eq!(
+            original.journal.join("attempt-0000.json").exists(),
+            completed
+        );
+        assert!(http.finish()?.is_empty());
     }
     Ok(())
 }

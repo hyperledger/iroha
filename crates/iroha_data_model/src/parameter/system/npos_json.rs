@@ -1,4 +1,4 @@
-//! One NPoS JSON record kernel and its original-pool destination.
+//! One `NPoS` JSON record kernel and its original-pool destination.
 //!
 //! This is decoded parameter custody, not signed-genesis authentication. The
 //! enclosing source/decoder/State owner scopes refunds and retains source authority.
@@ -12,7 +12,7 @@ use crate::asset::AssetDefinitionId;
 
 use super::{CustomParameter, JsonDeserialize, NonZeroU64, Quantity, SumeragiNposParameters, json};
 
-/// Original JSON failure or exact admission refusal of the NPoS record/leaf.
+/// Original JSON failure or exact admission refusal of the `NPoS` record/leaf.
 #[derive(Debug)]
 pub enum SumeragiNposJsonAdmissionError {
     /// Original syntax, scalar validation or cumulative decoder limit.
@@ -64,16 +64,16 @@ struct AdmittedRecord {
     bond_charges: [AllocationCharge; 2],
 }
 
-/// One immutable canonical NPoS value with exact original-pool record and digit backing.
+/// One immutable canonical `NPoS` value with exact original-pool record and digit backing.
 ///
 /// The single funded record contains the value before both original digit charges.
 /// There is no Clone, mutable access or ordinary-value extraction. This owner is
 /// not proof of a signature, genesis identity, committee or application authority.
 /// The caller still admits enclosing owner/control storage, original source and
 /// validation/error scratch, and defers refunds beyond State/storage guards.
-// TODO: connect this record to the genuine signed-genesis retained stage only after
-// the public AMX partial-policy counterexample is observed. Election-policy
-// validation/authority graph retention and its current Quantity clones remain open.
+// The original signed-genesis reader retains this record at its exact instruction.
+// TODO(S6): fund election-policy validation/authority graphs and its Quantity clones
+// at their own original boundaries; this record does not cover those later owners.
 pub struct AdmittedSumeragiNposParameters {
     record: ChargedBuffer<AdmittedRecord>,
 }
@@ -220,7 +220,7 @@ impl Destination for OrdinaryDestination {
     }
     fn finish(
         &mut self,
-        _: (),
+        (): (),
         fields: RecordFields<Quantity>,
     ) -> Result<SumeragiNposParameters, json::Error> {
         Ok(fields.into_value(|self_bond, nomination_bond| (self_bond, nomination_bond)))

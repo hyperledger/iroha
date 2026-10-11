@@ -234,31 +234,38 @@ impl Json {
     /// [`norito::json::JsonDeserializeOwned`].
     ///
     /// # Errors
-    /// Returns an error if the string does not represent `T`.
+    /// Returns an error if the string does not represent `T`, preserving
+    /// the original parser resource refusal and its opaque scope provenance.
     pub fn try_into_any<T: JsonDeserializeOwned>(&self) -> Result<T, norito::Error> {
-        norito::json::from_str::<T>(self.0.as_str()).map_err(|e| norito::Error::from(e.to_string()))
+        norito::json::from_str::<T>(self.0.as_str()).map_err(json::Error::into_core_error)
     }
     /// Deserializes the JSON string into any type using Norito's JSON helper,
     /// returning `norito::Error` for convenience.
     ///
     /// # Errors
-    /// Returns an error if the string does not represent `T`.
+    /// Returns an error if the string does not represent `T`, preserving
+    /// the original parser resource refusal and its opaque scope provenance.
     pub fn try_into_any_norito<T: JsonDeserializeOwned>(&self) -> Result<T, norito::Error> {
-        norito::json::from_str::<T>(self.0.as_str()).map_err(|e| norito::Error::from(e.to_string()))
+        norito::json::from_str::<T>(self.0.as_str()).map_err(json::Error::into_core_error)
     }
     /// Fallible constructor: serialize `payload` to JSON using Norito's helper.
     ///
     /// # Errors
     /// Returns an error if `payload` has no checked writer, cannot be converted into one valid JSON
     /// document, is too deeply nested, or exceeds [`MAX_JSON_BYTES`].
+    /// Writer and parser resource refusals retain their original typed provenance.
     #[allow(clippy::needless_pass_by_value)]
     pub fn try_new<T: JsonSerialize>(payload: T) -> Result<Self, norito::Error> {
         let serialized = norito::json::to_json_bounded(&payload, MAX_JSON_BYTES)
-            .map_err(|error| norito::Error::Message(error.to_string()))?;
+            .map_err(json::BoundedJsonError::into_core_error)?;
         let canonical = Self::canonicalize_text(&serialized).map_err(|error| {
-            norito::Error::from(format!(
-                "Json serializer produced an invalid JSON document: {error}"
-            ))
+            if error.decode_resource_error().is_some() {
+                error
+            } else {
+                norito::Error::from(format!(
+                    "Json serializer produced an invalid JSON document: {error}"
+                ))
+            }
         })?;
         drop(serialized);
         Self::try_from_canonical_string(canonical)
@@ -807,12 +814,22 @@ mod tests {
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
             || <Json as json::JsonDeserialize>::json_from_value(&value),
         );
-        assert!(matches!(semantic, Err(json::Error::DecodeResourceLimit)));
+        assert!(matches!(
+            semantic,
+            Err(json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ));
         let wire = norito::with_decode_limits_scope(
             norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
             || json::from_json::<Json>("null"),
         );
-        assert!(matches!(wire, Err(json::Error::DecodeResourceLimit)));
+        assert!(matches!(
+            wire,
+            Err(json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ));
         assert_eq!(json::from_json::<Json>("null").unwrap(), expected);
         let oversized = norito::json::Value::String("x".repeat(MAX_JSON_BYTES));
         let bound = Json::from_norito_value_ref(&oversized).unwrap_err();
@@ -826,6 +843,83 @@ mod tests {
             "malformed source remains terminal"
         );
     }
+    #[test]
+    fn json_owned_conversion_preserves_original_resource_refusal_and_retry() {
+        let value = norito::json!([1, 2]);
+        let original = Json::from_norito_value_ref(&value).unwrap();
+        let text = original.get().to_owned();
+        let pool = iroha_allocation::AllocationBudget::new(65_536);
+        let context = norito::core::DecodeBudgetContext::try_new_owned(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX),
+            &pool,
+        )
+        .unwrap();
+        let baseline = pool.reserved_bytes();
+        let zero = norito::core::DecodeBudgetContext::new(norito::DecodeLimits::new(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            0,
+            usize::MAX,
+        ));
+        for named_norito in [false, true] {
+            context.with(|| {
+                let error = zero.with(|| {
+                    if named_norito {
+                        original.try_into_any_norito::<Value>()
+                    } else {
+                        original.try_into_any::<Value>()
+                    }
+                })
+                .unwrap_err();
+                assert!(
+                    matches!(
+                        error.decode_resource_error(),
+                        Some(norito::core::DecodeResourceError::TotalAllocationExceeded {
+                            limit: 0,
+                            ..
+                        })
+                    ),
+                    "original JSON parser refusal must remain typed through its owning helper: {error}"
+                );
+                drop(error);
+                assert_eq!(pool.reserved_bytes(), baseline);
+                let refusal = zero.with(|| {
+                    norito::core::classify_decode_attempt(|| {
+                        if named_norito {
+                            original.try_into_any_norito::<Value>()
+                        } else {
+                            original.try_into_any::<Value>()
+                        }
+                    })
+                })
+                .unwrap_err();
+                assert_eq!(
+                    refusal.kind(),
+                    norito::core::DecodeAttemptErrorKind::EnclosingLimit
+                );
+                drop(refusal);
+                assert_eq!(original.try_into_any::<Value>().unwrap(), value);
+                assert_eq!(original.try_into_any_norito::<Value>().unwrap(), value);
+                assert_eq!(original.get(), &text);
+            });
+            assert_eq!(pool.reserved_bytes(), baseline);
+        }
+        let semantic = context
+            .with(|| {
+                norito::core::classify_decode_attempt(|| original.try_into_any_norito::<bool>())
+            })
+            .unwrap_err();
+        assert_eq!(
+            semantic.kind(),
+            norito::core::DecodeAttemptErrorKind::Invalid
+        );
+        drop(semantic);
+        drop(zero);
+        drop(context);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+
     #[test]
     fn norito_value_roundtrip() {
         let value = norito::json!({"a": 1u64, "b": [true, false], "s": "x"});
@@ -1041,6 +1135,70 @@ mod tests {
             .expect("128KiB Json boundary thread")
             .expect("iterative Json boundary");
     }
+    #[test]
+    fn json_checked_constructor_preserves_original_resource_refusal_and_retry() {
+        let value = norito::json!([1, 2]);
+        let expected = Json::from_norito_value_ref(&value).unwrap();
+        let pool = iroha_allocation::AllocationBudget::new(65_536);
+        let unlimited =
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX);
+        let oracle = norito::core::DecodeBudgetContext::try_new_owned(unlimited, &pool).unwrap();
+        let serialized = oracle
+            .with(|| norito::json::to_json_bounded(&value, MAX_JSON_BYTES))
+            .unwrap();
+        assert_eq!(serialized, expected.get().as_str());
+        let writer_demand = usize::try_from(oracle.consumed_allocated_bytes()).unwrap();
+        assert!(writer_demand > 0);
+        drop(serialized);
+        drop(oracle);
+        assert_eq!(pool.reserved_bytes(), 0);
+        let context = norito::core::DecodeBudgetContext::try_new_owned(unlimited, &pool).unwrap();
+        let baseline = pool.reserved_bytes();
+        // The second quota admits the genuine writer, then refuses its parser.
+        for limit in [0, writer_demand] {
+            let refusal = context
+                .with(|| {
+                    norito::core::with_decode_limits_scope(
+                        norito::DecodeLimits::new(
+                            usize::MAX,
+                            usize::MAX,
+                            usize::MAX,
+                            limit,
+                            usize::MAX,
+                        ),
+                        || norito::core::classify_decode_attempt(|| Json::try_new(&value)),
+                    )
+                })
+                .unwrap_err();
+            assert_eq!(
+                refusal.kind(),
+                norito::core::DecodeAttemptErrorKind::EnclosingLimit,
+                "checked JSON constructor must preserve writer and parser refusal provenance"
+            );
+            assert!(matches!(
+                refusal.into_error().decode_resource_error(),
+                Some(norito::core::DecodeResourceError::TotalAllocationExceeded {
+                    limit: actual,
+                    ..
+                }) if actual == limit as u64
+            ));
+            assert_eq!(pool.reserved_bytes(), baseline);
+            context.with(|| assert_eq!(Json::try_new(&value).unwrap(), expected));
+            assert_eq!(pool.reserved_bytes(), baseline);
+        }
+        let invalid = context
+            .with(|| norito::core::classify_decode_attempt(|| Json::try_new(CheckedBadJson)))
+            .unwrap_err();
+        assert_eq!(
+            invalid.kind(),
+            norito::core::DecodeAttemptErrorKind::Invalid
+        );
+        assert!(invalid.to_string().contains("invalid JSON document"));
+        drop(invalid);
+        drop(context);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+
     struct BadJson;
     impl JsonSerialize for BadJson {
         fn json_serialize(&self, out: &mut String) {

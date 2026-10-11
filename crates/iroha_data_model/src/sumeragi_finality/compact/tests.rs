@@ -29,8 +29,11 @@ fn resign(qc: &mut Qc, signers: &[usize]) {
         })
         .collect();
     keys.sort_by_key(|key| key.public_key().try_to_bytes().unwrap().1.to_vec());
-    qc.signers =
-        iroha_sumeragi::types::Bitmap::from_indices(4, signers.iter().map(|i| *i as u32)).unwrap();
+    qc.signers = iroha_sumeragi::types::Bitmap::from_indices(
+        4,
+        signers.iter().map(|i| u32::try_from(*i).unwrap()),
+    )
+    .unwrap();
     let shares: Vec<_> = signers
         .iter()
         .map(|i| iroha_crypto::Signature::try_new(keys[*i].private_key(), &qc.preimage()).unwrap())

@@ -1396,6 +1396,11 @@ pub(crate) struct ValidatedServiceProfile {
     pub(crate) genesis: crate::verify::finality::GenesisAnchor,
     pub(crate) peer_ids: [iroha_model_base::peer::PeerId; 4],
 }
+#[cfg(test)]
+pub(crate) fn count_profile_images<T>(action: impl FnOnce() -> T) -> (T, usize) {
+    capture::count_revalidations(action)
+}
+
 impl RetainedServiceProfile {
     pub(crate) fn manifest(&self) -> &StreamTokenAuthorityManifest {
         &self.manifest

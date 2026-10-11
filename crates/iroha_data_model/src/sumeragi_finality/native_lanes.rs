@@ -43,21 +43,33 @@ pub enum NativeLaneStateProofError {
     /// The original witness or its fixed-key commitment is malformed.
     #[error("native lane state proof: {0}")]
     Malformed(&'static str),
-    /// A bounded canonical commitment frame is malformed.
+    /// Original canonical commitment decoder, including captured enclosing admission refusal.
+    #[error("native lane state proof decoder: {0}")]
+    Decode(#[from] norito::core::DecodeAttemptError),
+    /// Canonical commitment comparison could not be encoded; this is not a decoder refusal.
     #[error("native lane state proof codec: {0}")]
     Codec(#[from] norito::Error),
 }
 impl NativeLaneStateProofError {
     /// Whether preserving the original execution and retrying local admission can progress.
+    /// Captured caller decoder limits remain local after their scopes retire. Scratch demand
+    /// exceeding the pool's hard ceiling, invalid bytes and encoder failures remain terminal.
     #[must_use]
     pub fn is_local_refusal(&self) -> bool {
-        matches!(
-            self,
+        match self {
             Self::Scratch(
-                ChargedBufferError::Admission(iroha_allocation::AllocationRefusal::Capacity { .. })
-                    | ChargedBufferError::Allocator { .. }
-            )
-        )
+                ChargedBufferError::Admission(iroha_allocation::AllocationRefusal::Capacity {
+                    ..
+                })
+                | ChargedBufferError::Allocator { .. },
+            ) => true,
+            Self::Decode(original) => matches!(
+                original.kind(),
+                norito::core::DecodeAttemptErrorKind::Allocator
+                    | norito::core::DecodeAttemptErrorKind::EnclosingLimit
+            ),
+            _ => false,
+        }
     }
 }
 
@@ -107,7 +119,7 @@ impl NativeLaneStateProof {
         if target.value.len() > COMMITMENT_BYTES {
             return Err(malformed("oversized lane-state commitment"));
         }
-        let commitment: SumeragiLaneStateCommitment = norito::decode_canonical_with_limits(
+        let commitment: SumeragiLaneStateCommitment = norito::decode_canonical_for_admission(
             &target.value,
             norito::DecodeLimits::new(32, COMMITMENT_BYTES, 128, 2048, 8),
         )?;

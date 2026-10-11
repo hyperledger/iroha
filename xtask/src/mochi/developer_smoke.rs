@@ -24,9 +24,8 @@ mod publication_smoke;
 const LOCAL_CLEANUP: [&str; 3] = ["localnet", "down", "local"];
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(180);
 const MAX_OUTPUT: u64 = 1024 * 1024;
-const SOURCE: &str = "seiyaku BundleSmoke { view fn quote(int cups) -> int { return cups * 10; } }";
-const PACKAGE_SOURCE: &str =
-    "seiyaku BundlePackage { view fn quote(int cups) -> int { return cups * 30; } }";
+const SOURCE: &str = "seiyaku BundleSmoke { view fn quote(int cups) authorize(anyone) -> int { return cups * 10; } }";
+const PACKAGE_SOURCE: &str = "seiyaku BundlePackage { view fn quote(int cups) authorize(anyone) -> int { return cups * 30; } }";
 const PACKAGE_MANIFEST: &str = r#"manifest-version = 1
 
 [package]
@@ -41,8 +40,7 @@ name = "bundle-package"
 path = "contract.ko"
 "#;
 
-const BYTECODE_SOURCE: &str =
-    "seiyaku BundleBytecodeFixture { view fn quote(int cups) -> int { return cups * 20; } }";
+const BYTECODE_SOURCE: &str = "seiyaku BundleBytecodeFixture { view fn quote(int cups) authorize(anyone) -> int { return cups * 20; } }";
 
 /// Compile fixture input offline with the canonical compiler, outside every measured command.
 /// This compiler belongs to the test controller; installed products still need only the bundle.
@@ -913,10 +911,25 @@ fn fixture_behaviors_compile_to_three_distinct_complete_artifacts() {
     let compiled: Vec<_> = [SOURCE, BYTECODE_SOURCE, PACKAGE_SOURCE]
         .into_iter()
         .map(|source| {
-            kotodama_lang::compiler::Compiler::new()
+            let (bytes, manifest) = kotodama_lang::compiler::Compiler::new()
                 .compile_source_with_manifest(source)
+                .unwrap();
+            let quote = manifest
+                .entrypoints
+                .as_ref()
                 .unwrap()
-                .0
+                .iter()
+                .find(|entrypoint| entrypoint.name == "quote")
+                .unwrap();
+            assert_eq!(
+                quote.kind,
+                iroha_data_model::smart_contract::manifest::EntryPointKind::View
+            );
+            assert_eq!(
+                quote.authorization,
+                iroha_data_model::smart_contract::manifest::EntrypointAuthorizationV1::Anyone
+            );
+            bytes
         })
         .collect();
     let hashes: std::collections::BTreeSet<_> = compiled

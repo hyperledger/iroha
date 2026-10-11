@@ -277,6 +277,15 @@ Validation rejects unsupported versions with
   - `service.container.expected_schema_version` must match the container schema.
   - Mutable state bindings require `container.capabilities.allow_state_writes=true`.
   - Public routes require `container.lifecycle.healthcheck_path`.
+  - IVM query and mailbox handlers use authenticated callable argument and
+    completed result tables. The runtime prepares the declared context fields
+    (`_request_body`, `_request_meta`, `execution_sequence`, `observed_height`)
+    as one canonical argument record and prepays its materialization. Unsupported
+    fields or fields absent from the invocation context are rejected. Height and
+    sequence values retain their full unsigned range in canonical `Int` values.
+    Completed responses must match the declared unit, JSON or bytes return type.
+    A local decoder or allocation refusal stays unavailable for retry, including
+    after guest execution; it never becomes a deterministic mailbox failure.
 - Agent apartment manifest:
   - `container.expected_schema_version` must match container schema v1.
   - tool capability names must be non-empty and unique.

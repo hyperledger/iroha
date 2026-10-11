@@ -225,6 +225,8 @@ jobs:
           cargo test --locked -p ivm --test ivm_group_03 gas_schedule_hash
           cargo run --locked -p ivm --features dev-tools --bin gen_abi_hash_doc -- --check
           cargo test --locked -p ivm --test ivm_group_05 kotodama_checked_arithmetic::
+          cargo run --locked -p ivm --example entrypoint_argument_record_v1_fixture -- --check fixtures/kotodama/entrypoint_argument_record_v1.json
+          cargo test --locked -p ivm --test ivm_group_05 kotodama_argument_record::
           cargo test --locked -p iroha_primitives randomized_decimal_arithmetic_matches_independent_rational_reference
 
   android_fixture_compat:
@@ -303,6 +305,7 @@ jobs:
             scripts/tests/sdk_operation_inventory_test.py \
             scripts/tests/check_compile_unit_budget_test.py \
             scripts/tests/check_generated_artifacts_test.py \
+            scripts/tests/regenerate_kotodama_goldens_test.py \
             scripts/tests/check_nexus_provisioning_templates_test.py \
             scripts/tests/check_zk_delivery_plan_test.py \
             scripts/tests/check_fhe_ownership_map_test.py \

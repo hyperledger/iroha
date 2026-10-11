@@ -12,6 +12,7 @@ use std::{
     alloc::{GlobalAlloc, Layout, System},
     cell::Cell,
     hint::black_box,
+    marker::PhantomData,
 };
 
 use iroha_crypto::Hash;
@@ -25,6 +26,8 @@ thread_local! {
     static TRACKING: Cell<bool> = const { Cell::new(false) };
     // Each allocation entry point has its own observable count.
     static REQUESTS: Cell<[usize; 3]> = const { Cell::new([0; 3]) };
+    // One fixed per-thread ledger. Allocator callbacks never allocate or assert.
+    static PHYSICAL: Cell<Option<PhysicalSnapshot>> = const { Cell::new(None) };
 }
 
 struct TrackingAllocator;
@@ -41,30 +44,184 @@ fn record_request(route: usize) {
     }
 }
 
+// Allocation identity is observed at the existing test allocator, never by
+// exposing a private BigInt backend or manufacturing a second Quantity graph.
+const PHYSICAL_EVENTS: usize = 128;
+#[derive(Clone, Copy)]
+struct PhysicalEvent {
+    route: usize,
+    pointer: usize,
+    size: usize,
+    align: usize,
+    retired: bool,
+}
+const EMPTY_EVENT: PhysicalEvent = PhysicalEvent {
+    route: 0,
+    pointer: 0,
+    size: 0,
+    align: 0,
+    retired: false,
+};
+
+/// Fixed-capacity original allocation/lifetime observations on the current test thread.
+#[derive(Clone, Copy)]
+pub struct PhysicalSnapshot {
+    events: [PhysicalEvent; PHYSICAL_EVENTS],
+    count: usize,
+    overflow: bool,
+}
+impl PhysicalSnapshot {
+    const EMPTY: Self = Self {
+        events: [EMPTY_EVENT; PHYSICAL_EVENTS],
+        count: 0,
+        overflow: false,
+    };
+
+    /// The exact number of `alloc`, `alloc_zeroed` and `realloc` entry points observed.
+    pub(crate) fn requests(&self) -> [usize; 3] {
+        assert!(!self.overflow, "physical allocation observation overflow");
+        let mut counts = [0; 3];
+        for event in &self.events[..self.count] {
+            if event.route < 3 {
+                counts[event.route] += 1;
+            }
+        }
+        counts
+    }
+
+    /// The sole successful still-live native allocation with this original layout.
+    pub(crate) fn single_live_pointer(&self, layout: Layout) -> Option<usize> {
+        assert!(!self.overflow, "physical allocation observation overflow");
+        let mut result = None;
+        for event in &self.events[..self.count] {
+            if event.route < 2
+                && event.pointer != 0
+                && event.size == layout.size()
+                && event.align == layout.align()
+                && self.retirements(event.pointer) == 0
+            {
+                if result.is_some() {
+                    return None;
+                }
+                result = Some(event.pointer);
+            }
+        }
+        result
+    }
+
+    /// Matching original-pointer deallocations or reallocations, without dereferencing it.
+    pub(crate) fn retirements(&self, pointer: usize) -> usize {
+        assert!(!self.overflow, "physical allocation observation overflow");
+        self.events[..self.count]
+            .iter()
+            .filter(|event| event.retired && event.pointer == pointer)
+            .count()
+    }
+}
+
+/// Same-thread RAII observation; the fixed ledger owns no value or proof authority.
+pub struct PhysicalObservation {
+    ledger: &'static std::thread::LocalKey<Cell<Option<PhysicalSnapshot>>>,
+    // Raw-pointer marker prevents moving this thread-local observation to another thread.
+    _same_thread: PhantomData<*mut ()>,
+}
+impl PhysicalObservation {
+    /// Start one nonnested observation, with no heap allocation.
+    pub(crate) fn start() -> Self {
+        assert!(
+            PHYSICAL.with(Cell::get).is_none(),
+            "nested physical allocation observation"
+        );
+        PHYSICAL.with(|state| state.set(Some(PhysicalSnapshot::EMPTY)));
+        Self {
+            ledger: &PHYSICAL,
+            _same_thread: PhantomData,
+        }
+    }
+    /// A stable position in this same original fixed ledger.
+    pub(crate) fn checkpoint(&self) -> usize {
+        self.snapshot().count
+    }
+    /// Copy the fixed observation ledger without heap allocation.
+    pub(crate) fn snapshot(&self) -> PhysicalSnapshot {
+        let snapshot = self
+            .ledger
+            .with(Cell::get)
+            .expect("original physical observation active");
+        assert!(
+            !snapshot.overflow,
+            "physical allocation observation overflow"
+        );
+        snapshot
+    }
+    /// Only original events since a previously captured position.
+    pub(crate) fn since(&self, checkpoint: usize) -> PhysicalSnapshot {
+        let snapshot = self.snapshot();
+        assert!(checkpoint <= snapshot.count);
+        let mut result = PhysicalSnapshot::EMPTY;
+        result.count = snapshot.count - checkpoint;
+        result.events[..result.count].copy_from_slice(&snapshot.events[checkpoint..snapshot.count]);
+        result
+    }
+}
+impl Drop for PhysicalObservation {
+    fn drop(&mut self) {
+        let _ = self.ledger.try_with(|state| state.set(None));
+    }
+}
+fn record_physical(route: usize, pointer: *mut u8, layout: Layout, retired: bool) {
+    let _ = PHYSICAL.try_with(|state| {
+        if let Some(mut snapshot) = state.get() {
+            if snapshot.count == PHYSICAL_EVENTS {
+                snapshot.overflow = true;
+            } else {
+                snapshot.events[snapshot.count] = PhysicalEvent {
+                    route,
+                    pointer: pointer as usize,
+                    size: layout.size(),
+                    align: layout.align(),
+                    retired,
+                };
+                snapshot.count += 1;
+            }
+            state.set(Some(snapshot));
+        }
+    });
+}
+
 // SAFETY: each route forwards the original pointer, layout and operation to System unchanged.
 unsafe impl GlobalAlloc for TrackingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         record_request(0);
         // SAFETY: preserve the caller's original allocation contract.
-        unsafe { System.alloc(layout) }
+        let pointer = unsafe { System.alloc(layout) };
+        record_physical(0, pointer, layout, false);
+        pointer
     }
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         record_request(1);
         // SAFETY: preserve the caller's original zeroed allocation contract.
-        unsafe { System.alloc_zeroed(layout) }
+        let pointer = unsafe { System.alloc_zeroed(layout) };
+        record_physical(1, pointer, layout, false);
+        pointer
     }
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
         record_request(2);
         // SAFETY: preserve the live System allocation and requested replacement size.
-        unsafe { System.realloc(pointer, layout, size) }
+        let replacement = unsafe { System.realloc(pointer, layout, size) };
+        record_physical(2, pointer, layout, !replacement.is_null());
+        replacement
     }
     unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
         // SAFETY: the pointer and layout belong to the original matching System allocation.
+        record_physical(3, pointer, layout, true);
         unsafe { System.dealloc(pointer, layout) }
     }
 }
 
-fn measured<T>(operation: impl FnOnce() -> T) -> (T, [usize; 3]) {
+/// Observe actual allocator requests on this thread without retaining a pointer ledger.
+/// The caller prepares all input/oracle graphs first; a guard resets observation on unwind.
+pub fn measured<T>(operation: impl FnOnce() -> T) -> (T, [usize; 3]) {
     struct StopTracking;
     impl Drop for StopTracking {
         fn drop(&mut self) {
@@ -128,6 +285,81 @@ fn graph_pointers(transaction: &AmxTransactionV1) -> (usize, [usize; MAX_AMX_PAR
                 .map_or(0, |leg| leg.payload.as_ptr() as usize)
         }),
     )
+}
+
+#[test]
+fn physical_observer_tracks_original_layout_and_retirement_without_allocating() {
+    let observation = PhysicalObservation::start();
+    let before = observation.checkpoint();
+    let layout = Layout::from_size_align(19, 8).unwrap();
+    // SAFETY: test owns the original successful allocation and frees it with its exact layout.
+    let pointer = unsafe { std::alloc::alloc(layout) };
+    assert!(!pointer.is_null());
+    let original = observation
+        .since(before)
+        .single_live_pointer(layout)
+        .unwrap();
+    assert_eq!(original, pointer as usize);
+    assert_eq!(observation.since(before).requests(), [1, 0, 0]);
+    assert_eq!(observation.snapshot().retirements(original), 0);
+    // SAFETY: this is the same still-live original allocation and layout.
+    unsafe { std::alloc::dealloc(pointer, layout) };
+    assert_eq!(observation.snapshot().retirements(original), 1);
+    assert!(observation.snapshot().single_live_pointer(layout).is_none());
+    let before = observation.checkpoint();
+    // SAFETY: preserve the original zeroed allocation across successful realloc;
+    // on failure the original remains live and is freed with its original layout.
+    unsafe {
+        let zero = std::alloc::alloc_zeroed(layout);
+        assert!(!zero.is_null());
+        let grown = std::alloc::realloc(zero, layout, 31);
+        if grown.is_null() {
+            std::alloc::dealloc(zero, layout);
+            panic!("allocator refused physical observer self-control");
+        }
+        assert_eq!(observation.since(before).requests(), [0, 1, 1]);
+        assert_eq!(observation.since(before).retirements(zero as usize), 1);
+        std::alloc::dealloc(grown, Layout::from_size_align(31, 8).unwrap());
+    }
+    let before_original = observation.checkpoint();
+    let original = vec![7_u8; 23];
+    let original_pointer = original.as_ptr() as usize;
+    let before_clone = observation.checkpoint();
+    let cloned = original.clone();
+    let cloned_pointer = cloned.as_ptr() as usize;
+    assert_ne!(cloned_pointer, original_pointer);
+    assert_eq!(observation.since(before_clone).requests(), [1, 0, 0]);
+    assert_eq!(
+        observation
+            .since(before_original)
+            .retirements(original_pointer),
+        0
+    );
+    drop(cloned);
+    assert_eq!(
+        observation.since(before_clone).retirements(cloned_pointer),
+        1
+    );
+    assert_eq!(
+        observation
+            .since(before_original)
+            .retirements(original_pointer),
+        0
+    );
+    drop(original);
+    assert_eq!(
+        observation
+            .since(before_original)
+            .retirements(original_pointer),
+        1
+    );
+    drop(observation);
+    let panic = std::panic::catch_unwind(|| {
+        let _observation = PhysicalObservation::start();
+        panic!("physical observer unwind");
+    });
+    assert!(panic.is_err());
+    assert!(PHYSICAL.with(Cell::get).is_none());
 }
 
 #[test]

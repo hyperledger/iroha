@@ -962,6 +962,12 @@ fn enrollment_signed_abandonment_is_explicit_terminal_and_exact_across_restart()
     assert!(frame.len() <= KAGEMUSHA_WALLET_ABANDONMENT_MAX_BYTES_V1);
     let calls = d.platform.with(|state| state.sign_calls);
     assert_eq!(current.abandon().unwrap(), original);
+    let instruction = current.abandonment_ledger_instruction().unwrap().unwrap();
+    let expected = iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLedgerV1::new(
+        f.config.scheme.scheme_id(),
+        iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLedgerActionV1::Abandon(frame),
+    );
+    assert_eq!(instruction, norito::encode_canonical(&expected).unwrap());
     assert!(matches!(
         current.progress().unwrap(),
         EnrollmentProgressV1::Abandoned
@@ -971,6 +977,10 @@ fn enrollment_signed_abandonment_is_explicit_terminal_and_exact_across_restart()
     let mut current = owner(&f, &d);
     dispatch(&f, &mut current);
     assert_eq!(current.abandon().unwrap(), original);
+    assert_eq!(
+        current.abandonment_ledger_instruction().unwrap(),
+        Some(instruction)
+    );
     assert!(
         current.authorize(&[0; 64]).is_err(),
         "abandon consumes pending dispatch"
@@ -1053,6 +1063,7 @@ fn local_abandonment_from_pending_returns_no_ledger_bytes_and_never_probes_an_un
                     EnrollmentAbandonmentV1::LocalAbandoned,
                     "an existing local abandonment stands"
                 );
+                assert_eq!(current.abandonment_ledger_instruction().unwrap(), None);
                 assert!(matches!(
                     current.progress().unwrap(),
                     EnrollmentProgressV1::Abandoned

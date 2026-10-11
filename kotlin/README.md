@@ -617,6 +617,20 @@ reviewed account under the application's independently selected network and
 bind local confirmation to the whole returned review, including its account
 tail. Encoding or rendering account DATA does not authorize a payment.
 
+### KAGEMUSHA enrollment transport
+
+`ToriiKagemushaWalletEnrollmentRequestV1` exposes `preKey`, `evidence`, `issue`
+and `deliver` factories for the exact native dispatch and evidence originals.
+`HttpClientTransport.enrollKagemushaWalletV1` sends one bounded canonical Norito
+POST with an explicit `ToriiCanonicalRequestAuth` and current-owner callback.
+It checks the direct account controller, response action, deadline and exact
+response provenance. `Pending` retains the consumed attempt: persist the request's
+`canonicalWire()` and recover it with `decodeCanonical`, then explicitly retry
+the same originals with fresh HTTP authentication. There is no automatic retry.
+Returned permit and credential originals remain unverified until admitted by the
+native enrollment owner. The shared Rust envelope fixture is
+`fixtures/kagemusha/enrollment_service_v1_vectors.json`.
+
 ### KAGEMUSHA online Load receipt recovery
 
 `HttpClientTransport.getKagemushaWalletLoadIssuanceOriginalV1(selection, canonicalAuth,

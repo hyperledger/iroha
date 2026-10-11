@@ -82,6 +82,7 @@ impl RuntimeSelection {
         let imports = tests::import_scope_tests::select_scope(imports);
         // Only immutable projections share this view. Every mutable child read below retains
         // its ordinary native admission, and no projection escapes the full-image exit check.
+        let read = intent.runtime_read();
         let result = (|| {
             // RuntimeSelection owns its original projection; copy only at that ownership boundary.
             let plans = intent.provider_plans()?.clone();
@@ -101,9 +102,15 @@ impl RuntimeSelection {
             {
                 return Err(invalid("original publication selection differs"));
             }
-            let parent = ManagedServiceBootstrap::open_existing_from_original(authority)?
-                .ok_or_else(|| invalid("original service bootstrap intent is absent"))?;
-            let policies = parent.selected_policies()?;
+            let parent = match read.as_ref() {
+                Some(read) => ManagedServiceBootstrap::open_existing_in_runtime(authority, read)?,
+                None => ManagedServiceBootstrap::open_existing_from_original(authority)?,
+            }
+            .ok_or_else(|| invalid("original service bootstrap intent is absent"))?;
+            let policies = match read.as_ref() {
+                Some(read) => parent.selected_policies_in_runtime(read)?,
+                None => parent.selected_policies()?,
+            };
             drop(parent);
             let mut initial = Vec::with_capacity(3);
             let mut compliance = Vec::with_capacity(3);
@@ -115,11 +122,20 @@ impl RuntimeSelection {
                     return Err(invalid("original generated provider slot differs"));
                 }
                 policies.provider(plan.provider_id())?;
-                let selected = match ManagedStreamTokenCustody::open_existing_from_original(
-                    authority,
-                    plan.provider_id(),
-                    imports.as_ref(),
-                )? {
+                let custody = match read.as_ref() {
+                    Some(read) => ManagedStreamTokenCustody::open_existing_in_runtime(
+                        authority,
+                        plan.provider_id(),
+                        imports.as_ref(),
+                        read,
+                    )?,
+                    None => ManagedStreamTokenCustody::open_existing_from_original(
+                        authority,
+                        plan.provider_id(),
+                        imports.as_ref(),
+                    )?,
+                };
+                let selected = match custody {
                     Some(custody) => custody.inspect_local_initial_interval_if_present(
                         &policies.provider(plan.provider_id())?.custody,
                     )?,
@@ -130,7 +146,7 @@ impl RuntimeSelection {
                 initial.push(selected);
                 compliance.push(intent.gateway_compliance_plan(plan.provider_id())?);
             }
-            policies.validate(authority)?;
+            intent.validate_policies(&policies)?;
             Ok(Self {
                 policies,
                 plans,

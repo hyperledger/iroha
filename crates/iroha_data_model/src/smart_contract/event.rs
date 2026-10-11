@@ -13,7 +13,9 @@ use super::{
 use crate::account::AccountId;
 
 mod custody;
-pub use custody::{ContractEmissionAdmissionErrorV1, ContractEmissionsV1};
+pub use custody::{
+    ContractEmissionAdmissionErrorV1, ContractEmissionsV1, PreparedContractEmissionsV1,
+};
 
 /// Maximum number of event definitions in one authenticated contract interface.
 pub const MAX_CONTRACT_EVENT_DECLARATIONS_V1: usize = 256;
@@ -142,7 +144,7 @@ mod tests {
         let empty = descriptor("Accepted", &[], vec![]);
         assert!(empty.validate());
         assert!(validate_contract_event_table(&[]));
-        assert!(validate_contract_event_table(&[empty.clone()]));
+        assert!(validate_contract_event_table(std::slice::from_ref(&empty)));
         assert!(!validate_contract_event_table(&[
             empty.clone(),
             empty.clone()

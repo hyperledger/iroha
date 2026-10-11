@@ -346,6 +346,7 @@ impl Plan {
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Prepared, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
+        check_receipt_tape(&input)?;
         for (kind, raw) in object_kinds().into_iter().zip(&input.objects) {
             if raw.len() != kind.body_len() + 64 {
                 return Err(Error::Input);
@@ -2492,6 +2493,18 @@ fn object_kinds() -> [ObjectKind; 3] {
         ObjectKind::Certificate,
         ObjectKind::Credential,
     ]
+}
+
+// LoadObjects::bind_statement constrains the same digest at A3. Refuse changed
+// retained originals before verifying the predecessor/Q proofs, whose sigma
+// statement binds this digest. This is not a native BLS/finality verdict: that
+// authority belongs to the wallet before it authorizes the original Advance.
+fn check_receipt_tape(input: &Inputs) -> Result<(), Error> {
+    let digest = p_bytes_native::<Fp>(LoadReceiptCells::DOMAIN, &input.receipt);
+    if input.state.statement[17] != digest {
+        return Err(Error::Input);
+    }
+    Ok(())
 }
 
 fn check_sigma_tape(input: &Inputs) -> Result<(), Error> {

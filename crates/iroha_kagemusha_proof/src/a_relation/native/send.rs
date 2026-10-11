@@ -358,7 +358,8 @@ impl Plan {
     }
 
     /// Verify all actual predecessor/Q proofs and both transported predecessor claims.
-    /// Derive every Q opening and sigma Vesta claim from those checked originals.
+    /// Bind the retained signed tapes to their statement/state/Q exports, then
+    /// derive every Q opening and sigma Vesta claim from those checked originals.
     /// # Errors
     /// Wrong tape/length/schema or any native proof/full-accumulator failure.
     pub fn prepare(&self, input: Inputs, budget: MemoryBudget) -> Result<Prepared, Error> {
@@ -374,11 +375,6 @@ impl Plan {
         cancellation: Option<&iroha_pasta::CancellationToken>,
     ) -> Result<Prepared, Error> {
         iroha_pasta::CancellationToken::checkpoint(cancellation).map_err(|_| Error::Cancelled)?;
-        for (kind, raw) in object_kinds().into_iter().zip(&input.objects) {
-            if raw.len() != kind.body_len() + 64 {
-                return Err(Error::Input);
-            }
-        }
         let class = self
             .context
             .operation()
@@ -389,6 +385,18 @@ impl Plan {
             return Err(Error::Input);
         }
         check_sigma_tape(&input, self.mask)?;
+        let omega_bytes = self
+            .context
+            .operation()
+            .omega()
+            .ok_or(Error::Artifact)?
+            .proof_length()
+            .checked_add(320 + 1088)
+            .ok_or(Error::Artifact)?;
+        if input.omega.len() != omega_bytes {
+            return Err(Error::Input);
+        }
+        check_object_tapes(&input, self.policy)?;
         let pallas =
             AccumulatorT::<Ep>::from_bytes(&input.predecessor.pallas).map_err(|_| Error::Input)?;
         let vesta =
@@ -2638,6 +2646,179 @@ fn object_kinds() -> [ObjectKind; 5] {
         ObjectKind::Certificate,
         ObjectKind::Receipt,
     ]
+}
+
+// Mirror the existing SendObjects/SendAuthorizationObjects same-tape bindings
+// before admitting retained originals. These comparisons do not authenticate Q:
+// prepare still verifies both fixed Q proofs and every predecessor obligation.
+// Semantic predicates and map effects remain enforced by the unchanged circuits.
+fn check_object_tapes(input: &Inputs, policy: OwnPolicy) -> Result<(), Error> {
+    use crate::{operation_relation::state::rest_index, witness::core_index};
+
+    for (kind, raw) in object_kinds().into_iter().zip(&input.objects) {
+        if raw.len() != kind.body_len() + 64 {
+            return Err(Error::Input);
+        }
+    }
+    let [credential, request, fee, certificate, receipt] = &input.objects;
+    let statement = &input.state.statement;
+    let before = &input.state.before;
+    let after = &input.state.after;
+    // All offsets below are the fixed body schemas in objects/schema.rs.
+    let le = |raw: &[u8], start: usize, len: usize| -> Result<Fp, Error> {
+        let bytes = raw.get(start..start + len).ok_or(Error::Input)?;
+        let mut repr = [0; 32];
+        repr.get_mut(..len)
+            .ok_or(Error::Input)?
+            .copy_from_slice(bytes);
+        Option::<Fp>::from(Fp::from_repr(repr)).ok_or(Error::Input)
+    };
+    let key = |raw: &[u8], start: usize| -> Result<[Fp; 4], Error> {
+        if raw.get(start) != Some(&4) {
+            return Err(Error::Input);
+        }
+        [17, 1, 49, 33]
+            .map(|offset| {
+                let bytes = raw
+                    .get(start + offset..start + offset + 16)
+                    .ok_or(Error::Input)?;
+                Ok(Fp::from_u128(u128::from_be_bytes(
+                    bytes.try_into().map_err(|_| Error::Input)?,
+                )))
+            })
+            .into_iter()
+            .collect::<Result<Vec<_>, Error>>()?
+            .try_into()
+            .map_err(|_| Error::Input)
+    };
+    for raw in [credential, request, certificate, receipt] {
+        if raw[..2] != 1_u16.to_le_bytes() {
+            return Err(Error::Input);
+        }
+    }
+    let current = object_digest(ObjectKind::Credential, credential)?;
+    if [
+        before.core[core_index::CREDENTIAL],
+        after.core[core_index::CREDENTIAL],
+        before.lineage[8],
+        after.lineage[8],
+        statement[7],
+    ]
+    .iter()
+    .any(|digest| *digest != current)
+        || object_digest(ObjectKind::Request, request)? != statement[23]
+        || object_digest(ObjectKind::Certificate, certificate)? != le(credential, 444, 32)?
+    {
+        return Err(Error::Input);
+    }
+    let held = before.rest[rest_index::FEE_SCHEDULE];
+    if le(request, 258, 32)? != held
+        || (held != Fp::ZERO
+            && (fee[..2] != 1_u16.to_le_bytes()
+                || object_digest(ObjectKind::FeeSchedule, fee)? != held))
+        || (held == Fp::ZERO && (le(request, 290, 16)? != Fp::ZERO || statement[22] != Fp::ZERO))
+    {
+        return Err(Error::Input);
+    }
+    // A zero held schedule deliberately permits any fixed-length dummy tape;
+    // Send's circuit still commits its original bytes to the stage context.
+    let payment_key = key(credential, 130)?;
+    if payment_key.as_slice() != &before.lineage[9..13] {
+        return Err(Error::Input);
+    }
+    let enrollment_key = key(certificate, 35)?;
+    if certificate[34] != 1 {
+        return Err(Error::Input);
+    }
+    for (raw, offset, expected) in [
+        (credential, 2, before.core[core_index::SCHEME]),
+        (credential, 18, before.core[core_index::SCHEME + 1]),
+        (certificate, 2, before.core[core_index::SCHEME]),
+        (certificate, 18, before.core[core_index::SCHEME + 1]),
+        (credential, 195, Fp::from_u128(policy.provider[0])),
+        (credential, 211, Fp::from_u128(policy.provider[1])),
+    ] {
+        if le(raw, offset, 16)? != expected {
+            return Err(Error::Input);
+        }
+    }
+    let root_key = core::array::from_fn(|i| {
+        let words = [policy.root.x, policy.root.y][i / 2];
+        let offset = 2 * (i % 2);
+        Fp::from_u128(u128::from(words[offset]) | (u128::from(words[offset + 1]) << 64))
+    });
+    let [public] = input.q[1].instances.as_slice() else {
+        return Err(Error::Input);
+    };
+    if public.len() != 3 * crate::q_signature::SLOT_WORDS {
+        return Err(Error::Input);
+    }
+    for ((kind, raw, authorized), proved) in [
+        (ObjectKind::Receipt, receipt, payment_key),
+        (ObjectKind::Credential, credential, enrollment_key),
+        (ObjectKind::Certificate, certificate, root_key),
+    ]
+    .into_iter()
+    .zip(public.chunks_exact(crate::q_signature::SLOT_WORDS))
+    {
+        let end = kind.body_len();
+        let mut expected = vec![p_bytes_native(kind.signing_domain(), &raw[..end])];
+        expected.extend(authorized);
+        for offset in [16, 0, 48, 32] {
+            expected.push(Fp::from_u128(u128::from_be_bytes(
+                raw[end + offset..end + offset + 16]
+                    .try_into()
+                    .map_err(|_| Error::Input)?,
+            )));
+        }
+        expected.push(Fp::ONE);
+        // Exact canonical integer embedding, including every high limb. Never
+        // reduce an Fq export modulo Fp or accept a caller-supplied verdict.
+        if proved
+            .iter()
+            .zip(expected)
+            .any(|(actual, expected)| actual.to_repr() != expected.to_repr())
+        {
+            return Err(Error::Input);
+        }
+    }
+    let digest = hash_with_domain(iroha_plonk_gadgets::statement::STATEMENT_DOMAIN, statement);
+    let operation = hash_with_domain(
+        u64::from_le_bytes(*b"kgwopid1"),
+        &[
+            before.lineage[6],
+            before.lineage[7],
+            statement[16],
+            statement[17],
+        ],
+    );
+    let proof = p_bytes_native(
+        u64::from_le_bytes(*b"kgwprf_1"),
+        &[frame(&input.omega)?, frame(&input.sigma)?].concat(),
+    );
+    for (offset, len, expected) in [
+        (2, 16, statement[3]),
+        (18, 16, statement[4]),
+        (34, 16, before.lineage[6]),
+        (50, 16, before.lineage[7]),
+        (66, 16, Fp::from_u128(policy.provider[0])),
+        (82, 16, Fp::from_u128(policy.provider[1])),
+        (98, 16, statement[9]),
+        (114, 32, operation),
+        (146, 32, statement[14]),
+        (178, 32, statement[15]),
+        (210, 32, digest),
+        (242, 32, proof),
+        (306, 32, Fp::ZERO),
+    ] {
+        if le(receipt, offset, len)? != expected {
+            return Err(Error::Input);
+        }
+    }
+    if proof == Fp::ZERO || receipt[274..306].iter().all(|byte| *byte == 0) {
+        return Err(Error::Input);
+    }
+    Ok(())
 }
 
 fn check_sigma_tape(input: &Inputs, mask: u8) -> Result<(), Error> {

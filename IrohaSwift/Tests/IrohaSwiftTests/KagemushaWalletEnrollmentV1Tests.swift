@@ -3,6 +3,22 @@ import XCTest
 @testable import IrohaSwift
 
 final class KagemushaWalletEnrollmentV1Tests: XCTestCase {
+  func testAbandonmentLedgerInstructionKeepsLocalAbsenceAndExactFrameDistinct() throws {
+    let input = try KagemushaWalletEnrollmentInputV1(20)
+    input.withRequest { XCTAssertEqual($0.pointee.selector, 20) }
+    XCTAssertThrowsError(try KagemushaWalletEnrollmentInputV1(20, Data([1])))
+    let local = try KagemushaWalletCallV1(status:58, sequenceLow:7, sequenceHigh:0, detail:0, bytes:Data())
+    XCTAssertNil(try KagemushaWalletEnrollmentV1.abandonmentLedgerInstruction(local))
+    let frame = Data([1, 2, 3])
+    let instruction = try KagemushaWalletCallV1(status:59, sequenceLow:7, sequenceHigh:0, detail:0, bytes:frame)
+    XCTAssertEqual(try KagemushaWalletEnrollmentV1.abandonmentLedgerInstruction(instruction), frame)
+    XCTAssertThrowsError(try KagemushaWalletCallV1(status:59, sequenceLow:0, sequenceHigh:0, detail:0, bytes:frame))
+    for bytes in [Data(), Data(count:65_537)] {
+      XCTAssertThrowsError(try KagemushaWalletCallV1(status:59, sequenceLow:7, sequenceHigh:0, detail:0, bytes:bytes))
+    }
+    let marker = try KagemushaWalletCallV1(status:28, sequenceLow:7, sequenceHigh:0, detail:0, bytes:frame)
+    XCTAssertThrowsError(try KagemushaWalletEnrollmentV1.abandonmentLedgerInstruction(marker))
+  }
   func testEnrollmentOutputBoundsAndShapesKeepPaymentLimit() throws {
     for (status,count) in [(18,32),(19,161),(20,0),(21,0),(22,0),(23,32),(24,131072),(25,262144),(26,0),(27,16384),(28,1024),(58,0)] {
       let reply = try KagemushaWalletCallV1(status:Int32(status),sequenceLow:7,sequenceHigh:0,detail:0,bytes:Data(repeating:5,count:count))

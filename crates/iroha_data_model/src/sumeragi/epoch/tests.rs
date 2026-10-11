@@ -227,3 +227,262 @@ fn signed_availability_layout_binds_epoch_and_cannot_change_at_retention() {
     assert!(changed.validate().is_err());
     assert!(crate::sumeragi_finality::core_epoch(&changed).is_err());
 }
+
+// This is a public-call counterexample. The signed fixture and independent
+// generation/wire oracles are complete before physical observation starts.
+#[test]
+fn epoch_validation_retains_original_signed_roster_without_generation_allocation() {
+    use crate::{
+        amx_prepare_streaming_allocations::PhysicalObservation,
+        block::SharedSignedBlock,
+        sumeragi_finality::{authenticated_genesis, test_fixtures::NativeFinalityFixture},
+    };
+    use iroha_allocation::AllocationBudget;
+    use norito::core::DecodeBudgetContext;
+
+    let fixture = NativeFinalityFixture::start_with_mode(
+        "borrowed-generation-allocation",
+        crate::parameter::system::SumeragiConsensusMode::Npos,
+    );
+    let budget = AllocationBudget::new(32 * 1024 * 1024);
+    let genesis = SharedSignedBlock::try_new(fixture.genesis().clone(), &budget).unwrap();
+    let decoder = DecodeBudgetContext::try_new_owned(
+        norito::DecodeLimits::new(1_000_000, 48 * 1024 * 1024, 1_000_000, 48 * 1024 * 1024, 64),
+        &budget,
+    )
+    .unwrap();
+    let (context, scope) = decoder
+        .with(|| authenticated_genesis(&genesis))
+        .unwrap()
+        .into_parts();
+    let original_scope = crate::block::consensus::SumeragiRootScope::Global;
+    let wire = norito::encode_canonical(&context).unwrap();
+    let generation = context.generation();
+    let generation_id = generation.generation_id().unwrap();
+    let original_keys = context
+        .committee
+        .iter()
+        .map(|member| {
+            let (_, key) = member.validator.public_key().try_to_bytes().unwrap();
+            (
+                key.as_ptr(),
+                key.len(),
+                member.proof_of_possession.as_ptr(),
+                member.proof_of_possession.len(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let blocker = budget
+        .try_reserve_bytes(budget.limit_bytes() - budget.reserved_bytes())
+        .unwrap();
+    let original_charge = budget.reserved_bytes();
+    let original_debit = decoder.consumed_allocated_bytes();
+    let physical = PhysicalObservation::start();
+    let validated = decoder.with(|| context.validate());
+    let requests = physical.snapshot().requests();
+    drop(physical);
+    let current_keys = context
+        .committee
+        .iter()
+        .map(|member| {
+            let (_, key) = member.validator.public_key().try_to_bytes().unwrap();
+            (
+                key.as_ptr(),
+                key.len(),
+                member.proof_of_possession.as_ptr(),
+                member.proof_of_possession.len(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let current_wire = norito::encode_canonical(&context).unwrap();
+    let current_charge = budget.reserved_bytes();
+    let current_debit = decoder.consumed_allocated_bytes();
+    let source_is_original =
+        genesis.belongs_to(&budget) && genesis.hash() == fixture.genesis().hash();
+    drop(blocker);
+    drop(generation);
+    drop(context);
+    drop(genesis);
+    drop(decoder);
+    let retired = budget.reserved_bytes();
+
+    validated.unwrap();
+    assert_eq!(scope, original_scope);
+    assert!(source_is_original);
+    assert_eq!(current_keys, original_keys);
+    assert_eq!(current_wire, wire);
+    assert_eq!(current_charge, original_charge);
+    assert_eq!(current_debit, original_debit);
+    assert_eq!(generation_id, generation_id_from_wire_oracle(&wire));
+    assert_eq!(retired, 0);
+    assert_eq!(
+        requests,
+        [0, 0, 0],
+        "validating the original signed epoch must not allocate a temporary generation roster: {requests:?}"
+    );
+}
+
+fn generation_id_from_wire_oracle(wire: &[u8]) -> [u8; 32] {
+    // The separately materialized oracle is outside physical observation and
+    // grants no source authentication to the measured public call.
+    let context: ValidatorEpochContextV1 = norito::decode_canonical(wire).unwrap();
+    context.generation().generation_id().unwrap()
+}
+
+#[test]
+fn borrowed_generation_preserves_exact_identity_and_original_refusal_order() {
+    let original = fixture(4);
+    let generation = original.generation();
+    let expected = generation.generation_id().unwrap();
+    let physical = crate::amx_prepare_streaming_allocations::PhysicalObservation::start();
+    let borrowed = generation::generation_id_from_roster(
+        original.network_id,
+        generation.generation,
+        original.committee.iter().map(|member| &member.validator),
+    );
+    let requests = physical.snapshot().requests();
+    drop(physical);
+    assert_eq!(borrowed.unwrap(), expected);
+    assert_eq!(requests, [0, 0, 0]);
+    assert_eq!(
+        ValidatorEpochAuthorizationV1::genesis_from_committee(
+            original.network_id,
+            &original.committee,
+            original.authorization.last_height,
+        )
+        .unwrap(),
+        original.authorization,
+    );
+    let generation_error = ValidatorEpochAuthorizationErrorV1::InvalidField {
+        field: "validator_generation",
+    };
+    let relation_error = ValidatorEpochAuthorizationErrorV1::InvalidField {
+        field: "epoch_authorization.generation",
+    };
+    for mutation in 0..4 {
+        let mut committee = original.committee.clone();
+        match mutation {
+            0 => {
+                committee.pop();
+            }
+            1 => committee.swap(0, 1),
+            2 => committee[1] = committee[0].clone(),
+            _ => {
+                committee[0].validator = PeerId::new(
+                    KeyPair::from_seed(vec![9; 32], Algorithm::Ed25519)
+                        .public_key()
+                        .clone(),
+                );
+            }
+        }
+        let owned = ValidatorGenerationV1::from_committee(original.network_id, 0, &committee);
+        assert_eq!(owned.generation_id(), Err(generation_error));
+        assert_eq!(
+            generation::generation_id_from_roster(
+                original.network_id,
+                0,
+                committee.iter().map(|member| &member.validator),
+            ),
+            Err(generation_error),
+        );
+        // Malformed roster is checked before the competing empty genesis interval.
+        assert_eq!(
+            ValidatorEpochAuthorizationV1::genesis_from_committee(
+                original.network_id,
+                &committee,
+                0,
+            ),
+            ValidatorEpochAuthorizationV1::genesis(&owned, 0),
+        );
+        assert_eq!(
+            ValidatorEpochAuthorizationV1::genesis_from_committee(
+                original.network_id,
+                &committee,
+                0,
+            ),
+            Err(generation_error),
+        );
+        // Authorization refusal precedes any later malformed roster relation.
+        let mut unsupported = original.authorization;
+        unsupported.version = 2;
+        assert_eq!(
+            unsupported.validate_against_committee(original.network_id, 0, &committee),
+            Err(ValidatorEpochAuthorizationErrorV1::UnsupportedVersion { actual: 2 }),
+        );
+        let foreign = NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(
+            Hash::new(b"borrowed-roster-foreign-network"),
+        ));
+        assert_eq!(
+            original
+                .authorization
+                .validate_against_committee(foreign, 0, &committee),
+            Err(relation_error),
+        );
+        assert_eq!(
+            original
+                .authorization
+                .validate_against_committee(original.network_id, 1, &committee),
+            Err(relation_error),
+        );
+        assert_eq!(
+            original
+                .authorization
+                .validate_against_committee(original.network_id, 0, &committee),
+            Err(generation_error),
+        );
+    }
+    assert_eq!(
+        ValidatorEpochAuthorizationV1::genesis_from_committee(
+            original.network_id,
+            &original.committee,
+            0,
+        ),
+        Err(ValidatorEpochAuthorizationErrorV1::InvalidField {
+            field: "epoch_authorization"
+        }),
+    );
+}
+
+#[test]
+fn borrowed_epoch_relation_keeps_original_committee_and_authorization_error_order() {
+    let original = fixture(4);
+    let mut bad = original.clone();
+    bad.da_layout.chunk_size_bytes = 0;
+    bad.version = 2;
+    bad.leader_seed = [0; 32];
+    bad.committee[0].proof_of_possession.clear();
+    bad.authorization.version = 2;
+    let layout_error = bad.da_layout.validate().unwrap_err().to_string();
+    assert_eq!(bad.validate(), Err(layout_error));
+    bad.da_layout = original.da_layout;
+    assert_eq!(
+        bad.validate(),
+        Err("invalid native epoch version or leader seed".into())
+    );
+    bad.version = original.version;
+    bad.leader_seed = original.leader_seed;
+    assert_eq!(
+        bad.validate(),
+        Err("native committee key order or proof shape is invalid".into())
+    );
+    bad.committee = original.committee.clone();
+    assert_eq!(
+        bad.validate(),
+        Err(ValidatorEpochAuthorizationErrorV1::UnsupportedVersion { actual: 2 }.to_string()),
+    );
+    bad.authorization = original.authorization;
+    bad.authorization.last_height = 2;
+    assert_eq!(
+        bad.validate(),
+        Err("native NPoS epoch must leave a real preboundary pulse and parent".into()),
+    );
+    bad.authorization.authority_id[0] ^= 1;
+    assert_eq!(
+        bad.validate(),
+        Err(ValidatorEpochAuthorizationErrorV1::InvalidField {
+            field: "epoch_authorization.generation",
+        }
+        .to_string()),
+    );
+    assert_eq!(original.validate(), Ok(()));
+}

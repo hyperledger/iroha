@@ -681,7 +681,7 @@ mod setup_boundary_tests {
             }
             assert_failure(handle, &input, INVALID);
         }
-        assert_failure(handle, &request(&zero, 52), INVALID);
+        assert_failure(handle, &request(&zero, 54), INVALID);
         assert_eq!(calls.load(Ordering::SeqCst), 3);
         assert_eq!(connect_norito_kagemusha_wallet_close_v1(handle), 0);
     }
@@ -1194,6 +1194,8 @@ pub struct WalletEnrollmentRequest {
 /// Drive original enrollment under a native-provisioned exclusive owner.
 /// Results18 local challenge32,19 target161(slot32,key65,challenge32,binding32),20 pending,
 /// 21 abandoned,22 Bootstrap selected,23 E5 challenge32,24 exact E5,25 exact E6,26 runtime ready.
+/// Selector20 permanently abandons and returns 59 with the exact canonical Abandon ledger
+/// instruction (<=65536 bytes, same handle in sequence), or58 empty for the local form.
 /// Abandon10 returns 58 for the local no-marker form (nothing to submit) or 28 with the exact
 /// retained signed Abandonment frame for the marker form.
 /// The same opaque runtime handle is returned in sequence. E6 does not imply ledger activation.

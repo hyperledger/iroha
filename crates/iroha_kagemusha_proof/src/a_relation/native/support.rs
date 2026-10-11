@@ -201,6 +201,121 @@ pub(super) fn object_digest(kind: ObjectKind, raw: &[u8]) -> Result<Fp, Error> {
     Ok(hash_with_domain(kind.object_domain(), &words))
 }
 
+/// Bind the three hard own signed tapes to Q1's exact receipt/credential/certificate exports.
+/// This performs no proof verification or complete semantic admission. The caller
+/// must still verify Q and every mandatory circuit owner. Incoming soft objects
+/// are deliberately excluded from this own-authorization interface.
+pub(super) fn check_hard_own_tapes(
+    objects: [&[u8]; 3],
+    columns: &[Vec<Fq>],
+    payment_key: [Fp; 4],
+    root: [[u64; 4]; 2],
+) -> Result<(), Error> {
+    let kinds = [
+        ObjectKind::Credential,
+        ObjectKind::Certificate,
+        ObjectKind::Receipt,
+    ];
+    for (kind, raw) in kinds.into_iter().zip(objects) {
+        if raw.len() != kind.body_len() + 64 || raw[..2] != 1_u16.to_le_bytes() {
+            return Err(Error::Input);
+        }
+    }
+    let [public] = columns else {
+        return Err(Error::Input);
+    };
+    if public.len() != 3 * crate::q_signature::SLOT_WORDS {
+        return Err(Error::Input);
+    }
+    let key = |raw: &[u8], start: usize| -> Result<[Fp; 4], Error> {
+        if raw.get(start) != Some(&4) {
+            return Err(Error::Input);
+        }
+        [17, 1, 49, 33]
+            .map(|offset| {
+                let bytes = raw
+                    .get(start + offset..start + offset + 16)
+                    .ok_or(Error::Input)?;
+                Ok(Fp::from_u128(u128::from_be_bytes(
+                    bytes.try_into().map_err(|_| Error::Input)?,
+                )))
+            })
+            .into_iter()
+            .collect::<Result<Vec<_>, Error>>()?
+            .try_into()
+            .map_err(|_| Error::Input)
+    };
+    // Fixed Credential/Certificate body schemas; these are the same authorized
+    // keys used by authenticate_current and the own Receipt signature circuit.
+    if key(objects[0], 130)? != payment_key || objects[1][34] != 1 {
+        return Err(Error::Input);
+    }
+    let enrollment = key(objects[1], 35)?;
+    let root = core::array::from_fn(|i| {
+        let words = root[i / 2];
+        let offset = 2 * (i % 2);
+        Fp::from_u128(u128::from(words[offset]) | (u128::from(words[offset + 1]) << 64))
+    });
+    for ((kind, raw, authorized), proved) in [
+        (ObjectKind::Receipt, objects[2], payment_key),
+        (ObjectKind::Credential, objects[0], enrollment),
+        (ObjectKind::Certificate, objects[1], root),
+    ]
+    .into_iter()
+    .zip(public.chunks_exact(crate::q_signature::SLOT_WORDS))
+    {
+        let end = kind.body_len();
+        let mut expected = vec![p_bytes_native(kind.signing_domain(), &raw[..end])];
+        expected.extend(authorized);
+        for offset in [16, 0, 48, 32] {
+            expected.push(Fp::from_u128(u128::from_be_bytes(
+                raw[end + offset..end + offset + 16]
+                    .try_into()
+                    .map_err(|_| Error::Input)?,
+            )));
+        }
+        expected.push(Fp::ONE);
+        // Compare canonical integer representations, never a reducing Fq -> Fp map.
+        if proved
+            .iter()
+            .zip(expected)
+            .any(|(a, b)| a.to_repr() != b.to_repr())
+        {
+            return Err(Error::Input);
+        }
+    }
+    Ok(())
+}
+
+/// Bind the own statement and complete LE32-prefixed sigma tape to Q0.
+/// The caller selects the chunk range from its installed plan and still checks
+/// the full Q schema, selector, proof and part. Other Q0 slots remain untouched,
+/// including malformed incoming originals under their mandatory soft policy.
+pub(super) fn check_own_sigma_tape(
+    columns: &[Vec<Fq>],
+    chunks: core::ops::Range<usize>,
+    statement: &[Fp; 26],
+    sigma: &[u8],
+) -> Result<(), Error> {
+    let bounded = columns.first().ok_or(Error::Input)?;
+    let digest = hash_with_domain(iroha_plonk_gadgets::statement::STATEMENT_DOMAIN, statement);
+    if bounded.first().map(PrimeField::to_repr) != Some(digest.to_repr())
+        || chunks.start == 0
+        || chunks.end < chunks.start
+    {
+        return Err(Error::Input);
+    }
+    let original = frame(sigma)?;
+    let expected = original
+        .chunks(31)
+        .map(|chunk| le_value::<Fq>(chunk).ok_or(Error::Input))
+        .collect::<Result<Vec<_>, _>>()?;
+    if bounded.get(chunks) != Some(expected.as_slice()) {
+        return Err(Error::Input);
+    }
+    Ok(())
+}
+
 /// Append the exact full-k16 Pallas claim in native context word order.
 pub(super) fn push_pallas(words: &mut Vec<Fp>, claim: &FoldInput<Ep>) -> Result<(), Error> {
     if claim.source_k() != 16 {
@@ -461,5 +576,7 @@ pub(super) fn internal_public(
     Ok(words)
 }
 
+#[cfg(test)]
+mod exact_original_tests;
 #[cfg(test)]
 mod tests;

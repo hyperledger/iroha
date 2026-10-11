@@ -161,6 +161,8 @@ Lifecycle / Utility
 - 0xF0 ALLOC — Args: `r10=bytes:u64` → Return: `ptr (r10)` — Gas: G_alloc + bytes
 - 0xF1 GET_PUBLIC_INPUT — Args: `r10=&Name` → Return: `ptr (&Tlv)` — Gas: G_get_pub + bytes
   - Reads a public input by name from the on-chain registry `Parameters.custom["ivm_public_inputs"]`.
+  - Default root preparation requests `entrypoint_argument_record` as a `NoritoBytes` TLV containing the canonical schema-bound record, with the ordinary opcode and host gas charges. An admitted host may instead supply its original prepared record directly.
+  - `trigger_event_json` returns the actual firing context as a `Json` TLV. Installing prepared root arguments retains that independent event context; a prepared record alone does not create an event. There is no argument-record lookup through the event key.
   - Registry entries are JSON objects: `{ "name": "<Name>", "type_id": <u16>, "tlv_hex": "<hex>" }` with optional `gas_base`/`gas_per_byte` (`tlv_hex` is the full TLV envelope; `0x` prefix allowed).
   - Missing names return `PermissionDenied`; malformed name TLVs or ABI-disallowed types raise syscall errors. Invalid registry entries are skipped during host hydration.
 - 0xF8 PRIVATE_NUMERIC_VALCOM — Args: `r10=private typed numeric TLV`, `r11=private typed numeric TLV` → Return: `r10=public int TLV containing the complete compressed Pedersen point` — Gas: G_private_numeric_valcom

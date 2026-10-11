@@ -533,7 +533,9 @@ mod tests {
             });
         assert!(matches!(
             rejected,
-            Err(norito::json::Error::DecodeResourceLimit)
+            Err(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
         ));
         assert_eq!(usage.total_allocated_bytes(), 0);
     }
@@ -580,7 +582,9 @@ mod tests {
             });
         assert!(matches!(
             rejected,
-            Err(norito::json::Error::DecodeResourceLimit)
+            Err(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
         ));
         assert_eq!(usage.total_allocated_bytes(), 0);
     }

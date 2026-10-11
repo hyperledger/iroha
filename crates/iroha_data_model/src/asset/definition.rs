@@ -733,11 +733,7 @@ pub mod ivm_registration {
             let spec = NumericSpec::fractional(2);
             let mintable = Mintable::limited_from_u32(3).expect("token budget");
             assert_eq!(
-                decode_registration(
-                    "Rose".as_bytes(),
-                    numeric_spec_word(spec),
-                    mintable_word(mintable)
-                ),
+                decode_registration(b"Rose", numeric_spec_word(spec), mintable_word(mintable)),
                 Ok(Registration {
                     name: "Rose".to_owned(),
                     spec,

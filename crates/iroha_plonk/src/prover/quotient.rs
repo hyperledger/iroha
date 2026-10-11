@@ -74,6 +74,9 @@ const ROWS_PER_TASK: usize = 1 << 8;
 mod evaluation;
 use evaluation::{EvaluatedRow, TilePlan};
 
+mod gate_fold;
+use gate_fold::GateFold;
+
 mod workspace;
 pub use workspace::{QuotientWorkspace, WorkspaceError};
 
@@ -806,6 +809,7 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
         gamma,
         y,
     } = challenges;
+    let gate_fold = GateFold::new(y);
     let one = C::ScalarExt::ONE;
     let delta = <C::ScalarExt as ff::PrimeField>::DELTA;
     let mut cosets = SecretColumns::new(Vec::with_capacity(shape.quotient_pieces));
@@ -958,7 +962,7 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                         let row = start + offset;
                         let r_next = (row + 1) & mask;
                         let scratch = EvaluatedRow::new(&scratch, tile_plan.width, lane);
-                        let mut value = C::ScalarExt::ZERO;
+                        let mut value = gate_fold.evaluate(&compiled.gates, scratch, filter);
                         // Every term is computed; a filtered term adds zero but
                         // keeps its power of y.
                         let mut push = |term: ConstraintTerm, contribution: C::ScalarExt| {
@@ -969,9 +973,6 @@ pub(super) fn evaluate_with_workspace_cancellable<C: PastaCurve>(
                                     C::ScalarExt::ZERO
                                 };
                         };
-                        for (polynomial, root) in compiled.gates.iter().enumerate() {
-                            push(ConstraintTerm::Gate { polynomial }, scratch[*root as usize]);
-                        }
                         if let (Some(first), Some(last)) = (products.first(), products.last()) {
                             let r_last = (row + last_offset) & mask;
                             push(

@@ -415,7 +415,12 @@ fn original_credentials_command_decode_refusal_has_no_publication_and_retries() 
         no_allocation(|| ValidatorCommitteeOperationV1::from_custom_parameter(&parameter))
             .unwrap_err();
     assert!(
-        matches!(producer, norito::json::Error::DecodeResourceLimit),
+        matches!(
+            producer,
+            norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            )
+        ),
         "{producer:?}"
     );
     let original = parameter.payload().get().to_owned();
@@ -991,7 +996,12 @@ fn original_npos_parameter_refusal_does_not_become_missing_staking_policy() {
         no_allocation(|| norito::json::from_str::<SumeragiNposParameters>(&original_bytes))
             .unwrap_err();
     assert!(
-        matches!(producer, norito::json::Error::DecodeResourceLimit),
+        matches!(
+            producer,
+            norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            )
+        ),
         "{producer:?}"
     );
     let error = no_allocation(|| {
@@ -1052,7 +1062,12 @@ fn original_npos_exit_policy_refusal_keeps_stake_and_same_signed_retry() {
     let producer =
         no_allocation(|| SumeragiNposParameters::from_custom_parameter(&parameter)).unwrap_err();
     assert!(
-        matches!(producer, norito::json::Error::DecodeResourceLimit),
+        matches!(
+            producer,
+            norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            )
+        ),
         "{producer:?}"
     );
     {

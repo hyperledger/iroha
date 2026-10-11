@@ -760,7 +760,8 @@ impl<T: Write> RunArgs<T> for DeployArgs {
                 &mut progress,
             )?
         };
-        let report = target.finish(&store, deployed.receipt, deployed.journal)?;
+        let mut report = target.finish(&store, deployed.receipt, deployed.journal)?;
+        report.lifecycle = deployed.lifecycle;
         if args.store.json {
             write_json(writer, &report.to_json()?)
         } else {
@@ -773,6 +774,9 @@ impl<T: Write> RunArgs<T> for DeployArgs {
             writeln!(writer, "address: {}", report.receipt.contract_address)?;
             writeln!(writer, "code_hash: {}", report.receipt.code_hash)?;
             writeln!(writer, "journal: {}", report.journal.display())?;
+            if let Some(lifecycle) = &report.lifecycle {
+                writeln!(writer, "{}", lifecycle.summary())?;
+            }
             if let Some(parent) = report.parent_summary() {
                 writeln!(writer, "{parent}")?;
             }
@@ -956,7 +960,9 @@ fn up(store: &ManagedStore, name: &str, timeout: u64) -> Result<ManagedStatus> {
     match store.prepared(name) {
         Ok(prepared) => {
             request.service_profile = prepared.service_profile;
-            store.up_retained(&request).map_err(Into::into)
+            store
+                .up_retained(&request, &prepared.context)
+                .map_err(Into::into)
         }
         Err(iroha_deploy::managed::Error::Io(error))
             if error.kind() == std::io::ErrorKind::NotFound =>
@@ -1686,6 +1692,29 @@ mod tests {
         }
         assert!(crate::Cli::try_parse_from(["kagami", "dataspace", "status", "--json"]).is_ok());
         assert!(crate::Cli::try_parse_from(["kagami", "dataspace", "networks", "--json"]).is_ok());
+    }
+
+    #[test]
+    fn full_length_dataspace_cli_inputs_preserve_alias_and_explicit_context() {
+        for length in [48, 49, 63] {
+            let alias = "a".repeat(length);
+            for explicit in [None, Some("chosen-context")] {
+                let mut argv = vec!["kagami", "dataspace", "up", &alias, "--network", "taira"];
+                if let Some(name) = explicit {
+                    argv.extend(["--name", name]);
+                }
+                let crate::Command::Dataspace(DataspaceCommand::Up(args)) =
+                    crate::Cli::try_parse_from(argv).unwrap().command
+                else {
+                    panic!("expected private dataspace startup");
+                };
+                assert_eq!(args.alias, alias);
+                assert_eq!(args.name.as_deref(), explicit);
+                assert_eq!(args.network, "taira");
+                assert_eq!(args.account_alias, "admin");
+                assert_eq!(args.timeout, 60);
+            }
+        }
     }
 
     #[test]

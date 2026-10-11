@@ -316,7 +316,11 @@ impl IntoSchema for AccountAddress {
 fn account_address_norito_error(err: AccountAddressError) -> ncore::Error {
     match err {
         AccountAddressError::DecodeResourceLimit => {
-            ncore::Error::AllocationFailed { bytes: u64::MAX }
+            ncore::Error::Json(json::Error::DecodeResourceLimit)
+        }
+        AccountAddressError::DecodeResource(resource) => resource.into(),
+        AccountAddressError::ScopedDecodeResource(origin) => {
+            ncore::Error::ScopedDecodeResource(origin)
         }
         other => ncore::Error::Message(other.to_string()),
     }
@@ -477,11 +481,14 @@ fn account_address_from_json_str(literal: &str) -> Result<AccountAddress, json::
     }
 }
 
-fn map_account_address_json_error(error: AccountAddressError) -> json::Error {
-    if matches!(error, AccountAddressError::DecodeResourceLimit) {
-        json::Error::DecodeResourceLimit
-    } else {
-        invalid_account_address_json()
+pub(super) fn map_account_address_json_error(error: AccountAddressError) -> json::Error {
+    match error {
+        AccountAddressError::DecodeResourceLimit => json::Error::DecodeResourceLimit,
+        AccountAddressError::DecodeResource(resource) => json::Error::DecodeResource(resource),
+        AccountAddressError::ScopedDecodeResource(origin) => {
+            json::Error::ScopedDecodeResource(origin)
+        }
+        _ => invalid_account_address_json(),
     }
 }
 
@@ -658,6 +665,47 @@ impl CanonicalAccountOutput for AccountId {
     }
 }
 
+fn address_allocation_failure(layout: std::alloc::Layout) -> AccountAddressError {
+    u64::try_from(layout.size()).map_or_else(
+        |_| AccountAddressError::DecodeResourceLimit,
+        |bytes| {
+            AccountAddressError::DecodeResource(ncore::DecodeResourceError::AllocationFailed {
+                bytes,
+            })
+        },
+    )
+}
+
+fn reserve_address_vec<T>(
+    output: &mut Vec<T>,
+    additional: usize,
+) -> Result<(), AccountAddressError> {
+    let length = output
+        .len()
+        .checked_add(additional)
+        .ok_or(AccountAddressError::DecodeResourceLimit)?;
+    let layout = std::alloc::Layout::array::<T>(length)
+        .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+    output
+        .try_reserve_exact(additional)
+        .map_err(|_| address_allocation_failure(layout))
+}
+
+fn reserve_address_string(
+    output: &mut String,
+    additional: usize,
+) -> Result<(), AccountAddressError> {
+    let length = output
+        .len()
+        .checked_add(additional)
+        .ok_or(AccountAddressError::DecodeResourceLimit)?;
+    let layout = std::alloc::Layout::array::<u8>(length)
+        .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+    output
+        .try_reserve_exact(additional)
+        .map_err(|_| address_allocation_failure(layout))
+}
+
 fn canonical_output_bytes(
     output: &impl CanonicalAccountOutput,
 ) -> Result<Vec<u8>, AccountAddressError> {
@@ -673,9 +721,7 @@ fn canonical_output_bytes(
             CanonicalEmissionError::Account(error) | CanonicalEmissionError::Sink(error) => error,
         })?;
     let mut bytes = Vec::new();
-    bytes
-        .try_reserve_exact(canonical_len)
-        .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+    reserve_address_vec(&mut bytes, canonical_len)?;
     output
         .emit_canonical_bytes(|chunk| {
             bytes.extend_from_slice(chunk);
@@ -704,9 +750,7 @@ fn canonical_output_hex(
         .and_then(|bytes| bytes.checked_add(2))
         .ok_or(AccountAddressError::DecodeResourceLimit)?;
     let mut canonical = String::new();
-    canonical
-        .try_reserve_exact(encoded_bytes)
-        .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+    reserve_address_string(&mut canonical, encoded_bytes)?;
     canonical.push_str("0x");
     output
         .emit_canonical_bytes(|chunk| {
@@ -810,7 +854,7 @@ impl ControllerPayload {
                         curve,
                         public_key: key
                             .try_clone_for_admission()
-                            .map_err(|_| AccountAddressError::DecodeResourceLimit)?,
+                            .map_err(AccountAddressError::from_decode_error)?,
                     },
                 ))
             }
@@ -821,9 +865,7 @@ impl ControllerPayload {
                     ));
                 }
                 let mut members = Vec::new();
-                members
-                    .try_reserve_exact(policy.members().len())
-                    .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+                reserve_address_vec(&mut members, policy.members().len())?;
                 for member in policy.members() {
                     let (algorithm, _) = member
                         .public_key()
@@ -837,7 +879,7 @@ impl ControllerPayload {
                         public_key: member
                             .public_key()
                             .try_clone_for_admission()
-                            .map_err(|_| AccountAddressError::DecodeResourceLimit)?,
+                            .map_err(AccountAddressError::from_decode_error)?,
                     });
                 }
                 Ok((
@@ -979,7 +1021,7 @@ impl ControllerPayload {
             Self::SingleKey { public_key, .. } => Ok(AccountController::single(
                 public_key
                     .try_clone_for_admission()
-                    .map_err(|_| AccountAddressError::DecodeResourceLimit)?,
+                    .map_err(AccountAddressError::from_decode_error)?,
             )),
             Self::MultiSig(payload) => {
                 let member_bytes = payload
@@ -988,18 +1030,16 @@ impl ControllerPayload {
                     .checked_mul(core::mem::size_of::<MultisigMember>())
                     .ok_or(AccountAddressError::DecodeResourceLimit)?;
                 norito::core::reserve_decode_allocation(member_bytes)
-                    .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+                    .map_err(AccountAddressError::from_decode_error)?;
                 let mut members = Vec::new();
-                members
-                    .try_reserve_exact(payload.members.len())
-                    .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+                reserve_address_vec(&mut members, payload.members.len())?;
                 for member in &payload.members {
                     members.push(
                         MultisigMember::new(
                             member
                                 .public_key
                                 .try_clone_for_admission()
-                                .map_err(|_| AccountAddressError::DecodeResourceLimit)?,
+                                .map_err(AccountAddressError::from_decode_error)?,
                             member.weight,
                         )
                         .map_err(AccountAddressError::InvalidMultisigPolicy)?,
@@ -1045,13 +1085,8 @@ fn decode_public_key(
     algorithm: Algorithm,
     payload: &[u8],
 ) -> Result<PublicKey, AccountAddressError> {
-    PublicKey::from_bytes_for_decode(algorithm, payload).map_err(|error| {
-        if error.is_decode_resource_limit() {
-            AccountAddressError::DecodeResourceLimit
-        } else {
-            AccountAddressError::InvalidPublicKey
-        }
-    })
+    PublicKey::from_bytes_for_decode(algorithm, payload)
+        .map_err(AccountAddressError::from_decode_error)
 }
 #[allow(unsafe_code)]
 fn allocate_multisig_members(
@@ -1063,12 +1098,12 @@ fn allocate_multisig_members(
     let layout = std::alloc::Layout::array::<MultisigMemberPayload>(member_count)
         .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
     norito::core::reserve_decode_allocation(layout.size())
-        .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+        .map_err(AccountAddressError::from_decode_error)?;
     // SAFETY: the exact non-zero layout was admitted before allocation. The
     // returned Vec starts empty and initializes elements only through `push`.
     let allocation = unsafe { std::alloc::alloc(layout) };
     let allocation =
-        core::ptr::NonNull::new(allocation).ok_or(AccountAddressError::DecodeResourceLimit)?;
+        core::ptr::NonNull::new(allocation).ok_or_else(|| address_allocation_failure(layout))?;
     Ok(unsafe { Vec::from_raw_parts(allocation.as_ptr().cast(), 0, member_count) })
 }
 fn i105_sentinel_for_discriminant(discriminant: u16) -> String {
@@ -1192,7 +1227,7 @@ impl AccountAddressErrorCode {
     }
 }
 /// Errors raised during address construction or encoding.
-#[derive(Clone, Copy, Debug, Error)]
+#[derive(Clone, Debug, Error)]
 pub enum AccountAddressError {
     /// Requested signing algorithm is not supported by the encoder.
     #[error("unsupported signing algorithm: {0}")]
@@ -1235,9 +1270,15 @@ pub enum AccountAddressError {
     /// Public key payload could not be parsed for the declared curve.
     #[error("invalid public key payload for declared curve")]
     InvalidPublicKey,
-    /// An active decode allocation budget was exhausted.
+    /// A size calculation or fallible reserve failed without recorded resource fields.
     #[error("account address decode resource limit exceeded")]
     DecodeResourceLimit,
+    /// Exact decoder resource fields without original observer provenance.
+    #[error("{0}")]
+    DecodeResource(#[source] ncore::DecodeResourceError),
+    /// Original decoder refusal, including its private budget and attempt identity.
+    #[error("{0}")]
+    ScopedDecodeResource(#[source] ncore::ScopedDecodeResourceError),
     /// Curve identifier is not recognised.
     #[error("unknown curve identifier: {0}")]
     UnknownCurve(u8),
@@ -1280,6 +1321,36 @@ impl From<CurveRegistryError> for AccountAddressError {
     }
 }
 impl AccountAddressError {
+    fn from_decode_error(error: ncore::Error) -> Self {
+        if cfg!(all(test, sumeragi_model_mutation = "DM21"))
+            && error.decode_resource_error().is_some()
+        {
+            return Self::DecodeResourceLimit;
+        }
+        match error {
+            ncore::Error::ScopedDecodeResource(origin) => Self::ScopedDecodeResource(origin),
+            ncore::Error::Json(json::Error::ScopedDecodeResource(origin)) => {
+                Self::ScopedDecodeResource(origin)
+            }
+            ncore::Error::Json(json::Error::DecodeResource(resource)) => {
+                Self::DecodeResource(resource)
+            }
+            ncore::Error::Json(json::Error::DecodeResourceLimit) => Self::DecodeResourceLimit,
+            error => error
+                .decode_resource_error()
+                .map_or(Self::InvalidPublicKey, Self::DecodeResource),
+        }
+    }
+
+    /// Whether canonical address work was refused by a decode bound or allocator.
+    #[must_use]
+    pub const fn is_decode_resource_limit(&self) -> bool {
+        matches!(
+            self,
+            Self::DecodeResourceLimit | Self::DecodeResource(_) | Self::ScopedDecodeResource(_)
+        )
+    }
+
     /// Stable error code attached to this failure.
     #[must_use]
     pub const fn code(&self) -> AccountAddressErrorCode {
@@ -1298,7 +1369,9 @@ impl AccountAddressError {
             Self::UnexpectedExtensionFlag => AccountAddressErrorCode::UnexpectedExtensionFlag,
             Self::UnknownControllerTag(_) => AccountAddressErrorCode::UnknownControllerTag,
             Self::InvalidPublicKey => AccountAddressErrorCode::InvalidPublicKey,
-            Self::DecodeResourceLimit => AccountAddressErrorCode::DecodeResourceLimit,
+            Self::DecodeResourceLimit | Self::DecodeResource(_) | Self::ScopedDecodeResource(_) => {
+                AccountAddressErrorCode::DecodeResourceLimit
+            }
             Self::UnknownCurve(_) => AccountAddressErrorCode::UnknownCurve,
             Self::UnexpectedTrailingBytes => AccountAddressErrorCode::UnexpectedTrailingBytes,
             Self::MissingI105Sentinel => AccountAddressErrorCode::MissingI105Sentinel,
@@ -1337,9 +1410,7 @@ fn encode_i105_literal(prefix: u16, canonical: &[u8]) -> Result<String, AccountA
                         .ok_or(AccountAddressError::DecodeResourceLimit)
                 })
             })?;
-    output
-        .try_reserve_exact(encoded_bytes)
-        .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+    reserve_address_string(&mut output, encoded_bytes)?;
     for digit in digits.iter().chain(checksum.iter()) {
         output.push_str(i105_digit_symbol(*digit)?);
     }
@@ -1359,6 +1430,13 @@ fn decode_i105_literal(
             Ok((found, canonical))
         }
         Err(error) => {
+            // Format diagnostics may inspect the expected payload; a resource
+            // refusal is terminal and must retain its original observer.
+            if error.is_decode_resource_limit()
+                && !cfg!(all(test, sumeragi_model_mutation = "DM24"))
+            {
+                return Err(error);
+            }
             let Some(expected) = expected_discriminant else {
                 return Err(error);
             };
@@ -1400,14 +1478,22 @@ fn decode_i105_literal_with_embedded_discriminant(
                 let address = match AccountAddress::from_canonical_bytes(&canonical) {
                     Ok(address) => address,
                     Err(err) => {
+                        if err.is_decode_resource_limit()
+                            && !cfg!(all(test, sumeragi_model_mutation = "DM23"))
+                        {
+                            return Err(err);
+                        }
                         structural_err.get_or_insert(err);
-                        first_err.get_or_insert(err);
                         continue;
                     }
                 };
                 if let Err(err) = address.ensure_canonical_i105_literal(input, candidate) {
+                    if err.is_decode_resource_limit()
+                        && !cfg!(all(test, sumeragi_model_mutation = "DM23"))
+                    {
+                        return Err(err);
+                    }
                     structural_err.get_or_insert(err);
-                    first_err.get_or_insert(err);
                     continue;
                 }
                 if decoded.replace((candidate, canonical)).is_some() {
@@ -1415,6 +1501,11 @@ fn decode_i105_literal_with_embedded_discriminant(
                 }
             }
             Err(err) => {
+                if err.is_decode_resource_limit()
+                    && !cfg!(all(test, sumeragi_model_mutation = "DM23"))
+                {
+                    return Err(err);
+                }
                 first_err.get_or_insert(err);
             }
         }
@@ -1454,18 +1545,14 @@ fn encode_base_n(bytes: &[u8], base: u32) -> Result<Vec<u8>, AccountAddressError
     let significant = &bytes[leading_zeros..];
     if significant.is_empty() {
         let mut digits = Vec::new();
-        digits
-            .try_reserve_exact(leading_zeros)
-            .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+        reserve_address_vec(&mut digits, leading_zeros)?;
         digits.resize(leading_zeros, 0);
         return Ok(digits);
     }
 
     let maximum_limbs = significant.len().div_ceil(8);
     let mut limbs = Vec::<u64>::new();
-    limbs
-        .try_reserve_exact(maximum_limbs)
-        .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+    reserve_address_vec(&mut limbs, maximum_limbs)?;
     let first = significant.len() % 8;
     let mut cursor = 0_usize;
     while cursor < significant.len() {
@@ -1493,9 +1580,7 @@ fn encode_base_n(bytes: &[u8], base: u32) -> Result<Vec<u8>, AccountAddressError
         .and_then(|digits| digits.checked_add(leading_zeros))
         .ok_or(AccountAddressError::DecodeResourceLimit)?;
     let mut digits = Vec::new();
-    digits
-        .try_reserve_exact(maximum_digits)
-        .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+    reserve_address_vec(&mut digits, maximum_digits)?;
     while !limbs.is_empty() {
         let mut remainder = 0_u128;
         for limb in &mut limbs {
@@ -1546,9 +1631,7 @@ fn decode_base_n(digits: &[u8], base: u32) -> Result<Vec<u8>, AccountAddressErro
     let significant = &digits[leading_zeros..];
     if significant.is_empty() {
         let mut bytes = Vec::new();
-        bytes
-            .try_reserve_exact(leading_zeros)
-            .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+        reserve_address_vec(&mut bytes, leading_zeros)?;
         bytes.resize(leading_zeros, 0);
         return Ok(bytes);
     }
@@ -1574,9 +1657,7 @@ fn decode_base_n(digits: &[u8], base: u32) -> Result<Vec<u8>, AccountAddressErro
         .map(|bits| bits / 64)
         .ok_or(AccountAddressError::DecodeResourceLimit)?;
     let mut limbs = Vec::<u64>::new();
-    limbs
-        .try_reserve_exact(maximum_limbs)
-        .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+    reserve_address_vec(&mut limbs, maximum_limbs)?;
 
     let first_group = significant.len() % group_digits;
     let mut cursor = 0_usize;
@@ -1629,9 +1710,7 @@ fn decode_base_n(digits: &[u8], base: u32) -> Result<Vec<u8>, AccountAddressErro
         .checked_add(significant_bytes)
         .ok_or(AccountAddressError::DecodeResourceLimit)?;
     let mut bytes = Vec::new();
-    bytes
-        .try_reserve_exact(output_bytes)
-        .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+    reserve_address_vec(&mut bytes, output_bytes)?;
     bytes.resize(leading_zeros, 0);
     let top = most_significant.to_be_bytes();
     let top_start =
@@ -1753,9 +1832,7 @@ fn decode_i105_payload(payload: &str) -> Result<Vec<u8>, AccountAddressError> {
 fn i105_payload_digits(payload: &str) -> Result<Vec<u8>, AccountAddressError> {
     let digit_count = payload.chars().count();
     let mut digits = Vec::new();
-    digits
-        .try_reserve_exact(digit_count)
-        .map_err(|_| AccountAddressError::DecodeResourceLimit)?;
+    reserve_address_vec(&mut digits, digit_count)?;
     for ch in payload.chars() {
         let mut symbol = [0_u8; 4];
         let encoded = ch.encode_utf8(&mut symbol);
@@ -1949,7 +2026,12 @@ mod tests {
         let (decoded, usage) = norito::core::with_decode_limits_measured(limits(exact - 1), || {
             <AccountAddress as json::JsonObjectKeyOwned>::from_json_key_text(&literal)
         });
-        assert!(matches!(decoded, Err(json::Error::DecodeResourceLimit)));
+        assert!(matches!(
+            decoded,
+            Err(json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ));
         assert!(usage.total_allocated_bytes() < exact);
     }
     #[test]
@@ -2119,7 +2201,7 @@ mod tests {
         let literal = format!("0x{}", hex::encode(&canonical));
         let parse_err = AccountId::parse_encoded(&literal).expect_err("account parsing fails");
         assert_eq!(
-            parse_err.reason(),
+            parse_err.code_str(),
             "AccountId must use a canonical I105 literal"
         );
         assert_eq!(
@@ -2138,7 +2220,7 @@ mod tests {
         let literal = format!("0x{}", hex::encode(&canonical));
         let parse_err = AccountId::parse_encoded(&literal).expect_err("account parsing fails");
         assert_eq!(
-            parse_err.reason(),
+            parse_err.code_str(),
             "AccountId must use a canonical I105 literal"
         );
         assert_eq!(
@@ -2295,8 +2377,8 @@ mod tests {
     fn norito_address_preserves_nested_decode_resource_classification() {
         let error = account_address_norito_error(AccountAddressError::DecodeResourceLimit);
         assert!(
-            error.is_decode_resource_limit(),
-            "nested key/member allocation failures must remain terminal decode limits",
+            matches!(error, ncore::Error::Json(json::Error::DecodeResourceLimit)),
+            "an anonymous address bound must not invent allocator fields or an observer",
         );
     }
 
@@ -3144,5 +3226,418 @@ mod tests {
             InvalidMultisigPolicy,
             "ERR_INVALID_MULTISIG_POLICY"
         );
+    }
+
+    #[test]
+    fn canonical_address_json_preserves_original_refusal_fields_scope_and_retry() {
+        use norito::core::{
+            DecodeAttemptErrorKind, DecodeBudgetContext, DecodeResourceError,
+            classify_decode_attempt,
+        };
+        use norito::json::{JsonDeserialize as _, JsonObjectKeyOwned as _};
+
+        let expected = account_address_for_seed(0x6b);
+        let literal = expected.canonical_hex().unwrap();
+        let value = norito::json::Value::String(literal.clone());
+        let wire = norito::json::to_json(&literal).unwrap();
+        let source_pointer = value.as_str().unwrap().as_ptr();
+        let limits = |bytes| {
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
+        };
+        let decode = |mode| match mode {
+            0 => AccountAddress::json_from_value(&value),
+            1 => AccountAddress::from_json_key_text(&literal),
+            2 => norito::json::from_json::<AccountAddress>(&wire),
+            _ => unreachable!("three actual canonical JSON API owners"),
+        };
+        let demands = [0, 1, 2].map(|mode| {
+            let (decoded, usage) =
+                norito::core::with_decode_limits_measured(limits(usize::MAX), || decode(mode));
+            assert_eq!(decoded.unwrap(), expected);
+            let demand = usage.total_allocated_bytes();
+            assert!(demand > 0);
+            demand
+        });
+        let context_limit = demands
+            .iter()
+            .try_fold(0_usize, |total, demand| total.checked_add(*demand))
+            .unwrap()
+            .checked_mul(2)
+            .unwrap();
+        let pool = iroha_allocation::AllocationBudget::new(
+            DecodeBudgetContext::allocation_layout().size(),
+        );
+        let original = DecodeBudgetContext::try_new_owned(limits(context_limit), &pool).unwrap();
+        let baseline = pool.reserved_bytes();
+        // The original pool owns the decoder counters. These ordinary JSON controls do not
+        // claim physical admission of the returned account graph.
+        for (mode, demand) in demands.into_iter().enumerate() {
+            let decode = || decode(mode);
+            let mut observed = None;
+            let before = original.consumed_allocated_bytes();
+            let refusal = original.with(|| norito::with_decode_limits_scope(limits(demand - 1), || {
+                classify_decode_attempt(|| {
+                    let error = decode().expect_err("one-byte-short canonical decoder must refuse");
+                    let norito::json::Error::ScopedDecodeResource(origin) = &error else {
+                        panic!("canonical AccountAddress JSON must retain the original scoped refusal: {error:?}");
+                    };
+                    observed = Some(origin.clone());
+                    Err::<(), _>(error.into_core_error())
+                })
+            })).unwrap_err();
+            assert_eq!(refusal.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+            let refusal = refusal.into_error();
+            assert_eq!(
+                refusal.decode_resource_error(),
+                Some(DecodeResourceError::TotalAllocationExceeded {
+                    attempted: u64::try_from(demand).unwrap(),
+                    limit: u64::try_from(demand - 1).unwrap(),
+                })
+            );
+            let norito::Error::ScopedDecodeResource(returned) = refusal else {
+                panic!("canonical JSON must return its exact original observer");
+            };
+            assert_eq!(returned, observed.unwrap());
+            drop(returned);
+            assert_eq!(pool.reserved_bytes(), baseline);
+            let after_refusal = original.consumed_allocated_bytes();
+            assert!(after_refusal >= before);
+            // The original outer context records the attempted charge before the
+            // narrower inner ceiling refuses it. Its counters are cumulative and
+            // must not be refunded or replaced by the failed inner operation.
+            assert_eq!(after_refusal - before, u64::try_from(demand).unwrap());
+            let retry = original
+                .with(decode)
+                .expect("same input and original context retry");
+            assert_eq!(retry, expected);
+            assert_eq!(
+                original.consumed_allocated_bytes() - after_refusal,
+                u64::try_from(demand).unwrap()
+            );
+            drop(retry);
+            assert_eq!(pool.reserved_bytes(), baseline);
+
+            let (error, usage) =
+                norito::core::with_decode_limits_measured(limits(demand - 1), decode);
+            let error = error
+                .expect_err("same input unscoped quota refusal")
+                .into_core_error();
+            assert_eq!(
+                error.decode_resource_error(),
+                Some(DecodeResourceError::TotalAllocationExceeded {
+                    attempted: u64::try_from(demand).unwrap(),
+                    limit: u64::try_from(demand - 1).unwrap(),
+                })
+            );
+            assert!(!matches!(error, norito::Error::ScopedDecodeResource(_)));
+            assert!(usage.total_allocated_bytes() < demand);
+        }
+        let invalid =
+            AccountAddress::json_from_value(&norito::json::Value::Bool(false)).unwrap_err();
+        assert!(matches!(invalid, norito::json::Error::Message(_)));
+        assert_eq!(value.as_str().unwrap().as_ptr(), source_pointer);
+        assert_eq!(value.as_str(), Some(literal.as_str()));
+        drop(original);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn address_resource_conversions_preserve_fields_and_anonymous_bounds_without_minting_scope() {
+        let resource = ncore::DecodeResourceError::AllocationFailed { bytes: 97 };
+        let error = AccountAddressError::from_decode_error(resource.into());
+        assert!(error.is_decode_resource_limit());
+        assert_eq!(
+            error.code_str(),
+            AccountAddressErrorCode::DecodeResourceLimit.as_str()
+        );
+        let error = account_address_norito_error(error);
+        assert_eq!(error.decode_resource_error(), Some(resource));
+        assert!(!matches!(error, ncore::Error::ScopedDecodeResource(_)));
+        let error = map_account_address_json_error(AccountAddressError::from_decode_error(
+            ncore::Error::Json(json::Error::DecodeResource(resource)),
+        ));
+        assert_eq!(
+            error.into_core_error().decode_resource_error(),
+            Some(resource)
+        );
+        assert!(matches!(
+            AccountAddressError::from_decode_error(ncore::Error::InvalidValue {
+                context: "public key"
+            }),
+            AccountAddressError::InvalidPublicKey
+        ));
+        let mut vector = Vec::<u64>::new();
+        assert!(reserve_address_vec(&mut vector, 2).is_ok());
+        assert!(vector.capacity() >= 2);
+        assert!(matches!(
+            reserve_address_vec(&mut vector, usize::MAX),
+            Err(AccountAddressError::DecodeResourceLimit)
+        ));
+        assert!(vector.is_empty());
+        let mut string = String::from("sora");
+        assert!(reserve_address_string(&mut string, 6).is_ok());
+        assert_eq!(string, "sora");
+        assert!(matches!(
+            reserve_address_string(&mut string, usize::MAX),
+            Err(AccountAddressError::DecodeResourceLimit)
+        ));
+        assert_eq!(string, "sora");
+        assert!(matches!(
+            map_account_address_json_error(AccountAddressError::DecodeResourceLimit),
+            json::Error::DecodeResourceLimit
+        ));
+        assert!(matches!(
+            account_address_norito_error(AccountAddressError::DecodeResourceLimit),
+            ncore::Error::Json(json::Error::DecodeResourceLimit)
+        ));
+        let layout = std::alloc::Layout::array::<MultisigMemberPayload>(2).unwrap();
+        assert_eq!(
+            account_address_norito_error(address_allocation_failure(layout))
+                .decode_resource_error(),
+            Some(ncore::DecodeResourceError::AllocationFailed {
+                bytes: u64::try_from(layout.size()).unwrap()
+            })
+        );
+    }
+    fn observed_i105_terminal_refusal(
+        original: &norito::core::DecodeBudgetContext,
+        decode: impl FnOnce() -> Result<AccountAddress, AccountAddressError>,
+    ) -> (norito::core::DecodeResourceError, [usize; 3]) {
+        use norito::core::{DecodeAttemptErrorKind, classify_decode_attempt};
+        let limits = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let before = original.consumed_allocated_bytes();
+        let mut observed = None;
+        let (refusal, requests) = crate::amx_prepare_streaming_allocations::measured(|| {
+            original.with(|| norito::with_decode_limits_scope(limits, || {
+                classify_decode_attempt(|| {
+                    let error = decode().expect_err("original zero quota must refuse controller admission");
+                    let AccountAddressError::ScopedDecodeResource(origin) = &error else {
+                        panic!("public I105 parsing must retain the original scoped refusal: {error:?}");
+                    };
+                    observed = Some(origin.clone());
+                    Err::<AccountAddress, _>(account_address_norito_error(error))
+                })
+            }))
+        });
+        let refusal = refusal.unwrap_err();
+        assert_eq!(refusal.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+        let refusal = refusal.into_error();
+        let resource = refusal
+            .decode_resource_error()
+            .expect("original typed fields");
+        let norito::core::DecodeResourceError::TotalAllocationExceeded {
+            attempted,
+            limit: 0,
+        } = resource
+        else {
+            panic!("the genuine first controller request must refuse the zero inner quota");
+        };
+        assert!(attempted > 0);
+        // Existing admission debits the original outer layer before the narrower
+        // inner layer refuses. Refusal does not refund cumulative decoder work.
+        assert_eq!(original.consumed_allocated_bytes() - before, attempted);
+        let norito::Error::ScopedDecodeResource(returned) = refusal else {
+            panic!("original scoped observer must survive the public return");
+        };
+        assert_eq!(returned, observed.unwrap());
+        drop(returned);
+        (resource, requests)
+    }
+
+    fn first_i105_controller_charge(expected: &AccountAddress) -> usize {
+        let canonical = expected.canonical_bytes().unwrap();
+        let zero = norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+        let error = norito::with_decode_limits_scope(zero, || {
+            AccountAddress::from_canonical_bytes(&canonical)
+        })
+        .unwrap_err();
+        let AccountAddressError::DecodeResource(
+            norito::core::DecodeResourceError::TotalAllocationExceeded {
+                attempted,
+                limit: 0,
+            },
+        ) = error
+        else {
+            panic!(
+                "independent canonical controller admission must report its first actual request"
+            );
+        };
+        usize::try_from(attempted).unwrap()
+    }
+
+    fn numeric_candidate_refusal_fixture() -> (AccountAddress, String) {
+        let members = (0..6)
+            .map(|index| MultisigMember::new(ed25519_pk_with(0x80 + index), 1).unwrap())
+            .collect();
+        let account = AccountId::new_multisig(MultisigPolicy::new(3, members).unwrap());
+        let address = AccountAddress::from_account_id(&account).unwrap();
+        let literal = address.to_i105_for_discriminant(1).unwrap();
+        let rest = literal.strip_prefix(I105_SENTINEL_FALLBACK_PREFIX).unwrap();
+        let (candidate, payload) = numeric_i105_sentinel_candidate(rest, 1).unwrap();
+        assert_eq!(candidate, 1);
+        assert!(payload.starts_with(|character: char| character.is_ascii_digit()));
+        assert!(numeric_i105_sentinel_candidate(rest, 2).is_some());
+        assert_eq!(
+            AccountAddress::from_i105_for_discriminant(&literal, None).unwrap(),
+            address
+        );
+        (address, literal)
+    }
+
+    #[test]
+    fn numeric_i105_resource_refusal_stops_at_original_candidate_without_later_allocations() {
+        use norito::core::DecodeBudgetContext;
+        let (expected, literal) = numeric_candidate_refusal_fixture();
+        let source_pointer = literal.as_ptr();
+        let limits = |bytes| {
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
+        };
+        let (decoded, usage) =
+            norito::core::with_decode_limits_measured(limits(usize::MAX), || {
+                AccountAddress::from_i105_for_discriminant(&literal, None)
+            });
+        assert_eq!(decoded.unwrap(), expected);
+        let demand = usage.total_allocated_bytes();
+        assert!(demand > 0);
+        let first_charge = first_i105_controller_charge(&expected);
+        let original_limit = first_charge
+            .checked_mul(2)
+            .unwrap()
+            .checked_add(demand)
+            .unwrap();
+        let pool = iroha_allocation::AllocationBudget::new(
+            DecodeBudgetContext::allocation_layout().size(),
+        );
+        let original = DecodeBudgetContext::try_new_owned(limits(original_limit), &pool).unwrap();
+        let baseline = pool.reserved_bytes();
+        // The reference stops at the first genuine candidate's admitted controller
+        // refusal, using the same canonical kernels and original observer. It includes
+        // the required numeric-sentinel formatting and all pre-refusal payload buffers.
+        let (expected_resource, expected_requests) =
+            observed_i105_terminal_refusal(&original, || {
+                let rest = literal.strip_prefix(I105_SENTINEL_FALLBACK_PREFIX).unwrap();
+                let (candidate, payload) = numeric_i105_sentinel_candidate(rest, 1).unwrap();
+                assert_eq!(candidate, 1);
+                let canonical = decode_i105_payload(payload)?;
+                AccountAddress::from_canonical_bytes(&canonical)
+            });
+        let (resource, actual_requests) = observed_i105_terminal_refusal(&original, || {
+            AccountAddress::from_i105_for_discriminant(&literal, None)
+        });
+        assert_eq!(resource, expected_resource);
+        assert_eq!(pool.reserved_bytes(), baseline);
+        assert_eq!(
+            actual_requests, expected_requests,
+            "a numeric I105 resource refusal must terminate before later candidate allocations"
+        );
+        let before_retry = original.consumed_allocated_bytes();
+        assert_eq!(
+            before_retry,
+            u64::try_from(first_charge.checked_mul(2).unwrap()).unwrap()
+        );
+        assert_eq!(
+            original
+                .with(|| AccountAddress::from_i105_for_discriminant(&literal, None))
+                .unwrap(),
+            expected
+        );
+        assert_eq!(
+            original.consumed_allocated_bytes() - before_retry,
+            u64::try_from(demand).unwrap()
+        );
+        assert_eq!(
+            original.consumed_allocated_bytes(),
+            u64::try_from(original_limit).unwrap()
+        );
+        assert_eq!(literal.as_ptr(), source_pointer);
+        assert_eq!(expected.to_i105_for_discriminant(1).unwrap(), literal);
+        assert_eq!(pool.reserved_bytes(), baseline);
+        drop(original);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn expected_i105_prefix_diagnostics_do_not_retry_original_resource_refusal() {
+        use norito::core::DecodeBudgetContext;
+        let (expected, literal) = numeric_candidate_refusal_fixture();
+        let source_pointer = literal.as_ptr();
+        let limits = |bytes| {
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
+        };
+        let (decoded, usage) =
+            norito::core::with_decode_limits_measured(limits(usize::MAX), || {
+                AccountAddress::from_i105_for_discriminant(&literal, Some(1))
+            });
+        assert_eq!(decoded.unwrap(), expected);
+        let demand = usage.total_allocated_bytes();
+        assert!(demand > 0);
+        let first_charge = first_i105_controller_charge(&expected);
+        let original_limit = first_charge
+            .checked_mul(2)
+            .unwrap()
+            .checked_add(demand)
+            .unwrap();
+        let pool = iroha_allocation::AllocationBudget::new(
+            DecodeBudgetContext::allocation_layout().size(),
+        );
+        let original = DecodeBudgetContext::try_new_owned(limits(original_limit), &pool).unwrap();
+        let baseline = pool.reserved_bytes();
+        let (expected_resource, expected_requests) =
+            observed_i105_terminal_refusal(&original, || {
+                AccountAddress::from_i105_for_discriminant(&literal, None)
+            });
+        let (resource, actual_requests) = observed_i105_terminal_refusal(&original, || {
+            AccountAddress::from_i105_for_discriminant(&literal, Some(1))
+        });
+        assert_eq!(resource, expected_resource);
+        assert_eq!(pool.reserved_bytes(), baseline);
+        assert_eq!(
+            actual_requests, expected_requests,
+            "expected I105 prefix diagnostics must not allocate another payload after resource refusal"
+        );
+        let before_retry = original.consumed_allocated_bytes();
+        assert_eq!(
+            before_retry,
+            u64::try_from(first_charge.checked_mul(2).unwrap()).unwrap()
+        );
+        assert_eq!(
+            original
+                .with(|| AccountAddress::from_i105_for_discriminant(&literal, Some(1)))
+                .unwrap(),
+            expected
+        );
+        assert_eq!(
+            original.consumed_allocated_bytes() - before_retry,
+            u64::try_from(demand).unwrap()
+        );
+        assert_eq!(
+            original.consumed_allocated_bytes(),
+            u64::try_from(original_limit).unwrap()
+        );
+        let wrong_prefix =
+            AccountAddress::from_i105_for_discriminant(&literal, Some(2)).unwrap_err();
+        assert!(matches!(
+            wrong_prefix,
+            AccountAddressError::UnexpectedNetworkPrefix {
+                expected: 2,
+                found: 1
+            }
+        ));
+        let mut corrupt = literal.clone();
+        let last = corrupt.pop().unwrap();
+        corrupt.push(if last == '1' { '2' } else { '1' });
+        assert!(matches!(
+            AccountAddress::from_i105_for_discriminant(&corrupt, Some(1)),
+            Err(AccountAddressError::ChecksumMismatch)
+        ));
+        assert!(matches!(
+            AccountAddress::from_i105_for_discriminant("sora!", Some(CHAIN_DISCRIMINANT_SORA)),
+            Err(AccountAddressError::InvalidI105Char('!'))
+        ));
+        assert_eq!(literal.as_ptr(), source_pointer);
+        assert_eq!(expected.to_i105_for_discriminant(1).unwrap(), literal);
+        assert_eq!(pool.reserved_bytes(), baseline);
+        drop(original);
+        assert_eq!(pool.reserved_bytes(), 0);
     }
 }

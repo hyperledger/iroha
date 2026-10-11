@@ -26,6 +26,14 @@ use alloc::{boxed::Box, vec::Vec};
 ///
 /// assert_eq!(buf, b"hello world");
 /// ```
+///
+/// # Safety
+///
+/// Implementations must expose valid, writable memory through `chunk_mut` and
+/// never expose uninitialized bytes through safe operations. Advancing by a
+/// valid count must mark only bytes initialized by the caller as initialized.
+/// A nonzero `remaining_mut` must permit progress through `chunk_mut`, whose
+/// length cannot exceed `remaining_mut`.
 pub unsafe trait BufMut {
     /// Returns the number of bytes that can be written from the current
     /// position until the end of the buffer is reached.

@@ -14,7 +14,9 @@
 
 use std::num::NonZeroUsize;
 
-use iroha_data_model::block::consensus::{EvidenceOffender, EvidenceScope};
+#[cfg(test)]
+use iroha_data_model::block::consensus::EvidenceOffender;
+use iroha_data_model::block::consensus::EvidenceScope;
 
 mod funded_attribution;
 use funded_attribution::{AttributionFields, FundedOffenders};

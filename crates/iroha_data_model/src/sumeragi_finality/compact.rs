@@ -21,7 +21,7 @@ const MAX_COMMIT_QC_BYTES: usize = 4 * 1024;
 /// still apply; this is a transport allocation bound, not an enlarged consensus result.
 pub const MAX_COMMIT_CERTIFICATE_BYTES_V1: usize = 256 * 1024;
 
-/// Original native header, CommitQC and signed execution-result preimage, without a block body.
+/// Original native header, `CommitQC` and signed execution-result preimage, without a block body.
 /// The ordered signing roster comes exclusively from independently authenticated epochs.
 #[derive(
     Debug, Clone, PartialEq, Eq, Encode, Decode, iroha_schema::IntoSchema, norito::NoritoSchema,
@@ -110,7 +110,7 @@ impl SumeragiCommitCertificateV1 {
     /// Retain the original certificate from an independently verified non-genesis block.
     ///
     /// # Errors
-    /// Genesis has no CommitQC; malformed or oversized original components are rejected.
+    /// Genesis has no `CommitQC`; malformed or oversized original components are rejected.
     pub fn from_verified(block: &VerifiedSumeragiBlock) -> Result<Self, FinalityError> {
         need(block.height() >= 2, "genesis has no Commit certificate")?;
         let certificate = block.block().commit_certificate().ok_or_else(|| {
@@ -295,7 +295,7 @@ impl SumeragiCommitVerifierV1 {
         Ok(checkpoint)
     }
 
-    /// Authenticate one exact CommitQC and install only its certified boundary successor.
+    /// Authenticate one exact `CommitQC` and install only its certified boundary successor.
     ///
     /// # Errors
     /// Missing epoch transitions, stale or substituted rosters, wrong scope, height/result
@@ -333,10 +333,8 @@ impl SumeragiCommitVerifierV1 {
         let (crypto, committee) = ProofCrypto::new(&validators)?;
         let core_hash = header.hash(&crypto);
         need(
-            header.instance == self.instance
-                && header.epoch == epoch.id
-                && qc.instance == self.instance
-                && qc.epoch == epoch.id
+            (&header.instance, &header.epoch) == (&self.instance, &epoch.id)
+                && (&qc.instance, &qc.epoch) == (&self.instance, &epoch.id)
                 && qc.kind == VoteKind::Commit
                 && qc.height == header.height
                 && qc.block_hash == core_hash

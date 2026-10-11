@@ -631,7 +631,7 @@ historical estimates cannot establish the current G3.6 result.
 | Operation | Q leaves (cells) | A cells (cap 1.67M) | Ω cells | Folds | Proofs (Q + A + Ω) | Mac 1t | Phone 4 cores, optimistic / pessimistic |
 |---|---|---:|---:|---:|---:|---:|---:|
 | Bootstrap (original combined-leaf estimate; current implementation uses at least 2 Q leaves) | 1 (1.00–1.09M) [E] | 0.31–0.40M | 0.34–0.43M | 1 | 3 | 67–94 s | 23–87 / 39–166 s |
-| Load | 2 (1.01–1.05 + 0.48–0.56M) | 0.84–1.05M | 0.36–0.45M | 2 | 4 | 92–128 s | 32–118 / 53–227 s |
+| Load (current native-BLS schedule) | 3; current cells pending measurement | 4 A stages; current cells pending measurement | Current cells pending measurement | 3 W stages | 8 (+ 3 W) | Unqualified | Unqualified |
 | **Send** | 1 (1.00–1.09M) | 0.67–0.81M | 0.36–0.45M | 2 | 3 | **70–97 s** | **24–89 / 41–172 s** |
 | **Receive** | 2 (1.02–1.07 + 0.83–1.05M) | **1.18–1.45M** (B6 history lookup included) | 0.37–0.46M | 3 | 4 | **96–132 s** | **33–122 / 55–234 s** |
 | Receive (renewed) | 3 | 1.43–1.76M; A-split at the high end | 0.37–0.46M | 3 (+2) | 5 (+2) | 118–163 s (+48–65 s split) | 40–150 / 68–289 s (+ split) |
@@ -643,7 +643,14 @@ historical estimates cannot establish the current G3.6 result.
 | RefreshPolicy (Blacklist, B6 history insertion) | 2 | 0.85–1.06M | 0.36–0.45M | 2 | 4 | 92–128 s | 32–118 / 53–227 s |
 | RefreshPolicy (QuotaShare, OQ-4 with the B5 array rebuild) | 2 | 0.97–1.18M; no A-split | 0.36–0.45M | 2 | 4 | 92–128 s | 32–118 / 53–227 s |
 
-Time model [E]:
+Load verifies ordinary BLS finality natively before Advance signing; it has no
+recursive BLS-finality stage. Its compiled schedule is three Q, four A, three W
+and one Ω proof (`a_relation/schedule/compiled.rs`). The table's other historical
+estimates and the model below do not measure this schedule. Current Load timing,
+memory and full-catalog artifact qualification remain separate gates; retaining
+Pasta payment proofs does not restore independent in-proof funding verification.
+
+Historical time model [E]:
 
 - Mac = n_Q·T_Q + T_A + T_Ω + folds·T_fold + proofs × (0.5–1.0 s, proving key from VK) +
   self-verify 0.86–0.90 s + 0.3 s per incoming-claim decide.

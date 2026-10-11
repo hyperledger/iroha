@@ -318,6 +318,24 @@ impl<F: KagemushaWalletFsV1, P: KagemushaWalletPlatformV1> EnrollmentOwnerV1<F, 
         }
         Ok(EnrollmentAbandonmentV1::Abandonment(bytes))
     }
+    /// Permanently abandon this unused enrollment and frame its exact retained marker receipt
+    /// for an ordinary account-signed ledger transaction. The local no-marker form has no
+    /// ledger effect and returns `None`. Retrying preserves the signed inner receipt exactly;
+    /// this framing is not evidence of submission or finalized execution.
+    /// # Errors
+    /// The same custody and lifecycle refusals as [`Self::abandon`], or an encoding failure.
+    pub fn abandonment_ledger_instruction(&mut self) -> Result<Option<Vec<u8>>, Error> {
+        let EnrollmentAbandonmentV1::Abandonment(bytes) = self.abandon()? else {
+            return Ok(None);
+        };
+        let instruction = iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLedgerV1::new(
+            self.config.scheme.scheme_id(),
+            iroha_data_model::isi::kagemusha_wallet::KagemushaWalletLedgerActionV1::Abandon(bytes),
+        );
+        norito::encode_canonical(&instruction)
+            .map(Some)
+            .map_err(|_| Error::Original("abandonment ledger instruction"))
+    }
     fn selected_marker(&mut self) -> Result<KagemushaWalletMarkerV1, Error> {
         let (scope, slot) = self.selected.as_ref().ok_or(Error::Phase)?;
         // Every E5/E6 recovery entry point authenticates the selected originals first.

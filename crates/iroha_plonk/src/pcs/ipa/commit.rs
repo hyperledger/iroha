@@ -48,8 +48,8 @@ use group::prime::PrimeCurveAffine;
 use iroha_pasta::{
     CancellationToken, PastaAffine, PastaCurve, PastaField,
     msm::{
-        FixedBaseTable, MemoryBudget, MsmError, SharedMemoryBudget, msm_public_cancellable,
-        msm_secret_cancellable,
+        BoundedSecretScalars, FixedBaseTable, MemoryBudget, MsmError, SharedMemoryBudget,
+        msm_public_cancellable, msm_secret_bounded_cancellable, msm_secret_cancellable,
     },
     params::ParamsIpa,
 };
@@ -362,6 +362,67 @@ impl<C: PastaCurve> CommitmentTables<C> {
         budget: MemoryBudget,
     ) -> Result<C, MsmError> {
         self.commit_lagrange_cancellable(params, values, blind, secrecy, budget, None)
+    }
+
+    /// Commit a secret evaluation column whose usable prefix has a public bound.
+    /// The bound is `(prefix_len, bits)`; random padding stays full-width and the
+    /// existing constant-time blind multiplication is unchanged. Optional tables
+    /// keep their existing whole-column path, but only after prefix validation.
+    pub(crate) fn commit_lagrange_bounded_prefix_cancellable(
+        &self,
+        params: &ParamsIpa<C>,
+        values: &[C::ScalarExt],
+        public_bound: (usize, usize),
+        blind: &C::ScalarExt,
+        budget: MemoryBudget,
+        cancellation: Option<&CancellationToken>,
+    ) -> Result<C, MsmError> {
+        let (prefix_len, bits) = public_bound;
+        let prefix = values.get(..prefix_len).ok_or(MsmError::LengthMismatch(
+            iroha_pasta::LengthMismatch {
+                left: prefix_len,
+                right: values.len(),
+            },
+        ))?;
+        let checked = BoundedSecretScalars::new(prefix, bits, cancellation)?;
+        if self.g_lagrange.is_some() {
+            return self.commit_lagrange_cancellable(
+                params,
+                values,
+                blind,
+                Secrecy::Secret,
+                budget,
+                cancellation,
+            );
+        }
+        #[cfg(test)]
+        test_observation::record();
+        let all_bases = params.g_lagrange();
+        let bases = all_bases
+            .get(..values.len())
+            .ok_or(MsmError::LengthMismatch(iroha_pasta::LengthMismatch {
+                left: values.len(),
+                right: all_bases.len(),
+            }))?;
+        let shared = SharedMemoryBudget::process_default();
+        let mut sum = zeroize::Zeroizing::new(msm_secret_bounded_cancellable::<C>(
+            &checked,
+            &bases[..prefix_len],
+            budget,
+            &shared,
+            cancellation,
+        )?);
+        // The first kernel has released its scratch before the padding kernel.
+        *sum += msm_secret_cancellable::<C>(
+            &values[prefix_len..],
+            &bases[prefix_len..],
+            budget,
+            &shared,
+            cancellation,
+        )?;
+        *sum += params.w().to_curve() * *blind;
+        CancellationToken::checkpoint(cancellation)?;
+        Ok(*sum)
     }
 
     /// Commits with a caller-owned cancellation signal, joining every task.
@@ -1709,3 +1770,7 @@ mod tests {
         assert!(Msm::<Ep>::default().is_identity(MemoryBudget::DEFAULT));
     }
 }
+
+#[cfg(test)]
+#[path = "commit/bounded_tests.rs"]
+mod bounded_tests;

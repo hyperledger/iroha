@@ -530,6 +530,222 @@ fn streamed_lookup_cosets_match_row_wise_reference_on_both_fields() {
     streamed_parity::<Eq>();
 }
 
+/// The original rotated gates, permutation sets and two lookups, followed by
+/// enough distinct quadratic gate polynomials to cross eight-term boundaries.
+#[derive(Clone, Copy)]
+struct GateFoldBoundary(usize);
+
+impl<F: PastaField> Circuit<F> for GateFoldBoundary {
+    type Config = (Vec<Column<Advice>>, Column<Fixed>);
+    type FloorPlanner = SimpleFloorPlanner;
+    type Params = usize;
+
+    fn without_witnesses(&self) -> Self {
+        *self
+    }
+
+    fn params(&self) -> usize {
+        self.0
+    }
+
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+        Self::configure_with_params(meta, 7)
+    }
+
+    fn configure_with_params(meta: &mut ConstraintSystem<F>, gate_count: usize) -> Self::Config {
+        assert!(gate_count >= 2);
+        let (advice, fixed) = <ScheduledLookups as Circuit<F>>::configure_with_params(meta, 2);
+        for polynomial in 2..gate_count {
+            meta.create_gate("gate fold boundary", |cells| {
+                let previous =
+                    cells.query_advice(advice[(3 * polynomial) % advice.len()], Rotation::prev());
+                let current = cells
+                    .query_advice(advice[(3 * polynomial + 1) % advice.len()], Rotation::cur());
+                let next = cells.query_advice(
+                    advice[(3 * polynomial + 2) % advice.len()],
+                    Rotation::next(),
+                );
+                let fixed = cells.query_fixed(fixed, Rotation::cur());
+                vec![previous * current + next * F::from(polynomial as u64 + 1) - fixed]
+            });
+        }
+        (advice, fixed)
+    }
+
+    fn synthesize(&self, config: Self::Config, layouter: impl Layouter<F>) -> Result<(), Error> {
+        <ScheduledLookups as Circuit<F>>::synthesize(&ScheduledLookups(2), config, layouter)
+    }
+}
+
+/// Read-only filters can omit a whole group or terms from several fold stages.
+struct OmitTerms(Vec<ConstraintTerm>);
+
+impl ConstraintFilter for OmitTerms {
+    fn keeps(&self, term: ConstraintTerm) -> bool {
+        !self.0.contains(&term)
+    }
+}
+
+fn gate_fold_boundary_parity<C: PastaCurve>() {
+    // Four row tasks make the worker comparison exercise the parallel gate
+    // stage as well as the parallel column transforms (the old fixture is k6).
+    const BOUNDARY_K: u32 = 10;
+    let params = PinnedParams::<C>::derive(BOUNDARY_K).unwrap();
+    let pools: Vec<_> = [1, 4]
+        .into_iter()
+        .map(|workers| {
+            (
+                workers,
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(workers)
+                    .build()
+                    .unwrap(),
+            )
+        })
+        .collect();
+    let mut rng = ChaCha20Rng::seed_from_u64(6243);
+    for gate_count in [7, 8, 9, 15, 16, 17] {
+        for policy in [CosetCachePolicy::Eager, CosetCachePolicy::OnDemand] {
+            let mut config = crate::test_circuits::keygen_config(CHOICES[0]);
+            config.coset_cache = policy;
+            let pk = keygen_pk(&params, &GateFoldBoundary(gate_count), &config).unwrap();
+            let protocol = Protocol::new(pk.binding().descriptor()).unwrap();
+            let shape = protocol.shape();
+            assert_eq!(shape.n, 4 * ROWS_PER_TASK);
+            assert_eq!(shape.lookups, 2);
+            assert!(shape.permutation_sets > 1);
+            let compiled = CompiledExpressions::compile(pk.binding().descriptor(), true).unwrap();
+            assert_eq!(compiled.gates.len(), gate_count);
+            let mut columns = |count: usize| -> Vec<Vec<C::ScalarExt>> {
+                (0..count)
+                    .map(|_| {
+                        (0..shape.n)
+                            .map(|_| C::ScalarExt::random(&mut rng))
+                            .collect()
+                    })
+                    .collect()
+            };
+            let advice = columns(shape.num_advice);
+            let instance = columns(shape.num_instance);
+            let products = columns(shape.permutation_sets);
+            let lookup_polys = columns(3 * shape.lookups);
+            let inputs = QuotientInputs {
+                advice: &advice,
+                instance: &instance,
+                permutation_products: products.iter().map(Vec::as_slice).collect(),
+                lookups: lookup_polys
+                    .chunks_exact(3)
+                    .map(|column| LookupPolys {
+                        product: &column[0],
+                        input: &column[1],
+                        table: &column[2],
+                    })
+                    .collect(),
+            };
+            // Unlike zero or one, this challenge exposes inserted or missing
+            // Horner positions at a full-group/remainder/permutation boundary.
+            let challenges = Challenges {
+                theta: C::ScalarExt::from(3),
+                beta: C::ScalarExt::from(5),
+                gamma: C::ScalarExt::from(7),
+                y: C::ScalarExt::from(11),
+            };
+            let unfiltered =
+                row_wise_reference(&pk, &protocol, &compiled, &inputs, challenges, &AllTerms)
+                    .unwrap();
+            let mut omissions = vec![Vec::new()];
+            let mut gate_indices: Vec<_> = [0, 7, 8, 15, 16, gate_count - 1]
+                .into_iter()
+                .filter(|index| *index < gate_count)
+                .collect();
+            gate_indices.sort_unstable();
+            gate_indices.dedup();
+            omissions.extend(
+                gate_indices
+                    .into_iter()
+                    .map(|polynomial| vec![ConstraintTerm::Gate { polynomial }]),
+            );
+            omissions.extend([
+                vec![ConstraintTerm::PermutationFirst],
+                vec![ConstraintTerm::PermutationLink { set: 1 }],
+                vec![ConstraintTerm::Lookup {
+                    lookup: 0,
+                    part: LookupConstraint::Product,
+                }],
+                vec![ConstraintTerm::Lookup {
+                    lookup: 1,
+                    part: LookupConstraint::Step,
+                }],
+                vec![
+                    ConstraintTerm::Gate {
+                        polynomial: gate_count - 1,
+                    },
+                    ConstraintTerm::PermutationLast,
+                    ConstraintTerm::Lookup {
+                        lookup: 1,
+                        part: LookupConstraint::Product,
+                    },
+                ],
+            ]);
+            if gate_count >= 16 {
+                // This entire group contributes zero, but must still multiply
+                // the preceding nonzero group by y^8 before any tail terms.
+                omissions.push(
+                    (8..16)
+                        .map(|polynomial| ConstraintTerm::Gate { polynomial })
+                        .collect(),
+                );
+            }
+            let elements = workspace_elements(&pk, &protocol).unwrap();
+            let mut workspace = QuotientWorkspace::new(elements * size_of::<C::ScalarExt>());
+            for omitted in omissions {
+                let filter = OmitTerms(omitted);
+                let expected = if filter.0.is_empty() {
+                    unfiltered.clone()
+                } else {
+                    let expected =
+                        row_wise_reference(&pk, &protocol, &compiled, &inputs, challenges, &filter)
+                            .unwrap();
+                    assert_ne!(
+                        expected, unfiltered,
+                        "vacuous filter: G={gate_count}, cache={policy:?}, omitted={:?}",
+                        filter.0
+                    );
+                    expected
+                };
+                for (workers, pool) in &pools {
+                    let actual = pool
+                        .install(|| {
+                            evaluate_with_workspace(
+                                &pk,
+                                &protocol,
+                                &compiled,
+                                &inputs,
+                                challenges,
+                                &filter,
+                                &mut workspace,
+                            )
+                        })
+                        .unwrap();
+                    assert_eq!(
+                        actual, expected,
+                        "G={gate_count}, cache={policy:?}, workers={workers}, omitted={:?}",
+                        filter.0
+                    );
+                    assert!(workspace.is_zeroized());
+                    assert_eq!(workspace.allocated_bytes(), workspace.maximum_bytes());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn gate_group_boundaries_match_full_quotient_on_both_fields() {
+    gate_fold_boundary_parity::<Ep>();
+    gate_fold_boundary_parity::<Eq>();
+}
+
 /// Independent key-coset oracle: one geometric transform per owned column.
 fn reference_refresh_key_cosets<'a, C: PastaCurve>(
     pk: &'a ProvingKey<C>,

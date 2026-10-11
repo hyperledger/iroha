@@ -56,8 +56,10 @@ effect-owner test under the unchanged default four-million-gas limit. Both the
 full DLMM and funded-pool cases preserve nested pool authorities and exact
 output through the signed callback. The artifact's nested byte charge remains
 3,837,504 gas at the unchanged 64-gas-per-byte price; no metering or policy
-allowance was relaxed. Complete scheduled conversion, automatic accrual,
-certified replay and signed nominator-claim qualification remains in progress.
+allowance was relaxed. Focused native integration tests pass scheduled full-DLMM
+and funded-pool conversion, automatic accrual for multiple validators and
+nominators, authenticated signed claims and certified suffix replay. Real
+four-peer network qualification remains open.
 The strict workspace source inventory refuses an unsafe nested checkout path;
 component measurements do not establish candidate or network qualification.
 TODO: qualify the actual enacted payout under the default policy on the

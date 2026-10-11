@@ -1,9 +1,50 @@
+//! Sequential writes, initialized boundaries, and empty-buffer behavior.
+
 #![warn(rust_2018_idioms)]
 
 use bytes::buf::UninitSlice;
 use bytes::{BufMut, BytesMut};
 use core::fmt::Write;
 use core::mem::MaybeUninit;
+
+#[test]
+fn uninit_slice_empty_and_nonempty_backings() {
+    let mut empty = [];
+    assert!(UninitSlice::new(&mut empty).is_empty());
+    let mut initialized = [1, 2];
+    let slice = UninitSlice::new(&mut initialized);
+    assert!(!slice.is_empty());
+    slice.copy_from_slice(&[3, 4]);
+    assert_eq!(initialized, [3, 4]);
+
+    let mut uninitialized = [MaybeUninit::uninit(); 2];
+    let slice = UninitSlice::uninit(&mut uninitialized);
+    assert!(!slice.is_empty());
+    assert!(slice[0..0].is_empty());
+    slice.copy_from_slice(&[5, 6]);
+    // SAFETY: copy_from_slice initialized the complete original backing above.
+    assert_eq!(
+        unsafe { uninitialized.map(|byte| byte.assume_init()) },
+        [5, 6]
+    );
+}
+
+#[test]
+fn empty_put_preserves_original_destination_backing_and_contents() {
+    let mut empty = BytesMut::new();
+    empty.put(BytesMut::new());
+    assert!(empty.is_empty());
+    assert_eq!(empty.capacity(), 0);
+
+    let mut destination = BytesMut::with_capacity(16);
+    destination.put_slice(b"kept");
+    let pointer = destination.as_ptr();
+    let capacity = destination.capacity();
+    destination.put(BytesMut::new());
+    assert_eq!(&destination[..], b"kept");
+    assert_eq!(destination.as_ptr(), pointer);
+    assert_eq!(destination.capacity(), capacity);
+}
 
 #[test]
 fn test_vec_as_mut_buf() {

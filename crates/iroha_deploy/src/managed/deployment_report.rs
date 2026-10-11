@@ -1,7 +1,7 @@
 //! Original selected-root deployment evidence, separate from historical parent inclusion.
 
 use super::*;
-use iroha_contract_deploy::DeploymentReceipt;
+use iroha_contract_deploy::{DeploymentLifecycleGuidance, DeploymentReceipt};
 use iroha_data_model::{
     NetworkId, account::address::ChainDiscriminantGuard, block::consensus::SumeragiRootScope,
 };
@@ -95,6 +95,8 @@ pub struct ManagedDeploymentReport {
     pub receipt: DeploymentReceipt,
     /// Original owner-private recovery journal.
     pub journal: PathBuf,
+    /// Optional artifact-derived hook guidance, separate from the unmodified Applied receipt.
+    pub lifecycle: Option<DeploymentLifecycleGuidance>,
 }
 
 impl ManagedDeploymentReport {
@@ -111,6 +113,7 @@ impl ManagedDeploymentReport {
             "parent": (self.parent),
             "receipt": (self.receipt),
             "journal": (self.journal),
+            "lifecycle": (self.lifecycle),
         }))
     }
 
@@ -250,6 +253,7 @@ impl ManagedDeploymentTarget {
             parent,
             receipt,
             journal,
+            lifecycle: None,
         })
     }
 

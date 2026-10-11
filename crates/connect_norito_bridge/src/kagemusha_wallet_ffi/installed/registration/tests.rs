@@ -108,7 +108,7 @@ fn relocation_refuses_noncanonical_bounded_data_or_invalid_new_scope() {
 fn relocation_retains_private_no_follow_directory_custody() {
     let (temp, root) = private();
     let source = original(&source());
-    let missing = temp.path().join("absent");
+    let missing = std::path::Path::new(&root).join("absent");
     assert_eq!(
         relocate_registration_source(&source, missing.to_str().unwrap().as_bytes())
             .unwrap_err()
@@ -128,7 +128,7 @@ fn relocation_retains_private_no_follow_directory_custody() {
             storage(std::io::Error::from_raw_os_error(libc::EIO)).status,
             ARTIFACTS_UNAVAILABLE
         );
-        let link = temp.path().join("alias");
+        let link = std::path::Path::new(&root).join("alias");
         symlink(&root, &link).unwrap();
         assert_eq!(
             relocate_registration_source(&source, link.to_str().unwrap().as_bytes())

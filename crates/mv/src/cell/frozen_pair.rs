@@ -127,10 +127,6 @@ impl<V: Value, A, C: Send + Sync + 'static> FrozenDetached<V, A, C> {
     /// undo neither copies a value nor acquires a new charge or identity. There is
     /// no physical mutex contention here and no mutex ReleaseWait is fabricated.
     /// Subsequent publication uses the existing original-source checks and owner.
-    #[expect(
-        clippy::result_large_err,
-        reason = "refusal retains both original allocations and metadata inline without allocating a replacement error owner"
-    )]
     pub fn try_into_detached(self) -> Result<Detached<V, A, C>, Self> {
         let Self {
             revert,

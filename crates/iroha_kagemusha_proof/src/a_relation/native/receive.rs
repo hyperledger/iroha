@@ -331,6 +331,18 @@ impl Plan {
                 return Err(Error::Input);
             }
         }
+        support::check_hard_own_tapes(
+            [&input.objects[6], &input.objects[7], &input.objects[8]],
+            &input.q[1].instances,
+            core::array::from_fn(|i| input.transition.before.lineage[9 + i]),
+            [self.policy.root.x, self.policy.root.y],
+        )?;
+        support::check_own_sigma_tape(
+            &input.q[0].instances,
+            sigma.chunk_range(0).ok_or(Error::Artifact)?,
+            &input.transition.statement,
+            &input.sigma,
+        )?;
         let pallas =
             AccumulatorT::from_bytes(&input.predecessor.pallas).map_err(|_| Error::Input)?;
         let vesta = AccumulatorT::from_bytes(&input.predecessor.vesta).map_err(|_| Error::Input)?;

@@ -445,14 +445,14 @@ Starting points, not evidence that this protocol has passed:
 - Android: `kotlin/kagemusha-wallet-android/src/main/java/org/hyperledger/iroha/sdk/offline/wallet/` (the Android `Advance` adapter, payment-key and backup rules) and `kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/offline/KagemushaP256Codec.kt`. Generate and inspect keys even when feature flags are negative. The old KeyMint single-use probes of the retired protocol were deleted.
 - Apple: `IrohaSwift/Sources/IrohaSwift/KagemushaWalletApplePlatformV1.swift` and `KagemushaWalletAppleAppAttestV1.swift` in the same directory (Secure Enclave payment key and App Attest enrollment evidence of step E5). The old `examples/ios/KagemushaAppAttestProbe/` app of the retired protocol was deleted.
 - Attestation: `kotlin/core-jvm/src/main/java/org/hyperledger/iroha/sdk/crypto/keystore/attestation/` and `python/iroha_app_attestation/src/iroha_app_attestation/`.
-- Arithmetic certificates: [Pasta prime, auxiliary-curve and SWU cover checks](../formal/kagemusha_pasta/README.md) verify the exact native constants; the combined checker and sixteen controls pass. The [regularity argument](../formal/kagemusha_pasta/REGULARITY.md) separately applies cited geometric theorems to those checked hypotheses. The [focused CI workflow](../.github/workflows/pasta_certificates.yml) runs the source-bound checker and controls with Python site packages disabled; those commands and the action-pin guard pass locally, while hosted CI remains unobserved. These results do not constitute a protocol model or close the privacy argument. The retired `formal/kagemusha_v1/` model is deleted; a new protocol model remains required.
+- Arithmetic certificates: [Pasta prime, auxiliary-curve and SWU cover checks](../formal/kagemusha_pasta/README.md) verify the exact native constants; the combined checker and sixteen controls pass. The [regularity argument](../formal/kagemusha_pasta/REGULARITY.md) separately applies cited geometric theorems to those checked hypotheses. The [focused CI workflow](../.github/workflows/pasta_certificates.yml) runs the source-bound checker and controls with Python site packages disabled; those commands and the action-pin guard pass locally, while hosted CI remains unobserved. These results do not constitute a protocol model or close the privacy argument. The retired `formal/kagemusha_v1/` model is deleted. The [provider publication model](../formal/kagemusha_protocol/README.md) exhausts 484 states and 2,792 transitions for one old head, two competing capsules and two-copy custody, rejects all seven unsafe rule mutations, and passes 14 controls. It checks selected-head irreversibility, redundant completion, exact replay, and unavailable/absent/lost distinctions. The separate [conditional accounting model](../formal/kagemusha_protocol/ACCOUNTING.md) passes 23 schedule and mutation checks, including A → B → C → Unload, split and cyclic histories, deferred burns, Archive no-ops, exact-once claims, retained fee originals and retirement/Load races. Eight invalid-state mutations are rejected. Its induction preserves disjoint reserve categories under authentic funding, ownership, provider and proof premises; it distinguishes real burned backing from rejected unbacked input. All 37 controls and the action-pin guard pass with unchanged retained sources (`target/qualification/formal-accounting-model-1/result.json`, SHA `5486c7fc8ef372e1bc12128ab811c9c41aaaa0001bf66b029b312a233ff127ab`). The new finite schedule explorer preserves the uncached graph while sharing immutable action lists and checking each distinct immutable world once. The two-wallet fee graph exhausts 56,910 states and 508,958 permitted transitions; the zero-funded unbacked-input graph exhausts 289 states. Four faulty transition rules have reachable shortest counterexamples. The current captured combined suite passes all 45 tests with unchanged source and interpreter pins (`accounting-exhaustion-capture-1/result.json`, SHA `3b3f2635c699dd7afe5127c48c5f94fb8b3f0542199c1c6d4097d773bb7d8ceb`). The current larger search exhausts the three-wallet/two-payment graph: 4,146,534 states and 57,063,475 permitted transitions, with no invariant violation. All four declared bounded profiles complete; their output hash is `da154622e3cb128dd8292f8df2c96d943322d6cc6532ad81b4ca71a20d39068b`, and the source-bound root review is `accounting-exhaustion-capture-1/full-graph-outcome-review.json` (SHA `6298876ff59003717659b8e044106008208e6389d55761d0df8ff77ba48341ba`). Earlier 500,000- and 2,000,000-state cutoff failures remain retained. The focused workflow now runs all four profiles and retains partial failure logs. A separate one-Send provider/accounting product now exhausts 3,076 states and 25,836 transitions: two competing capsules, uncertain selection, signing and storage interruption, exact original delivery, payer/carrier loss, first credit and both Receive fold outcomes. All four composition mutations are rejected, and the expanded combined suite passes 55 tests with unchanged source/interpreter/workflow pins (`publication-accounting-capture-1/result.json`, SHA `04c547d983898b5d9fd12ed8833818eee32d0eff8f2dcc02943ebd882a557d33`). Prior authentic funding, the receiver's own durable operation and successful fold verification remain premises. Composition across all operations and multiple provider heads, concrete proof/implementation refinement, larger or unbounded monetary vocabularies and the complete protocol argument remain open. Independent model review and hosted CI remain unobserved.
 - Evidence records: §8 below. The old physical-evidence record of the retired hardware protocol and its verifier script were deleted; record new device results here with their provider assumptions.
 - [Pinned AOSP characteristics](https://android.googlesource.com/platform/system/keymint/+/fda4e68d32f8dfc103e0283b4bfc41503ecfb19f/common/src/tag.rs), [operations](https://android.googlesource.com/platform/system/keymint/+/fda4e68d32f8dfc103e0283b4bfc41503ecfb19f/ta/src/operation.rs) and [upgrades](https://android.googlesource.com/platform/system/keymint/+/fda4e68d32f8dfc103e0283b4bfc41503ecfb19f/ta/src/keys.rs): reference behavior, not vendor-firmware evidence.
 - [Android attestation](https://developer.android.com/privacy-and-security/security-key-attestation), [Apple validation](https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server) and [Apple fraud-risk guidance](https://developer.apple.com/documentation/devicecheck/assessing-fraud-risk): capture the exact statements and their limits in each evidence record.
 
 ## 8. Recorded results
 
-### Current implementation checkpoint (2026-10-09)
+### Current implementation checkpoint (2026-10-10)
 
 The approved first-release Load design verifies Sumeragi BLS evidence natively
 before signing Advance under the released-app/uncompromised-OS profile. The
@@ -471,6 +471,122 @@ it does not traverse ordinary intervening heights. Native manifest custody
 authenticates and durably retains each successor epoch, including older receipt
 epochs. SDK synchronization resumes its bounded work across calls and restarts;
 terminal receipt evidence contains one certificate and counted event proof.
+Thirteen funded ancestry/Send/Receive cases are now registered in the proof crate's
+`receive_omega::native_load_tests`, using the same verified native-BLS first-Load
+fixture as Load/Omega. They cover accepted and corrected-burn outer closure,
+accepted/renewed owner chains, both corrected-burn insertion branches,
+nondeciding carried claims, compact catalog re-keying/identity and funded Send
+authorization and installed-native replay, preserving the existing genuine
+source and mutation assertions. The oversized generic-Ω/Send joint-bound
+negative also has an explicit native-BLS entry point in `a_receive_native_bounds`.
+All five affected integration targets now compile in the release profile. The
+local-input review preserves 46 emitted artifacts, 37 packages and 1,303 inputs,
+with no missing or changed compiler input. One changed data-model test file is
+excluded by its unchanged `cfg(test)` parent and normal library artifact; the
+original broad source-drift verdict is retained. The review is
+`native-funded-proof-build-1/consumed-input-review/receipt.json`, SHA
+`42e6d0840d146f517ea77ed7e139ac8f00102372c9939da4ec684a1a6d2c8a46`.
+The Receive, Archive, consuming and bounds harnesses pass 19 ordinary cases
+in total. The Load harness contains only ignored proof cases, so its ordinary
+invocation exercised no tests and is not a pass. The first genuine native
+Load-to-Omega run failed after building the four A-stage artifacts: the source-substitution
+assertion detected that native preparation accepted changed receipt bytes.
+The A3 circuit already binds the receipt digest; this failure exposed a missing
+matching native input check, not a demonstrated circuit bypass. The original
+failure is retained in `native-funded-load-outer-1` with natural exit101.
+Native preparation now checks the exact receipt digest before predecessor/Q
+verification, with a new regression covering every receipt byte, a foreign
+domain and a changed statement digest. The fixed library and all five test
+targets compile, and all seven native Load unit tests pass. Capture2 preserves
+47 emitted local artifacts, 37 packages and 1,344 inputs without missing or
+changed compiler inputs; only the evidence/status records changed during the
+build. Its local-input review SHA is
+`66d499efeb13aae96600cfb37f1c7c6d91f03286cbc1f299f147158d1ade74e5`.
+The fresh genuine native Load-to-Omega regression passes, preserving all six
+source-substitution assertions, all four A/three W stages and complete outer
+verification. Its result SHA is
+`4beb0f904011086859c547d4a9924d38724476cf235c798c663f3770db1c89fd`.
+The diagnostic generic wrapper has 9,856 proof bytes and 10,944 transport bytes,
+so it does not pass the production size gate. A separate compact diagnostic
+produces 3,712 proof bytes/4,800 transport bytes but does not establish the
+complete catalog or carried-key continuity. The separate genuine two-terminal
+Bootstrap/Load rekey case also passes, including actual source-key equality,
+descriptor equality and outer-key binding. Its result SHA is
+`cc75701bc448f470a602292000bad5b5ec86710f4704e046f6b9451703115c23`.
+That generic partial catalog still does not pass the production size gate.
+The separate compact Bootstrap/Load case also passes with both genuine proofs,
+native original import and transport restoration, equal source keys, and the
+common outer key bound before signing. Both partial-catalog transports are
+4,800 bytes. Its result SHA is
+`53de9b0afdacc84c3e05e1c96ebab9525a2f1ae25c655d4ed74e2658fe6686a5`.
+The three-terminal Bootstrap/Load/Send-mask0 rekey case also passes with actual
+native proofs, unchanged common source keys, complete Send stage/context/map
+checks and 4,800-byte transports for each terminal. Its result SHA is
+`0a2da2eaa511087a7e14d6edc3fdea86b56301c221400757b2d7f315d98d854b`.
+The fifth case also passes: native-funded common-key Send executes the complete
+five-A/four-W authorization, map and opening schedule, preserving mandatory own2V1F,
+the exact 320-byte predecessor transcript and all final-state assertions. Its result
+SHA is `b13ea630ce02d9dabef824e4f560df52804b890fb6c4d473bf7531f106f5a8a8`.
+The sixth case passes for two distinct wallet identities sharing byte-exact
+binding and verifier-key originals: Bootstrap, funded Load and receiver Bootstrap
+all verify with 3,712-byte proofs and 4,800-byte transports. Native original
+import, restoration and both terminal decisions pass. Its result SHA is
+`74411d91631d213e74871396359f9cce033752fed472c62aabc7f4719e03b625`.
+The seventh case also passes: native-funded Load retains its exact predecessor
+catalog, and its lineage key digest equals the retained key/binding digest.
+Both compact Bootstrap and Load transports verify at 4,800 bytes. Its result
+SHA is `74fc1d84d285232e8d9ee0ea6e27591d029eb8034ca46abd395cb19f6a1c54f5`.
+A five-second stack sample instrumented this correctness process; its elapsed
+time is excluded from performance qualification. Case8 stops the campaign with
+natural exit101 after its five-A/four-W native Send stages and exact checkpoint
+replay complete: native preparation accepts a changed Credential tape
+(`original mutation4`). The circuit still binds the object; native preparation
+checks its length but does not join it to the authenticated object/Q exports.
+The failed result is retained in `native-funded-campaign-two-case08-1`, SHA
+`ede5f8b3cbb04a633f67d6eb433b8952ca265dc098ffa07ed80cffcd51ce7c7d`.
+Seven cases pass, one fails, and thirteen remain unrun. Native Send preparation
+now joins the five exact signed tapes to their existing state/statement digests
+and the fixed three-slot signature-Q exports, including authorized keys and the
+derived receipt. The absent-fee fixed dummy policy is preserved. Four new unit
+cases cover byte mutations, Q exports/shapes, receipt projections and zero-fee
+behavior. Isolated capture3 compiles all six selected targets; its retained
+compiler-input review binds 47 local artifacts, 37 packages and 1,344 source
+inputs, with exact Cargo environment/configuration/link-output joins. All fifteen
+native Send unit tests pass (zero failed or ignored), result SHA
+`803828a6ce69f088ef2ce96373c0448e412eb07fadb3509d50bf3166ca3c872c`.
+The unchanged genuine failed case now passes against the captured executable
+in `native-funded-send-retry-1`, result SHA
+`09c5c90a6cbcf439c2196769db4c574e2462bdf20b24c2e43ffb646f7d6e7ce8`.
+All five A/four W stages, exact original/checkpoint replay and the original
+mutation assertions complete. The failed case remains retained. This repairs
+case8. The current remaining-component campaign has passed case9, the genuine
+nondeciding incoming Omega correction check; cases10–21 remain in progress.
+The fifteen unit fixtures alone test bindings, not signature authenticity or
+complete proof admission.
+The analogous hard-own-tape checks are applied to Receive, Archive and consuming
+preparation after independent source review (`native-own-original-q-binding-independent-review-1`,
+SHA `dd1ca8fea61ea1435988b82da4b476ed12e2d8c38479fbc6edbb197e134157e8`).
+Receive/Archive also join their own sigma and statement to Q0. The current native A namespace passes all95 ordinary tests, including the five
+new DATA controls, with four heavy cases explicitly ignored
+(`native-own-original-q-controls-1/result.json`, SHA
+`bd90f95970735f57bc2442e7e1f9627bf0f8f691e8307987a1e2420a2c1ebf3b`).
+The remaining genuine tests are running from the same admitted proof capture. Incoming soft tapes are excluded from these hard checks; circuit
+owners and native Q verification retain their existing responsibilities. The
+21-case component campaign has no ArchiveStatus case, but the ignored complete
+wallet A→B→C test already contains its positive genuine CreditStatus route;
+neither source coverage nor these reviews establish a runtime pass.
+These partial catalogs do not establish full52 size, other control
+masks or complete key continuity. Circuit layout
+and the native BLS authority boundary are unchanged.
+The new funded entries still require genuine proof execution. Their synthetic executed receipt
+and partial catalogs cannot qualify the real network or complete52 artifact set.
+Five additional funded cases are registered under `a_archive_recursive` and
+`a_consuming_recursive`: Archive acceptance, invalid-proof and full-envelope-tail
+no-ops, plus Unload/Retiring all-owner composition and installed-native checkpoint
+replay. They use the same verified receipt and fresh predecessor originals.
+The five existing composition/mutation function bodies are unchanged. These
+registrations compile in the same capture but remain unrun; compilation grants
+no proof or catalog acceptance.
 Current local release-profile checks pass all14 compact certificate/checkpoint
 tests and258 ordinary KAGEMUSHA model tests, with five explicit tests ignored.
 The four vector checks are a subset of those258 and match the current shared
@@ -479,31 +595,66 @@ checks. Logs, commands, numeric exits and the model executable hash are retained
 in `native-compact-validation-1/model-results.json`, SHA
 `53ca638376618d1c9852f768cbd92571521e3e153f2b7bc6eb2bea55a1a274a5`.
 These are ordinary component checks, not a complete release compiler-provenance
-capture. The current shared-wallet suite also passes 736 tests with zero failures
-and 23 explicit ignored cases, including native BLS Load admission, durable epoch
-publication/restart and delayed-receipt custody. The first run's two failures are
-retained: the genesis test mistook distinct chain labels for distinct signed
-genesis roots, and the native-profile fingerprint still pinned the retired
-recursive-finality policy. The repaired tests check both chain-instance and
-actual signed-root isolation, and independently match the current 3,320-byte
-profile encoding. `native-compact-validation-1/wallet-results.json`, SHA
-`bc7aebe7ad4db34e5dc55f1829ac533cf5aec7027fef7a4bd6873d9a188fda96`, binds
-the successful log, original failures and executable. A subsequent warm-cache
-capture preserves that exact tested executable (`c7d3b751…e1be78f2`) and passes
-strict actual-input admission: 37 local packages, 42 dependency files, no
-missing/generated inputs or test exclusions, and unchanged source/tool records.
-`corezk-native-network-capture-10/root-runtime-join.json`, SHA
-`a88421dce9ea6cc5dcd53a649725117d8bd3b0641332a7f5c0f9029afabb654c`, binds
-the test result and captured compiler-input receipt. Cargo reused the current
-build; this is not a new clean build or complete release qualification. Server
-and rebuilt SDK checks remain separate. The
-genuine ABC test now includes forged Load inputs, signer-unavailable Selected
+capture. The current CoreZK14 shared-wallet capture passes all739 ordinary tests,
+with zero failures and25 explicit ignored cases, in188.357 s. It includes the
+current own-original proof bindings, native BLS Load admission, durable epoch
+publication/restart, exact retries and custody failures. The copied executable
+SHA is `811d9f220e4528bd96b4687005828c722874d14024084299ce1dd7e8ab3bce74`.
+Strict current component closure and before/after source/copy custody pass;
+result `corezk-native14-wallet-ordinary-1/result.json` has SHA
+`5e67a9499ea76e38ef44ed5c6ac29c34021196ed19729aedd689f731314018dd`.
+The ignored genuine/full52/network tests are excluded explicitly. Prior wallet
+captures and their failures remain retained, with no transfer to current release,
+performance or phone qualification. Server and SDK checks remain separate.
+The fresh stock4 node/client build exits zero and emits625 artifacts. Its source
+capture and supplemental compiler-input closure reject qualification: eight
+consumed production inputs in `iroha_deploy` changed during compilation, along
+with four package test files. The original failure, copied binaries,102 local
+compiler-artifact inventories and13 build-output records are retained under
+`native-finality-stock-capture-4`. Tools and Cargo metadata remain unchanged.
+No source closure or current monetary-network admission follows; focused
+recovery is pending before the harness and four-validator route can start.
+The typed Kotlin enrollment transport now covers PreKey, Evidence, Issue and
+Deliver with fresh direct-account authentication, exact original recovery, typed
+Pending and action-bound responses. Its focused 42-test run passes, including
+all nine Rust canonical frames, six inclusive-bound hashes, owner/deadline and
+cancellation failures, malformed/authentication cases, and existing Load
+transport regressions. The receipt is
+`enrollment-service-sdk-kotlin-1/result.json`, SHA
+`29496717ab8b93833c7ed3cb93d0a98b4413ddc35e7d7e7649beaa1c11569cb4`.
+The shared fixture `fixtures/kagemusha/enrollment_service_v1_vectors.json` is
+emitted by the Rust service types; its standalone generator snapshot test passes
+against the retained canonical Rust libraries. These are synthetic envelope DATA,
+not signed enrollment originals. Swift's corresponding client passes all 21 new
+enrollment cases, including monotonic callback/response deadlines and strict HTTP
+authentication/encoding checks. The maintained authenticated native rebuild and
+complete Swift workflow passes **2,236 tests**, zero failures or skips: 2,160 core,
+72 mobile-transport and four transfer-UI cases. Pre-test and post-test artifact
+custody verification pass, with unchanged sources during the run. Evidence is
+`swift-local-l795mb74`; its raw test-log SHA is
+`311d49030f41f33ce9fe88dae7b7f427dcb35e3545016b19f201f1913913355a`,
+and `swift-enrollment-sdk-run-1/result.json` SHA is
+`a2ee6957c13894bca7b71567f464b0d708030ba915c7f51f62bbed1e1fdf7724`.
+The current Kotlin run covers **1,907 distinct JVM cases**, including 222
+Java-consumer cases and 17 new enrollment cases, against the same authenticated
+ABI27 bridge. Its full attempt passes 1,900 cases and fails seven before fixture
+comparison because the generator environment setting was omitted. With the
+fresh Rust generator selected, all 13 cases in the four affected classes pass,
+covering all seven original failures without source or assertion changes. The
+original failed attempt is retained. Native artifact and generator custody
+checks pass before and after; all 1,890 previous JVM case identities remain.
+The combined record is `kotlin-enrollment-sdk-run-1/summary.json`, SHA
+`30bcec2718342b06140de01abfb83eda2fb8bc08799818274c17d631ad913e6c`.
+These are host SDK checks, not a monetary-network or physical-device result.
+No bank or Parliament authority is introduced by these clients.
+
+The genuine ABC test now includes forged Load inputs, signer-unavailable Selected
 restart and exact retry. It also checks changed receipt, certificate and event
 bytes across retry states, and completed exact replay after a second restart
 with signing unavailable and zero new signer calls. These additional assertions
-remain uncompiled and unrun. The Load-to-Omega component helpers also have explicit
-ignored test entry points. Both Load integration targets compile in the release
-profile, and their three ordinary receipt/identity/original-custody checks pass
+compile in capture12 but remain unrun. The Load-to-Omega component helpers also have explicit
+ignored test entry points. In the earlier capture, both Load integration targets
+compiled in the release profile, and three ordinary receipt/identity/original-custody checks passed
 with zero failures. Their three explicit proof-construction cases remain ignored;
 the new ABC proof-dependent case has not run. The raw command and zero exit are
 retained in `native-compact-validation-1/proof-native-load-components-1.json`,
@@ -513,18 +664,84 @@ retained Selected/completed retries. Three new tests per language exercise the
 public C/JNI Load-original decoder using the unchanged Rust-generated 342-byte
 receipt and 215-byte shape-only certificate envelope. They cover canonical kana
 payers, exact retained bytes, foreign selectors/payers and trailing-byte refusal.
-Source review accepts their existing API and fixture bindings; all six remain
-uncompiled and unrun pending the rebuilt bridge. The explicit stand-in envelope
-tests DATA decoding only and supplies no BLS or monetary-admission evidence.
+The current guarded host bridge rebuild passes ABI27 admission with unchanged
+compiler inputs; its dylib SHA is
+`6bf3bb7d57d5ddab2cc8f81defbcf286a3adb535c24dc6116e9a196878214944`.
+The complete maintained Swift suite passes 2,215 tests across its three XCTest
+bundles, including all three new C decoder cases, and passes the final artifact
+custody check. Its result SHA is
+`ee635dd5e8148dba5572f31e8854f6bc3e54015f340a3b23bb8fa22a0f79ed99`.
+The first Kotlin attempt compiles
+both Android modules and passes 101 client and 196 wallet managed tests; its
+1,890 JVM cases have 15 failures, and neither host-JNI task executed. Pre-existing
+host-JNI XML copied by that attempt is excluded from its outcome review.
+The failed result is retained in `native-finality-kotlin-execution-1`. Corrections
+to the source inventory, manifest fixtures and generic receipt hex verifier pass
+all 100 cases in the three focused JVM suites, with unchanged source and matching
+native-library admission before and after; result SHA is
+`9290be6707b04eb08f8567829a05b6ea31d563865f5d30f4d74342d449548b97`.
+The full Kotlin retry uses the separately captured Rust parity generator missing
+from the first attempt. All five requested tasks execute: 1,890 JVM tests, 101
+client and 196 wallet managed tests, and 33 client and 15 wallet host-JNI tests.
+All 2,235 executions pass with no skips, including all four native Load-original
+decoder cases (the three new cases and the existing argument check). The
+original four parity suites pass against the captured Rust executable. Source
+and tool pins remain unchanged and native admission succeeds before and after.
+The exact result and task-count review are retained in
+`native-finality-kotlin-execution-2`. These Swift/Kotlin results qualify the
+current host component suites; Android release artifacts, successful monetary
+operations and physical-device qualification remain separate.
+Android toolchain preparation installs and verifies all three Rust 1.93.1 Android
+targets and cargo-ndk 4.1.2. The pinned NDK r28-beta2 remains absent because its
+Google SDK Preview License is unaccepted; authorization is pending. SDK manager
+returns zero while skipping that package, so its exit is not installation evidence
+(`android-toolchain-preparation-1/outcome-review.json`, SHA `afaea5750e44dfc3a25afc702ad1b56b17ee20a8946c8672c794a4ad998cb9f7`).
+The maintained Cargo configuration check accepts the current default configuration;
+no Android native library or AAR has been built by this preparation.
+These explicit stand-in envelopes test DATA decoding only and supply no BLS or
+monetary-admission evidence.
 The real-network controller's 27 controls and the release-capture adapter's six
 controls pass with natural zero exits and unchanged source/tool pins. Independent
 review checks every named test and the retained raw logs in
 `native-network-control-execution-1/integration-independent-outcome-review.json`,
 SHA `a2b0cc7c0ca8ddc7b19ff061c929628c0f9f93e1f2046679f0a42a54e73ad9a9`.
 These bounded filesystem/DATA and read-only Git controls do not execute a
-validator network, native proof, SDK or measurement workload. The release node
-and integration harness still require current-source capture before the actual
-four-validator run.
+validator network, native proof, SDK or measurement workload. The stock release node/CLI build completes successfully with its default-feature
+audit passing, but capture1 remains source-inconclusive: three actual compiled
+inputs changed during the build, including the native receipt-binding fix.
+The original binaries, 102 artifact records, 88 package owners and 4,454 inputs
+are retained; five generated inputs still require reproduction. Capture2 also
+builds successfully and preserves its originals, but four actual deployment
+source inputs changed during compilation (`runtime/owned.rs`,
+`runtime/activation.rs`, `store.rs` and `workspace.rs`). Its original refusal
+remains retained; the outcome review SHA is
+`8e9be2e4b7e6c0f96eb7145c7f277bc55c1aa65b2ec8ed3eff2fd3480970b4f0`
+in `native-finality-stock-capture-2`. Capture3's compilation succeeds, but its
+subsequent source-closure acceptance is withdrawn. Independent review finds
+that both recorded Cargo bin generators emit `VERGEN_GIT_SHA=local-fast-build`,
+while the retained output files contain the Git commit. The shared Cargo output
+directory was overwritten after compilation and before preservation; current
+hashed executable observations also identify a mixed copied binary pair.
+The exact other writer is unidentified. Original results and the erroneous
+closure remain unchanged, with an explicit withdrawal SHA
+`d995344e673ce42388afa67a9b7c390fb8f06433ab3ae28d3d189c4442f61eab`.
+The independent forensic record is
+`native-finality-stock-capture-3-overwrite-review-1/review.json`, SHA
+`6c1a37090336de66cfe14c3a52a2239e4dff68b32cdaa00a74138fced7aa812c`.
+Six later deployment-package changes separately prevent current-checkout
+admission. Preparation6 uses separate fresh stock4/harness4 output directories
+and joins retained compiler env/cfg/link directives to captured Cargo records.
+Its 21 controls pass; controller6's 50 controls pass, including refusal of the
+actual contradictory capture and later review withdrawals. Independent source
+review accepts these helper changes with no remaining finding in scope
+(`native-finality-capture6-review-1/review.json`, SHA
+`d788ec76818a06817dcd52e111e1958e7d89793ac20236dfc0bdca4d732e5585`). These are helper controls, not build or network
+acceptance. Harness3 has now compiled successfully and preserved its executable
+(`cbdc39a0750cae8b1ee63f09accde165ea78978d804c88e65f0ec3e91d16d92d`).
+Its supervisor rejects source acceptance because the checkout changed during
+the build; the withdrawn launch prerequisite also establishes no network
+admission. Fresh compatible captures remain required before the four-validator
+monetary run.
 The network test now retries the exact Unload transaction after restarting all
 four stores, then submits the same instruction in a fresh certified transaction
 and requires unchanged balances and total supply. Source review accepts the
@@ -532,15 +749,34 @@ added assertions; they remain uncompiled and unrun. This test-source change
 requires a fresh integration-harness capture before execution.
 Controller revision3 also binds the post-restart completion fields to the exact
 bounded signed retry original and includes it in the final artifact recheck.
-Its three additional DATA controls are prepared but unrun; the 27 passing
-controller controls above belong to preserved revision2. No network execution
-or new original custody is established by preparing this change.
+All 30 revision3 DATA controls pass, including its three new original-custody
+and malformed-completion cases. Root reviewed correspondence with the current
+Rust restart owner; the two retained Rust sources still match after the merge.
+`target/qualification/native-network-control-execution-3/result.json` has SHA
+`71ce92af35a62a3bdc485e3f01ebbb9cbc4680b29c133f94b2548201bb07ebb6`.
+A second independent review did not complete because the delegated reviewers
+hit their usage limits. This establishes controller behavior only; fresh source
+captures and the actual network campaign remain required.
+The current ABC test additionally verifies and fully folds A's ArchiveReceive
+and B's ArchiveStatus, reopens both payer custody trees, and requires exact
+acknowledgement replay without another signature or monetary change. B's folded
+CreditStatus must expose an empty pending-outgoing root. It retains both
+acknowledgements and both Archive packages, each bounded by 10,000 bytes. These
+new Rust assertions compile in capture12 but remain unrun. Controller revision4 joins
+all four exact originals into its existing final artifact recheck, requires
+literal completion flags for both folds and restart replay, and enforces the
+same bound on Payment/Receive originals. All 36 DATA controls pass with natural
+exit0 and unchanged pins; the prior30 test bodies are preserved. The receipt
+`target/qualification/native-network-control-execution-4/result.json` has SHA
+`da01b220c3cbb6a1c399b07b1be4fa21e4d5e179862dd594fef3aacada4470be`.
+Root reviewed the source correspondence; no second independent review completed.
+These controls supply no native proof, network or phone qualification.
 The previously draft-only native Ω differential producer is now registered as
 a private CoreZk test. Its eight real-proof/malformed-input cases emit the 117
 native field words consumed by the maintained incoming-circuit differential.
-Independent source review accepts the bindings; compilation and execution with
-a current genuine fixture remain pending. This test-source addition requires a
-fresh CoreZk capture. A component fixture and successful hard verification do
+Independent source review accepts the bindings; capture12 compiles the test,
+while execution with a current genuine fixture remains pending. A component
+fixture and successful hard verification do
 not establish complete-catalog admission or the C12 privacy argument.
 The unused final Ω checkpoint codec, context hash and associated layout metadata
 are removed. Production recovery continues through A/W checkpoints and durable
@@ -945,9 +1181,18 @@ independent review SHA
 Column/value budgets still reject before scalar inspection or entropy; exact
 failure replay, changed bindings and explicit large-mode opt-in remain covered.
 The simulator is a failing sentinel: these checks execute no proof or entropy.
-The full maintained suite selects 100 methods; its 14 small proof cases have
-not been rerun after these changes. Actual A1 chosen-setup construction and
-simulation remain open.
+The full maintained suite now passes all 100 controls and 14 small k6 reference
+proofs, with no failures, errors or skips and unchanged source/interpreter pins
+(142.45 s; `setup-current-source-controls-2/result.json`, SHA
+`3a1d68c6ea2f92aabce9a109ab3812c58171e6da27bc2e74bffbdacfb6845efd`).
+The stale commitment source pin first refused execution. Exact old/current
+review then refreshed that pin for the bounded-prefix helper, its test module
+and test-only observation changes, with every existing non-probe body unchanged
+(`setup-bounded-commit-source-refresh-2/review.json`, SHA
+`6a4e1c9adda7a1afe8e1f054464331a087368806d6e22e02ac9d404a12daac49`).
+The original refusal and both source originals remain retained. No native or
+large proof ran; actual A1 chosen-setup construction, coherent recursive setup,
+adaptive privacy and C12 remain open.
 The independently reviewed A1 local law additionally gives an explicit total
 response/residual-oracle bound in the normalized-prefix ROM, conditional on the
 audited tables, valid source/witness, coherent known-log setup and fresh coins
@@ -984,14 +1229,30 @@ for these identical Q calls. Load Q0 has no incoming slot or local fold; the
 earlier capsule-derived nonce computation still belongs to the retained prior
 state. These internal columns contain the original sigma and signature data;
 the argument does not generate or hide them from the final wallet public view.
-A separate four-file native inverse/parity implementation now passes two
-independent source reviews (`target/qualification/c12-load-q-public-inverse-draft-1`,
-manifest SHA `2b67be25aae2fefe9af91202378c59b227ec5e43dc1a8ae413244c6c2b04656a`).
-It remains unapplied, uncompiled and unrun while the current history proof
-retains its fixed source. The proposed 11 ordinary tests and two ignored tests
-cover canonical decoding, native refusal and exact proof/provider-event parity;
-the latter require seven proofs, four keygens and three strict imports. No Q
-proof was executed. Broader continuation and C12 remain open.
+A separate four-file native inverse/parity test implementation is applied after
+independent review of the current six compatibility joins
+(`target/qualification/c12-load-q-public-inverse-draft2-independent-review-1`,
+review SHA `deaec55eacd3919dc9d82fd657c274180fcf68f7c46ca42832bc0b297ca4d3ec`).
+The implementation is recorded in `c12-load-q-application-1`; capture3 compiles
+all six selected targets after the explicit Fq test type correction. All11
+ordinary decoding/refusal controls pass. Both genuine parity tests complete:
+Q0 verifies three proofs and the signature cases verify four, with four total
+key generations and three strict original imports. Exact native proof bytes,
+provider-event tapes and source/copy custody match. Results are retained in
+`load-q-public-inverse-controls-3`, `load-q-public-inverse-q0-parity-3` and
+`load-q-public-inverse-signature-parity-3`. Independent compiler-input review
+admits this component capture; inherited external-input provenance limitations
+remain explicit. These identical-input checks do not prove different-history
+privacy, actual OS entropy, current complete catalog authority or full C12.
+
+Separate strict proof lib/tests Clippy fails. The keep-going run reaches library
+cfg(test) and17 integration targets and reports93 distinct locations in21 files
+(`native-proof-strict-lint-keep-going-1/result.json`, SHA
+`3b1ca450438f5b6e41b48cb3943a296aa4dc924602d9d3b5151a7c9b4647c881`).
+The reviewed repair retains every assertion and source-admission call, including
+deliberately malformed ranges; no lint suppression is added. It is held while
+current-source campaigns run and has not been applied or compiler-validated.
+The original failing commands/logs remain retained.
 
 The exact outer Eq16 A1 constructor draft passes 14 bounded controls with
 unchanged source/tool pins and numeric child exit zero
@@ -1016,8 +1277,9 @@ current source manifest, with child exit zero and unchanged source/tool pins
 `6777bafe66404bcd196276e15fa86f1bf8d93cc607d451afc7266cdb11719ffc`).
 Independent outcome review `58dfdc62…ea1fb` confirms the exact 25 results and
 all 68 execution pins. No proofs, parameter derivation, PK reads or live entropy
-draws ran; mocked responses exercise the ownership checks. The complete
-100-control regression and actual large construction remain unrun.
+draws ran in those 25 intake checks; mocked responses exercise the ownership
+checks. The later complete 100-control regression above passes, including its
+14 small reference proofs. Actual large construction remains unrun.
 The 2 GiB checkpointed Python allocation ceiling is not a memory qualification
 or a change to the 64 MiB process-wide MSM limit.
 
@@ -1245,6 +1507,13 @@ prevent a current-source verdict. The retained historical closure and exact
 route-specific supplements govern Register/H6 diagnostics; they do not establish
 whole-source equivalence. No live monetary campaign has run. Workspace format,
 retired-codec guards and patch whitespace checks pass on the resumed checkout.
+
+The current October 10 checkout again passes the legacy-codec guard, all 14
+dependency/source retirement controls and the locked, offline, all-feature Cargo
+dependency graph check. Selected sources remained unchanged during these checks;
+the receipt is `target/qualification/native-finality-retirement-current-20261010-1/result.json`
+(SHA `6490935a2c54e9e6c5ee96ee008386c61f2af0f57777410a9074de21cd891fe2`).
+This validates retirement guards, not native wallet or network operation.
 
 The M7 source retirement is installed: 30 reviewed source/manifest changes and
 378 exact deleted files, with every original preserved in a verified archive.
@@ -1653,14 +1922,125 @@ The frozen candidate SHA is
 `6719f2bd974599cf80ba76f69997e74671b6274314f9998171806effc3cef0a2`;
 `four-thread-campaign/summary.json` SHA is
 `9441660548ffad1f01c08972e48caa230628dbd4d2946c3595d9547ba00fb37e`.
-This qualifies only the four-worker phase for that engine candidate. Its
-one-worker campaign is running; its first block has three valid attempts for
-each of the four workloads, with two additional real-Q attempts invalidated by
-calibration drift. These partial results are not configuration passes. The
-remaining blocks and terminal raw-evidence review are outstanding, so the
-complete M3 verdict remains
-**inconclusive**. It does not qualify the monetary catalog, full wallet, two-second
-durable completion or physical phones.
+The same candidate's one-worker campaign completed naturally with exit1:
+36 valid measured processes and four retained invalid attempts, all due to both
+CPU and elapsed calibration drift. Each configuration has three valid processes
+in each of three blocks. All hard limits pass, but real Q's second block misses
+the 27-second CPU margin. Its faster third block does not erase that result.
+
+| One-worker workload | Slower-proof CPU block medians (seconds) | Maximum valid CPU (seconds) | Maximum kernel RSS (bytes) | Verdict |
+| --- | --- | --- | --- | --- |
+| Synthetic Q | 20.695443 / 21.199168 / 19.818511 | 21.353318 | 533,381,120 | pass |
+| Real Q chips | 25.950183 / 27.788199 / 25.258789 | 28.338087 | 671,006,720 | borderline |
+| Synthetic A | 25.546674 / 27.655707 / 27.562523 | 27.747699 | 787,136,512 | pass |
+| Real A chips | 31.192419 / 31.919000 / 30.547737 | 32.610504 | 785,268,736 | pass |
+
+Root's terminal audit reopens every original process/log and recomputes exact
+invalid reasons, both calibration clocks, schedule/seeds, worker/layout/memory
+policies and limits. It joins both supervisor exits and immutable helper pins.
+The phases remain separate schedules: their disjoint verdicts give seven passes
+and one **borderline**, never a whole-M3 pass. All 261 process reports contain
+two verified proofs (522 including calibration and invalid attempts).
+`terminal-joint-outcome-review.json` has SHA
+`676f299ced71b5d3e912ab962714194d100e95e929b02a454b09239d4eae5924`.
+The later merge changes nine captured source-scope files, so this is historical
+candidate evidence; it cannot qualify the current checkout. No monetary catalog,
+full-wallet, two-second durable-completion or physical-phone gate follows.
+
+The next candidate uses validated public fixed-table bounds for the usable
+prefixes of singleton, unrotated lookup commitments. Random padding retains the
+full-width secret path and the same blind; scalar validation precedes small-input,
+optional-table and scratch fallbacks. It shares the existing secret MSM kernel
+and process-wide 64 MiB budget. This changes no constraint, descriptor or intended
+proof byte. Bucket access remains variable-time; no constant-time MSM claim is
+made. The candidate passes 101 ordinary Pasta and 283 ordinary Plonk library
+tests, the explicitly selected large GLV comparison, and strict release library/
+test Clippy. Seven new tests check all public bound/carry bit edges, prefix/tail
+commitment equality, malformed bounds and exact full proof bytes against the
+unchanged full-width commitment route. Both curves, 1/4 workers and every tested
+transcript profile including PIPA-R are covered. Compiled x86 under Rosetta passes
+the eight selected tests (seven new plus one existing) and both independent
+native golden families. This is instruction-path correctness, not physical-x86
+or phone performance. The first test compilation and lint failures are retained.
+`target/qualification/bounded-lookup-secret-msm-draft-1/correctness-result.json`
+has SHA `2285e06d5729f9d940fe334f6f90fad24926782e0f5de83adee6c7dd78ecc9ea`.
+Root's algebra review is retained separately; a second independent review did
+not complete. The fresh source-bound M3 capture under
+`target/qualification/m3-bounded-lookup-20261010-1` completes with all 2,033
+selected inputs unchanged and the same four workload descriptors. Candidate SHA
+is `775e45418f7a0c7beee472913275112626954c04e2c10d0b65d8634449403cad`;
+retained binary SHA is
+`439ebdbc8f13eb7e759244fe292e90089593ea567ba35e119dcef0aa697057ba`.
+A separate uncalibrated real-Q diagnostic verifies both proofs, with slower CPU
+26.764711 s, observed elapsed 26.815414292 s and kernel peak RSS 607,911,936 B.
+It is excluded from qualification. This narrow margin does not establish an
+improvement or a gate pass. The full eight-configuration schedule used seed
+20261010 and stopped with natural exit 1 after 4,411.69 s when the measured
+source closure changed. Its retained-record audit verifies all 108 fresh-process
+records and 216 proofs: 35 valid attempts and one invalid changed-source attempt.
+All valid runs meet hard limits and every completed block meets the margins,
+but none of the eight configurations has all three required blocks. The changed
+selected files are `crates/iroha_primitives/Cargo.toml` and `src/bigint.rs` in that
+crate; the binary and supervisor pins remained unchanged. The original source
+refusal and invalid attempt are preserved, without treating a verified proof as
+a valid measurement. `terminal-outcome-review.json` has SHA
+`a595a7210a01f684c73ce98af4ee9bf4ce1da08f3a0ebed26fb438d062ec5743`
+in the same campaign directory. This root audit has no second independent
+review. A fresh capture in `m3-bounded-lookup-20261010-2` preserves all 2,033
+selected inputs and the same four actual workload descriptors. Its candidate
+SHA is `13c6cbf956992bd9abab66111d15af8b99a90d459a1cf344910e93b28ebc5170`;
+the retained executable is byte-identical to the preceding candidate. The new
+schedule stopped with natural exit1 after 9,119.75 seconds. Seven configurations
+pass; real-Q one-worker remains incomplete at eight valid processes. The final
+attempt was invalidated because root added the canonical enrollment fixture
+generator as a Cargo example, changing the pinned whole-workspace metadata.
+No selected Rust input or retained executable changed; the metadata refusal
+remains invalid without a waiver. Its second completed real-Q one-worker block
+also has a 27.242100-second CPU median, above the required 27-second margin.
+The root retained-record audit verifies 450 proofs across 225 fresh processes:
+71 valid and four invalid attempts. All valid runs meet hard limits. Its
+`terminal-outcome-review.json` SHA is
+`9bbaefc9a5e2f4f753f0fd912160ac43a2d12b0eb2ee36f939eace8014a88f81`.
+No prior attempts are imported into the next candidate.
+
+The reviewed eight-gate Horner grouping and the carry/shared-table coverage
+additions are now applied (`quotient-carry-application-1`, result SHA
+`bd5c8c4d2708affd444ed3a164268ef37992e542b5eeb60ab75b5c402b49caa5`).
+The grouping changes evaluation order while preserving field polynomials,
+filtered gate positions and intended proof bytes. The added independent serial
+quotient oracle covers both curves, group boundaries, lookup/permutation tails,
+filters, cache policies and worker counts. Focused validation passes 425 native
+unit/integration/doc cases, 387 compiled-x86 library cases, all five Q-leaf
+controls and the final-usable-row regression. Both native proof-byte golden
+families pass. Broad strict Clippy stops on two unrelated primitives warnings;
+the new Q-leaf test file also has an unused import. The failed lint and unchanged
+source pins remain retained in `quotient-carry-focused-validation-1/result.json`,
+SHA `ddcd7411db62fdeb68f27d8c3210c488f164a5fdd34c778136228cb56febbbf2`.
+After successful SDK custody verification, the unused import is removed and
+all five Q-leaf tests pass again. Selected Pasta/Plonk/Gadgets release lib/tests
+strict Clippy with `--no-deps` passes after replacing a bounded unchecked cast
+in the new gate-fold test with a checked conversion. The initial selected lint
+failure is retained in `quotient-carry-selected-validation-2`; the successful
+exit is in `quotient-carry-selected-validation-3`. Neither fix changes production
+code. No performance improvement is inferred from correctness tests. The fresh
+prepared M3 candidate retains the same four workload descriptors. Its first
+real-Q one-worker diagnostic verifies both 7,936-byte proofs. The slower proof
+uses 27.084290 seconds of process CPU and 27.188487125 seconds of elapsed time;
+kernel peak RSS is 666,812,416 bytes. Probe and source checks pass. This meets the
+30-second and 768-MiB hard limits but exceeds the 27-second time margin. It is a
+borderline single-process diagnostic, not a qualification or improvement claim.
+Evidence is `m3-quotient-real-q-diagnostic-1/result.json`, SHA
+`7dd79121d0d2514f4010f5ed2a46a983361ebef3c84a169c3e3005a9c84a24e8`.
+The current full campaign `m3-quotient-gate-fold-1` has completed block1 of3
+for every configuration. All24 valid processes meet hard limits; Q-chips/one
+worker has CPU median27.490747 s, exceeding the27 s margin. One Q-exact/four
+worker calibration-invalid attempt remains retained. The schedule continues;
+no overall pass follows. A separate profile uses the exact retained candidate
+and verifies two7,936-byte proofs, with unchanged source/binary/helper pins.
+Its timings are diagnostic only and are excluded from the qualification ledger.
+FFT and expression evaluation dominate the sampled quotient work. Reviewed
+optimization proposals remain unapplied and unmeasured. Complete M3, full-wallet
+and phone qualification remain open.
 
 The earlier installed quotient scratch change reuses three dead gate-stage coset
 buffers for streamed lookup transforms. Eight focused ARM correctness cases
@@ -1805,7 +2185,7 @@ shared with other build jobs (timings ±25%). No phone, live network or payment 
 |---|---|---|
 | G1 canonical objects and transcripts | observed as expected | `iroha_data_model::kagemusha::kagemusha_wallet_v1` ([wire record](kagemusha_wallet_wire_v1.md)): 129 unit tests pass (`scripts/cargo_fast.sh --stable-local-metadata --incremental --target-slot kagemusha-wallet -- test -p iroha_data_model --lib kagemusha_wallet_v1`), including every-byte-flip, decode-order, bound (limit, limit+1) and Norito-tag tests. Not yet consumed by the proof relation, provider, bridge, node or Torii. |
 | Low-S signature rule (§8) | observed as expected | Native codec accepts `s = floor(n/2)` and rejects `floor(n/2)+1`, `n - s`, `r = 0`, `s = 0`, `r = n`, `s = n`; signer DER and raw high-S output is normalized and verified before freezing. In-circuit enforcement used the old halo2 P-256 gadget `assert_p256_ecdsa_digest::<F, 256, true>`, deleted with the old recursion code; the PIPA-v1 relation must re-implement it, and no relation consumes the new objects yet. |
-| Cross-language vectors | partial current evidence | `fixtures/kagemusha/wallet_v1_vectors.json` matches the maintained Rust generator, SHA `58852dd2d7300b123f1923fc9fa50157bd497a8eccc87451865cb4b6bd67b1ad`. All four Rust vector checks and all41 Kotlin vector cases pass. Twelve additional pure-JVM transport/pre-signing refusal cases bring the focused Kotlin run to53/53, with no failures or skips and unchanged source/fixture hashes (`kotlin-native-finality-focused-1/result.json`, SHA `8cd9fedc25057dfddc2e0c368c8a06f9a2b0f0cc169388c466ea8e6b6d95b31c`). Actual tests reran; Gradle compilation was up to date. An explicitly empty native-library directory prevents treating this as native bridge evidence. The17 signed Load/finality/epoch cases and current Swift/native delivery checks await rebuilt matching artifacts. Prior Kotlin39/Swift36 results under ABI25 and the retained ABI21/refusal attempts remain historical records in `target/qualification/kagemusha-sdk-current`; they do not qualify the new fixture or current bridge. Other language consumers remain unqualified here. |
+| Cross-language vectors | partial current evidence | `fixtures/kagemusha/wallet_v1_vectors.json` matches the maintained Rust generator, SHA `58852dd2d7300b123f1923fc9fa50157bd497a8eccc87451865cb4b6bd67b1ad`. All four Rust vector checks and all41 Kotlin vector cases pass. Twelve additional pure-JVM transport/pre-signing refusal cases bring the focused Kotlin run to53/53, with no failures or skips and unchanged source/fixture hashes (`kotlin-native-finality-focused-1/result.json`, SHA `8cd9fedc25057dfddc2e0c368c8a06f9a2b0f0cc169388c466ea8e6b6d95b31c`). Actual tests reran; Gradle compilation was up to date. An explicitly empty native-library directory prevents treating this as native bridge evidence. The rebuilt ABI27 full suites now pass all41 Kotlin and36 Swift vector cases against the unchanged fixture, plus the17 Kotlin ledger/Load/epoch cases, three Swift C decoder cases and four Kotlin JNI decoder cases. Their complete suite and custody results are recorded above; these are host checks, not monetary-network or physical-device qualification. Prior Kotlin39/Swift36 results under ABI25 and the retained ABI21/refusal attempts remain historical records in `target/qualification/kagemusha-sdk-current`; they do not qualify the new fixture or current bridge. Other language consumers remain unqualified here. |
 | Payment, Credited and Offer size bounds | observed as expected (stand-in proofs) | Size tests assert the worst cases with stand-in proofs of the provisional caps (transition 6,016 B, CreditStatus 2,000 B). Stand-in proofs are structural only and are not completed payments. |
 | In-circuit P-256 cost | measured | One full-width low-S verification: 1,466,624 advice cells = 23 advice + 4 lookup columns at k=16 in each Pasta field. A k=16 proof of that circuit alone: 10,112 B per parity; prove 12.5–13.0 s (20 threads), 20.7–24.2 s (4), 31.9–32.8 s (1); verify 0.26 s; peak RSS 0.79–0.95 GiB. |
 | IPA proof scaling | measured | Test-only harness `crates/iroha_core_zk/src/g3_proof_scaling_measurement_tests.rs` (ignored tests, release; deleted with the old recursion code and recoverable from Git history). k=16 proof bytes = 1,976 + 358·(advice columns); prove ≈ 7.2 s + 0.54 s per column at 20 threads; peak RSS ≈ 257 MiB + 27 MiB per column; proving key ≈ 25.5 MB + 9.1 MB per column. Narrow no-lookup proofs: bytes = 768 + 352·W + 64·k (k=18–20, W=1–3: 2,272–3,104 B), prove 21–80 s, verify 1.0–3.2 s. One thread is only 2.5–3.3× slower than 20. |

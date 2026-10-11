@@ -9271,15 +9271,29 @@ fn parse_world(
             message,
         })?;
     crate::smartcontracts::isi::kaigi::rebuild_kaigi_relay_registry(&mut world).map_err(
-        |message| json::Error::InvalidField {
-            field: "kaigi_relay_registry".into(),
-            message,
+        |error| match error {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(message) => {
+                StateRestoreError::Serialization(json::Error::InvalidField {
+                    field: "kaigi_relay_registry".into(),
+                    message,
+                })
+            }
+            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                StateRestoreError::ExecutionDeferred(reason)
+            }
         },
     )?;
     crate::smartcontracts::isi::kaigi::rebuild_kaigi_account_dependencies(&mut world).map_err(
-        |message| json::Error::InvalidField {
-            field: "kaigi_account_dependencies".into(),
-            message,
+        |error| match error {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(message) => {
+                StateRestoreError::Serialization(json::Error::InvalidField {
+                    field: "kaigi_account_dependencies".into(),
+                    message,
+                })
+            }
+            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                StateRestoreError::ExecutionDeferred(reason)
+            }
         },
     )?;
     world
@@ -9796,7 +9810,14 @@ fn build_state(
         })?;
     state
         .finalize_snapshot_derived_state_indexes(emergency_fast)
-        .map_err(MergeLedgerCommitError::ExecutionStatePublication)?;
+        .map_err(|error| match error {
+            crate::execution_attempt::ExecutionAttemptError::Rejected(error) => {
+                MergeLedgerCommitError::ExecutionStatePublication(error)
+            }
+            crate::execution_attempt::ExecutionAttemptError::Deferred(reason) => {
+                MergeLedgerCommitError::ExecutionDeferred(reason)
+            }
+        })?;
     #[cfg(feature = "sm")]
     if active_runtime {
         Sm2PublicKey::set_default_distid(initial_crypto.sm2_distid_default.clone())
@@ -12749,3 +12770,11 @@ mod decode_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "deserialize_world_kaigi_deferral_tests.rs"]
+mod kaigi_typed_deferral_tests;
+
+#[cfg(test)]
+#[path = "deserialize_world_kaigi_relay_deferral_tests.rs"]
+mod kaigi_relay_typed_deferral_tests;

@@ -52,7 +52,7 @@ struct KagemushaWalletEnrollmentInputV1 {
     switch selector {
     case 0: bounds = [32,4096,1024]
     case 1,5: bounds = [64,0,0]
-    case 2,7,8,10: bounds = [0,0,0]
+    case 2,7,8,10,20: bounds = [0,0,0]
     case 4: bounds = [32,65536,4096]
     case 6: bounds = [KagemushaWalletEnrollmentV1.RESULT_MAX_BYTES,0,0]
     case 9: bounds = [KagemushaWalletEnrollmentV1.PERMIT_MAX_BYTES,0,0]
@@ -130,6 +130,7 @@ public final class KagemushaWalletEnrollmentV1: KagemushaWalletCleanupResourceV1
     case 7: expected = [26]
     case 9: expected = [18]
     case 10: expected = [28, 58]
+    case 20: expected = [58, 59]
     case 13: expected = [38]
     case 14,15,17,19: expected = [39]
     case 16: expected = [20,24]
@@ -144,6 +145,7 @@ public final class KagemushaWalletEnrollmentV1: KagemushaWalletCleanupResourceV1
     case 25: bound = Self.RESULT_MAX_BYTES
     case 27: bound = Self.DISPATCH_MAX_BYTES
     case 28: bound = 1024
+    case 59: bound = 65_536
     case 38: bound = 73_740
     default: bound = 0
     }
@@ -280,6 +282,22 @@ public final class KagemushaWalletEnrollmentV1: KagemushaWalletCleanupResourceV1
   public func abandon() throws -> KagemushaWalletEnrollmentAbandonmentV1 {
     lock.lock(); defer { lock.unlock() }
     return try Self.abandonment(call(KagemushaWalletEnrollmentInputV1(10)))
+  }
+  /// Permanently abandon the unused enrollment and obtain the exact canonical ledger instruction
+  /// for an ordinary account-signed transaction. Nil means Native committed the local no-marker
+  /// form, which has nothing to submit. Retrying preserves the signed inner original; this is
+  /// not a submission or finality acknowledgement.
+  public func abandonmentLedgerInstruction() throws -> Data? {
+    lock.lock(); defer { lock.unlock() }
+    let reply = try call(KagemushaWalletEnrollmentInputV1(20))
+    return try Self.abandonmentLedgerInstruction(reply)
+  }
+  static func abandonmentLedgerInstruction(_ reply: KagemushaWalletCallV1) throws -> Data? {
+    switch reply.status {
+    case 58 where reply.bytes.isEmpty: return nil
+    case 59 where (1...65_536).contains(reply.bytes.count): return reply.bytes
+    default: throw KagemushaWalletErrorV1.invalidNativeOutput
+    }
   }
   /// Exact projection of Native's Abandon result: kind 58 without bytes or kind 28 with the frame.
   static func abandonment(_ reply: KagemushaWalletCallV1) throws -> KagemushaWalletEnrollmentAbandonmentV1 {

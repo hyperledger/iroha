@@ -38,6 +38,8 @@ mod authorization;
 pub mod call;
 pub use authorization::DeploymentAuthorization;
 mod journal;
+mod lifecycle;
+pub use lifecycle::{DeploymentLifecycleGuidance, LifecycleHook, LifecycleParameter};
 mod manifest_encoding;
 mod native;
 mod progress;
@@ -215,6 +217,28 @@ pub struct DeploymentPreflight {
     pub transaction_hashes: Vec<String>,
 }
 impl DeploymentPreflight {
+    /// Require the same complete review, including the ordered signed transaction hashes.
+    ///
+    /// This compares retained evidence; it does not authenticate either plan. Journal readers
+    /// must first validate their signed plan with the ordinary deployment validation owner.
+    ///
+    /// # Errors
+    /// Rejects a changed review or evidence that cannot be encoded as canonical Norito JSON.
+    pub fn require_same_plan(&self, expected: &Self) -> DeploymentResult<()> {
+        let actual = self
+            .to_json()
+            .map_err(|error| DeploymentError::Journal(error.into()))?;
+        let expected = expected
+            .to_json()
+            .map_err(|error| DeploymentError::Journal(error.into()))?;
+        if actual != expected {
+            return Err(DeploymentError::InvalidRequest(
+                "retained deployment differs from the original reviewed plan".into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Serialize review evidence using its explicit account-address discriminant.
     ///
     /// # Errors
@@ -620,7 +644,38 @@ impl DeploymentService {
         Ok(record.preflight)
     }
 
+    /// Read optional activation guidance from the original authenticated signed plan.
+    ///
+    /// This is presentation metadata, not current lifecycle state. It performs no HTTP,
+    /// signing or submission. `expected_code_hash` must come from that completed receipt;
+    /// an independently valid replacement plan cannot change its guidance. A caller may omit the
+    /// guidance when this separate read fails without changing that receipt.
+    ///
+    /// # Errors
+    /// Rejects unsafe custody, changed plan bytes or a different original signing authority.
+    pub fn retained_lifecycle_hook(
+        &self,
+        journal_dir: &Path,
+        expected_code_hash: Hash,
+    ) -> DeploymentResult<Option<LifecycleHook>> {
+        let _profile = ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
+        let journal = Journal::open(journal_dir, false).map_err(DeploymentError::Journal)?;
+        let record: PlanRecord = journal
+            .read("plan.json")
+            .map_err(DeploymentError::Journal)?;
+        self.validate_plan(&record)?;
+        if record.preflight.code_hash != expected_code_hash {
+            return Err(DeploymentError::InvalidRequest(
+                "retained initialization artifact differs from completed deployment".into(),
+            ));
+        }
+        let artifact = hex::decode(&record.artifact_hex).map_err(|error| {
+            DeploymentError::Artifact(format!("invalid retained artifact: {error}"))
+        })?;
+        Ok(LifecycleHook::from_artifact(&artifact))
+    }
     /// Verify a completed deployment still names its current alias and exact stored artifact.
+    /// The locked plan must match the caller's original review before any network read.
     /// This is the idempotent deployment check; historical receipt inspection remains available
     /// separately through [`Self::completed_receipt`]. No transaction is submitted.
     ///
@@ -630,6 +685,7 @@ impl DeploymentService {
     pub fn current_completed_receipt(
         &self,
         journal_dir: &Path,
+        expected: &DeploymentPreflight,
     ) -> DeploymentResult<Option<DeploymentReceipt>> {
         let _profile = ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
         let journal = Journal::open(journal_dir, false).map_err(DeploymentError::Journal)?;
@@ -637,6 +693,7 @@ impl DeploymentService {
             .read("plan.json")
             .map_err(DeploymentError::Journal)?;
         self.validate_plan(&record)?;
+        record.preflight.require_same_plan(expected)?;
         let Some(receipt) = self.verify_completed_receipt(&record, &journal)? else {
             return Ok(None);
         };
@@ -678,10 +735,12 @@ impl DeploymentService {
     ///
     /// # Errors
     /// Rejects malformed evidence, a different network/chain/profile, or unresolved finality. The
-    /// current read account may differ from the historical deployment authority.
+    /// current read account may differ from the historical deployment authority. The locked plan
+    /// must match the caller's original review before any network read.
     pub fn completed_receipt(
         &self,
         journal_dir: &Path,
+        expected: &DeploymentPreflight,
     ) -> DeploymentResult<Option<DeploymentReceipt>> {
         let _address_profile =
             ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
@@ -690,6 +749,7 @@ impl DeploymentService {
             .read("plan.json")
             .map_err(DeploymentError::Journal)?;
         validate_read_plan(&record, &DeploymentReadContext::from(&self.config))?;
+        record.preflight.require_same_plan(expected)?;
         self.verify_completed_receipt(&record, &journal)
     }
     /// Durably abandon a fully unattempted local plan without submitting any transaction.
@@ -700,8 +760,13 @@ impl DeploymentService {
     ///
     /// # Errors
     /// Rejects a different network/profile, unsafe journal, any execution evidence, or an altered
-    /// cancellation record. The journal stays exclusively locked throughout validation and write.
-    pub fn cancel(&self, journal_dir: &Path) -> DeploymentResult<DeploymentCancellation> {
+    /// cancellation record. The journal stays exclusively locked throughout validation and write;
+    /// its plan must match the caller's original preflight before cancellation is published.
+    pub fn cancel(
+        &self,
+        journal_dir: &Path,
+        expected: &DeploymentPreflight,
+    ) -> DeploymentResult<DeploymentCancellation> {
         let _address_profile =
             ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
         let journal = Journal::open(journal_dir, false).map_err(DeploymentError::Journal)?;
@@ -709,6 +774,7 @@ impl DeploymentService {
             .read("plan.json")
             .map_err(DeploymentError::Journal)?;
         validate_read_plan(&record, &DeploymentReadContext::from(&self.config))?;
+        record.preflight.require_same_plan(expected)?;
         journal
             .require_unattempted()
             .map_err(DeploymentError::Journal)?;
@@ -740,8 +806,14 @@ impl DeploymentService {
     ///
     /// # Errors
     /// Rejects an unsafe journal, changed context, inconsistent retained evidence, or malformed
-    /// status. Transport uncertainty remains [`JournalDisposition::Pending`], never failure.
-    pub fn inspect_journal(&self, journal_dir: &Path) -> DeploymentResult<JournalDisposition> {
+    /// status. The locked plan must match the caller's original review before any network read or
+    /// failure-marker publication. Transport uncertainty remains [`JournalDisposition::Pending`],
+    /// never failure.
+    pub fn inspect_journal(
+        &self,
+        journal_dir: &Path,
+        expected: &DeploymentPreflight,
+    ) -> DeploymentResult<JournalDisposition> {
         let _address_profile =
             ChainDiscriminantGuard::enter(self.config.account_chain_discriminant);
         let journal = Journal::open(journal_dir, false).map_err(DeploymentError::Journal)?;
@@ -750,6 +822,7 @@ impl DeploymentService {
             .map_err(DeploymentError::Journal)?;
         let context = DeploymentReadContext::from(&self.config);
         validate_read_plan(&record, &context)?;
+        record.preflight.require_same_plan(expected)?;
         self.client
             .refresh_capabilities()
             .map_err(|source| preflight_error("network compatibility", source))?;

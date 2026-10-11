@@ -100,6 +100,7 @@ tasks.test {
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/numeric_v1_golden.json"))
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/torii/list_query/vectors.json"))
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/kagemusha/wallet_v1_vectors.json"))
+    inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/kagemusha/enrollment_service_v1_vectors.json"))
     // Current identifier contracts consume the genuine Native DATA frame/signature fixtures.
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/soracloud/identifier_owner_execute_v1.json"))
     inputs.file(rootProject.layout.projectDirectory.dir("..").file("fixtures/soracloud/identifier_receipt_vectors_v1.json"))

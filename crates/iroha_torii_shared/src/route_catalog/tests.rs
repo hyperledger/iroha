@@ -952,6 +952,7 @@ mod tests {
     fn bridge_finality_routes_are_not_telemetry_gated() {
         for route in [
             sumeragi::BRIDGE_FINALITY,
+            sumeragi::BRIDGE_FINALITY_INTERVAL,
             sumeragi::BRIDGE_FINALITY_ATTESTATION,
             sumeragi::BRIDGE_FINALITY_ATTESTATION_LATEST,
             sumeragi::BRIDGE_FINALITY_BUNDLE,

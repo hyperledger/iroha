@@ -1601,7 +1601,12 @@ fn borrowed_quantity_json_decode_has_an_exact_allocation_boundary() {
         quantity_json_allocation_limits(expected_allocation - 1),
         || <Quantity as JsonDeserialize>::json_from_value(&value),
     );
-    assert!(matches!(rejected, Err(json::Error::DecodeResourceLimit)));
+    assert!(matches!(
+        rejected,
+        Err(json::Error::DecodeResource(
+            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+        ))
+    ));
     assert_eq!(usage.total_allocated_bytes(), 0);
 }
 #[test]
@@ -1657,7 +1662,12 @@ fn quantity_native_digit_decode_rejects_before_allocation_and_reports_allocator_
             }
         },
     );
-    assert!(matches!(rejected, Err(json::Error::DecodeResourceLimit)));
+    assert!(matches!(
+        rejected,
+        Err(json::Error::DecodeResource(
+            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+        ))
+    ));
     assert_eq!(usage.total_allocated_bytes(), 0);
 
     let (rejected, usage) = norito::core::with_decode_limits_measured(
@@ -1692,7 +1702,12 @@ fn owned_quantity_json_decode_charges_text_and_final_storage_exactly() {
         quantity_json_allocation_limits(exact - 1),
         || norito::json::from_str::<Quantity>(&source),
     );
-    assert!(matches!(rejected, Err(json::Error::DecodeResourceLimit)));
+    assert!(matches!(
+        rejected,
+        Err(json::Error::DecodeResource(
+            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+        ))
+    ));
     assert_eq!(usage.total_allocated_bytes(), quantity.len());
 }
 #[test]

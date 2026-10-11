@@ -106,10 +106,6 @@ impl<K: Key, V: Value, Admission, M: StorageMode<K, V>> FrozenDetached<K, V, Adm
     /// only moves its facade: no node, cursor, charge or identity is replaced.
     /// Retiring a reader permits another attempt; no work quota is reset here.
     /// The returned journal still requires its original target and refund scope.
-    #[expect(
-        clippy::result_large_err,
-        reason = "thaw refusal returns the same inline map pair and metadata without allocating a replacement error owner"
-    )]
     pub fn try_into_detached(self) -> Result<Detached<K, V, Admission, M>, Self> {
         let Self {
             revert,

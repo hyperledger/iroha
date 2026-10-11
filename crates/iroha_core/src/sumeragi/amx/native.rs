@@ -19,9 +19,9 @@ use iroha_data_model::{
         },
     },
     sumeragi_amx::{
-        AllocatedAmxTransferLegV1, AmxError, AmxEscrow, AmxForeignInstanceV1, AmxLegDecodeErrorV1,
-        AmxLegV1, AmxOutcomeV1, AmxParticipantError, AmxParticipantStateV1, AmxRecordV1,
-        MAX_AMX_DEADLINE_WINDOW, NativeAmxParticipantStateV1, PendingAmxTransferLegDecodeV1,
+        AllocatedAmxTransferLegV1, AmxError, AmxEscrow, AmxLegDecodeErrorV1, AmxLegV1,
+        AmxOutcomeV1, AmxParticipantError, AmxRecordV1, MAX_AMX_DEADLINE_WINDOW,
+        NativeAmxParticipantStateV1, PendingAmxTransferLegDecodeV1,
     },
 };
 use iroha_model_base::topology::DataSpaceId;
@@ -29,7 +29,7 @@ use mv::{
     cell::{Cell, CellInitialization},
     storage::StorageReadOnly,
 };
-use retained::{Candidate, EscrowInput, GraphError};
+use retained::{Candidate, EscrowInput, GraphError, RegistrationSource, RetainedGlobalSource};
 mod retry;
 #[cfg(test)]
 pub(crate) use retry::LegExecutionError as NativeLegExecutionError;
@@ -268,6 +268,26 @@ fn global_source_prefix(
     .map_err(|error| error.map_rejection(|error| invalid(error.to_string())))
 }
 
+// Same local graph refusal owner as native World admission, without mutating State
+// during the side-effect-free source verifier. Completed shape errors remain rejected.
+fn global_source_graph_error(
+    error: GraphError,
+) -> crate::execution_attempt::ExecutionAttemptError<Error> {
+    use crate::execution_attempt::ExecutionAttemptError;
+    match error {
+        GraphError::Admission(error) => ExecutionAttemptError::Deferred(error.into()),
+        GraphError::Allocator { .. } => ExecutionAttemptError::Deferred(
+            ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
+        ),
+        GraphError::Codec(resource) => {
+            crate::execution_attempt::norito_decode_attempt_error(resource.into(), |error| {
+                invalid(error.to_string())
+            })
+        }
+        invalid_graph => invalid(invalid_graph.to_string()).into(),
+    }
+}
+
 /// Consume the complete H2 verification receipt in its own bounded stack stage.
 fn authenticate_global_successor(
     prefix: &mut crate::sumeragi::certified_chain::CertifiedPrefix,
@@ -292,20 +312,23 @@ fn authenticated_global_source(
     genesis_wire: &[u8],
     successor_wire: &[u8],
     budget: &AllocationBudget,
-) -> Result<AmxForeignInstanceV1, crate::execution_attempt::ExecutionAttemptError<Error>> {
+) -> Result<RetainedGlobalSource, crate::execution_attempt::ExecutionAttemptError<Error>> {
     let mut original = global_source_prefix(chain_id, parent, genesis_wire, budget)?;
     let prefix = &mut original.as_mut_slice()[0];
     let instance = prefix.instance();
-    let epoch = prefix.current_epoch_context().clone();
+    let global = RetainedGlobalSource::admit(instance.0, prefix.current_epoch_context(), budget)
+        .map_err(global_source_graph_error)?;
     authenticate_global_successor(prefix, successor_wire, budget)?;
-    AmxForeignInstanceV1::new(instance.0, epoch).map_err(|error| invalid(error.to_string()).into())
+    // Preserve the original tracker validation after the genuine H2 has authenticated
+    // genesis execution. Admission/copying alone never publishes authority.
+    global
+        .canonical()
+        .validate()
+        .map_err(|error| invalid(error.to_string()))?;
+    Ok(global)
 }
 
 impl Execute for RegisterAmxParticipantV1 {
-    #[allow(
-        unsafe_code,
-        reason = "the bounded label backing remains unchanged in the canonical source and drops before its original scratch charge"
-    )]
     fn execute(
         self,
         _authority: &AccountId,
@@ -336,22 +359,23 @@ impl Execute for RegisterAmxParticipantV1 {
         label
             .append(self.global_chain_id.as_str().as_bytes())
             .map_err(|error| invalid(error.to_string()))?;
-        // SAFETY: the exact Vec moves into canonical below without growth. Its u8 payload has
-        // no destructor failure; canonical is declared later and is destroyed before this charge.
-        let (global_chain_label, _global_chain_label_charge) =
-            unsafe { label.into_allocation_parts() };
-        let canonical = NativeAmxParticipantStateV1 {
-            global_genesis: self.global_genesis,
-            global_successor: self.global_successor,
-            global_chain_label,
-            participant: AmxParticipantStateV1::new(self.dataspace, global),
-            custody: custody(*state.network_id()),
-            escrows: Vec::new(),
-        };
-        let owner = RetainedNativeAmx::admit(&canonical, &budget)
-            .map_err(|error| graph_error(error, state))?
-            .authenticate();
-        crate::smartcontracts::isi::helpers::ensure_custody_account(&canonical.custody, state)?;
+        let custody = custody(*state.network_id());
+        // The returned context and original label scratch stay alive while the same
+        // graph copier admits the final World owner. No context is moved uncharged.
+        let owner = RetainedNativeAmx::admit_registration(
+            RegistrationSource {
+                dataspace: self.dataspace,
+                global: &global,
+                global_genesis: &self.global_genesis,
+                global_successor: &self.global_successor,
+                global_chain_label: label.as_slice(),
+                custody: &custody,
+            },
+            &budget,
+        )
+        .map_err(|error| graph_error(error, state))?
+        .authenticate();
+        crate::smartcontracts::isi::helpers::ensure_custody_account(&custody, state)?;
         *state.world.sumeragi_amx_participant.get_mut() = owner;
         Ok(())
     }
@@ -413,7 +437,7 @@ fn decode_leg(
     budget: &AllocationBudget,
 ) -> Result<AllocatedAmxTransferLegV1, AmxLegDecodeErrorV1> {
     let result = with_leg_decode_pool(budget, |budget| {
-        PendingAmxTransferLegDecodeV1::new(bytes, budget).try_decode()
+        PendingAmxTransferLegDecodeV1::new(bytes, budget).try_decode(bytes)
     });
     #[cfg(test)]
     if let Ok(owner) = &result {
@@ -428,12 +452,20 @@ fn decode_leg(
 }
 
 fn decode_retained_leg(
+    pending: &mut PendingAmxTransferLegDecodeV1,
     bytes: &[u8],
     budget: &AllocationBudget,
 ) -> Result<iroha_data_model::sumeragi_amx::CompletedAmxTransferLegDecodeV1, AmxLegDecodeErrorV1> {
-    let result = with_leg_decode_pool(budget, |budget| {
-        PendingAmxTransferLegDecodeV1::new(bytes, budget).try_decode_retained()
-    });
+    if !pending.belongs_to(budget) {
+        return Err(AmxLegDecodeErrorV1::Invariant(
+            "original native AMX decoder pool changed",
+        ));
+    }
+    #[cfg(test)]
+    let before = budget.reserved_bytes();
+    let result = pending.try_decode_retained(bytes);
+    #[cfg(test)]
+    retry_probe::retained_attempt(&result, before, budget);
     #[cfg(test)]
     if let Ok(owner) = &result {
         retry_probe::decoded(
@@ -480,6 +512,10 @@ fn leg_decode_error(error: AmxLegDecodeErrorV1, state: &mut StateTransaction<'_,
                 });
             state.attempt_error_to_instruction_error(original)
         }
+        // The sole Model validator already completed this intrinsic relation.
+        // Retain its exact cause until the existing terminal diagnostic boundary;
+        // no allocation/scope refusal or local retry origin is inferred here.
+        AmxLegDecodeErrorV1::Multisig(error) => invalid(error.to_string()),
         AmxLegDecodeErrorV1::Codec(error) => invalid(error.to_string()),
         AmxLegDecodeErrorV1::Scope(error) => match error {
             norito::core::PreparedDecodeScopeError::Allocation(
@@ -861,6 +897,18 @@ pub(crate) fn with_paid_prepare_retry_fixture(
     ),
 ) {
     tests::with_paid_prepare_retry_fixture(test);
+}
+
+/// Reuse a genuine signed Begin whose original receiver is canonically multisig.
+#[cfg(test)]
+pub(crate) fn with_paid_multisig_prepare_retry_fixture(
+    test: impl FnOnce(
+        &crate::sumeragi::test_chain::CertifiedTestChain,
+        iroha_data_model::isi::InstructionBox,
+        iroha_crypto::KeyPair,
+    ),
+) {
+    tests::with_paid_multisig_prepare_retry_fixture(test);
 }
 
 #[cfg(test)]

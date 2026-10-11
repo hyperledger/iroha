@@ -161,7 +161,7 @@ class KagemushaWalletEnrollmentV1Test {
         assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(58, -1, 0, 7, 0, 0, byteArrayOf(1)) }
         assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(28, -1, 0, 7, 0, 0, byteArrayOf()) }
         assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(58, -1, 0, 7, 0, 1, byteArrayOf()) }
-        assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(59, -1, 0, 7, 0, 0, byteArrayOf()) }
+        assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(60, -1, 0, 7, 0, 0, byteArrayOf()) }
         for (reply in listOf(KagemushaWalletCallV1(20, -1, 0, 7, 0, 0, byteArrayOf()), KagemushaWalletCallV1(58, -1, 0, 8, 0, 0, byteArrayOf()),
             KagemushaWalletCallV1(24, -1, 0, 7, 0, 0, byteArrayOf(1)))) {
             driver.reply = reply
@@ -170,6 +170,25 @@ class KagemushaWalletEnrollmentV1Test {
         // A Native refusal (for example once Bootstrap is selected) is preserved, never mapped to a form.
         driver.reply = KagemushaWalletCallV1(-5, 17, 23, 0, 0, 0, byteArrayOf())
         assertEquals(-5, assertFailsWith<KagemushaWalletExceptionV1> { owner.abandon() }.status)
+        owner.close()
+    }
+    @Test fun `abandonment ledger framing keeps local absence and exact retained instruction distinct`() {
+        val driver = Driver()
+        val owner = KagemushaWalletEnrollmentV1(7, driver, byteArrayOf(1,2), Any(), 2)
+        driver.reply = KagemushaWalletCallV1(58, -1, 0, 7, 0, 0, byteArrayOf())
+        assertNull(owner.abandonmentLedgerInstruction())
+        assertEquals(20, driver.lastSelector)
+        val frame = byteArrayOf(1, 2, 3)
+        driver.reply = KagemushaWalletCallV1(59, -1, 0, 7, 0, 0, frame)
+        owner.abandonmentLedgerInstruction()!!.fill(0)
+        assertContentEquals(frame, owner.abandonmentLedgerInstruction())
+        driver.reply = KagemushaWalletCallV1(59, -1, 0, 8, 0, 0, frame)
+        assertFailsWith<KagemushaWalletExceptionV1> { owner.abandonmentLedgerInstruction() }
+        driver.reply = KagemushaWalletCallV1(28, -1, 0, 7, 0, 0, frame)
+        assertFailsWith<KagemushaWalletExceptionV1> { owner.abandonmentLedgerInstruction() }
+        for (bytes in listOf(byteArrayOf(), ByteArray(65_537))) {
+            assertFailsWith<KagemushaWalletExceptionV1> { KagemushaWalletCallV1(59, -1, 0, 7, 0, 0, bytes) }
+        }
         owner.close()
     }
     @Test fun `canonical JNI enrollment carries only native selector and original frames`() {

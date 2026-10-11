@@ -39,6 +39,8 @@
 //!   supplied layout flags. `norito::codec::encode_with_header_flags(value)`
 //!   returns both the bare payload and the recorded flags so callers can persist
 //!   the metadata alongside the bytes without relying on thread-local state.
+mod norito_mutation_guard;
+
 extern crate self as norito;
 use std::{
     alloc::{Layout, alloc, dealloc},
@@ -893,18 +895,15 @@ pub mod json {
             limit: usize,
             context: &'static str,
         },
-        /// An active decode scope rejected allocation or structural work.
+        /// A checked bound or resource owner refused work without recorded decoder fields.
         #[error("JSON decode resource limit exceeded")]
         DecodeResourceLimit,
+        /// Exact unscoped binary decoder resource fields, without observer provenance.
+        #[error(transparent)]
+        DecodeResource(crate::core::DecodeResourceError),
         /// Original resource refusal retained across a canonical binary/JSON boundary.
         #[error(transparent)]
         ScopedDecodeResource(crate::core::ScopedDecodeResourceError),
-        /// An original binary decoder allocation failed with its recorded request size.
-        #[error("JSON decode allocation of {bytes} bytes failed")]
-        DecodeAllocationFailed {
-            /// Exact requested allocation size from the binary decoder.
-            bytes: u64,
-        },
         /// A fallible allocation needed by the JSON decoder failed without a recorded size.
         #[error("JSON decode allocation failed")]
         AllocationFailed,
@@ -940,24 +939,31 @@ pub mod json {
                 self,
                 Self::DecodeResourceLimit
                     | Self::ScopedDecodeResource(_)
-                    | Self::DecodeAllocationFailed { .. }
+                    | Self::DecodeResource(_)
                     | Self::AllocationFailed
                     | Self::NestingDepthExceeded { .. }
             )
         }
-        /// Convert a core decode-budget failure without copying its diagnostics.
+        /// Preserve exact resource fields and any original private scope identity.
+        ///
+        /// Non-resource errors keep their terminal diagnostic; they never become allocator
+        /// refusals. Field-only errors do not acquire a canonical observer identity.
         #[doc(hidden)]
         pub fn from_decode_resource(error: crate::core::Error) -> Self {
-            if let crate::core::Error::ScopedDecodeResource(origin) = error {
-                return Self::ScopedDecodeResource(origin);
-            }
-            if let crate::core::Error::AllocationFailed { bytes } = error {
-                return Self::DecodeAllocationFailed { bytes };
-            }
-            if error.is_decode_resource_limit() {
-                Self::DecodeResourceLimit
-            } else {
-                Self::AllocationFailed
+            match error {
+                crate::core::Error::ScopedDecodeResource(origin) => {
+                    Self::ScopedDecodeResource(origin)
+                }
+                error => match error.decode_resource_error() {
+                    Some(_) if cfg!(all(test, sumeragi_norito_mutation = "NC4")) => {
+                        Self::DecodeResourceLimit
+                    }
+                    Some(resource) => Self::DecodeResource(resource),
+                    None if cfg!(all(test, sumeragi_norito_mutation = "NC5")) => {
+                        Self::AllocationFailed
+                    }
+                    None => Self::Message(error.to_string()),
+                },
             }
         }
         /// Preserve an original scoped refusal when returning to binary decoding.
@@ -970,9 +976,7 @@ pub mod json {
                 Self::ScopedDecodeResource(origin) => {
                     crate::core::Error::ScopedDecodeResource(origin)
                 }
-                Self::DecodeAllocationFailed { bytes } => {
-                    crate::core::Error::AllocationFailed { bytes }
-                }
+                Self::DecodeResource(resource) => resource.into(),
                 Self::AllocationFailed => crate::core::Error::AllocationFailed { bytes: 0 },
                 error => crate::core::Error::Json(error),
             }
@@ -1013,7 +1017,7 @@ pub mod json {
     }
     impl From<super::Error> for Error {
         fn from(e: super::Error) -> Self {
-            Error::Message(e.to_string())
+            Self::from_decode_resource(e)
         }
     }
     pub mod value {
@@ -2409,6 +2413,162 @@ pub mod json {
     mod tests {
         use super::*;
         use crate::json;
+        #[test]
+        fn core_resource_errors_roundtrip_exact_fields_without_fresh_scope() {
+            use crate::core::{
+                DecodeAttemptErrorKind, DecodeResourceError, classify_decode_attempt,
+            };
+            let originals = [
+                DecodeResourceError::ArchiveLengthExceeded {
+                    length: 29,
+                    limit: 23,
+                },
+                DecodeResourceError::SequenceLengthExceeded {
+                    length: 7,
+                    limit: 5,
+                },
+                DecodeResourceError::FieldLengthExceeded {
+                    length: 19,
+                    limit: 17,
+                },
+                DecodeResourceError::TotalElementsExceeded {
+                    attempted: 13,
+                    limit: 11,
+                },
+                DecodeResourceError::TotalAllocationExceeded {
+                    attempted: 137,
+                    limit: 131,
+                },
+                DecodeResourceError::AllocationFailed { bytes: 149 },
+                DecodeResourceError::NestingDepthExceeded {
+                    depth: 3,
+                    limit: 2,
+                    context: "typed JSON fixture",
+                },
+            ];
+            for original in originals {
+                let implicit = Error::from(crate::Error::from(original));
+                assert!(
+                    implicit.is_decode_resource_limit(),
+                    "JSON must retain every actual resource refusal field without a scope"
+                );
+                assert_eq!(
+                    implicit.into_core_error().decode_resource_error(),
+                    Some(original),
+                    "JSON must retain every actual resource refusal field without a scope"
+                );
+                let error = Error::from_decode_resource(original.into());
+                assert!(error.is_decode_resource_limit());
+                let restored = error.into_core_error();
+                assert_eq!(
+                    restored.decode_resource_error(),
+                    Some(original),
+                    "JSON must retain every actual resource refusal field without a scope"
+                );
+                let expected = if matches!(original, DecodeResourceError::AllocationFailed { .. }) {
+                    DecodeAttemptErrorKind::Allocator
+                } else {
+                    DecodeAttemptErrorKind::Invalid
+                };
+                assert_eq!(
+                    classify_decode_attempt(|| Err::<(), _>(restored))
+                        .unwrap_err()
+                        .kind(),
+                    expected,
+                    "copied resource fields cannot establish an enclosing observer origin"
+                );
+            }
+        }
+        #[test]
+        fn non_resource_core_errors_cannot_become_json_allocator_refusals() {
+            use crate::core::{DecodeAttemptErrorKind, classify_decode_attempt};
+            for original in [crate::Error::InvalidMagic, crate::Error::LengthMismatch] {
+                let diagnostic = original.to_string();
+                let error = Error::from_decode_resource(original);
+                assert!(
+                    !error.is_decode_resource_limit(),
+                    "malformed input is not allocation pressure"
+                );
+                assert_eq!(error.to_string(), diagnostic);
+                let error = error.into_core_error();
+                assert!(error.decode_resource_error().is_none());
+                assert_eq!(
+                    classify_decode_attempt(|| Err::<(), _>(error))
+                        .unwrap_err()
+                        .kind(),
+                    DecodeAttemptErrorKind::Invalid
+                );
+            }
+        }
+        #[test]
+        fn direct_json_parser_retains_unscoped_fields_and_same_input_retry() {
+            let pool = iroha_allocation::AllocationBudget::new(65_536);
+            let limits =
+                crate::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+            let original = crate::core::DecodeBudgetContext::try_new_owned(limits, &pool).unwrap();
+            let baseline = pool.reserved_bytes();
+            let input = r#""retained""#;
+            let refusal = original
+                .with(|| Parser::new(input).parse_string())
+                .unwrap_err();
+            assert_eq!(
+                refusal.into_core_error().decode_resource_error(),
+                Some(crate::core::DecodeResourceError::TotalAllocationExceeded {
+                    attempted: 8,
+                    limit: 0
+                }),
+                "the actual direct parser must preserve its exact unobserved allocation refusal"
+            );
+            assert_eq!(pool.reserved_bytes(), baseline);
+            assert_eq!(Parser::new(input).parse_string().unwrap(), "retained");
+            drop(original);
+            assert_eq!(pool.reserved_bytes(), 0);
+        }
+        #[test]
+        fn json_resource_conversion_keeps_scoped_identity_and_rejects_saved_origin() {
+            use crate::core::{DecodeAttemptErrorKind, classify_decode_attempt};
+            let pool = iroha_allocation::AllocationBudget::new(65_536);
+            let limits =
+                crate::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX);
+            let original = crate::core::DecodeBudgetContext::try_new_owned(limits, &pool).unwrap();
+            let baseline = pool.reserved_bytes();
+            let mut saved = None;
+            let refusal = original
+                .with(|| {
+                    classify_decode_attempt(|| {
+                        let error = crate::core::reserve_decode_allocation(1).unwrap_err();
+                        let crate::Error::ScopedDecodeResource(origin) = &error else {
+                            panic!("genuine original observer error");
+                        };
+                        saved = Some(origin.clone());
+                        Err::<(), _>(Error::from_decode_resource(error).into_core_error())
+                    })
+                })
+                .unwrap_err();
+            assert_eq!(refusal.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+            let crate::Error::ScopedDecodeResource(restored) = refusal.into_error() else {
+                panic!("JSON conversion must retain its original private scope");
+            };
+            let saved = saved.unwrap();
+            assert_eq!(restored, saved);
+            let replay = original
+                .with(|| {
+                    classify_decode_attempt(|| {
+                        drop(crate::core::reserve_decode_allocation(1).unwrap_err());
+                        Err::<(), _>(
+                            Error::from_decode_resource(crate::Error::ScopedDecodeResource(saved))
+                                .into_core_error(),
+                        )
+                    })
+                })
+                .unwrap_err();
+            assert_eq!(replay.kind(), DecodeAttemptErrorKind::Invalid);
+            drop(replay);
+            drop(restored);
+            assert_eq!(pool.reserved_bytes(), baseline);
+            drop(original);
+            assert_eq!(pool.reserved_bytes(), 0);
+        }
         #[test]
         fn owned_value_decode_depth_guard_is_bounded_and_restores() {
             let guards = (0..crate::core::MAX_VALUE_NESTING_DEPTH)

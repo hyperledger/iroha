@@ -41,7 +41,10 @@ object IdentifierReceiptVerifier {
         require(policy.active && policy.programId == response.programId && policy.backend == IdentifierOwnerInputV1.BACKEND && policy.verificationMode == "signed") { "Execute receipt differs from the independently selected current program policy" }
         val key = requireNotNull(decodePublicKeyLiteral(requireExactResolverPublicKey(policy.resolverPublicKey))) { "resolverPublicKey is not its current canonical multihash" }
         val message = IrohaHash.prehash(IdentifierReceiptCanonicalEncoder.encodeExecution(response.execution))
-        val signature = hexToBytes(requireNotNull(response.attestation.signature), "attestation.signature")
+        val signature = hexToBytes(
+            IdentifierOwnerInputV1.rawSignature(requireNotNull(response.attestation.signature), "attestation.signature"),
+            "attestation.signature",
+        )
         return when (key.curveId) {
             0x01 -> signature.size == 64 && verifyEd25519(key.keyBytes, message, signature)
             0x02 -> signature.size == 3309 && verifyNativeBacked(key.curveId, key.keyBytes, message, signature)
@@ -103,7 +106,14 @@ object IdentifierReceiptVerifier {
     }
 
     private fun hexToBytes(hex: String, field: String): ByteArray {
-        IdentifierOwnerInputV1.rawSignature(hex, field)
+        // Model Signature JSON and the shared Rust receipt vectors use uppercase
+        // hex. Owner execution carriers retain their separate lowercase grammar.
+        require(hex.isNotEmpty() &&
+            hex.length <= 2 * CanonicalRequestSigner.CANONICAL_REQUEST_MAX_SIGNATURE_BYTES_V1 &&
+            hex.length % 2 == 0 &&
+            hex.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) {
+            "$field must be exact signature hex"
+        }
         return ByteArray(hex.length / 2) { index -> hex.substring(index * 2, index * 2 + 2).toInt(16).toByte() }
     }
 }

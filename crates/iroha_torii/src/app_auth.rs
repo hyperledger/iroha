@@ -1198,10 +1198,7 @@ fn parse_canonical_account_header_address(
             Ok(account)
         })
         .map_err(|error| {
-            if matches!(
-                error,
-                iroha_data_model::account::address::AccountAddressError::DecodeResourceLimit
-            ) {
+            if error.is_decode_resource_limit() {
                 crate::Error::Query(ValidationFail::QueryFailed(
                     QueryExecutionFail::CapacityLimit,
                 ))

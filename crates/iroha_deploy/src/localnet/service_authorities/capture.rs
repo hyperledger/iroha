@@ -364,6 +364,12 @@ impl CapturedProfile {
     }
 
     pub(super) fn revalidate(&self) -> crate::managed::Result<()> {
+        #[cfg(test)]
+        IMAGE_REVALIDATIONS.with(|value| {
+            if let Some(count) = value.get() {
+                value.set(Some(count.checked_add(1).expect("profile image count")));
+            }
+        });
         let generation = self.directories.first().ok_or_else(invalid)?;
         // One fresh complete profile pass, never a shared verdict across callers. The
         // retained generation closes full ancestry on every ordinary result; descendants
@@ -503,6 +509,27 @@ pub(super) fn count_semantic_validations<T>(action: impl FnOnce() -> T) -> (T, u
     let result = action();
     let count = SEMANTIC_VALIDATIONS.with(|value| value.get().expect("test counter active"));
     (result, count)
+}
+
+#[cfg(test)]
+std::thread_local! {
+    static IMAGE_REVALIDATIONS: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+pub(super) fn count_revalidations<T>(action: impl FnOnce() -> T) -> (T, usize) {
+    struct Restore(Option<usize>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            IMAGE_REVALIDATIONS.with(|value| value.set(self.0));
+        }
+    }
+    let _restore = Restore(IMAGE_REVALIDATIONS.with(|value| value.replace(Some(0))));
+    let result = action();
+    (
+        result,
+        IMAGE_REVALIDATIONS.with(|value| value.get().unwrap()),
+    )
 }
 
 #[cfg(test)]

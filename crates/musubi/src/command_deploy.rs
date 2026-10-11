@@ -4,7 +4,7 @@ use crate::compiler::CompilerArtifactV1;
 use crate::deployment_runtime::{DeploymentSlot, RetainedDeployment, RetryRequest};
 use iroha_contract_deploy::{
     DeploymentError, DeploymentPreflight, DeploymentProgress, DeploymentReceipt, DeploymentRequest,
-    DeploymentService,
+    DeploymentService, LifecycleHook,
 };
 use iroha_data_model::{
     account::address::ChainDiscriminantGuard,
@@ -149,7 +149,7 @@ pub(super) fn run_deploy(
         }
         _ => read_selected_artifact(artifact)?,
     };
-    let hook = lifecycle_hook(&artifact_bytes);
+    let hook = LifecycleHook::from_artifact(&artifact_bytes);
     let activation_artifact = (args.activate && hook.is_some()).then(|| artifact_bytes.clone());
     let fee_payment = selected_fee_payment(&build.network)?;
     let _profile = ChainDiscriminantGuard::enter(build.network.chain_discriminant);
@@ -413,8 +413,11 @@ fn recover_deployment(
             ]),
         });
     }
+    let expected = service.retained_preflight(&journal).map_err(|error| {
+        deployment_diagnostic(&error).with_context("journal", journal.display().to_string())
+    })?;
     let receipt = session
-        .resume(&service, &journal, &mut |event| {
+        .resume(&service, &journal, &expected, &mut |event| {
             progress(&render_progress(event))
         })
         .map_err(|error| {
@@ -422,8 +425,7 @@ fn recover_deployment(
         })?;
     let mut resumed = receipt_output(&receipt, &journal)?;
     // The hint is presentation only; a failed artifact read leaves the Applied receipt intact.
-    if let Ok(completed) = service.current_completed_contract(&journal)
-        && let Some(hook) = lifecycle_hook(completed.artifact())
+    if let Ok(Some(hook)) = service.retained_lifecycle_hook(&journal, receipt.code_hash)
         && let Some((package, target)) = contract_key
             .split_once("::")
             .and_then(|(package, target)| Some((package.parse().ok()?, target)))
@@ -446,46 +448,6 @@ fn hajimari_label() -> String {
         || "hajimari".to_owned(),
         kotodama_lang::glossary::BrandedKeyword::label,
     )
-}
-
-/// A seiyaku's activation hook as its verified artifact declares it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct LifecycleHook {
-    /// Canonical entrypoint selector.
-    pub(super) name: String,
-    /// Declared parameter names and canonical type names, in declaration order.
-    pub(super) params: Vec<(String, String)>,
-}
-impl LifecycleHook {
-    /// Named JSON arguments for the activation command: `{}` for a hook without parameters,
-    /// otherwise every declared parameter with a `<type>` placeholder to replace.
-    fn arguments_template(&self) -> String {
-        let mut template = norito::json::Map::new();
-        for (name, type_name) in &self.params {
-            template.insert(name.clone(), Value::from(format!("<{type_name}>")));
-        }
-        norito::json::to_string(&Value::Object(template)).unwrap_or_else(|_| "{}".to_owned())
-    }
-}
-
-/// Return the artifact's activation hook, when it declares one.
-pub(super) fn lifecycle_hook(artifact: &[u8]) -> Option<LifecycleHook> {
-    ivm::verify_contract_artifact(artifact)
-        .ok()?
-        .contract_interface
-        .entrypoints
-        .into_iter()
-        .find(|entrypoint| {
-            entrypoint.kind == iroha_data_model::smart_contract::manifest::EntryPointKind::Hajimari
-        })
-        .map(|entrypoint| LifecycleHook {
-            name: entrypoint.name,
-            params: entrypoint
-                .params
-                .into_iter()
-                .map(|param| (param.name, param.type_name))
-                .collect(),
-        })
 }
 
 /// Reject activation arguments that the hook cannot accept before anything is signed.
@@ -1245,7 +1207,8 @@ mod tests {
 
     #[test]
     fn lifecycle_hook_is_found_in_either_keyword_spelling() {
-        let hook = |source: &str| lifecycle_hook(&compiled(source)).map(|hook| hook.name);
+        let hook =
+            |source: &str| LifecycleHook::from_artifact(&compiled(source)).map(|hook| hook.name);
         assert_eq!(
             hook(
                 "seiyaku Counter { state int value; hajimari() { value = 0; } view fn current() authorize(anyone) -> int { return value; } }"
@@ -1261,21 +1224,24 @@ mod tests {
             Some("hajimari")
         );
         assert_eq!(
-            lifecycle_hook(&compiled(
+            LifecycleHook::from_artifact(&compiled(
                 "seiyaku Counter { state int value; 始まり(int start) { value = start; } view fn current() authorize(anyone) -> int { return value; } }"
             )),
             Some(LifecycleHook {
                 name: "hajimari".to_owned(),
-                params: vec![("start".to_owned(), "int".to_owned())],
+                params: vec![iroha_contract_deploy::LifecycleParameter {
+                    name: "start".into(),
+                    type_name: "int".into()
+                }],
             })
         );
         assert_eq!(
-            lifecycle_hook(&compiled(
+            LifecycleHook::from_artifact(&compiled(
                 "seiyaku Quote { view fn quote() authorize(anyone) -> int { return 30; } }"
             )),
             None
         );
-        assert_eq!(lifecycle_hook(b"not an artifact"), None);
+        assert_eq!(LifecycleHook::from_artifact(b"not an artifact"), None);
     }
 
     #[test]
@@ -1323,8 +1289,14 @@ mod tests {
         let parameterized = LifecycleHook {
             name: "hajimari".to_owned(),
             params: vec![
-                ("start".to_owned(), "int".to_owned()),
-                ("owner".to_owned(), "AccountId".to_owned()),
+                iroha_contract_deploy::LifecycleParameter {
+                    name: "start".into(),
+                    type_name: "int".into(),
+                },
+                iroha_contract_deploy::LifecycleParameter {
+                    name: "owner".into(),
+                    type_name: "AccountId".into(),
+                },
             ],
         };
         assert_eq!(
@@ -1369,7 +1341,7 @@ mod tests {
         let artifact = compiled(
             "seiyaku Counter { state int value; hajimari(int start) { value = start; } view fn current() authorize(anyone) -> int { return value; } }",
         );
-        let hook = lifecycle_hook(&artifact).expect("declared hook");
+        let hook = LifecycleHook::from_artifact(&artifact).expect("declared hook");
         let start = norito::json!({"start": "5"});
         assert!(check_activation_arguments(&artifact, Some(&hook), Some(&start)).is_ok());
         let missing = check_activation_arguments(&artifact, Some(&hook), None)

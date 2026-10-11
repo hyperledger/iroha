@@ -2903,9 +2903,9 @@ fn runtime_selection_immutable_projection_keeps_original_values_and_bounded_full
     let (actual, checks) =
         profile_validation_test_support::count(|| RuntimeSelection::read(&owner.authority));
     let actual = actual.unwrap();
-    // The existing bootstrap constructor additionally performs one direct profile revalidation.
-    // This successful absent-custody path therefore keeps seventeen full traversals, not twenty-one.
-    assert_eq!(checks, 16);
+    // Existing child locks, mutable reads and the unconditional image exit remain; the
+    // constructor and bootstrap policy projections share this exact original image.
+    assert_eq!(checks, 2);
     assert_eq!(actual.initial, expected_initial);
     assert_eq!(
         encode(&actual.policies, MAX_POLICY_BYTES).unwrap(),
@@ -3250,3 +3250,9 @@ fn fresh_catalog_round_preserves_original_census_and_expired_current_proof_refus
 
 #[path = "import_scope_tests.rs"]
 pub(super) mod import_scope_tests;
+
+#[path = "policy_projection_tests.rs"]
+mod policy_projection_tests;
+
+#[path = "runtime_original_tests.rs"]
+mod runtime_original_tests;

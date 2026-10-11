@@ -95,6 +95,122 @@ impl From<PrepaidBufferError> for GraphError {
     }
 }
 
+/// Move-only genuine global context retaining every copied roster/key/PoP allocation.
+/// This admission grants no authority; the caller still verifies the original H2.
+pub(super) struct RetainedGlobalSource {
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC219")))]
+    value: RetainedPayload<AmxForeignInstanceV1>,
+    #[cfg(all(test, sumeragi_core_mutation = "HC219"))]
+    value: AmxForeignInstanceV1,
+}
+impl RetainedGlobalSource {
+    #[allow(
+        unsafe_code,
+        reason = "the exact context copier moves each physical allocation with its original ledger into an immutable returned owner"
+    )]
+    pub(super) fn admit(
+        instance: [u8; 32],
+        context: &ValidatorEpochContextV1,
+        budget: &AllocationBudget,
+    ) -> Result<Self, GraphError> {
+        #[cfg(all(test, sumeragi_core_mutation = "HC219"))]
+        {
+            let _ = budget;
+            return Ok(Self {
+                value: AmxForeignInstanceV1 {
+                    instance,
+                    current: context.clone(),
+                    previous: None,
+                },
+            });
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC219")))]
+        {
+            let mut demand = Demand::default();
+            demand.context(context)?;
+            let mut construction = Construction::new_with_control(demand, budget, 0)?;
+            let current = construction.context(context, budget)?;
+            let value = AmxForeignInstanceV1 {
+                instance,
+                current,
+                previous: None,
+            };
+            let charges = construction
+                .charges
+                .take()
+                .expect("returned context ledger");
+            if construction.reservation.remaining_bytes() != 0
+                || charges.as_slice().len() != charges.capacity()
+            {
+                drop(value);
+                drop(charges);
+                return Err(GraphError::Invalid(
+                    "returned context exact demand changed".into(),
+                ));
+            }
+            // SAFETY: the shared copier prepaid the exact committee Vec, compact key
+            // boxes and PoP Vecs, all unchanged/private. RetainedPayload drops every
+            // actual allocation before its same-pool ledger, including unwind/refusal.
+            let value = unsafe { RetainedPayload::try_new(value, charges, budget) }.map_err(
+                |(value, charges, error)| {
+                    drop(value);
+                    drop(charges);
+                    GraphError::Invalid(error.to_string())
+                },
+            )?;
+            Ok(Self { value })
+        }
+    }
+    pub(super) fn canonical(&self) -> &AmxForeignInstanceV1 {
+        #[cfg(all(test, sumeragi_core_mutation = "HC219"))]
+        {
+            &self.value
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC219")))]
+        {
+            self.value.get()
+        }
+    }
+    #[cfg(test)]
+    pub(super) fn allocation_bytes(&self) -> Option<usize> {
+        #[cfg(all(test, sumeragi_core_mutation = "HC219"))]
+        {
+            Some(0)
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC219")))]
+        {
+            self.value.allocation_bytes()
+        }
+    }
+    pub(super) fn belongs_to(&self, budget: &AllocationBudget) -> bool {
+        #[cfg(all(test, sumeragi_core_mutation = "HC219"))]
+        {
+            let _ = budget;
+            false
+        }
+        #[cfg(not(all(test, sumeragi_core_mutation = "HC219")))]
+        {
+            self.value.belongs_to(budget)
+        }
+    }
+}
+
+/// Original initial registration inputs lent until complete World admission.
+pub(super) struct RegistrationSource<'a> {
+    pub(super) dataspace: iroha_model_base::topology::DataSpaceId,
+    pub(super) global: &'a RetainedGlobalSource,
+    pub(super) global_genesis: &'a [u8],
+    pub(super) global_successor: &'a [u8],
+    pub(super) global_chain_label: &'a [u8],
+    pub(super) custody: &'a AccountId,
+}
+
+impl fmt::Debug for RetainedGlobalSource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.canonical().fmt(formatter)
+    }
+}
+
 /// Canonical World participant value whose shared graph is admitted only by this module.
 #[derive(Clone, Default)]
 pub struct RetainedNativeAmx {
@@ -103,6 +219,87 @@ pub struct RetainedNativeAmx {
     authenticated: bool,
 }
 impl RetainedNativeAmx {
+    /// Construct the initially empty graph directly from the still-retained global context.
+    /// No ordinary epoch clone or uncharged canonical temporary is created.
+    pub(super) fn admit_registration(
+        source: RegistrationSource<'_>,
+        budget: &AllocationBudget,
+    ) -> Result<Self, GraphError> {
+        if !source.global.belongs_to(budget) {
+            return Err(GraphError::Invalid(
+                "returned global context belongs to another original pool".into(),
+            ));
+        }
+        let global = source.global.canonical();
+        NativeAmxParticipantStateV1::validate_initial_sources(
+            global,
+            source.global_genesis,
+            source.global_successor,
+            source.global_chain_label,
+        )
+        .map_err(GraphError::from)?;
+        let mut demand = Demand::default();
+        demand.array::<u8>(source.global_genesis.len())?;
+        demand.array::<u8>(source.global_successor.len())?;
+        demand.array::<u8>(source.global_chain_label.len())?;
+        demand.account(source.custody)?;
+        demand.context(&global.current)?;
+        if let Some(previous) = &global.previous {
+            demand.context(previous)?;
+        }
+        demand.array::<AmxPreparedEntryV1>(0)?;
+        demand.array::<AmxHeldDecisionV1>(0)?;
+        demand.array::<AmxTransferEscrowV1>(0)?;
+        let mut construction = Construction::new(demand, budget)?;
+        let global_genesis = construction.bytes(source.global_genesis)?;
+        let global_successor = construction.bytes(source.global_successor)?;
+        let global_chain_label = construction.bytes(source.global_chain_label)?;
+        let custody = construction.account(source.custody)?;
+        let current = construction.context(&global.current, budget)?;
+        let previous = global
+            .previous
+            .as_ref()
+            .map(|previous| construction.context(previous, budget))
+            .transpose()?;
+        let global = AmxForeignInstanceV1 {
+            instance: global.instance,
+            current,
+            previous,
+        };
+        let prepared = construction.buffer::<AmxPreparedEntryV1>(0)?;
+        let prepared = construction.vector(prepared)?;
+        let held = construction.buffer::<AmxHeldDecisionV1>(0)?;
+        let held = construction.vector(held)?;
+        let escrows = construction.buffer::<AmxTransferEscrowV1>(0)?;
+        let value = NativeAmxParticipantStateV1 {
+            global_genesis,
+            global_successor,
+            global_chain_label,
+            participant: AmxParticipantStateV1 {
+                dataspace: source.dataspace,
+                global,
+                global_height: 0,
+                prepared,
+                held,
+            },
+            custody,
+            escrows: construction.vector(escrows)?,
+        };
+        Candidate {
+            value: Some(value),
+            construction,
+            budget: budget.clone(),
+        }
+        .finish()
+    }
+    #[cfg(test)]
+    pub(super) fn allocation_bytes(&self) -> Option<usize> {
+        let owner = self.owner.as_ref()?;
+        owner.allocation_bytes()?.checked_add(
+            ChargedShared::<RetainedPayload<NativeAmxParticipantStateV1>>::allocation_layout()
+                .size(),
+        )
+    }
     /// Borrow immutable canonical authority without copying its nested allocations.
     pub(crate) fn canonical(&self) -> Option<&NativeAmxParticipantStateV1> {
         self.owner.as_ref().map(|owner| owner.get())
@@ -302,11 +499,25 @@ impl Drop for Construction {
     }
 }
 impl Construction {
-    fn new(mut demand: Demand, budget: &AllocationBudget) -> Result<Self, GraphError> {
+    fn new(demand: Demand, budget: &AllocationBudget) -> Result<Self, GraphError> {
+        Self::new_with_control(
+            demand,
+            budget,
+            ChargedShared::<RetainedPayload<NativeAmxParticipantStateV1>>::allocation_layout()
+                .size(),
+        )
+    }
+    fn new_with_control(
+        mut demand: Demand,
+        budget: &AllocationBudget,
+        control_bytes: usize,
+    ) -> Result<Self, GraphError> {
         let ledger = Layout::array::<AllocationCharge>(demand.charges)
             .map_err(|_| AllocationRefusal::DemandOverflow)?;
-        demand.bytes = demand.bytes.checked_add(ledger.size())
-            .and_then(|bytes| bytes.checked_add(ChargedShared::<RetainedPayload<NativeAmxParticipantStateV1>>::allocation_layout().size()))
+        demand.bytes = demand
+            .bytes
+            .checked_add(ledger.size())
+            .and_then(|bytes| bytes.checked_add(control_bytes))
             .ok_or(AllocationRefusal::DemandOverflow)?;
         let mut reservation = budget.try_reserve_bytes(demand.bytes)?;
         let charges = ChargedBuffer::from_reservation(demand.charges, &mut reservation)?;

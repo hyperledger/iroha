@@ -14,7 +14,6 @@ use crate::{
     },
     sumeragi::epoch::{
         ValidatorCommitteeMemberV1, ValidatorEpochAuthorizationV1, ValidatorEpochContextV1,
-        ValidatorGenerationV1,
     },
     transaction::{Executable, TransactionDomain},
 };
@@ -99,6 +98,16 @@ pub(super) fn authenticated_genesis_with_validation(
     genesis: &SignedBlock,
     validation: Option<&super::EpochValidationScope>,
 ) -> Result<AuthenticatedGenesis, GenesisReadError> {
+    authenticate_with_policy(genesis, validation, &mut OrdinaryPolicy(None))
+}
+
+// The ordinary and retained owners run exactly the same signature, instruction,
+// metadata and complete epoch checks, in the same order.
+fn authenticate_with_policy<P: PolicySource>(
+    genesis: &SignedBlock,
+    validation: Option<&super::EpochValidationScope>,
+    policy: &mut P,
+) -> Result<AuthenticatedGenesis, P::Error> {
     if !genesis.header().is_genesis() {
         return Err("native epoch root requires height-one signed genesis".into());
     }
@@ -122,8 +131,8 @@ pub(super) fn authenticated_genesis_with_validation(
         .signature()
         .verify_hash(signer, genesis.hash())
         .map_err(|error| error.to_string())?;
-    let mut npos = None;
-    for transaction in genesis.external_transactions() {
+    let mut npos_seen = false;
+    for (transaction_index, transaction) in genesis.external_transactions().enumerate() {
         if transaction.authority().try_signatory() != Some(signer)
             || transaction.domain() != &TransactionDomain::Genesis
         {
@@ -135,7 +144,7 @@ pub(super) fn authenticated_genesis_with_validation(
         let Executable::Instructions(instructions) = transaction.instructions() else {
             return Err("genesis epoch authority requires explicit signed instructions".into());
         };
-        for instruction in instructions {
+        for (instruction_index, instruction) in instructions.iter().enumerate() {
             let Some(set) = instruction.as_any().downcast_ref::<SetParameter>() else {
                 continue;
             };
@@ -145,11 +154,11 @@ pub(super) fn authenticated_genesis_with_validation(
             if custom.id() != &SumeragiNposParameters::parameter_id() {
                 continue;
             }
-            let parameters = SumeragiNposParameters::from_custom_parameter(custom)?
-                .ok_or("invalid signed genesis NPoS parameters")?;
-            if npos.replace(parameters).is_some() {
+            policy.read(custom, (transaction_index, instruction_index))?;
+            if npos_seen {
                 return Err("genesis repeats its signed NPoS parameter authority".into());
             }
+            npos_seen = true;
         }
     }
     let metadata = signed_genesis_consensus_metadata(genesis)?;
@@ -169,10 +178,11 @@ pub(super) fn authenticated_genesis_with_validation(
             .into(),
         ),
         ConsensusMode::Npos => {
-            let parameters = npos.ok_or("NPoS genesis omits its signed epoch length and seed")?;
-            let policy =
-                crate::nexus::ValidatorElectionPolicyV1::from_npos_parameters(&parameters)?;
-            (policy.epoch_length_blocks, parameters.epoch_seed)
+            let parameters = policy
+                .parameters()
+                .ok_or("NPoS genesis omits its signed epoch length and seed")?;
+            crate::nexus::ValidatorElectionPolicyV1::validate_npos_parameters(parameters)?;
+            (parameters.epoch_length_blocks.get(), parameters.epoch_seed)
         }
     };
     let committee: Vec<ValidatorCommitteeMemberV1> = super::genesis_registrations(genesis)
@@ -186,9 +196,9 @@ pub(super) fn authenticated_genesis_with_validation(
         )
         .collect();
     // Generation zero is the signed registered roster itself; no separate key template exists.
-    let generation = ValidatorGenerationV1::from_committee(network_id, 0, &committee);
-    let authorization = ValidatorEpochAuthorizationV1::genesis(&generation, last_height)
-        .map_err(|error| error.to_string())?;
+    let authorization =
+        ValidatorEpochAuthorizationV1::genesis_from_committee(network_id, &committee, last_height)
+            .map_err(|error| error.to_string())?;
     let epoch = ValidatorEpochContextV1 {
         da_layout: metadata.sumeragi_context.da_layout,
         version: 1,
@@ -203,6 +213,45 @@ pub(super) fn authenticated_genesis_with_validation(
         None => epoch.validate()?,
     }
     Ok(AuthenticatedGenesis { epoch, metadata })
+}
+
+mod original_policy;
+pub use original_policy::{OriginalGenesisRead, OriginalGenesisReadError};
+
+trait PolicySource {
+    type Error: From<GenesisReadError>
+        + From<String>
+        + From<&'static str>
+        + From<norito::json::Error>;
+
+    fn read(
+        &mut self,
+        custom: &crate::parameter::CustomParameter,
+        coordinate: (usize, usize),
+    ) -> Result<(), Self::Error>;
+
+    fn parameters(&self) -> Option<&SumeragiNposParameters>;
+}
+
+struct OrdinaryPolicy(Option<SumeragiNposParameters>);
+impl PolicySource for OrdinaryPolicy {
+    type Error = GenesisReadError;
+
+    fn read(
+        &mut self,
+        custom: &crate::parameter::CustomParameter,
+        _: (usize, usize),
+    ) -> Result<(), Self::Error> {
+        self.0 = Some(
+            SumeragiNposParameters::from_custom_parameter(custom)?
+                .ok_or("invalid signed genesis NPoS parameters")?,
+        );
+        Ok(())
+    }
+
+    fn parameters(&self) -> Option<&SumeragiNposParameters> {
+        self.0.as_ref()
+    }
 }
 
 /// Decode and validate the unique consensus metadata in an authenticated signed genesis body.
@@ -456,9 +505,8 @@ pub fn authenticate_signed_genesis_v1(
                 "signed genesis native epoch is invalid",
             )),
         })?;
-    if epoch.mode != pins.mode
-        || epoch.network_id != pins.network_id
-        || epoch.committee.len() != pins.roster.len()
+    if (&epoch.mode, &epoch.network_id, epoch.committee.len())
+        != (&pins.mode, &pins.network_id, pins.roster.len())
         || !epoch
             .committee
             .iter()

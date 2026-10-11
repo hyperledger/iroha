@@ -18,7 +18,8 @@ source build, PATH discovery or project-local secret export is involved.
 
 The UI provides aggregate Start, Stop and explicit stopped-network Reset actions.
 New localnet creates another named environment without resetting the current one;
-the new environment is selected when ready. Failed startup retains the previous
+the new environment is selected when ready. Both startup actions require a fresh
+Ready observation before changing selection. Failed startup retains the previous
 selection and exposes the prepared name for recovery from the environment menu.
 Its Private dataspace action selects a network from the installed profile artifact
 and delegates the operation, with a sixty-second foreground deadline, to the same
@@ -48,8 +49,13 @@ Deployment results identify the original localnet or private dataspace on which
 the contract applied. Parent receipts appear separately as historical evidence;
 an unavailable parent observation does not undo a verified local deployment. A failed automatic
 workspace refresh keeps the completed deployment receipt visible, clears live context, streams,
-logs and activity, and reports the observation error. Explicit selection and lifecycle actions
+logs and activity, and reports the observation error. Explicit selection and Stop
 retain their existing clearing behavior.
+
+Deployment results also show artifact-derived initialization guidance when the
+contract declares `hajimari`/`始まり`. It stays separate from the Applied receipt:
+the hook requires an explicit call, and recovered guidance does not assert its
+current state.
 
 The Packages view exposes explicit Publish, Resume publication and Recover package files
 actions through `DeveloperWorkspace::publish_package` and the shared Musubi engine.

@@ -2169,7 +2169,9 @@ fn original_genesis_policy_decode_refusal_preserves_exact_source_and_retry() {
     assert!(
         matches!(
             producer,
-            GenesisReadError::Json(norito::json::Error::DecodeResourceLimit)
+            GenesisReadError::Json(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
         ),
         "{producer:?}"
     );
@@ -2180,9 +2182,9 @@ fn original_genesis_policy_decode_refusal_preserves_exact_source_and_retry() {
     assert!(
         matches!(
             error,
-            FinalityError::Genesis(GenesisReadError::Json(
-                norito::json::Error::DecodeResourceLimit
-            ))
+            FinalityError::Genesis(GenesisReadError::Json(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            )))
         ),
         "{error:?}"
     );
@@ -2266,7 +2268,9 @@ fn checkpoint_npos_refusal_follows_a_completed_original_binary_read() {
         assert!(
             matches!(
                 error,
-                GenesisReadError::Json(norito::json::Error::DecodeResourceLimit)
+                GenesisReadError::Json(norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                ))
             ),
             "{error:?}"
         );
@@ -2300,7 +2304,9 @@ fn checkpoint_npos_refusal_follows_a_completed_original_binary_read() {
         assert!(
             matches!(
                 error,
-                GenesisReadError::Json(norito::json::Error::DecodeResourceLimit)
+                GenesisReadError::Json(norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                ))
             ),
             "{error:?}"
         );
@@ -2316,9 +2322,9 @@ fn checkpoint_npos_refusal_follows_a_completed_original_binary_read() {
     assert!(
         matches!(
             error,
-            FinalityError::Genesis(GenesisReadError::Json(
-                norito::json::Error::DecodeResourceLimit
-            ))
+            FinalityError::Genesis(GenesisReadError::Json(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            )))
         ),
         "{error:?}"
     );

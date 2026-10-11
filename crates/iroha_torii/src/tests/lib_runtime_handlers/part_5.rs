@@ -918,7 +918,7 @@ async fn account_get_handler_supports_json_and_norito() {
     let keypair = checked_torii_test_ed25519_keypair(0x2a, "derive Torii account-get fixture key");
     let account_id = AccountId::new(keypair.public_key().clone());
     let world = world_with_account(&account_id);
-    let app = mk_app_state_for_tests_with_world(world);
+    let app = native_ingress_app_with_world_for_test(world);
     let json_resp = super::handler_account_get(
         State(app.clone()),
         axum::http::Method::GET,
@@ -975,7 +975,7 @@ async fn account_get_handler_supports_json_and_norito() {
 #[cfg(feature = "app_api")]
 #[tokio::test]
 async fn account_get_handler_returns_not_found_for_missing_account() {
-    let app = mk_app_state_for_tests();
+    let app = native_ingress_app_with_world_for_test(World::default());
     let missing =
         checked_torii_test_account_id(0x2b, "derive Torii missing account-get fixture key");
     let resp = super::handler_account_get(
@@ -993,30 +993,94 @@ async fn account_get_handler_returns_not_found_for_missing_account() {
     .expect("missing account response");
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
+/// Retain genuine global authority while attempting a stale coordinate outside the current catalog.
+#[cfg(feature = "app_api")]
+fn native_account_read_with_stale_route_for_test(
+    world: World,
+) -> (SharedAppState, RoutingDecision, RoutingDecision) {
+    let app = native_ingress_with_offline_foreign_app_for_test(world);
+    let local_route = RoutingDecision::new(LaneId::new(1), DataSpaceId::new(10));
+    let manifest_route = RoutingDecision::new(LaneId::new(2), DataSpaceId::new(12));
+    let stale_route = RoutingDecision::new(LaneId::new(3), DataSpaceId::new(12));
+    let local = app
+        .state
+        .resolve_route_authority(super::lane_authority_route(local_route))
+        .expect("the active local route retains genuine global authority");
+    let manifest = app
+        .state
+        .resolve_route_authority(super::lane_authority_route(manifest_route))
+        .expect("another active label retains the same global authority");
+    assert_eq!(local.authority_height(), 3);
+    assert_eq!(manifest.authority_height(), local.authority_height());
+    assert_eq!(local.validators(), manifest.validators());
+    assert!(
+        local.validators().contains(
+            app.local_peer_id
+                .as_ref()
+                .expect("the original local validator")
+        )
+    );
+    assert!(super::should_execute_route_locally(&app, local_route));
+    assert!(super::should_execute_route_locally(&app, manifest_route));
+    {
+        let view = app.state.view();
+        assert!(matches!(
+            iroha_core::queue::resolve_routing_decision(
+                stale_route,
+                &view.nexus().lane_catalog,
+                &view.nexus().dataspace_catalog,
+            ),
+            Err(iroha_core::queue::RoutingResolveError::UnknownLane { lane_id })
+                if lane_id == stale_route.lane_id
+        ));
+    }
+    assert!(matches!(
+        app.state
+            .resolve_route_authority(super::lane_authority_route(stale_route)),
+        Err(iroha_core::state::LaneAuthorityError::InactiveRoute {
+            lane_id,
+            dataspace_id,
+            authority_height: 3,
+        }) if lane_id == stale_route.lane_id && dataspace_id == stale_route.dataspace_id
+    ));
+    assert!(!super::should_execute_route_locally(&app, stale_route));
+    (app, local_route, stale_route)
+}
 #[cfg(feature = "app_api")]
 #[tokio::test]
 async fn account_read_for_routes_skips_route_unavailable_until_success() {
     let keypair =
         checked_torii_test_ed25519_keypair(0x2c, "derive Torii routed account-read fixture key");
     let account_id = AccountId::new(keypair.public_key().clone());
-    let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world_and_nexus(
-        world_with_account(&account_id),
-        crate::tests_runtime_handlers::private_ingress_with_offline_foreign_nexus_for_test(),
+    let (app, local_route, stale_route) =
+        native_account_read_with_stale_route_for_test(world_with_account(&account_id));
+    let memory = super::try_acquire_query_fanout_memory(&app)
+        .expect("the original query pool admits the complete fanout");
+    let response = super::COLLECTION_READ_MEMORY_RESERVATION
+        .scope(
+            memory,
+            super::execute_torii_account_read_for_resolved_routes(
+                &app,
+                vec![stale_route, local_route],
+                super::ToriiFanoutRouteScopeV1::TargetAccount {
+                    account_id: account_id.to_string(),
+                    caller_account_id: Some(account_id.to_string()),
+                },
+                account_id.to_string(),
+                ResponseFormat::Json,
+                None,
+            ),
+        )
+        .await;
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-fanout-routes-attempted"),
+        Some("2"),
     );
-    let (local_route, foreign_route) =
-        configure_private_ingress_with_offline_foreign_route_for_test(&mut app);
-    let response = super::execute_torii_account_read_for_resolved_routes(
-        &app,
-        vec![foreign_route, local_route],
-        super::ToriiFanoutRouteScopeV1::TargetAccount {
-            account_id: account_id.to_string(),
-            caller_account_id: Some(account_id.to_string()),
-        },
-        account_id.to_string(),
-        ResponseFormat::Json,
-        None,
-    )
-    .await;
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-fanout-routes-unavailable"),
+        Some("1"),
+        "the stale route is actually attempted and classified as unavailable",
+    );
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
         torii_response_header(&response, "x-iroha-routed-by"),
@@ -1388,16 +1452,19 @@ async fn trusted_internal_asset_read_is_exactly_scoped_bound_and_conflict_safe()
         AssetBalanceScope::Dataspace(DataSpaceId::new(10)),
     );
     let expected = Asset::new(asset_id.clone(), Quantity::from(42_u32));
-    let app = mk_app_state_for_tests_with_world(World::with_assets(
-        [domain],
-        [
-            Account::new(authority.clone()).build(&authority),
-            Account::new(unrelated.clone()).build(&authority),
-        ],
-        [asset_definition],
-        [expected.clone()],
-        [],
-    ));
+    let app = native_ingress_app_with_world_and_nexus_for_test(
+        World::with_assets(
+            [domain],
+            [
+                Account::new(authority.clone()).build(&authority),
+                Account::new(unrelated.clone()).build(&authority),
+            ],
+            [asset_definition],
+            [expected.clone()],
+            [],
+        ),
+        private_ingress_nexus_for_test(),
+    );
     let json_response = super::handler_internal_account_asset_get(
         State(app.clone()),
         format!(
@@ -1538,24 +1605,35 @@ async fn trusted_internal_asset_read_is_exactly_scoped_bound_and_conflict_safe()
 async fn account_read_for_routes_prefers_not_found_over_route_unavailable_when_missing() {
     let missing =
         checked_torii_test_account_id(0x2d, "derive Torii missing routed account-read fixture key");
-    let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world_and_nexus(
-        iroha_core::state::World::default(),
-        crate::tests_runtime_handlers::private_ingress_with_offline_foreign_nexus_for_test(),
+    let (app, local_route, stale_route) =
+        native_account_read_with_stale_route_for_test(World::default());
+    let memory = super::try_acquire_query_fanout_memory(&app)
+        .expect("the original query pool admits the complete fanout");
+    let response = super::COLLECTION_READ_MEMORY_RESERVATION
+        .scope(
+            memory,
+            super::execute_torii_account_read_for_resolved_routes(
+                &app,
+                vec![stale_route, local_route],
+                super::ToriiFanoutRouteScopeV1::TargetAccount {
+                    account_id: missing.to_string(),
+                    caller_account_id: Some(missing.to_string()),
+                },
+                missing.to_string(),
+                ResponseFormat::Json,
+                None,
+            ),
+        )
+        .await;
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-fanout-routes-attempted"),
+        Some("2"),
     );
-    let (local_route, foreign_route) =
-            crate::tests_runtime_handlers::configure_private_ingress_with_offline_foreign_route_for_test(&mut app);
-    let response = super::execute_torii_account_read_for_resolved_routes(
-        &app,
-        vec![foreign_route, local_route],
-        super::ToriiFanoutRouteScopeV1::TargetAccount {
-            account_id: missing.to_string(),
-            caller_account_id: Some(missing.to_string()),
-        },
-        missing.to_string(),
-        ResponseFormat::Json,
-        None,
-    )
-    .await;
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-fanout-routes-unavailable"),
+        Some("1"),
+        "the stale route is actually attempted and classified as unavailable",
+    );
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     assert_ne!(
         torii_response_header(&response, "x-iroha-reject-code"),
@@ -1570,24 +1648,35 @@ async fn account_read_for_routes_returns_route_unavailable_when_only_unavailable
         0x2e,
         "derive Torii unavailable routed account-read fixture key",
     );
-    let mut app = crate::tests_runtime_handlers::mk_app_state_for_tests_with_world_and_nexus(
-        iroha_core::state::World::default(),
-        crate::tests_runtime_handlers::private_ingress_with_offline_foreign_nexus_for_test(),
+    let (app, _local_route, stale_route) =
+        native_account_read_with_stale_route_for_test(World::default());
+    let memory = super::try_acquire_query_fanout_memory(&app)
+        .expect("the original query pool admits the complete fanout");
+    let response = super::COLLECTION_READ_MEMORY_RESERVATION
+        .scope(
+            memory,
+            super::execute_torii_account_read_for_resolved_routes(
+                &app,
+                vec![stale_route],
+                super::ToriiFanoutRouteScopeV1::TargetAccount {
+                    account_id: missing.to_string(),
+                    caller_account_id: Some(missing.to_string()),
+                },
+                missing.to_string(),
+                ResponseFormat::Json,
+                None,
+            ),
+        )
+        .await;
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-fanout-routes-attempted"),
+        Some("1"),
     );
-    let (_local_route, foreign_route) =
-            crate::tests_runtime_handlers::configure_private_ingress_with_offline_foreign_route_for_test(&mut app);
-    let response = super::execute_torii_account_read_for_resolved_routes(
-        &app,
-        vec![foreign_route],
-        super::ToriiFanoutRouteScopeV1::TargetAccount {
-            account_id: missing.to_string(),
-            caller_account_id: Some(missing.to_string()),
-        },
-        missing.to_string(),
-        ResponseFormat::Json,
-        None,
-    )
-    .await;
+    assert_eq!(
+        torii_response_header(&response, "x-iroha-fanout-routes-unavailable"),
+        Some("1"),
+        "the stale route is actually attempted and classified as unavailable",
+    );
     assert_route_unavailable_response(&response);
 }
 // This fixture obtains callbacks from actual H2 execution, including normal signed-genesis

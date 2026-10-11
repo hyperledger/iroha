@@ -5836,28 +5836,6 @@ where
         .await
         .map_err(|_| query_internal_error(worker_failure))?
 }
-/// GET /v1/bridge/finality/{height} — Self-contained finality proof for a block.
-#[iroha_futures::telemetry_future]
-pub(crate) async fn handle_v1_bridge_finality(
-    state: Arc<CoreState>,
-    height: u64,
-    format: crate::utils::ResponseFormat,
-    admission: crate::QueryAdmissionPermit,
-) -> Result<Response> {
-    run_admitted_blocking(
-        admission,
-        "bridge finality verification worker failed",
-        move || {
-            let proof = iroha_core::sumeragi::finality::build_proof(&state.view(), height)
-                .map_err(map_current_finality_error)?;
-            if matches!(format, crate::utils::ResponseFormat::Norito) {
-                return Ok(crate::NoritoBody(proof).into_response());
-            }
-            pretty_json_response(&proof)
-        },
-    )
-    .await
-}
 /// GET /v1/bridge/finality/attestation/{height|latest} — Challenge-bound
 /// node-signed finality proof for the exact durable state tip plus its
 /// committed genesis. `height = None` selects `latest`: the durable tip of the
@@ -5939,7 +5917,7 @@ pub(crate) async fn handle_v1_bridge_finality_bundle(
     )
     .await
 }
-fn map_current_finality_error(err: iroha_core::sumeragi::finality::ProofError) -> Error {
+pub(super) fn map_current_finality_error(err: iroha_core::sumeragi::finality::ProofError) -> Error {
     use iroha_core::sumeragi::{certified_chain::ChainReadError, finality::ProofError};
     match err {
         ProofError::Chain(
@@ -33023,7 +33001,7 @@ pub fn parse_account_path_segment(
             Error::Query(iroha_data_model::ValidationFail::QueryFailed(
                 QueryExecutionFail::Conversion(format!(
                     "invalid account_id `{literal}`: {}",
-                    err.reason()
+                    err.code_str()
                 )),
             ))
         })
@@ -33034,15 +33012,16 @@ pub(crate) fn parse_account_literal_with_state(
     literal: &str,
     telemetry: &MaybeTelemetry,
     context: &'static str,
-) -> Result<(iroha_data_model::account::AccountId, String), iroha_model_base::error::ParseError> {
+) -> Result<
+    (iroha_data_model::account::AccountId, String),
+    iroha_data_model::account::AccountIdParseError,
+> {
     match AccountId::parse_encoded(literal) {
         Ok(account_id) => {
             let canonical = account_id.to_string();
             if literal != canonical {
-                let err = iroha_model_base::error::ParseError::new(
-                    "account id must use its exact canonical I105 literal",
-                );
-                record_account_literal_reject(telemetry, context, err.reason());
+                let err = iroha_data_model::account::AccountIdParseError::InvalidFormat;
+                record_account_literal_reject(telemetry, context, err.code_str());
                 return Err(err);
             }
             Ok((account_id, canonical))
@@ -33052,7 +33031,7 @@ pub(crate) fn parse_account_literal_with_state(
             // permissioned operation and must use a caller-aware path that verifies the exact
             // applicable domain or dataspace `CanResolveAccountAlias` grant before consulting
             // active SNS state.
-            record_account_literal_reject(telemetry, context, base_err.reason());
+            record_account_literal_reject(telemetry, context, base_err.code_str());
             Err(base_err)
         }
     }
@@ -33067,7 +33046,7 @@ pub(crate) fn parse_account_path_segment_with_state(
     use iroha_data_model::{ValidationFail, query::error::QueryExecutionFail};
     parse_account_literal_with_state(state, literal, telemetry, endpoint).map_err(|err| {
         Error::Query(ValidationFail::QueryFailed(QueryExecutionFail::Conversion(
-            format!("invalid account_id `{literal}`: {}", err.reason()),
+            format!("invalid account_id `{literal}`: {}", err.code_str()),
         )))
     })
 }
@@ -33110,7 +33089,7 @@ fn canonicalize_account_literal_value(
                 Err(err) => Err(Error::Query(ValidationFail::QueryFailed(
                     QueryExecutionFail::Conversion(format!(
                         "invalid account filter literal `{current_literal}`: {}",
-                        err.reason()
+                        err.code_str()
                     )),
                 ))),
             }
@@ -33204,7 +33183,7 @@ fn canonicalize_query_account_literal(
             };
             canonical.map_err(|err| {
                 Error::Query(ValidationFail::QueryFailed(QueryExecutionFail::Conversion(
-                    format!("invalid `{label}` literal `{raw}`: {}", err.reason()),
+                    format!("invalid `{label}` literal `{raw}`: {}", err.code_str()),
                 )))
             })
         })
@@ -33215,11 +33194,11 @@ pub fn parse_account_literal(
     literal: &str,
     telemetry: &MaybeTelemetry,
     context: &'static str,
-) -> Result<AccountId, iroha_model_base::error::ParseError> {
+) -> Result<AccountId, iroha_data_model::account::AccountIdParseError> {
     match AccountId::parse_encoded(literal) {
         Ok(parsed) => Ok(parsed),
         Err(err) => {
-            record_account_literal_reject(telemetry, context, err.reason());
+            record_account_literal_reject(telemetry, context, err.code_str());
             Err(err)
         }
     }
@@ -33255,7 +33234,7 @@ mod address_metrics_tests {
         let metrics = telemetry.metrics().await;
         let reason = iroha_data_model::account::AccountId::parse_encoded(NONCANONICAL_LITERAL)
             .expect_err("domain-suffixed literal should fail")
-            .reason();
+            .code_str();
         let invalid_counter = metrics
             .torii_address_invalid_total
             .with_label_values(&[TEST_CONTEXT, reason]);
@@ -33311,7 +33290,7 @@ mod address_metrics_tests {
         let literal = "sorainvalid@kaigi";
         let reason = AccountId::parse_encoded(literal)
             .expect_err("literal must fail")
-            .reason();
+            .code_str();
         let before = metrics
             .torii_address_invalid_total
             .with_label_values(&[KAIGI_SSE_CONTEXT, reason])
@@ -33343,7 +33322,7 @@ mod account_path_metric_tests {
         let literal = "bad@banka.dataspace";
         let reason = AccountId::parse_encoded(literal)
             .expect_err("literal must be rejected")
-            .reason();
+            .code_str();
         let before = {
             let metrics = telemetry.metrics().await;
             metrics
@@ -45474,7 +45453,7 @@ fn load_swap_fill_rollup(
         conversion_error(format!(
             "invalid authority `{}`: {}",
             params.authority,
-            err.reason()
+            err.code_str()
         ))
     })?;
     let prepared = resolve_rollup_contract_target(
@@ -51564,7 +51543,7 @@ pub(crate) async fn handle_v1_nexus_dataspaces_account_summary_with_visibility(
     .map_err(|err| {
         conversion_error(format!(
             "invalid account literal `{literal}`: {}",
-            err.reason()
+            err.code_str()
         ))
     })?;
     record_account_literal_selection(&telemetry, ENDPOINT_NEXUS_DATASPACES_ACCOUNT_SUMMARY);
@@ -56608,7 +56587,7 @@ pub async fn handle_v1_nexus_public_lane_stake(
                     Error::Query(iroha_data_model::ValidationFail::QueryFailed(
                         iroha_data_model::query::error::QueryExecutionFail::Conversion(format!(
                             "invalid validator literal `{canonical}`: {}",
-                            err.reason()
+                            err.code_str()
                         )),
                     ))
                 })?,

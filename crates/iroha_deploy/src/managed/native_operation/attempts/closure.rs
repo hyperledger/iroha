@@ -94,9 +94,10 @@ impl VerifiedUnsignedClosure {
         pass: Option<&crate::managed::stream_token_custody::body_history::SnapshotReadPass<'_>>,
         tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
         originals: Option<&retained_graph::OriginalReadPass<'_, '_>>,
+        root_read: Option<&mut GraphRootReadPass<'_, '_>>,
     ) -> Result<()> {
         self.history
-            .require_current_local_in_tree(pass, tree, originals)?;
+            .require_current_local_in_tree(pass, tree, originals, root_read)?;
         self.require_receipt()
     }
     pub(super) fn require_receipt(&self) -> Result<()> {
@@ -410,6 +411,9 @@ impl History {
             root_identity: evidence.root().identity()?,
             fees: evidence.fees().clone(),
         };
+        // The borrowed verifier still closes its newly parsed graph at the original
+        // boundary. The consuming verifier below already owns that exact closure census.
+        value.history.require_current_with_pass(pass)?;
         Self::finish_closure_receipt(value, successor, pass).map(Some)
     }
 
@@ -442,6 +446,23 @@ impl History {
         checked?;
         let fields = self.closure_fields()?;
         let value = fields.bind(self);
+        // No callback, wallet inspection, write or authorization action occurs between
+        // the current census above and the exact receipt checks below. They use
+        // the same consumed History and original handles, so close this receipt without
+        // a second identical census (full graph standalone, covered local census in
+        // the sealed parser). All wallet callbacks and the original native
+        // handle checks still precede receipt admission, including on ordinary errors.
+        // This consolidates two adjacent source observations. A change after the remaining
+        // census, including one changed and restored before return, may be unobserved until
+        // another independent native check. No atomic snapshot or retained freshness
+        // verdict is created. A later active decoder keeps the old physical recipe too;
+        // the entry fallback above remains unchanged.
+        let repeat_census = norito::core::decode_limits_active();
+        #[cfg(test)]
+        let repeat_census = repeat_census || original_receipt_census_for_test();
+        if repeat_census {
+            value.history.require_current_with_pass(pass)?;
+        }
         Self::finish_closure_receipt(value, successor, pass)
             .map(UnsignedClosureVerification::Closed)
     }
@@ -507,7 +528,10 @@ impl History {
         successor: &dyn SemanticSuccessor,
         pass: Option<&EnrollmentReadPass<'_>>,
     ) -> Result<VerifiedUnsignedClosure> {
-        value.require_retained_with_pass(pass)?;
+        // Both private callers have just checked this exact History under their existing
+        // standalone or sealed-parser scope. Retain every binding,
+        // native root identity, fee, closure-record and successor check at this boundary.
+        value.require_receipt()?;
         successor
             .revalidate_with_snapshot_read_pass(pass.and_then(EnrollmentReadPass::snapshot))?;
         if let Some(pass) = pass {
@@ -677,6 +701,12 @@ fn require_missing_wallet(attempt: &Attempt) -> Result<()> {
 #[cfg(test)]
 std::thread_local! {
     static HISTORY_PARSES: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    // Restore precisely the former second census, using the actual native graph walker.
+    static ORIGINAL_RECEIPT_CENSUS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+#[cfg(test)]
+fn original_receipt_census_for_test() -> bool {
+    ORIGINAL_RECEIPT_CENSUS.with(std::cell::Cell::get)
 }
 #[cfg(test)]
 pub(super) fn record_history_parse_for_test() {
@@ -688,6 +718,26 @@ pub(super) fn record_history_parse_for_test() {
 }
 #[cfg(test)]
 impl History {
+    pub(in crate::managed) fn test_original_receipt_census<T>(
+        original: bool,
+        read: impl FnOnce() -> T,
+    ) -> T {
+        struct Restore(bool);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                ORIGINAL_RECEIPT_CENSUS.with(|value| value.set(self.0));
+            }
+        }
+        let _restore = Restore(ORIGINAL_RECEIPT_CENSUS.with(|value| value.replace(original)));
+        read()
+    }
+    pub(in crate::managed) fn test_owned_predecessor_closure_history(&self) -> Result<Self> {
+        self.scope
+            .predecessor()
+            .ok_or_else(|| invalid("genuine test predecessor absent"))?
+            .retained_history()
+            .test_owned_closure_history()
+    }
     pub(in crate::managed) fn test_owned_closure_history(&self) -> Result<Self> {
         Self::read_retained(
             &self.operation,

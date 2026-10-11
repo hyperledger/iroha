@@ -138,15 +138,91 @@ pub(super) struct ServiceAuthority {
 /// Borrowed original public intent inside one synchronous projection scope.
 ///
 /// This is neither current native state nor a signing capability. The sole projection owner
-/// must consume the view with `finish` before returning its result. Any interleaved native
-/// reads retain their ordinary independent authority checks; this view grants only immutable
-/// projections and cannot authorize a child read or action.
+/// must consume the view with `finish` before returning its result. The closed owned-gateway
+/// pair performs that same first full exit directly to retain an immutable borrow for its
+/// second projection; the enclosing aggregate still closes its full image unconditionally.
+/// No view or plan leaves that pair. Any interleaved native reads retain their ordinary
+/// independent authority checks; this view grants only immutable projections and cannot
+/// authorize a child read or action.
 #[must_use = "finish the original-intent view before returning its projection"]
 pub(super) struct OriginalServiceIntent<'a> {
     authority: &'a ServiceAuthority,
 }
 
+/// Immutable constructor input borrowed only within one closed RuntimeSelection read.
+/// Child locks and all mutable reads remain independently owned. This scope cannot create
+/// a purpose, authorize a wallet or carry a current-state result beyond the enclosing read.
+pub(super) struct RuntimeOriginalRead<'a> {
+    authority: &'a ServiceAuthority,
+}
+impl RuntimeOriginalRead<'_> {
+    pub(super) fn eligible(&self, authority: &ServiceAuthority) -> Result<bool> {
+        if norito::core::decode_limits_active()
+            || matches!(&authority.profile, AuthorityProfile::Owned(_))
+        {
+            return Ok(false);
+        }
+        self.require_image(&authority.profile, &authority.prepared, &authority.manifest)?;
+        Ok(true)
+    }
+
+    fn require_image(
+        &self,
+        profile: &AuthorityProfile,
+        prepared: &PreparedLocalnet,
+        manifest: &StreamTokenAuthorityManifest,
+    ) -> Result<()> {
+        if !matches!((&self.authority.profile, profile),
+            (AuthorityProfile::Shared(original), AuthorityProfile::Shared(selected))
+                if Arc::ptr_eq(original, selected))
+            || prepared != &self.authority.prepared
+            || manifest != &self.authority.manifest
+        {
+            return Err(invalid(
+                "runtime constructor belongs to another original image",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_profile(&self, authority: &ServiceAuthority) -> Result<()> {
+        if norito::core::decode_limits_active()
+            || matches!(&authority.profile, AuthorityProfile::Owned(_))
+        {
+            return authority.validate_profile();
+        }
+        authority.validate_operation_custody()?;
+        self.require_image(&authority.profile, &authority.prepared, &authority.manifest)?;
+        if let Scope::Provider { provider, slot } = authority.scope
+            && authority.manifest.provider(provider)?.slot != slot
+        {
+            return Err(invalid("original provider operation scope changed"));
+        }
+        authority.validate_operation_custody()
+    }
+}
+
 impl OriginalServiceIntent<'_> {
+    /// Lend only this still-live original read's constructor image to temporary children.
+    pub(super) fn runtime_read(&self) -> Option<RuntimeOriginalRead<'_>> {
+        if norito::core::decode_limits_active()
+            || matches!(&self.authority.profile, AuthorityProfile::Owned(_))
+        {
+            return None;
+        }
+        #[cfg(test)]
+        if profile_validation_test_support::runtime_original_recipe() {
+            return None;
+        }
+        Some(RuntimeOriginalRead {
+            authority: self.authority,
+        })
+    }
+
+    pub(super) fn finish_in_runtime(self, read: &RuntimeOriginalRead<'_>) -> Result<()> {
+        read.validate_profile(self.authority)
+    }
+
     pub(super) fn provider_plans(&self) -> Result<&[RetainedProviderServicePlan; 3]> {
         if matches!(self.authority.scope, Scope::Provider { .. }) {
             return Err(invalid("provider service cannot select all network plans"));
@@ -206,6 +282,32 @@ impl OriginalServiceIntent<'_> {
             ));
         }
         self.authority.profile.original_publication_plan()
+    }
+
+    /// Compare policies against this exact immutable original before the owner closes it.
+    /// Active physical admission and owned originals keep the standalone validation recipe.
+    pub(super) fn validate_policies(
+        &self,
+        policies: &super::service_policies::GeneratedServicePolicies,
+    ) -> Result<()> {
+        if norito::core::decode_limits_active()
+            || matches!(&self.authority.profile, AuthorityProfile::Owned(_))
+        {
+            return policies.validate(self.authority);
+        }
+        policies.validate_projection(self)
+    }
+
+    // Exact lock/scope observations from validate_profile, without another image traversal.
+    // This private projection is enclosed by the original intent's full entry and finish.
+    pub(super) fn validate_policy_custody(&self) -> Result<()> {
+        self.authority.validate_operation_custody()?;
+        if let Scope::Provider { provider, slot } = self.authority.scope
+            && self.authority.manifest.provider(provider)?.slot != slot
+        {
+            return Err(invalid("original provider operation scope changed"));
+        }
+        self.authority.validate_operation_custody()
     }
 
     pub(super) fn finish(self) -> Result<()> {
@@ -347,6 +449,49 @@ impl ServiceAuthority {
         Self::open_existing_from_original(parent, Some(provider), purpose.directory_name(), scope)
     }
 
+    /// Existing-only child construction inside the exact enclosing original read.
+    pub(super) fn open_network_existing_in_runtime(
+        parent: &Self,
+        purpose: NetworkPurpose,
+        read: &RuntimeOriginalRead<'_>,
+    ) -> Result<Option<Self>> {
+        Self::open_existing_in_runtime(parent, None, purpose.directory_name(), None, read)
+    }
+
+    pub(super) fn open_provider_existing_in_runtime(
+        parent: &Self,
+        provider: ProviderId,
+        purpose: ProviderPurpose,
+        imports: Option<&CheckpointImportScope>,
+        read: &RuntimeOriginalRead<'_>,
+    ) -> Result<Option<Self>> {
+        Self::open_existing_in_runtime(
+            parent,
+            Some(provider),
+            purpose.directory_name(),
+            imports,
+            read,
+        )
+    }
+
+    fn open_existing_in_runtime(
+        parent: &Self,
+        provider: Option<ProviderId>,
+        purpose: &'static str,
+        imports: Option<&CheckpointImportScope>,
+        read: &RuntimeOriginalRead<'_>,
+    ) -> Result<Option<Self>> {
+        if !read.eligible(parent)? {
+            return Self::open_existing_from_original(parent, provider, purpose, imports);
+        }
+        if !std::ptr::eq(parent, read.authority) {
+            return Err(invalid(
+                "runtime constructor belongs to another original owner",
+            ));
+        }
+        Self::open_from_original_with_read(parent, provider, purpose, false, imports, Some(read))
+    }
+
     fn open(
         prepared: &PreparedLocalnet,
         provider: Option<ProviderId>,
@@ -376,7 +521,7 @@ impl ServiceAuthority {
             )
         };
         Self::open_profile(
-            prepared, provider, purpose, create, profile, config, genesis, peer_ids, None,
+            prepared, provider, purpose, create, profile, config, genesis, peer_ids, None, None,
         )
     }
 
@@ -398,6 +543,17 @@ impl ServiceAuthority {
         create: bool,
         scope: Option<&CheckpointImportScope>,
     ) -> Result<Option<Self>> {
+        Self::open_from_original_with_read(parent, provider, purpose, create, scope, None)
+    }
+
+    fn open_from_original_with_read(
+        parent: &Self,
+        provider: Option<ProviderId>,
+        purpose: &'static str,
+        create: bool,
+        scope: Option<&CheckpointImportScope>,
+        read: Option<&RuntimeOriginalRead<'_>>,
+    ) -> Result<Option<Self>> {
         if norito::core::decode_limits_active() {
             return Self::open(&parent.prepared, provider, purpose, create);
         }
@@ -406,7 +562,7 @@ impl ServiceAuthority {
         };
         #[cfg(test)]
         inventory::record_authority_open();
-        parent.validate_profile()?;
+        parent.validate_profile_with_runtime(read)?;
         let mut result = Self::open_profile(
             &parent.prepared,
             provider,
@@ -417,6 +573,7 @@ impl ServiceAuthority {
             captured.genesis.clone(),
             captured.peer_ids.clone(),
             Some(&parent.transport_seed),
+            read,
         );
         if let Ok(Some(owner)) = &mut result {
             // Eligible construction is outside active admission and from the shared profile.
@@ -434,7 +591,7 @@ impl ServiceAuthority {
         }
         // Close the retained parent on every ordinary child result while a successful child's
         // native directory and lock remain live. Parent custody failure supersedes that result.
-        parent.validate_profile()?;
+        parent.validate_profile_with_runtime(read)?;
         result
     }
 
@@ -452,6 +609,7 @@ impl ServiceAuthority {
         genesis: GenesisAnchor,
         peer_ids: [PeerId; 4],
         transport_seed: Option<&Client>,
+        read: Option<&RuntimeOriginalRead<'_>>,
     ) -> Result<Option<Self>> {
         let manifest = profile.manifest().clone();
         // Resolve the original provider before any operation directory or lock is created.
@@ -489,7 +647,12 @@ impl ServiceAuthority {
         lock.try_lock()
             .map_err(|_| invalid("another managed native operation holds this generation"))?;
         directory.revalidate()?;
-        profile.revalidate(prepared, &manifest)?;
+        match read {
+            Some(read) if !norito::core::decode_limits_active() => {
+                read.require_image(&profile, prepared, &manifest)?;
+            }
+            _ => profile.revalidate(prepared, &manifest)?,
+        }
         Ok(Some(Self {
             scope,
             profile,
@@ -658,6 +821,10 @@ impl ServiceAuthority {
     }
 
     fn validate_operation_custody(&self) -> Result<()> {
+        #[cfg(test)]
+        profile_validation_test_support::record_operation_custody();
+        #[cfg(test)]
+        profile_validation_test_support::record_operation_path(self.directory.path());
         self.directory.revalidate()?;
         if iroha_fs::FileIdentity::of(&self.directory.open_read("operation.lock")?)?
             != iroha_fs::FileIdentity::of(&self._lock)?
@@ -665,6 +832,35 @@ impl ServiceAuthority {
             return Err(invalid("managed native operation lock was replaced"));
         }
         Ok(())
+    }
+
+    pub(super) fn validate_profile_with_runtime(
+        &self,
+        read: Option<&RuntimeOriginalRead<'_>>,
+    ) -> Result<()> {
+        match read {
+            Some(read) => read.validate_profile(self),
+            None => self.validate_profile(),
+        }
+    }
+
+    pub(super) fn original_intent_in_runtime(
+        &self,
+        read: &RuntimeOriginalRead<'_>,
+    ) -> Result<OriginalServiceIntent<'_>> {
+        read.validate_profile(self)?;
+        Ok(OriginalServiceIntent { authority: self })
+    }
+
+    pub(super) fn provider_plans_in_runtime(
+        &self,
+        read: &RuntimeOriginalRead<'_>,
+    ) -> Result<&[RetainedProviderServicePlan; 3]> {
+        read.validate_profile(self)?;
+        if matches!(self.scope, Scope::Provider { .. }) {
+            return Err(invalid("provider service cannot select all network plans"));
+        }
+        Ok(self.profile.original_plans())
     }
 
     pub(super) fn validate_profile(&self) -> Result<()> {

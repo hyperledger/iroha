@@ -281,7 +281,9 @@ mod tests {
             });
         assert!(matches!(
             key_rejected,
-            Err(json::Error::DecodeResourceLimit)
+            Err(json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
         ));
         assert_eq!(usage.total_allocated_bytes(), candidate.len() - 2);
 
@@ -293,7 +295,9 @@ mod tests {
             });
         assert!(matches!(
             host_rejected,
-            Err(json::Error::DecodeResourceLimit)
+            Err(json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
         ));
         assert_eq!(usage.total_allocated_bytes(), before_host);
 
@@ -371,7 +375,12 @@ mod tests {
             norito::core::with_decode_limits_measured(limits(exact - 1), || {
                 <Peer as norito::json::JsonObjectKeyOwned>::from_json_key_text(&peer_text)
             });
-        assert!(matches!(rejected, Err(json::Error::DecodeResourceLimit)));
+        assert!(matches!(
+            rejected,
+            Err(json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
+        ));
         assert_eq!(usage.total_allocated_bytes(), key_bytes);
     }
 

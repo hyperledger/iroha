@@ -53,7 +53,7 @@ impl RetainedHistory {
             *client.client().network_id(),
             end,
             deadline,
-            |height| source.get_sumeragi_finality_proof(height),
+            interval_finality_fetch(&source, end),
         )
     }
 
@@ -135,6 +135,55 @@ mod tests {
             .map(|height| build_proof(&chain.state().view(), height))
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok((chain, proofs))
+    }
+
+    #[test]
+    fn staking_interval_source_moves_each_genuine_row_and_keeps_the_existing_full_verifier()
+    -> Result<()> {
+        let (chain, proofs) = fixture()?;
+        let chain_id = chain.state().view().chain_id().clone();
+        let mut requests = Vec::new();
+        let mut fetch = interval_finality_fetch_with(5, |from, to| {
+            requests.push((from.get(), to.get()));
+            Ok(proofs[usize::try_from(from.get() - 1)?..usize::try_from(to.get())?].to_vec())
+        });
+        let (_, blocks) = finality_chain_from_proofs(
+            &chain_id,
+            chain.network_id(),
+            chain.genesis().hash(),
+            5,
+            Instant::now() + WAIT,
+            &mut fetch,
+        )?;
+        drop(fetch);
+        assert_eq!(
+            requests,
+            vec![(1, 5)],
+            "genuine interval acquisition must not issue per-height requests"
+        );
+        assert_eq!(
+            blocks
+                .iter()
+                .map(|block| block.height())
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3, 4, 5]
+        );
+        assert_eq!(
+            blocks.last().unwrap().block_hash(),
+            chain.committed(5).block_hash()
+        );
+        let mut requests = 0;
+        let mut fetch = interval_finality_fetch_with(5, |_, _| {
+            requests += 1;
+            Err(eyre!("original interval transport refused"))
+        });
+        assert!(fetch(NonZeroU64::new(1).unwrap()).is_err());
+        drop(fetch);
+        assert_eq!(
+            requests, 1,
+            "original interval failure cannot be retried through a single-proof fallback"
+        );
+        Ok(())
     }
 
     #[test]

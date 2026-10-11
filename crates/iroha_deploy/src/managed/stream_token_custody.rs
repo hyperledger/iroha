@@ -206,6 +206,22 @@ impl ManagedStreamTokenCustody {
         )
         .map(|authority| authority.map(|authority| Self { authority }))
     }
+    pub(super) fn open_existing_in_runtime(
+        parent: &ServiceAuthority,
+        provider: iroha_data_model::sorafs::capacity::ProviderId,
+        scope: Option<&CheckpointImportScope>,
+        read: &super::service_authority::RuntimeOriginalRead<'_>,
+    ) -> Result<Option<Self>> {
+        ServiceAuthority::open_provider_existing_in_runtime(
+            parent,
+            provider,
+            ProviderPurpose::Custody,
+            scope,
+            read,
+        )
+        .map(|authority| authority.map(|authority| Self { authority }))
+    }
+
     fn wallet(&self) -> Result<AccountService> {
         #[cfg(test)]
         tests::record_wallet_construction();

@@ -106,3 +106,72 @@ pub(super) fn after_existing_child(result: &Result<Option<ServiceAuthority>>) {
         action(result);
     }
 }
+
+thread_local! {
+    static OPERATION_CUSTODY: Cell<Option<usize>> = const { Cell::new(None) };
+}
+
+pub(super) fn record_operation_custody() {
+    OPERATION_CUSTODY.with(|value| {
+        if let Some(count) = value.get() {
+            value.set(Some(count.checked_add(1).expect("operation custody count")));
+        }
+    });
+}
+
+pub(in crate::managed) fn count_operation_custody<T>(action: impl FnOnce() -> T) -> (T, usize) {
+    struct Restore(Option<usize>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            OPERATION_CUSTODY.with(|value| value.set(self.0));
+        }
+    }
+    let _restore = Restore(OPERATION_CUSTODY.with(|value| value.replace(Some(0))));
+    let result = action();
+    (result, OPERATION_CUSTODY.with(|value| value.get().unwrap()))
+}
+
+thread_local! {
+    static RUNTIME_ORIGINAL_RECIPE: Cell<bool> = const { Cell::new(false) };
+    static OPERATION_PATHS: RefCell<Option<Vec<std::path::PathBuf>>> = const { RefCell::new(None) };
+}
+
+pub(super) fn runtime_original_recipe() -> bool {
+    RUNTIME_ORIGINAL_RECIPE.with(Cell::get)
+}
+
+/// Keep the previous constructor-image recipe as a scoped test-only differential control.
+pub(in crate::managed) fn without_runtime_read<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            RUNTIME_ORIGINAL_RECIPE.with(|value| value.set(self.0));
+        }
+    }
+    let _restore = Restore(RUNTIME_ORIGINAL_RECIPE.with(|value| value.replace(true)));
+    action()
+}
+
+pub(super) fn record_operation_path(path: &std::path::Path) {
+    OPERATION_PATHS.with(|value| {
+        if let Some(paths) = value.borrow_mut().as_mut() {
+            paths.push(path.to_owned());
+        }
+    });
+}
+
+/// Observe the actual original-lock check order without opening or validating another path.
+pub(in crate::managed) fn operation_paths<T>(
+    action: impl FnOnce() -> T,
+) -> (T, Vec<std::path::PathBuf>) {
+    struct Restore(Option<Vec<std::path::PathBuf>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            OPERATION_PATHS.with(|value| *value.borrow_mut() = self.0.take());
+        }
+    }
+    let _restore = Restore(OPERATION_PATHS.with(|value| value.borrow_mut().replace(Vec::new())));
+    let result = action();
+    let paths = OPERATION_PATHS.with(|value| value.borrow_mut().take().unwrap());
+    (result, paths)
+}

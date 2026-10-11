@@ -45,7 +45,7 @@
     "crates/iroha_plonk/src/keys/pk/artifact.rs": "6693430592e37e7da22a0f60d433c3ff82d54bb3749671b6807ab59dc76d1d04",
     "crates/iroha_plonk/src/keys/source_fingerprint.rs": "ede186b26540eca82cbc5e961ef2413608eefdbe7f9487d5b568090f4b87dbd4",
     "crates/iroha_plonk/src/keys/vk.rs": "10566ddaae0e3df030f1ec14cf759282d5858c5c374a4464efe6bba97227b971",
-    "crates/iroha_plonk/src/pcs/ipa/commit.rs": "6c714345fc910635f18235ef0b3b0fcd02f0152eaedc23a79bc29a783c649879",
+    "crates/iroha_plonk/src/pcs/ipa/commit.rs": "4b251e5e2000c720f979b488fab694676cda04bc42888b7bf52a85da2a996e1d",
     "crates/iroha_plonk/src/pcs/ipa/mod.rs": "79a024fe8119694bc5edf4d627ec4f7f2817fbbc2be177500efa0cfb13261683",
     "crates/iroha_plonk/src/pcs/ipa/prover.rs": "c545d4107d8e150cae4e0877c54440c3f47f4809dd7b562916503db01080447c",
     "crates/iroha_plonk/src/pcs/ipa/verifier.rs": "a3ddb9e0b2153ceadd97560806dad1ed7f035cbb8bbd6d90906e4a7c03aa54c8",

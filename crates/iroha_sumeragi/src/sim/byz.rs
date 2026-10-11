@@ -435,19 +435,12 @@ impl World {
         self.adv.counter += 1;
         let bh = Hash32([u8::try_from(self.adv.counter % 251).unwrap_or(0); 32]);
         let result = Hash32([0x77; 32]);
-        let msg = preimage::vote_preimage(
-            kind,
-            &instance,
-            &self.instances[inst].config(height).epoch.id,
-            height,
-            view,
-            &bh,
-            &result,
-        );
+        let epoch = self.instances[inst].epoch(height).id;
+        let msg = preimage::vote_preimage(kind, &instance, &epoch, height, view, &bh, &result);
         let own = self.byz_signer(r).sign(&msg);
         let indices: Vec<u32> = (0..u32::try_from(q).unwrap_or(1)).collect();
         Qc {
-            epoch: self.instances[inst].config(height).epoch.id,
+            epoch,
             kind,
             instance,
             height,
@@ -1236,7 +1229,7 @@ impl World {
             return;
         };
         let instance = self.instances[inst].id;
-        let epoch = self.instances[inst].config(h).epoch.id;
+        let epoch = self.instances[inst].epoch(h).id;
         let at = self.now;
         let vote = |world: &mut Self, kind: VoteKind, view: u64, bh: Hash32, result: Hash32| {
             if !world.adv.split_votes.insert((inst, h, view, kind.byte())) {
@@ -1341,7 +1334,7 @@ impl World {
                 core.committed_qc().cloned(),
             )
         };
-        let epoch = self.instances[inst].config(height).epoch.id;
+        let epoch = self.instances[inst].epoch(height).id;
         let me = self.net_key(r);
         let signer = self.byz_signer(r);
         let committee = self.instances[inst].committee(height).clone();
@@ -1729,7 +1722,7 @@ impl World {
             ..Status::default()
         };
         let low = 1;
-        let epoch = self.instances[inst].config(low).epoch.id;
+        let epoch = self.instances[inst].epoch(low).id;
         let mut out = Vec::new();
         // Forged: other members' keys under this node's signature.
         for key in committee.members().iter().filter(|k| **k != me && *k != to) {
@@ -1805,8 +1798,7 @@ impl World {
                             });
                     if let Some(block) = genuine {
                         let shape = self.instances[inst]
-                            .config(block.header().height)
-                            .epoch
+                            .epoch(block.header().height)
                             .da_layout
                             .shape(block.payload().as_slice().len() as u64)
                             .unwrap();

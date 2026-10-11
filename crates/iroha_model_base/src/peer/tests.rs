@@ -41,7 +41,12 @@ fn peer_id_json_decode_preserves_public_key_resource_errors() {
     );
     let (decoded, usage) =
         norito::core::with_decode_limits_measured(limits, || json::from_str::<PeerId>(&encoded));
-    assert!(matches!(decoded, Err(json::Error::DecodeResourceLimit)));
+    assert!(matches!(
+        decoded,
+        Err(json::Error::DecodeResource(
+            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+        ))
+    ));
     assert_eq!(
         usage.total_allocated_bytes(),
         literal.len(),

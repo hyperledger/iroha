@@ -100,6 +100,16 @@ impl ValidatorEpochContextV1 {
             return Err("invalid native epoch version or leader seed".into());
         }
         validate_committee(&self.committee)?;
+        #[cfg(not(all(test, sumeragi_model_mutation = "DM16")))]
+        self.authorization
+            .validate_against_committee(
+                self.network_id,
+                self.authorization.authority_generation,
+                &self.committee,
+            )
+            .map_err(|error| error.to_string())?;
+        // DM16 restores only the former owning projection for this exact relation.
+        #[cfg(all(test, sumeragi_model_mutation = "DM16"))]
         self.authorization
             .validate_against_generation(&self.generation())
             .map_err(|error| error.to_string())?;

@@ -102,6 +102,55 @@ mod model {
         pub opaque_ids: Vec<OpaqueAccountId>,
     }
 }
+/// Failure of the sole canonical I105 account text parser.
+///
+/// Resource errors retain their original fields and observer identity. Diagnostic codes are
+/// projected only at a display or telemetry boundary; they grant no new admission provenance.
+#[derive(Clone, Debug)]
+pub enum AccountIdParseError {
+    /// Text is not one exact canonical I105 account literal.
+    InvalidFormat,
+    /// Original failure of the canonical address/controller owner.
+    Address(AccountAddressError),
+}
+impl AccountIdParseError {
+    // One owning projection preserves an Address cause at every canonical parser
+    // phase, including the final admitted controller transfer.
+    fn from_address_error(error: AccountAddressError) -> Self {
+        if cfg!(all(test, sumeragi_model_mutation = "DM22")) && error.is_decode_resource_limit() {
+            return Self::Address(AccountAddressError::DecodeResourceLimit);
+        }
+        Self::Address(error)
+    }
+
+    /// Stable diagnostic label, without discarding the owned error.
+    #[must_use]
+    pub const fn code_str(&self) -> &'static str {
+        match self {
+            Self::InvalidFormat => ERR_ACCOUNT_LITERAL_FORMAT,
+            Self::Address(error) => error.code_str(),
+        }
+    }
+    /// Whether canonical account work was refused by its decode admission.
+    #[must_use]
+    pub const fn is_decode_resource_limit(&self) -> bool {
+        matches!(self, Self::Address(error) if error.is_decode_resource_limit())
+    }
+}
+impl fmt::Display for AccountIdParseError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.code_str())
+    }
+}
+impl std::error::Error for AccountIdParseError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Address(error) => Some(error),
+            Self::InvalidFormat => None,
+        }
+    }
+}
+
 impl PartialEq for AccountId {
     fn eq(&self, other: &Self) -> bool {
         self.controller == other.controller
@@ -182,12 +231,11 @@ impl norito::json::JsonObjectKeyOwned for AccountId {
 
 fn account_id_from_json_str(value: &str) -> Result<AccountId, norito::json::Error> {
     reserve_account_literal_json_decode(value.len())?;
-    AccountId::parse_encoded(value).map_err(|error| {
-        if error.reason() == address::AccountAddressErrorCode::DecodeResourceLimit.as_str() {
-            norito::json::Error::DecodeResourceLimit
-        } else {
-            invalid_account_id_json()
+    AccountId::parse_encoded(value).map_err(|error| match error {
+        AccountIdParseError::Address(error) if error.is_decode_resource_limit() => {
+            address::map_account_address_json_error(error)
         }
+        _ => invalid_account_id_json(),
     })
 }
 
@@ -637,61 +685,42 @@ impl AccountId {
     ///
     /// # Errors
     ///
-    /// Propagates [`ParseError`] when the textual representation is invalid.
-    pub fn parse_encoded(input: &str) -> Result<Self, ParseError> {
+    /// Preserves original decoder resource refusals; invalid formats retain their diagnostic code.
+    pub fn parse_encoded(input: &str) -> Result<Self, AccountIdParseError> {
         if input.is_empty() || input.trim() != input || input.contains('@') {
-            return Err(ParseError::new(ERR_ACCOUNT_LITERAL_FORMAT));
+            return Err(AccountIdParseError::InvalidFormat);
         }
-        Self::parse_address_literal(input)
-    }
-    /// Canonicalise a textual identifier into the i105 form.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ParseError`] when the provided input is invalid.
-    pub fn canonicalize(input: &str) -> Result<String, ParseError> {
-        Self::parse_encoded(input)?
-            .canonical_i105()
-            .map_err(|err| ParseError::new(err.code_str()))
-    }
-    fn parse_address_literal(input: &str) -> Result<Self, ParseError> {
         let expected_prefix = address::chain_discriminant();
-        match AccountAddress::from_i105_for_discriminant(input, Some(expected_prefix)) {
-            Ok(address) => {
-                let canonical = address
-                    .to_i105_for_discriminant(expected_prefix)
-                    .map_err(|err| ParseError::new(err.code_str()))?;
-                if canonical != input {
-                    return Err(ParseError::new(ERR_ACCOUNT_LITERAL_FORMAT));
-                }
-                let controller = address
-                    .to_account_controller()
-                    .map_err(|err| ParseError::new(err.code_str()))?;
-                Ok(Self { controller })
-            }
-            Err(
+        let address = AccountAddress::from_i105_for_discriminant(input, Some(expected_prefix))
+            .map_err(|error| match error {
                 AccountAddressError::MissingI105Sentinel
                 | AccountAddressError::I105TooShort
                 | AccountAddressError::InvalidI105Char(_)
                 | AccountAddressError::InvalidI105Base
                 | AccountAddressError::InvalidI105Digit(_)
                 | AccountAddressError::UnsupportedAddressFormat
-                | AccountAddressError::InvalidLength
-                | AccountAddressError::ChecksumMismatch,
-            ) => {
-                if matches!(
-                    AccountAddress::from_i105_for_discriminant(input, Some(expected_prefix)),
-                    Err(AccountAddressError::ChecksumMismatch)
-                ) {
-                    Err(ParseError::new(
-                        AccountAddressErrorCode::ChecksumMismatch.as_str(),
-                    ))
-                } else {
-                    Err(ParseError::new(ERR_ACCOUNT_LITERAL_FORMAT))
-                }
-            }
-            Err(err) => Err(ParseError::new(err.code_str())),
+                | AccountAddressError::InvalidLength => AccountIdParseError::InvalidFormat,
+                error => AccountIdParseError::from_address_error(error),
+            })?;
+        let canonical = address
+            .to_i105_for_discriminant(expected_prefix)
+            .map_err(AccountIdParseError::from_address_error)?;
+        if canonical != input {
+            return Err(AccountIdParseError::InvalidFormat);
         }
+        let controller = address
+            .to_account_controller()
+            .map_err(AccountIdParseError::from_address_error)?;
+        Ok(Self { controller })
+    }
+    /// Canonicalise a textual identifier into the i105 form.
+    ///
+    /// # Errors
+    /// Preserves the canonical parser's original error and any output refusal.
+    pub fn canonicalize(input: &str) -> Result<String, AccountIdParseError> {
+        Self::parse_encoded(input)?
+            .canonical_i105()
+            .map_err(AccountIdParseError::from_address_error)
     }
 }
 impl fmt::Display for AccountId {
@@ -900,9 +929,9 @@ mod account_id_parsing_tests {
         let err = AccountId::parse_encoded(&raw)
             .expect_err("public_key@domain literals must be rejected");
         assert!(
-            err.reason().to_ascii_lowercase().contains("i105"),
+            err.code_str().to_ascii_lowercase().contains("i105"),
             "unexpected error: {}",
-            err.reason()
+            err.code_str()
         );
     }
     #[test]
@@ -913,9 +942,9 @@ mod account_id_parsing_tests {
         let err = AccountId::parse_encoded(&canonical)
             .expect_err("canonical hex account literals must be rejected");
         assert!(
-            err.reason().to_ascii_lowercase().contains("i105"),
+            err.code_str().to_ascii_lowercase().contains("i105"),
             "unexpected error: {}",
-            err.reason()
+            err.code_str()
         );
     }
     #[test]
@@ -938,9 +967,9 @@ mod account_id_parsing_tests {
             let err = AccountId::parse_encoded(&literal)
                 .expect_err("encoded literals with @domain suffix must be rejected");
             assert!(
-                err.reason().to_ascii_lowercase().contains("i105"),
+                err.code_str().to_ascii_lowercase().contains("i105"),
                 "unexpected error: {}",
-                err.reason()
+                err.code_str()
             );
         }
     }
@@ -949,9 +978,9 @@ mod account_id_parsing_tests {
         let err = AccountId::parse_encoded("blue-alias@banka.dataspace")
             .expect_err("aliases must be rejected");
         assert!(
-            err.reason().to_ascii_lowercase().contains("i105"),
+            err.code_str().to_ascii_lowercase().contains("i105"),
             "unexpected error: {}",
-            err.reason()
+            err.code_str()
         );
     }
     #[test]
@@ -963,9 +992,9 @@ mod account_id_parsing_tests {
         let err = AccountId::parse_encoded("primary@banka.dataspace")
             .expect_err("aliases must be rejected");
         assert!(
-            err.reason().to_ascii_lowercase().contains("i105"),
+            err.code_str().to_ascii_lowercase().contains("i105"),
             "unexpected error: {}",
-            err.reason()
+            err.code_str()
         );
     }
     #[test]
@@ -973,9 +1002,9 @@ mod account_id_parsing_tests {
         let err = AccountId::parse_encoded("blue-alias@otherland")
             .expect_err("mismatched alias domain must fail");
         assert!(
-            err.reason().to_ascii_lowercase().contains("i105"),
+            err.code_str().to_ascii_lowercase().contains("i105"),
             "unexpected error message: {}",
-            err.reason()
+            err.code_str()
         );
     }
     #[test]
@@ -1000,7 +1029,7 @@ mod account_id_parsing_tests {
         let noncanonical = canonical.replacen("sora", "ｓｏｒａ", 1);
         let err = AccountId::parse_encoded(&noncanonical)
             .expect_err("fullwidth sentinel literal must be rejected");
-        assert_eq!(err.reason(), ERR_ACCOUNT_LITERAL_FORMAT);
+        assert_eq!(err.code_str(), ERR_ACCOUNT_LITERAL_FORMAT);
     }
     #[test]
     fn parse_rejects_public_key_source() {
@@ -1009,9 +1038,9 @@ mod account_id_parsing_tests {
         let raw = format!("{public_key}@banka.dataspace");
         let err = AccountId::parse_encoded(&raw).expect_err("public key source must be rejected");
         assert!(
-            err.reason().to_ascii_lowercase().contains("i105"),
+            err.code_str().to_ascii_lowercase().contains("i105"),
             "unexpected error: {}",
-            err.reason()
+            err.code_str()
         );
     }
     #[test]
@@ -1037,7 +1066,7 @@ mod account_id_parsing_tests {
         let padded = format!(" \n{literal}\t ");
         let err = AccountId::parse_encoded(&padded)
             .expect_err("padded i105 is not the canonical first-release literal");
-        assert_eq!(err.reason(), ERR_ACCOUNT_LITERAL_FORMAT);
+        assert_eq!(err.code_str(), ERR_ACCOUNT_LITERAL_FORMAT);
     }
     #[test]
     fn norito_roundtrip_account_id() {
@@ -1053,9 +1082,9 @@ mod account_id_parsing_tests {
         let err = AccountId::parse_encoded("blue-alias@banka.dataspace")
             .expect_err("alias must be rejected");
         assert!(
-            err.reason().to_ascii_lowercase().contains("i105"),
+            err.code_str().to_ascii_lowercase().contains("i105"),
             "unexpected error: {}",
-            err.reason()
+            err.code_str()
         );
     }
     #[test]
@@ -1069,9 +1098,9 @@ mod account_id_parsing_tests {
         let err =
             AccountId::canonicalize(&literal).expect_err("canonical hex input must be rejected");
         assert!(
-            err.reason().to_ascii_lowercase().contains("i105"),
+            err.code_str().to_ascii_lowercase().contains("i105"),
             "unexpected error: {}",
-            err.reason()
+            err.code_str()
         );
     }
     #[test]
@@ -1098,10 +1127,10 @@ mod account_id_parsing_tests {
             .expect("encode i105 with foreign prefix");
         let err = AccountId::parse_encoded(&literal).expect_err("prefix mismatch must fail");
         assert!(
-            err.reason()
+            err.code_str()
                 .contains(AccountAddressErrorCode::UnexpectedNetworkPrefix.as_str()),
             "expected ERR_UNEXPECTED_NETWORK_PREFIX, got {}",
-            err.reason()
+            err.code_str()
         );
     }
     #[test]
@@ -1138,9 +1167,9 @@ mod account_id_parsing_tests {
         let err = AccountId::parse_encoded(&literal)
             .expect_err("encoded address with domain should be rejected");
         assert!(
-            err.reason().to_ascii_lowercase().contains("i105"),
+            err.code_str().to_ascii_lowercase().contains("i105"),
             "unexpected error: {}",
-            err.reason()
+            err.code_str()
         );
     }
     #[test]
@@ -1408,7 +1437,7 @@ mod tests {
         let literal = "sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSｱ";
         let err = AccountId::parse_encoded(literal).expect_err("invalid i105 payload must fail");
         assert_eq!(
-            err.reason(),
+            err.code_str(),
             AccountAddressErrorCode::ChecksumMismatch.as_str()
         );
     }
@@ -1679,7 +1708,9 @@ mod json_tests {
         });
         assert!(matches!(
             decoded,
-            Err(norito::json::Error::DecodeResourceLimit)
+            Err(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
         ));
         assert!(usage.total_allocated_bytes() < exact);
     }
@@ -1720,7 +1751,9 @@ mod json_tests {
         });
         assert!(matches!(
             decoded,
-            Err(norito::json::Error::DecodeResourceLimit)
+            Err(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
         ));
         assert!(usage.total_allocated_bytes() < exact);
     }
@@ -1875,5 +1908,215 @@ mod json_tests {
             norito::json::Error::UnknownField { field } => assert_eq!(field, "extra"),
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn canonical_account_json_preserves_original_refusal_fields_scope_and_retry() {
+        use norito::core::{
+            DecodeAttemptErrorKind, DecodeBudgetContext, DecodeResourceError,
+            classify_decode_attempt,
+        };
+        use norito::json::{JsonDeserialize as _, JsonObjectKeyOwned as _};
+
+        let _chain = guard_chain_discriminant();
+        let expected = AccountId::new(
+            checked_keypair_from_seed(vec![0x6c; 32])
+                .public_key()
+                .clone(),
+        );
+        let literal = expected.canonical_i105().unwrap();
+        let value = norito::json::Value::String(literal.clone());
+        let wire = norito::json::to_json(&literal).unwrap();
+        let source_pointer = value.as_str().unwrap().as_ptr();
+        let limits = |bytes| {
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
+        };
+        let decode = |mode| match mode {
+            0 => AccountId::json_from_value(&value),
+            1 => AccountId::from_json_key_text(&literal),
+            2 => norito::json::from_json::<AccountId>(&wire),
+            _ => unreachable!("three actual canonical JSON API owners"),
+        };
+        let demands = [0, 1, 2].map(|mode| {
+            let (decoded, usage) =
+                norito::core::with_decode_limits_measured(limits(usize::MAX), || decode(mode));
+            assert_eq!(decoded.unwrap(), expected);
+            let demand = usage.total_allocated_bytes();
+            assert!(demand > 0);
+            demand
+        });
+        let context_limit = demands
+            .iter()
+            .try_fold(0_usize, |total, demand| total.checked_add(*demand))
+            .unwrap()
+            .checked_mul(2)
+            .unwrap();
+        let pool = iroha_allocation::AllocationBudget::new(
+            DecodeBudgetContext::allocation_layout().size(),
+        );
+        let original = DecodeBudgetContext::try_new_owned(limits(context_limit), &pool).unwrap();
+        let baseline = pool.reserved_bytes();
+        // The original pool owns the decoder counters. These ordinary JSON controls do not
+        // claim physical admission of the returned account graph.
+        for (mode, demand) in demands.into_iter().enumerate() {
+            let decode = || decode(mode);
+            let mut observed = None;
+            let before = original.consumed_allocated_bytes();
+            let refusal = original.with(|| norito::with_decode_limits_scope(limits(demand - 1), || {
+                classify_decode_attempt(|| {
+                    let error = decode().expect_err("one-byte-short canonical decoder must refuse");
+                    let norito::json::Error::ScopedDecodeResource(origin) = &error else {
+                        panic!("canonical AccountId JSON must retain the original scoped refusal: {error:?}");
+                    };
+                    observed = Some(origin.clone());
+                    Err::<(), _>(error.into_core_error())
+                })
+            })).unwrap_err();
+            assert_eq!(refusal.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+            let refusal = refusal.into_error();
+            assert_eq!(
+                refusal.decode_resource_error(),
+                Some(DecodeResourceError::TotalAllocationExceeded {
+                    attempted: u64::try_from(demand).unwrap(),
+                    limit: u64::try_from(demand - 1).unwrap(),
+                })
+            );
+            let norito::Error::ScopedDecodeResource(returned) = refusal else {
+                panic!("canonical JSON must return its exact original observer");
+            };
+            assert_eq!(returned, observed.unwrap());
+            drop(returned);
+            assert_eq!(pool.reserved_bytes(), baseline);
+            let after_refusal = original.consumed_allocated_bytes();
+            assert!(after_refusal >= before);
+            // The original outer context records the attempted charge before the
+            // narrower inner ceiling refuses it. Its counters are cumulative and
+            // must not be refunded or replaced by the failed inner operation.
+            assert_eq!(after_refusal - before, u64::try_from(demand).unwrap());
+            let retry = original
+                .with(decode)
+                .expect("same input and original context retry");
+            assert_eq!(retry, expected);
+            assert_eq!(
+                original.consumed_allocated_bytes() - after_refusal,
+                u64::try_from(demand).unwrap()
+            );
+            drop(retry);
+            assert_eq!(pool.reserved_bytes(), baseline);
+
+            let (error, usage) =
+                norito::core::with_decode_limits_measured(limits(demand - 1), decode);
+            let error = error
+                .expect_err("same input unscoped quota refusal")
+                .into_core_error();
+            assert_eq!(
+                error.decode_resource_error(),
+                Some(DecodeResourceError::TotalAllocationExceeded {
+                    attempted: u64::try_from(demand).unwrap(),
+                    limit: u64::try_from(demand - 1).unwrap(),
+                })
+            );
+            assert!(!matches!(error, norito::Error::ScopedDecodeResource(_)));
+            assert!(usage.total_allocated_bytes() < demand);
+        }
+        let invalid = AccountId::json_from_value(&norito::json::Value::Bool(false)).unwrap_err();
+        assert!(matches!(invalid, norito::json::Error::Message(_)));
+        assert_eq!(value.as_str().unwrap().as_ptr(), source_pointer);
+        assert_eq!(value.as_str(), Some(literal.as_str()));
+        drop(original);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn canonical_account_public_parser_preserves_original_address_cause_and_diagnostics() {
+        use norito::core::{
+            DecodeAttemptErrorKind, DecodeBudgetContext, DecodeResourceError,
+            classify_decode_attempt,
+        };
+
+        let _chain = guard_chain_discriminant();
+        let expected = AccountId::new(
+            checked_keypair_from_seed(vec![0x6d; 32])
+                .public_key()
+                .clone(),
+        );
+        let literal = expected.canonical_i105().unwrap();
+        let limits = |bytes| {
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
+        };
+        let (_, usage) = norito::core::with_decode_limits_measured(limits(usize::MAX), || {
+            AccountId::parse_encoded(&literal)
+        });
+        let demand = usage.total_allocated_bytes();
+        assert!(demand > 0);
+        let pool = iroha_allocation::AllocationBudget::new(
+            DecodeBudgetContext::allocation_layout().size(),
+        );
+        let original =
+            DecodeBudgetContext::try_new_owned(limits(demand.checked_mul(4).unwrap()), &pool)
+                .unwrap();
+        let baseline = pool.reserved_bytes();
+        for canonicalize in [false, true] {
+            let mut observed = None;
+            let refusal = original.with(|| norito::with_decode_limits_scope(limits(demand - 1), || classify_decode_attempt(|| {
+                let error = if canonicalize {
+                    AccountId::canonicalize(&literal).unwrap_err()
+                } else {
+                    AccountId::parse_encoded(&literal).unwrap_err()
+                };
+                assert_eq!(error.code_str(), AccountAddressErrorCode::DecodeResourceLimit.as_str());
+                assert!(error.is_decode_resource_limit());
+                assert!(std::error::Error::source(&error).unwrap().is::<AccountAddressError>());
+                assert!(std::error::Error::source(&error).unwrap().source().unwrap().is::<norito::core::ScopedDecodeResourceError>());
+                let AccountIdParseError::Address(AccountAddressError::ScopedDecodeResource(origin)) = error else {
+                    panic!("public account parser must preserve the original address refusal");
+                };
+                observed = Some(origin.clone());
+                Err::<(), _>(norito::Error::ScopedDecodeResource(origin))
+            }))).unwrap_err();
+            assert_eq!(refusal.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+            let norito::Error::ScopedDecodeResource(origin) = refusal.into_error() else {
+                panic!("original scoped public error")
+            };
+            assert_eq!(origin, observed.unwrap());
+            drop(origin);
+            assert_eq!(pool.reserved_bytes(), baseline);
+            assert_eq!(
+                original
+                    .with(|| AccountId::parse_encoded(&literal))
+                    .unwrap(),
+                expected
+            );
+        }
+        let error = norito::with_decode_limits_scope(limits(demand - 1), || {
+            AccountId::parse_encoded(&literal)
+        })
+        .unwrap_err();
+        assert!(
+            matches!(error, AccountIdParseError::Address(AccountAddressError::DecodeResource(DecodeResourceError::TotalAllocationExceeded {attempted,limit})) if attempted==u64::try_from(demand).unwrap() && limit==u64::try_from(demand-1).unwrap())
+        );
+        assert!(matches!(
+            AccountId::parse_encoded(" alice@root "),
+            Err(AccountIdParseError::InvalidFormat)
+        ));
+        assert_eq!(
+            AccountId::parse_encoded(" alice@root ")
+                .unwrap_err()
+                .to_string(),
+            ERR_ACCOUNT_LITERAL_FORMAT
+        );
+        let checksum = "sorauﾛ1NﾗhBUd2BﾂｦﾄiﾔﾆﾂﾇKSﾃaﾘﾒﾓQﾗrﾒoﾘﾅnｳﾘbQｳQJﾆLJ5HSｱ";
+        let error = AccountId::parse_encoded(checksum).unwrap_err();
+        assert!(matches!(
+            error,
+            AccountIdParseError::Address(AccountAddressError::ChecksumMismatch)
+        ));
+        assert_eq!(
+            error.code_str(),
+            AccountAddressErrorCode::ChecksumMismatch.as_str()
+        );
+        assert!(!error.is_decode_resource_limit());
+        drop(original);
+        assert_eq!(pool.reserved_bytes(), 0);
     }
 }

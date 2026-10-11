@@ -38,6 +38,10 @@ The local `Bytes::try_from_owner_with_reclaim` API retains admitted allocation
 custody until the original buffer allocation is freed. Its fallible allocation,
 owner-return and reclamation-order tests remain part of this fork.
 
+The three benchmark targets use the workspace Criterion harness on the pinned
+stable toolchain. Run them with `cargo bench -p bytes --benches`; use
+`cargo bench -p bytes --benches -- --test` to exercise every case once.
+
 ## Serde support
 
 Serde support is optional and disabled by default. To enable use the feature `serde`.

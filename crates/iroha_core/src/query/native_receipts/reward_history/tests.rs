@@ -6,7 +6,10 @@ use crate::{
     sumeragi::test_chain::{CertifiedTestChain, TestChainConfig},
 };
 use iroha_allocation::{AllocationBudget, ChargedBuffer};
-use iroha_data_model::block::consensus::ExecKv;
+use iroha_crypto::HashOf;
+use iroha_data_model::{
+    block::consensus::ExecKv, sumeragi_finality::SUMERAGI_LANE_STATE_WITNESS_KEY,
+};
 
 fn committed_chain() -> CertifiedTestChain {
     let mut chain = CertifiedTestChain::start(TestChainConfig::new(World::new(), 1_000)).unwrap();
@@ -103,6 +106,96 @@ fn reward_archive_capacity_preserves_original_pool_refusal() {
     let error = archive_error(NativeContextArchiveError::Allocation(actual));
     assert!(matches!(error, ExecutionAttemptError::Deferred(reason)
         if reason.allocation_refusal() == Some(&expected)));
+    for via_archive in [false, true] {
+        let actual = ChargedBuffer::<u8>::new(1, &budget)
+            .err()
+            .expect("occupied original pool refuses proof scratch");
+        let proof = NativeLaneStateProofError::Scratch(actual);
+        let error = if via_archive {
+            archive_error(NativeContextArchiveError::Proof(proof))
+        } else {
+            lane_error(proof)
+        };
+        assert!(matches!(error, ExecutionAttemptError::Deferred(reason)
+            if reason.allocation_refusal() == Some(&expected)));
+        assert_eq!(budget.reserved_bytes(), 32);
+    }
     drop(held);
     ChargedBuffer::<u8>::new(1, &budget).unwrap();
+}
+
+#[test]
+fn reward_archive_proof_decoder_preserves_retired_scope_and_refuses_corrupt_commitment() {
+    let chain = committed_chain();
+    let original = std::fs::read(original_path(&chain)).unwrap();
+    let projection: NativeExecutionProjectionV1 = norito::decode_canonical(&original).unwrap();
+    let mut witness = ExecWitness {
+        writes: projection.ordinary_writes,
+        ..ExecWitness::default()
+    };
+    let budget =
+        AllocationBudget::new(NativeLaneStateProof::scratch_bytes(witness.writes.len()).unwrap());
+    let commitment = witness
+        .writes
+        .iter()
+        .find(|write| write.key == SUMERAGI_LANE_STATE_WITNESS_KEY)
+        .unwrap();
+    let pointer = commitment.value.as_ptr();
+    let source = HashOf::new(&witness);
+    let defaults = norito::canonical_decode_limits(commitment.value.len());
+    let limits = norito::DecodeLimits::new(
+        defaults.max_sequence_elements(),
+        defaults.max_field_bytes(),
+        defaults.max_total_elements(),
+        defaults.max_total_allocated_bytes(),
+        0,
+    );
+    for via_archive in [false, true] {
+        let proof = norito::with_decode_limits_scope(limits, || {
+            NativeLaneStateProof::from_witness(&witness, &budget)
+        })
+        .unwrap_err();
+        assert!(matches!(&proof, NativeLaneStateProofError::Decode(error)
+            if error.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit));
+        let error = if via_archive {
+            archive_error(NativeContextArchiveError::Proof(proof))
+        } else {
+            lane_error(proof)
+        };
+        assert!(matches!(error, ExecutionAttemptError::Deferred(reason)
+            if reason.reason() == ExecutionDeferral::ActiveMemoryCapacity
+                && reason.allocation_refusal().is_none()));
+        assert_eq!(commitment.value.as_ptr(), pointer);
+        assert_eq!(HashOf::new(&witness), source);
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
+    assert_eq!(
+        NativeLaneStateProof::from_witness(&witness, &budget).unwrap(),
+        chain.committed(2).commitment().native_lanes
+    );
+    assert_eq!(budget.reserved_bytes(), 0);
+
+    witness
+        .writes
+        .iter_mut()
+        .find(|write| write.key == SUMERAGI_LANE_STATE_WITNESS_KEY)
+        .unwrap()
+        .value
+        .pop()
+        .unwrap();
+    for via_archive in [false, true] {
+        let proof = NativeLaneStateProof::from_witness(&witness, &budget).unwrap_err();
+        assert!(matches!(&proof, NativeLaneStateProofError::Decode(error)
+            if error.kind() == norito::core::DecodeAttemptErrorKind::Invalid));
+        assert!(!proof.is_local_refusal());
+        let error = if via_archive {
+            archive_error(NativeContextArchiveError::Proof(proof))
+        } else {
+            lane_error(proof)
+        };
+        assert!(matches!(error, ExecutionAttemptError::Deferred(reason)
+            if reason.reason() == ExecutionDeferral::CanonicalHistoryUnavailable
+                && reason.allocation_refusal().is_none()));
+        assert_eq!(budget.reserved_bytes(), 0);
+    }
 }

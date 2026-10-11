@@ -28,6 +28,22 @@ use crate::{
     types::{Bitmap, ChainParams, Hash32, Millis, PublicKey},
 };
 
+#[cfg(test)]
+std::thread_local! {
+    static HELD_CERTIFICATE_COPIES: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+// Count the actual held-certificate copies in tests without changing the oracle's verdicts.
+fn clone_held_certificate<T: Clone>(certificate: &T) -> T {
+    #[cfg(test)]
+    HELD_CERTIFICATE_COPIES.with(|copies| {
+        if let Some(count) = copies.get() {
+            copies.set(Some(count + 1));
+        }
+    });
+    certificate.clone()
+}
+
 /// A committed block of the reference chain.
 #[derive(Clone, Debug)]
 pub struct RefBlock {
@@ -539,14 +555,20 @@ impl World {
                 return self.fail(format!("O-MEM: replica {r} host queues: {excess}"));
             }
         }
-        let lock = core.lock().cloned();
-        let tc = core.highest_tc().cloned();
-        let cqc = core.committed_qc().cloned();
         let inst = self.replicas[r].inst;
         let obs = &self.oracle.reps[r];
-        let new_lock = lock.filter(|q| obs.checked_lock.as_ref() != Some(q));
-        let new_tc = tc.filter(|t| obs.checked_tc.as_ref() != Some(t));
-        let new_cqc = cqc.filter(|q| obs.checked_cqc.as_ref() != Some(q));
+        let new_lock = core
+            .lock()
+            .filter(|q| obs.checked_lock.as_ref() != Some(*q))
+            .map(clone_held_certificate);
+        let new_tc = core
+            .highest_tc()
+            .filter(|t| obs.checked_tc.as_ref() != Some(*t))
+            .map(clone_held_certificate);
+        let new_cqc = core
+            .committed_qc()
+            .filter(|q| obs.checked_cqc.as_ref() != Some(*q))
+            .map(clone_held_certificate);
         if let Some(q) = &new_lock {
             if let Err(e) = self.cert_qc(inst, q) {
                 return self.fail(format!("O-CERT: replica {r} holds lock {e}"));
@@ -1715,5 +1737,129 @@ fn evidence_name(evidence: &Evidence) -> &'static str {
         Evidence::TimeoutEquivocation(..) => "TimeoutEquivocation",
         Evidence::InvalidProposal { .. } => "InvalidProposal",
         Evidence::ConflictingCertificates(..) => "ConflictingCertificates",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sim::{run, scenarios};
+
+    fn count_held_certificate_copies(work: impl FnOnce()) -> usize {
+        struct Disable;
+        impl Drop for Disable {
+            fn drop(&mut self) {
+                HELD_CERTIFICATE_COPIES.with(|copies| copies.set(None));
+            }
+        }
+        HELD_CERTIFICATE_COPIES.with(|copies| {
+            assert_eq!(copies.get(), None, "one observation probe on this thread");
+            copies.set(Some(0));
+        });
+        let _disable = Disable;
+        work();
+        HELD_CERTIFICATE_COPIES.with(|copies| copies.get().expect("active observation probe"))
+    }
+
+    #[test]
+    fn unchanged_genuine_held_certificates_do_not_clone_on_each_observation() {
+        // This is the same signed short World used by the complete-history sweep controls.
+        let mut scenario = scenarios::smoke(0, 4);
+        scenario.duration = 6_000;
+        scenario.checks.progress = 2;
+        assert_eq!(HELD_CERTIFICATE_COPIES.with(std::cell::Cell::get), None);
+        let mut world = run(scenario).unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(HELD_CERTIFICATE_COPIES.with(std::cell::Cell::get), None);
+        let r = world
+            .honest()
+            .into_iter()
+            .find(|&r| {
+                world.replicas[r]
+                    .host
+                    .core()
+                    .is_some_and(|core| core.committed_qc().is_some())
+            })
+            .expect("a genuine signed CommitQC from the completed World");
+        let core = world.replicas[r].host.core().expect("running honest core");
+        let obs = &world.oracle.reps[r];
+        // The oracle retains the last verified owner after the Core clears a held certificate.
+        if let Some(lock) = core.lock() {
+            assert_eq!(Some(lock), obs.checked_lock.as_ref());
+        }
+        if let Some(tc) = core.highest_tc() {
+            assert_eq!(Some(tc), obs.checked_tc.as_ref());
+        }
+        assert_eq!(core.committed_qc(), obs.checked_cqc.as_ref());
+        let commit = core.committed_qc().expect("genuine signed CommitQC");
+        assert_eq!(commit.kind, VoteKind::Commit);
+        world
+            .cert_qc(world.replicas[r].inst, commit)
+            .expect("the original signing log authenticates the held certificate");
+        assert!(world.committed(r) >= 2);
+        assert!(!world.replicas[r].store.is_empty());
+        let checked = (
+            obs.checked_lock.clone(),
+            obs.checked_tc.clone(),
+            obs.checked_cqc.clone(),
+        );
+        let counters = |world: &World| {
+            let stats = world.stats;
+            (
+                stats.events,
+                stats.packets,
+                stats.bytes,
+                stats.lost,
+                stats.oversize,
+                stats.crashes,
+                stats.evidence,
+                stats.proposals,
+            )
+        };
+        let original_counters = counters(&world);
+        let original_height = world.committed(r);
+        let original_time = world.now;
+        let original_reference_count = world.oracle.refs[world.replicas[r].inst].len();
+        let copies = count_held_certificate_copies(|| {
+            for _ in 0..4 {
+                world.observe_core(r);
+            }
+        });
+        assert_eq!(HELD_CERTIFICATE_COPIES.with(std::cell::Cell::get), None);
+        assert_eq!(world.failure, None);
+        assert_eq!(counters(&world), original_counters);
+        assert_eq!(world.committed(r), original_height);
+        assert_eq!(world.now, original_time);
+        assert_eq!(
+            world.oracle.refs[world.replicas[r].inst].len(),
+            original_reference_count
+        );
+        let obs = &world.oracle.reps[r];
+        assert_eq!(obs.checked_lock.as_ref(), checked.0.as_ref());
+        assert_eq!(obs.checked_tc.as_ref(), checked.1.as_ref());
+        assert_eq!(obs.checked_cqc.as_ref(), checked.2.as_ref());
+        assert_eq!(
+            copies, 0,
+            "unchanged genuine held certificates must be compared before any certificate clone"
+        );
+
+        // A different complete certificate value still invokes the original O-CERT kernel.
+        world.oracle.reps[r]
+            .checked_cqc
+            .as_mut()
+            .expect("original checked CommitQC")
+            .view ^= 1;
+        let copies = count_held_certificate_copies(|| world.observe_core(r));
+        assert_eq!(HELD_CERTIFICATE_COPIES.with(std::cell::Cell::get), None);
+        assert_eq!(
+            copies, 1,
+            "a changed held certificate must be copied and checked"
+        );
+        assert_eq!(world.failure, None);
+        assert_eq!(
+            world.oracle.reps[r].checked_cqc.as_ref(),
+            checked.2.as_ref()
+        );
+        assert_eq!(counters(&world), original_counters);
+        assert_eq!(world.committed(r), original_height);
     }
 }

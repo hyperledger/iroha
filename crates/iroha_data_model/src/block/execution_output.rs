@@ -652,7 +652,7 @@ impl ExecutionOutputV1 {
         if result.0.is_err() && !result.contract_events().is_empty() {
             return Err("rejected execution output cannot publish contract emissions".into());
         }
-        for event in result.contract_events().iter() {
+        for event in result.contract_events() {
             if !event.definition.validate() {
                 return Err("contract emission has an invalid source definition".into());
             }

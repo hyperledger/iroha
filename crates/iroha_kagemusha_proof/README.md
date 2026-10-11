@@ -246,8 +246,11 @@ mask0 keys never establish catalog completeness. It checks the original predeces
 both Q proofs and all carried claims, frames the complete consuming tape, and
 retains source-bound proof/claim checkpoints for exact restoration. Its signature
 stage uses the installed root policy and the original Credential, Enrollment
-certificate and Advance Receipt. Thirteen current native Send component tests pass,
-including all eight sigma selectors, original tapes and import bounds. The
+certificate and Advance Receipt. Fifteen native Send component tests pass in
+`target/qualification/native-funded-send-unit-3`, including all eight sigma
+selectors, original tapes, Q-export bindings, absent-fee dummy policy and import
+bounds. The four new binding tests use fabricated signatures/proofs; genuine
+proof admission is exercised separately. The
 ignored `compact_predecessor_native_send_preserves_every_installed_stage_and_original`
 passes all five A and four W native proofs under the original installed keys,
 including exact-original checkpoint replay, in
@@ -264,12 +267,26 @@ preserves source/table/key mutations and foreign stage-metadata rejection and
 exact proof-byte comparison. Canonical Norito custody derives all nine payload
 layouts from installed descriptor/VK identities, bounds decoding before allocation,
 and restores exact proofs and claims through native verification. The preserved
-regression now restores every payload into a fresh session; its runtime remains
-pending the finalized Load fixture. The current proof library and consuming integration targets compile after the
-recursive Load fixture migration. Actual Send replay remains pending a genuine
-ordinary-finality fixture. This ownership change grants no memory
-gate or wallet authority. The other seven control masks, current Load trust
-replacement and complete authenticated catalog remain required before admission.
+regression now restores every payload into a fresh session. Its native-BLS-funded
+run completed all five A/four W proofs and checkpoint replay, then exposed a
+native preparation gap accepting a changed Credential tape. Preparation now
+joins all five signed originals to their exact digests and Q exports; its fifteen
+unit tests pass. The same genuine regression now passes from isolated capture3
+in `target/qualification/native-funded-send-retry-1`: all five A/four W stages,
+exact checkpoint replay and the original mutations complete successfully. The
+failed capture remains retained; this is a component result under the captured
+keys, not complete-catalog or wallet qualification.
+The current proof library and five selected funded integration targets compile.
+This ownership change grants no memory gate or wallet authority. The other seven
+control masks and complete authenticated catalog remain required before admission.
+
+Receive, Archive, Unload and Retiring preparation now also joins the wallet's own
+Credential, Enrollment certificate and Receipt to the exact hard Q1 exports.
+Receive and Archive bind their own statement and sigma tape to Q0 before costly
+proof work. Incoming soft evidence keeps its existing circuit policy. These are
+early admission checks; the mandatory circuit owners still enforce the complete
+relation. Five new unit controls and mutations in the existing genuine
+regressions are applied but await the next compiler capture and execution.
 
 Incoming lineage decoding now preserves the original byte source and derives
 the canonical/header/claim verdicts together. Exact active-byte ingestion
@@ -296,6 +313,33 @@ Build drift is confined to unrelated finality metadata, recorded with both sourc
 snapshots. Earlier constant-context runs predate the scheme-policy correction.
 Current accepted/renewed/corrected branches, ordinary-finality Load and full-catalog
 admission remain open. These component timings are not performance gates.
+The `receive_omega` harness registers thirteen funded native-BLS cases under
+`native_load_tests`: accepted and corrected-burn closure through Omega, accepted
+and renewed Receive, both corrected-burn insertion branches, nondeciding Vesta
+correction, Bootstrap/Load and Bootstrap/Load/Send re-keying, installed-native
+Send replay, Send authorization/map owners, and exact catalog identity for the
+funded payer and two distinct wallets. They reuse the existing branch, source,
+checkpoint and obligation assertions. The shared
+first-Load fixture verifies the unchanged captured BLS receipt before key
+production and reconstructs every predecessor in a fresh directory; the receipt's
+execution identities remain synthetic component data. Compilation and execution
+of these newly registered cases are pending. Run each separately, for example:
+
+```sh
+KAGEMUSHA_LOAD_OUTPUT="$PWD/target/qualification/receive-accept-1" \
+  cargo test --release -p iroha_kagemusha_proof --test receive_omega \
+  native_load_tests::funded_receive_acceptance_closes_all_four_outer_obligations \
+  -- --ignored --exact --nocapture --test-threads=1
+```
+
+The output directory must not exist. Passing one component case would not qualify
+the complete installed catalog, ledger-backed exchange or physical phones.
+The `a_receive_native_bounds` target also registers
+`funded_generic_omega_is_rejected_by_receive_payment_cap` against the same fixture.
+It proves an oversized generic predecessor and Send source to exercise native
+joint-bound rejection; it is not an accepted Payment. Its compilation and
+execution remain pending, with the same fresh-directory requirement.
+
 The own Receive credit, payer-wallet and amount are hard projections of the
 same Request; changing those generated effect fields cannot turn a valid
 Payment into a burn. Original incoming asset/recipient mismatches remain soft.
@@ -358,8 +402,14 @@ verification uses metadata only. Earlier captures passed all11 native consuming
 component tests and compiled both consuming/Retiring integration targets; the
 metadata-reconstruction API requires current validation. The preserved regression now tests
 source/table/key mutations, per-stage foreign-key rejection, exact original
-proof-byte replay and all7 canonical checkpoints restored into a fresh session;
-funded Unload execution still needs a genuine ordinary-finality Load fixture.
+proof-byte replay and all7 canonical checkpoints restored into a fresh session.
+`a_consuming_recursive::native_load_tests` registers two funded cases against the
+shared native-BLS first-Load fixture: all-owner Unload/Retiring composition and
+installed-native differential/checkpoint replay. Each reconstructs two exact
+Load predecessors and exercises both operations. They compile in isolated
+capture3 but remain unrun. Run each exact ignored selector separately with a fresh
+`KAGEMUSHA_LOAD_OUTPUT`, as for the Receive cases above; select
+`--test a_consuming_recursive`.
 The captured genuine zero-balance Bootstrap-to-Retiring component passes1/1 in
 2,246.38 seconds (`target/qualification/native-bootstrap-retiring-borrowed*`):
 all four A/three W stages reproduce original proof bytes with strict source imports
@@ -489,9 +539,12 @@ chains and complete-catalog admission remain unqualified.
 
 `a_archive_recursive` retains complete source-layout/proof-byte differential
 checks, all19 checkpoint restores in a fresh session, and altered original,
-foreign session, wrong role/stage and truncated payload rejection. These entry
-points now require explicit genuine ordinary-finality Load originals; no complete
-fixture provider is installed yet. The source-only constructor-key sweep uses
+foreign session, wrong role/stage and truncated payload rejection. Its
+`native_load_tests` module registers acceptance, invalid-proof no-op and
+full-envelope-tail no-op cases against the shared native-BLS first-Load fixture.
+Each requires three exact predecessor reconstructions in fresh directories.
+Compilation and execution remain pending. Select `--test a_archive_recursive`
+and one exact ignored case with a fresh `KAGEMUSHA_LOAD_OUTPUT`. The source-only constructor-key sweep uses
 labelled metadata Q keys and cannot qualify real proof workloads. Historical
 accept/no-op binaries use the earlier narrow Archive and retired Load sources.
 The superseded four-stage native duplicate is removed. Full-domain real layouts,

@@ -1,10 +1,14 @@
 //! Receive terminal closure under one immutable native pinned-key Omega catalog.
 //!
-//! Funded Bootstrap/Load ancestry requires explicit native Load originals and
-//! ordinary-finality evidence. Bootstrap-only malformed-payment burn is unfunded.
+//! Funded Bootstrap/Load ancestry requires explicit native-BLS-authorized Load originals.
+//! Bootstrap-only malformed-payment burn is unfunded.
 //! Execution checks component closure; it does not
 //! establish release admission, mobile qualification or a complete terminal catalog.
+//! Funded cases in `native_load_tests` require a fresh `KAGEMUSHA_LOAD_OUTPUT`
+//! directory and run individually in release with `--ignored --exact`.
 #![allow(clippy::duplicate_mod)]
+#[path = "receive_omega/native_load_tests.rs"]
+mod native_load_tests;
 /// Genuine staged Receive and its exact native terminal/source exports.
 #[path = "a_receive_recursive.rs"]
 pub mod receive_chain;
@@ -240,7 +244,7 @@ fn bootstrap_only_invalid_sigma_burn_closes_all_four_outer_obligations() {
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
+#[allow(dead_code)] // Other component harnesses include this shared builder.
 pub fn genuine_receive_acceptance_closes_all_four_outer_obligations(
     fixture: compact_catalog::LoadFixture,
 ) {
@@ -248,7 +252,7 @@ pub fn genuine_receive_acceptance_closes_all_four_outer_obligations(
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
+#[allow(dead_code)] // Other component harnesses include this shared builder.
 pub fn genuine_receive_corrected_burn_closes_all_four_outer_obligations(
     fixture: compact_catalog::LoadFixture,
 ) {

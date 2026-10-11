@@ -603,15 +603,32 @@ impl Desktop {
             |s| s.network.prepared().context.name.clone(),
         );
         self.spawn(move || {
-            Message::Selected(
-                (if start {
-                    workspace.start(&name)
-                } else {
-                    workspace.stop(&name)
-                })
-                .map_err(|e| e.to_string())
-                .and_then(|_| load_selection(&workspace, Some(&name))),
-            )
+            if start {
+                complete_localnet_start(
+                    || {
+                        workspace
+                            .start(&name)
+                            .map(|status| (status.phase, status.failure))
+                            .map_err(|e| e.to_string())
+                    },
+                    || load_selection(&workspace, Some(&name)),
+                    || {
+                        workspace
+                            .contexts()
+                            .map(|contexts| {
+                                contexts.into_iter().map(|context| context.name).collect()
+                            })
+                            .map_err(|e| e.to_string())
+                    },
+                )
+            } else {
+                Message::Selected(
+                    workspace
+                        .stop(&name)
+                        .map_err(|e| e.to_string())
+                        .and_then(|_| load_selection(&workspace, Some(&name))),
+                )
+            }
         });
     }
 
@@ -620,20 +637,21 @@ impl Desktop {
             return;
         };
         self.spawn(move || {
-            let result = workspace
-                .create_localnet(&name)
-                .map_err(|e| e.to_string())
-                .and_then(|status| {
-                    require_ready_localnet(status.phase, status.failure.as_deref())?;
-                    let selection = load_selection(&workspace, Some(&name))?;
-                    require_ready_localnet(selection.phase, selection.failure.as_deref())?;
-                    Ok(selection)
-                });
-            let names = workspace
-                .contexts()
-                .map(|contexts| contexts.into_iter().map(|context| context.name).collect())
-                .map_err(|e| e.to_string());
-            Message::LocalnetStarted { result, names }
+            complete_localnet_start(
+                || {
+                    workspace
+                        .create_localnet(&name)
+                        .map(|status| (status.phase, status.failure))
+                        .map_err(|e| e.to_string())
+                },
+                || load_selection(&workspace, Some(&name)),
+                || {
+                    workspace
+                        .contexts()
+                        .map(|contexts| contexts.into_iter().map(|context| context.name).collect())
+                        .map_err(|e| e.to_string())
+                },
+            )
         });
     }
 
@@ -1513,6 +1531,10 @@ impl Desktop {
                 }
                 .map_err(|e| e.to_string())?;
                 let mut result = run.execution_summary();
+                if let Some(lifecycle) = &run.lifecycle {
+                    result.push('\n');
+                    result.push_str(&lifecycle.summary());
+                }
                 if let Some(parent) = run.parent_summary() {
                     result.push('\n');
                     result.push_str(&parent);
@@ -1740,6 +1762,23 @@ impl eframe::App for Desktop {
 fn optional_selector(value: &str) -> Option<String> {
     let value = value.trim();
     (!value.is_empty()).then(|| value.to_owned())
+}
+
+// Both startup controls retain the menu on ordinary failure. Only a Ready return followed
+// by a fresh Ready observation can replace the desktop selection; the shared store owns it.
+fn complete_localnet_start(
+    start: impl FnOnce() -> UiResult<(ManagedPhase, Option<String>)>,
+    observe: impl FnOnce() -> UiResult<Selection>,
+    names: impl FnOnce() -> UiResult<Vec<String>>,
+) -> Message {
+    let result = start().and_then(|(phase, failure)| {
+        require_ready_localnet(phase, failure.as_deref())?;
+        let selection = observe()?;
+        require_ready_localnet(selection.phase, selection.failure.as_deref())?;
+        Ok(selection)
+    });
+    let names = names();
+    Message::LocalnetStarted { result, names }
 }
 
 fn require_ready_localnet(phase: ManagedPhase, failure: Option<&str>) -> UiResult<()> {
@@ -2083,6 +2122,127 @@ mod tests {
                 .unwrap()
                 .contains("generation retained")
         );
+    }
+
+    #[test]
+    fn primary_start_timeout_exposes_retained_name_without_selecting_it() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        // Exercise the production completion owner at the existing UI string-error boundary.
+        // The managed store can retain a generation before returning this original timeout.
+        let timeout = "localnet startup did not complete within 30s";
+        let completion = complete_localnet_start(
+            || {
+                calls.borrow_mut().push("start");
+                Err(timeout.into())
+            },
+            || panic!("a failed start cannot select its observation"),
+            || {
+                calls.borrow_mut().push("names");
+                Ok(vec!["contracts".into()])
+            },
+        );
+        assert_eq!(*calls.borrow(), ["start", "names"]);
+        let mut desktop = Desktop::model(PathBuf::from("unused"));
+        desktop.busy = true;
+        desktop.new_name = "contracts".into();
+        desktop.sender.send((desktop.epoch, completion)).unwrap();
+        desktop.poll();
+        assert!(!desktop.busy);
+        assert_eq!(desktop.names, ["contracts"]);
+        assert_eq!(desktop.new_name, "contracts");
+        assert!(desktop.selected.is_none());
+        assert_eq!(desktop.error.as_deref(), Some(timeout));
+    }
+
+    #[test]
+    fn primary_start_failed_status_keeps_retained_menu_and_prior_observations() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        let completion = complete_localnet_start(
+            || {
+                calls.borrow_mut().push("start");
+                Ok((ManagedPhase::Failed, Some("exact readiness failure".into())))
+            },
+            || panic!("Ok(Failed) is not permission to install a selection"),
+            || {
+                calls.borrow_mut().push("names");
+                Ok(vec!["contracts".into(), "original".into()])
+            },
+        );
+        assert_eq!(*calls.borrow(), ["start", "names"]);
+        let mut desktop = Desktop::model(PathBuf::from("unused"));
+        desktop.busy = true;
+        desktop.new_name = "original".into();
+        desktop.names = vec!["original".into()];
+        desktop.logs = "original validator logs".into();
+        desktop.receipt = Some("original deployment receipt".into());
+        desktop.sender.send((desktop.epoch, completion)).unwrap();
+        desktop.poll();
+        assert!(!desktop.busy);
+        assert_eq!(desktop.names, ["contracts", "original"]);
+        assert_eq!(desktop.new_name, "original");
+        assert!(desktop.selected.is_none());
+        assert_eq!(desktop.logs, "original validator logs");
+        assert_eq!(
+            desktop.receipt.as_deref(),
+            Some("original deployment receipt")
+        );
+        let error = desktop.error.as_deref().unwrap();
+        assert!(error.contains("startup ended in Failed"));
+        assert!(error.contains("prepared generation is retained"));
+        assert!(error.contains("exact readiness failure"));
+    }
+
+    #[test]
+    fn primary_start_keeps_original_error_when_retained_name_refresh_also_fails() {
+        for started in [
+            Err("original timeout".into()),
+            Ok((ManagedPhase::Ready, None)),
+        ] {
+            let calls = std::cell::RefCell::new(Vec::new());
+            let expected = if started.is_err() {
+                "original timeout"
+            } else {
+                "original observation failure"
+            };
+            let completion = complete_localnet_start(
+                || {
+                    calls.borrow_mut().push("start");
+                    started
+                },
+                || {
+                    calls.borrow_mut().push("observe");
+                    Err("original observation failure".into())
+                },
+                || {
+                    calls.borrow_mut().push("names");
+                    Err("retained name refresh failure".into())
+                },
+            );
+            assert_eq!(
+                *calls.borrow(),
+                if expected == "original timeout" {
+                    vec!["start", "names"]
+                } else {
+                    vec!["start", "observe", "names"]
+                }
+            );
+            let mut desktop = Desktop::model(PathBuf::from("unused"));
+            desktop.busy = true;
+            desktop.names = vec!["original".into()];
+            desktop.logs = "original validator logs".into();
+            desktop.receipt = Some("original deployment receipt".into());
+            desktop.sender.send((desktop.epoch, completion)).unwrap();
+            desktop.poll();
+            assert!(!desktop.busy);
+            assert_eq!(desktop.names, ["original"]);
+            assert!(desktop.selected.is_none());
+            assert_eq!(desktop.logs, "original validator logs");
+            assert_eq!(
+                desktop.receipt.as_deref(),
+                Some("original deployment receipt")
+            );
+            assert_eq!(desktop.error.as_deref(), Some(expected));
+        }
     }
 
     #[test]

@@ -12,7 +12,7 @@ use super::{
         require_deadline, require_empty,
     },
     provider_funding::{ProviderFundingBootstrap, ProviderFundingProgress},
-    service_authority::{NetworkPurpose, ServiceAuthority},
+    service_authority::{NetworkPurpose, RuntimeOriginalRead, ServiceAuthority},
     service_policies::GeneratedServicePolicies,
 };
 use iroha_data_model::sorafs::{capacity::ProviderId, reserve::ReserveProviderTermsV1};
@@ -58,10 +58,23 @@ impl Original {
         Ok(original)
     }
     fn validate(&self, authority: &ServiceAuthority) -> Result<()> {
+        self.validate_with_runtime(authority, None)
+    }
+    fn validate_with_runtime(
+        &self,
+        authority: &ServiceAuthority,
+        read: Option<&RuntimeOriginalRead<'_>>,
+    ) -> Result<()> {
         encode(self, MAX_ORIGINAL_BYTES)?;
         self.fees.validate()?;
-        self.policies.validate(authority)?;
-        let plans = authority.provider_plans()?;
+        match read {
+            Some(read) => self.policies.validate_in_runtime(authority, read)?,
+            None => self.policies.validate(authority)?,
+        }
+        let plans = match read {
+            Some(read) => authority.provider_plans_in_runtime(read)?,
+            None => authority.provider_plans()?,
+        };
         if self.network != authority.config.network_id
             || self.genesis != *authority.genesis.genesis.hash().as_ref()
         {
@@ -88,6 +101,14 @@ fn read_original(
     directory: &PrivateDirectory,
     authority: &ServiceAuthority,
 ) -> Result<Option<Original>> {
+    read_original_with_runtime(directory, authority, None)
+}
+
+fn read_original_with_runtime(
+    directory: &PrivateDirectory,
+    authority: &ServiceAuthority,
+    read: Option<&RuntimeOriginalRead<'_>>,
+) -> Result<Option<Original>> {
     let Some(bytes) = read_optional(directory, "original.nrt", MAX_ORIGINAL_BYTES)? else {
         require_empty(directory)?;
         return Ok(None);
@@ -103,7 +124,7 @@ fn read_original(
         ),
     )
     .map_err(|_| invalid("invalid original service bootstrap intent"))?;
-    original.validate(authority)?;
+    original.validate_with_runtime(authority, read)?;
     Ok(Some(original))
 }
 
@@ -336,6 +357,18 @@ impl ManagedServiceBootstrap {
         .map(|authority| authority.map(|authority| Self { authority }))
     }
 
+    pub(super) fn open_existing_in_runtime(
+        parent: &ServiceAuthority,
+        read: &RuntimeOriginalRead<'_>,
+    ) -> Result<Option<Self>> {
+        ServiceAuthority::open_network_existing_in_runtime(
+            parent,
+            NetworkPurpose::ServiceBootstrap,
+            read,
+        )
+        .map(|authority| authority.map(|authority| Self { authority }))
+    }
+
     /// A newly created worker alone calls this finite authorization producer. Existing worker
     /// polling, recovery, maintenance and owned daemon restart have no path to this method.
     pub(super) fn authorize_generated_startup(
@@ -547,6 +580,20 @@ impl ManagedServiceBootstrap {
         self.authority.validate_profile()?;
         let directory = self.authority.directory.open_child("initial")?;
         read_original(&directory, &self.authority)?
+            .map(|original| original.policies)
+            .ok_or_else(|| invalid("original service bootstrap intent is absent"))
+    }
+
+    pub(super) fn selected_policies_in_runtime(
+        &self,
+        read: &RuntimeOriginalRead<'_>,
+    ) -> Result<GeneratedServicePolicies> {
+        if !read.eligible(&self.authority)? {
+            return self.selected_policies();
+        }
+        self.authority.validate_profile_with_runtime(Some(read))?;
+        let directory = self.authority.directory.open_child("initial")?;
+        read_original_with_runtime(&directory, &self.authority, Some(read))?
             .map(|original| original.policies)
             .ok_or_else(|| invalid("original service bootstrap intent is absent"))
     }

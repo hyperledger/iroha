@@ -256,3 +256,257 @@ fn owned_closed_history_moves_after_fresh_wallet_and_source_checks_with_active_r
     same_closure(&complete(retried), &baseline);
     assert_eq!(fixture.native.chain.height(), 4);
 }
+
+#[test]
+fn consumed_receipt_closes_one_native_census_and_refuses_oldest_post_callback_substitution() {
+    let _guard = crate::managed::native_test_guard();
+    let (fixture, history) = shared_snapshot_tests::history_with_bodies(3);
+    // Close body two again read-only, so its native graph contains the genuine retired
+    // first body. The third body's active owner retains both original ancestor handles.
+    let head = history.current_history().unwrap();
+    let original = history.bodies[1].original.as_ref().unwrap();
+    let successor = history.successor(1).unwrap().unwrap();
+    let account = fixture.owner.wallet().unwrap();
+    let calls = Cell::new(0usize);
+    let inspect = |attempt: &attempts::Attempt| {
+        calls.set(calls.get() + 1);
+        original
+            .request(
+                attempt.terms(),
+                attempt.observation()?,
+                fixture.options.deadline,
+            )?
+            .inspect_in_parent(&account, attempt.directory())
+    };
+    let evidence = ["original.nrt", "dispatch.nrt", "closing.nrt", "closed.nrt"].map(|name| {
+        (
+            name,
+            history.bodies[1]
+                .directory
+                .read(name, journal::MAX_ORIGINAL_BYTES)
+                .unwrap(),
+        )
+    });
+    let run = |recipe| {
+        let owned = head.test_owned_predecessor_closure_history().unwrap();
+        let capture = finish_timing::Capture::start();
+        let (result, work) = History::test_validation_work(usize::MAX, || {
+            History::test_original_receipt_census(recipe, || {
+                owned.into_unsigned_closure_with_pass(&successor, inspect, None)
+            })
+        });
+        let phases = capture.finish();
+        (complete(result), work, phases, calls.replace(0))
+    };
+    let (baseline, before, old_phases, old_calls) = run(true);
+    let (actual, after, new_phases, new_calls) = run(false);
+    assert_eq!(
+        old_calls, 2,
+        "complete wallet pass plus exact final tail callback"
+    );
+    assert_eq!(new_calls, old_calls);
+    same_closure(&actual, &baseline);
+    // The old second census sees the consumed leaf at its new Arc address. Count
+    // physical visits, while the optimized census still reaches both genuine bodies.
+    assert_eq!(after.distinct_histories, 2);
+    assert!(before.distinct_histories >= after.distinct_histories);
+    assert_eq!(
+        before.visits - after.visits,
+        4,
+        "one real two-body forward/reverse census"
+    );
+    assert_eq!(before.native_tree_visits - after.native_tree_visits, 4);
+    assert_eq!(
+        old_phases.sample(finish_timing::Phase::GraphValidate).0
+            - new_phases.sample(finish_timing::Phase::GraphValidate).0,
+        1,
+        "the actual graph walker, not a fixture counter, loses one call"
+    );
+    for (name, original) in &evidence {
+        assert_eq!(
+            history.bodies[1]
+                .directory
+                .read(name, journal::MAX_ORIGINAL_BYTES)
+                .unwrap()
+                .as_slice(),
+            original.as_slice(),
+            "receipt admission must not rewrite retained custody"
+        );
+    }
+
+    // Each final native-wallet callback can corrupt the oldest ancestor, not just the
+    // consumed leaf. Both recipes must refuse at the same existing source boundary;
+    // native refusal still supersedes an ordinary callback error.
+    for name in ["original.nrt", "dispatch.nrt", "closing.nrt", "closed.nrt"] {
+        for ordinary_error in [false, true] {
+            let mut errors = Vec::new();
+            for recipe in [true, false] {
+                let owned = head.test_owned_predecessor_closure_history().unwrap();
+                let mut changed = None;
+                let result = History::test_original_receipt_census(recipe, || {
+                    owned.into_unsigned_closure_with_pass(
+                        &successor,
+                        |attempt| {
+                            let value = inspect(attempt)?;
+                            if calls.get() == old_calls {
+                                changed = Some(ChangedRecord::replace(
+                                    &history.bodies[0].directory,
+                                    name,
+                                ));
+                                if ordinary_error {
+                                    return Err(invalid("ordinary ancestor callback refusal"));
+                                }
+                            }
+                            Ok(value)
+                        },
+                        None,
+                    )
+                });
+                assert_eq!(calls.replace(0), old_calls);
+                assert!(changed.is_some());
+                errors.push(
+                    result
+                        .err()
+                        .expect("oldest custody mutation must refuse")
+                        .to_string(),
+                );
+                drop(changed);
+            }
+            assert_eq!(errors[0], errors[1]);
+            assert_ne!(
+                errors[0],
+                invalid("ordinary ancestor callback refusal").to_string()
+            );
+        }
+    }
+    for recipe in [true, false] {
+        let owned = head.test_owned_predecessor_closure_history().unwrap();
+        let error = History::test_original_receipt_census(recipe, || {
+            owned.into_unsigned_closure_with_pass(
+                &successor,
+                |attempt| {
+                    let value = inspect(attempt)?;
+                    if calls.get() == old_calls {
+                        return Err(invalid("ordinary ancestor callback refusal"));
+                    }
+                    Ok(value)
+                },
+                None,
+            )
+        })
+        .err()
+        .expect("unchanged custody preserves ordinary callback refusal");
+        assert_eq!(calls.replace(0), old_calls);
+        assert_eq!(
+            error.to_string(),
+            invalid("ordinary ancestor callback refusal").to_string()
+        );
+    }
+
+    #[cfg(unix)]
+    {
+        struct RestoredAncestor {
+            path: std::path::PathBuf,
+            held: std::path::PathBuf,
+        }
+        impl Drop for RestoredAncestor {
+            fn drop(&mut self) {
+                std::fs::remove_dir(&self.path).expect("remove only empty test replacement");
+                std::fs::rename(&self.held, &self.path).expect("restore exact native ancestor");
+            }
+        }
+        for ordinary_error in [false, true] {
+            let mut errors = Vec::new();
+            for recipe in [true, false] {
+                let owned = head.test_owned_predecessor_closure_history().unwrap();
+                let mut replacement = None;
+                let result = History::test_original_receipt_census(recipe, || {
+                    owned.into_unsigned_closure_with_pass(
+                        &successor,
+                        |attempt| {
+                            let value = inspect(attempt)?;
+                            if calls.get() == old_calls {
+                                let path = history.bodies[0].directory.path().to_owned();
+                                let held = path.with_extension("receipt-original-ancestor");
+                                assert!(!held.exists());
+                                std::fs::rename(&path, &held).unwrap();
+                                let restore = RestoredAncestor { path, held };
+                                PrivateDirectory::open_or_create(&restore.path).unwrap();
+                                replacement = Some(restore);
+                                if ordinary_error {
+                                    return Err(invalid("ordinary ancestor callback refusal"));
+                                }
+                            }
+                            Ok(value)
+                        },
+                        None,
+                    )
+                });
+                assert_eq!(calls.replace(0), old_calls);
+                assert!(replacement.is_some());
+                errors.push(
+                    result
+                        .err()
+                        .expect("original ancestor handle must refuse")
+                        .to_string(),
+                );
+                drop(replacement);
+            }
+            assert_eq!(errors[0], errors[1]);
+            assert_ne!(
+                errors[0],
+                invalid("ordinary ancestor callback refusal").to_string()
+            );
+        }
+    }
+
+    // The literal active decoder branch is independent of the inactive recipe choice.
+    // Ample admission returns the same receipt and graph/callback counts; capacities zero
+    // and one retain their native early refusal. No sampled exact-cost edge is assumed.
+    let mut active_results = Vec::new();
+    for recipe in [true, false] {
+        let owned = head.test_owned_predecessor_closure_history().unwrap();
+        let ((result, work), usage) =
+            norito::core::with_decode_limits_measured(limits(usize::MAX), || {
+                History::test_validation_work(usize::MAX, || {
+                    History::test_original_receipt_census(recipe, || {
+                        owned.into_unsigned_closure_with_pass(&successor, inspect, None)
+                    })
+                })
+            });
+        same_closure(&complete(result), &baseline);
+        assert_eq!(calls.replace(0), old_calls);
+        assert!(usage.total_allocated_bytes() > 1);
+        active_results.push((
+            work.visits,
+            work.native_tree_visits,
+            usage.total_allocated_bytes(),
+        ));
+    }
+    assert_eq!(active_results[0], active_results[1]);
+    for capacity in [0, 1] {
+        let mut refused = Vec::new();
+        for recipe in [true, false] {
+            let owned = head.test_owned_predecessor_closure_history().unwrap();
+            let (result, usage) =
+                norito::core::with_decode_limits_measured(limits(capacity), || {
+                    History::test_original_receipt_census(recipe, || {
+                        owned.into_unsigned_closure_with_pass(&successor, inspect, None)
+                    })
+                });
+            refused.push((
+                result
+                    .err()
+                    .expect("original finite decode budget refuses")
+                    .to_string(),
+                calls.replace(0),
+                usage.total_allocated_bytes(),
+            ));
+        }
+        assert_eq!(refused[0], refused[1]);
+    }
+    let (retried, _, _, callback_count) = run(false);
+    same_closure(&retried, &baseline);
+    assert_eq!(callback_count, old_calls);
+    assert_eq!(fixture.native.chain.height(), 4);
+}

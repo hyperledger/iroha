@@ -303,7 +303,9 @@ fn pinned_signed_genesis_preserves_original_json_refusal_and_retry() {
     assert!(
         matches!(
             original_error_in_chain::<norito::json::Error>(&error),
-            Some(norito::json::Error::DecodeResourceLimit)
+            Some(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
         ),
         "pinned genesis must preserve its original signed JSON refusal: {error:?}"
     );

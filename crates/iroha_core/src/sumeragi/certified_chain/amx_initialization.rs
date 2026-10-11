@@ -5,13 +5,17 @@
 //! prepaid body transfer into CertifiedChain before this empty stage retires.
 
 use super::*;
-use iroha_data_model::block::SharedSignedBlock;
+use iroha_data_model::{
+    block::SharedSignedBlock,
+    sumeragi_finality::{OriginalGenesisRead, OriginalGenesisReadError},
+};
 
 /// Private original-source initialization used by the native AMX reader.
 /// An unfinished stage retains its exact pool, slot, raw bytes and prepaid body.
 pub(crate) struct AmxChainInitialization<'v, V: StateReadOnly> {
     view: &'v V,
-    // Retire the separately delivered body/control before raw bytes/source/pool.
+    // Retire completed policy values/charges before the body/raw source and pool.
+    authentication: Option<OriginalGenesisRead>,
     body: Option<SharedSignedBlock>,
     acquisition: Option<native_acquisition::NativeCarrierAcquisition<'v>>,
     completed: bool,
@@ -21,6 +25,7 @@ impl<'v, V: StateReadOnly> AmxChainInitialization<'v, V> {
     pub(crate) fn new(view: &'v V) -> Result<Self, ExecutionAttemptError<ChainReadError>> {
         Ok(Self {
             view,
+            authentication: None,
             body: None,
             acquisition: Some(Self::acquisition(view)?),
             completed: false,
@@ -97,19 +102,73 @@ impl<'v, V: StateReadOnly> AmxChainInitialization<'v, V> {
         } else {
             original.recheck_original_source()?;
         }
-        // TODO(S6): partial signed-genesis epoch/authority decoding still retires on
-        // refusal under the caller's cumulative context. Retain only fully admitted
-        // graph stages when their separate funding and error ordering are closed.
-        let mut chain = CertifiedChain::from_genesis(
-            ChainSource::State(self.view),
-            self.body.as_ref().expect("original native body").clone(),
+        #[cfg(all(test, sumeragi_core_mutation = "HC215"))]
+        {
+            // Deliberately abandon only the completed original policy stage.
+            // Source rechecks, canonical authentication and decoder limits still run.
+            self.authentication = None;
+        }
+        if self.authentication.is_none() {
+            self.authentication = Some(
+                OriginalGenesisRead::new(
+                    self.body.as_ref().expect("original native body").clone(),
+                    &self.view.execution_budget(),
+                )
+                .map_err(original_authentication_error)?,
+            );
+        }
+        let authentication = self
+            .authentication
+            .as_mut()
+            .expect("original genesis policy owner");
+        let genesis = self.body.as_ref().expect("original native body").clone();
+        let (epoch, instance) = authenticate_genesis_with(
+            &genesis,
+            self.view.network_id(),
+            self.view.chain_id(),
+            || {
+                authentication
+                    .authenticate()
+                    .map_err(original_authentication_error)
+            },
         )?;
+        // TODO(S6): partial first-policy, epoch/result/authority graph retention and
+        // exact nested funding remain separate original acquisition boundaries.
+        let mut chain = CertifiedChain::from_authenticated_genesis(
+            ChainSource::State(self.view),
+            genesis,
+            epoch,
+            instance,
+        );
+        chain._amx_genesis_authentication = self.authentication.take();
         // Retain the very same bytes/descriptor after body delivery. Prefix retries lend
         // chain.genesis and recheck this source; they never call complete a second time.
         chain.amx_genesis_source = self.acquisition.take();
         self.body = None;
         self.completed = true;
         Ok(chain)
+    }
+}
+
+// Preserve physical admission identity before a deterministic source projection.
+fn original_authentication_error(
+    cause: OriginalGenesisReadError,
+) -> ExecutionAttemptError<ChainReadError> {
+    match cause {
+        OriginalGenesisReadError::Validation(cause) => {
+            crate::execution_attempt::genesis_read_attempt_error(cause, |_| {
+                ChainReadError::ForeignGenesis
+            })
+        }
+        OriginalGenesisReadError::Allocation(iroha_allocation::ChargedBufferError::Admission(
+            cause,
+        )) => ExecutionAttemptError::Deferred(cause.into()),
+        OriginalGenesisReadError::Allocation(iroha_allocation::ChargedBufferError::Allocator {
+            ..
+        }) => ExecutionAttemptError::Deferred(
+            ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
+        ),
+        OriginalGenesisReadError::ForeignPool => ChainReadError::ForeignGenesis.into(),
     }
 }
 

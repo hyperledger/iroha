@@ -14,6 +14,11 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
+    import tomli as tomllib
+
 
 SCRIPT = Path(__file__).resolve().parents[1] / "regenerate_kotodama_goldens.py"
 SPEC = importlib.util.spec_from_file_location("regenerate_kotodama_goldens", SCRIPT)
@@ -22,6 +27,41 @@ if SPEC is None or SPEC.loader is None:  # pragma: no cover - import machinery g
 MODULE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
+
+
+class RegistryOwnershipTests(unittest.TestCase):
+    def test_repository_registry_owns_every_current_compiler_output(self) -> None:
+        root = SCRIPT.parent.parent
+        manifest = tomllib.loads(
+            (root / "generated-files.toml").read_text(encoding="utf-8")
+        )
+        rows = MODULE.read_map(root / MODULE.MAP_PATH)
+        expected = {row.destination.as_posix() for row in rows}
+        expected.update(path.as_posix() for path in MODULE.COMPILER_MANIFESTS.values())
+        self.assertIn(
+            "crates/iroha/tests/fixtures/contract_code_readback/code_readback.to",
+            expected,
+        )
+        self.assertIn("crates/ivm/docs/examples/20_commit_reveal.to", expected)
+        self.assertIn(
+            "crates/iroha/tests/fixtures/contract_code_readback/code_readback.manifest.json",
+            expected,
+        )
+        owners = [
+            entry
+            for entry in manifest["generated"]
+            if expected.intersection(entry["outputs"])
+        ]
+        self.assertEqual(len(owners), 1)
+        owner = owners[0]
+        self.assertEqual(owner["name"], "kotodama-v1-artifacts-and-manifests")
+        self.assertEqual(owner["kind"], "file")
+        self.assertEqual(set(owner["outputs"]), expected)
+        self.assertEqual(len(owner["outputs"]), len(expected))
+        self.assertIn(MODULE.MAP_PATH.as_posix(), owner["inputs"])
+        self.assertEqual(
+            owner["generator_sources"], ["scripts/regenerate_kotodama_goldens.py"]
+        )
 
 
 class CommandLineTests(unittest.TestCase):

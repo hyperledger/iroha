@@ -96,19 +96,45 @@ impl StartupSelection {
         }
     }
 
-    pub(super) fn apply(self, store: &ManagedStore, name: &str) -> Result<()> {
-        if matches!(self, Self::Select) {
-            store.select(name)?;
+    pub(super) fn apply(
+        self,
+        store: &ManagedStore,
+        expected: &ManagedContext,
+        observe: impl FnOnce() -> Result<ManagedStatus>,
+    ) -> Result<ManagedStatus> {
+        // Complete generation custody and encoding before the final Ready/deadline check.
+        // Only the uninterruptible native selection publication follows admitted readiness.
+        let selection = if matches!(self, Self::Select) {
+            let (context, bytes) = store.prepare_selection(&expected.name)?;
+            if context != *expected {
+                return Err(Error::Invalid(
+                    "managed generation changed before startup selection".into(),
+                ));
+            }
+            Some(bytes)
+        } else {
+            None
+        };
+        let status = observe()?;
+        if status.phase == ManagedPhase::Ready
+            && let Some(bytes) = selection
+        {
+            store
+                .root
+                .write_atomic("active.json", &bytes, PublishMode::Replace)?;
         }
-        Ok(())
+        // Publication errors remain explicit, including uncertain native durability. Never
+        // time out or cancel an already admitted startup after publishing its selection,
+        // and never roll back a concurrently published workspace choice.
+        Ok(status)
     }
 }
 
 /// Generation intent is enforced only while holding the named operation lock.
 #[derive(Clone, Copy)]
-enum GenerationPolicy {
+enum GenerationPolicy<'selection> {
     CreateOrRetain,
-    RetainOnly,
+    RetainOnly(&'selection ManagedContext),
     CreateOnly,
 }
 
@@ -244,17 +270,25 @@ impl ManagedStore {
         )
     }
 
-    /// Restart an existing generation with its exact retained root identity and signer.
+    /// Restart the generation originally selected by the caller, with its retained root and signer.
+    ///
+    /// The expected context is compared again while holding the named operation lock. A reset
+    /// followed by a same-name replacement cannot silently change the selected signing identity.
     ///
     /// # Errors
     /// Rejects missing or malformed metadata, changed binaries, or failed native readiness.
-    pub fn up_retained(&self, request: &LocalnetRequest) -> Result<ManagedStatus> {
-        self.up_retained_with_selection(request, StartupSelection::Select)
+    pub fn up_retained(
+        &self,
+        request: &LocalnetRequest,
+        expected: &ManagedContext,
+    ) -> Result<ManagedStatus> {
+        self.up_retained_with_selection(request, expected, StartupSelection::Select)
     }
 
     pub(super) fn up_retained_with_selection(
         &self,
         request: &LocalnetRequest,
+        expected: &ManagedContext,
         selection: StartupSelection,
     ) -> Result<ManagedStatus> {
         let directory = self.directory(&request.name)?;
@@ -262,7 +296,7 @@ impl ManagedStore {
         self.up_environment(
             request,
             retained.root_kind,
-            GenerationPolicy::RetainOnly,
+            GenerationPolicy::RetainOnly(expected),
             selection,
             None,
             |_| Ok(()),
@@ -273,7 +307,7 @@ impl ManagedStore {
         &self,
         request: &LocalnetRequest,
         root_kind: RootKind,
-        generation_policy: GenerationPolicy,
+        generation_policy: GenerationPolicy<'_>,
         selection: StartupSelection,
         amx: Option<&crate::bootstrap::AmxSourceSelection<'_>>,
         retain_context: impl FnOnce(&PreparedLocalnet) -> Result<()>,
@@ -297,9 +331,19 @@ impl ManagedStore {
         let programs = request.admit_programs()?;
         let (launcher, daemon) = programs.pins()?;
         let directory = self.networks.ensure_child(&request.name)?;
+        #[cfg(test)]
+        selected_generation_tests::before_operation();
         let _operation = acquire(&directory, "operation.lock", &request.name)?;
         let mut reservations = None;
         let previous = generation::read_optional(&directory)?;
+        if let (GenerationPolicy::RetainOnly(expected), Some(retained)) =
+            (generation_policy, previous.as_ref())
+            && retained.prepared.context != *expected
+        {
+            return Err(Error::Invalid(
+                "retained managed generation changed before startup".into(),
+            ));
+        }
         let amx_sources = amx
             .map(|selection| {
                 let RootKind::Private { spec } = &root_kind else {
@@ -344,7 +388,7 @@ impl ManagedStore {
                 retained
             }
             None => {
-                if matches!(generation_policy, GenerationPolicy::RetainOnly) {
+                if matches!(generation_policy, GenerationPolicy::RetainOnly(_)) {
                     return Err(Error::Invalid(
                         "retained managed generation disappeared; refusing to replace its identity"
                             .into(),
@@ -370,6 +414,8 @@ impl ManagedStore {
         // Binding is serialized with this exact validated generation, before spawn and before
         // any reset can acquire operation.lock. No callback may activate parent operations.
         programs.validate()?;
+        #[cfg(test)]
+        selected_generation_tests::before_startup(&retained.prepared)?;
         retain_context(&retained.prepared)?;
         runtime::startup_remaining_until(started, request.startup_timeout, startup_deadline_ns)?;
         if let Ok(status) = exchange(&directory, "status") {
@@ -384,28 +430,17 @@ impl ManagedStore {
             )?;
             if status.phase == ManagedPhase::Ready {
                 programs.validate()?;
-                let status = observe_startup_status(
-                    &directory,
-                    &retained.prepared.context,
-                    status,
-                    started,
-                    request.startup_timeout,
-                    startup_deadline_ns,
-                    true,
-                )?;
-                if status.phase != ManagedPhase::Ready {
-                    return Ok(status);
-                }
-                selection.apply(self, &request.name)?;
-                return observe_startup_status(
-                    &directory,
-                    &retained.prepared.context,
-                    status,
-                    started,
-                    request.startup_timeout,
-                    startup_deadline_ns,
-                    true,
-                );
+                return selection.apply(self, &retained.prepared.context, || {
+                    observe_startup_status(
+                        &directory,
+                        &retained.prepared.context,
+                        status,
+                        started,
+                        request.startup_timeout,
+                        startup_deadline_ns,
+                        true,
+                    )
+                });
             }
             if status.phase == ManagedPhase::Failed {
                 return Ok(status);
@@ -499,28 +534,17 @@ impl ManagedStore {
                 match status.phase {
                     ManagedPhase::Ready => {
                         programs.validate()?;
-                        let status = observe_startup_status(
-                            &directory,
-                            &retained.prepared.context,
-                            status,
-                            started,
-                            request.startup_timeout,
-                            startup_deadline_ns,
-                            false,
-                        )?;
-                        if status.phase != ManagedPhase::Ready {
-                            return Ok(status);
-                        }
-                        selection.apply(self, &request.name)?;
-                        return observe_startup_status(
-                            &directory,
-                            &retained.prepared.context,
-                            status,
-                            started,
-                            request.startup_timeout,
-                            startup_deadline_ns,
-                            false,
-                        );
+                        return selection.apply(self, &retained.prepared.context, || {
+                            observe_startup_status(
+                                &directory,
+                                &retained.prepared.context,
+                                status,
+                                started,
+                                request.startup_timeout,
+                                startup_deadline_ns,
+                                false,
+                            )
+                        });
                     }
                     ManagedPhase::Failed | ManagedPhase::Stopped => return Ok(status),
                     ManagedPhase::Starting => {}
@@ -671,13 +695,15 @@ impl ManagedStore {
     /// # Errors
     /// The named generation is absent, malformed, or fails private custody checks.
     pub fn select(&self, name: &str) -> Result<ManagedContext> {
-        let context = self.context(Some(name))?;
-        self.root.write_atomic(
-            "active.json",
-            &encode(&name.to_owned())?,
-            PublishMode::Replace,
-        )?;
+        let (context, bytes) = self.prepare_selection(name)?;
+        self.root
+            .write_atomic("active.json", &bytes, PublishMode::Replace)?;
         Ok(context)
+    }
+
+    fn prepare_selection(&self, name: &str) -> Result<(ManagedContext, Vec<u8>)> {
+        let context = self.context(Some(name))?;
+        Ok((context, encode(&name.to_owned())?))
     }
 
     /// Load the named context, or the currently selected managed context.
@@ -1150,3 +1176,11 @@ fn ownership_contention_uses_only_the_platform_ownership_opener_class() {
 #[cfg(test)]
 #[path = "pre_session_down_tests.rs"]
 mod pre_session_tests;
+
+#[cfg(test)]
+#[path = "selected_generation_tests.rs"]
+mod selected_generation_tests;
+
+#[cfg(test)]
+#[path = "startup_selection_tests.rs"]
+mod startup_selection_tests;

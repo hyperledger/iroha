@@ -221,3 +221,110 @@ fn borrowed_lane_equality_never_authenticates_a_changed_native_result_or_path() 
             .unwrap()
     );
 }
+
+#[test]
+fn original_commitment_decoder_refusal_preserves_origin_after_scope_and_retries() {
+    let (network, witness, root) = fixture();
+    let budget =
+        AllocationBudget::new(NativeLaneStateProof::scratch_bytes(witness.writes.len()).unwrap());
+    let target = witness
+        .writes
+        .iter()
+        .find(|write| write.key == SUMERAGI_LANE_STATE_WITNESS_KEY)
+        .unwrap();
+    let defaults = norito::canonical_decode_limits(target.value.len());
+    let limits = norito::DecodeLimits::new(
+        defaults.max_sequence_elements(),
+        defaults.max_field_bytes(),
+        defaults.max_total_elements(),
+        defaults.max_total_allocated_bytes(),
+        0,
+    );
+    let writes = witness.writes.as_ptr();
+    let pointer = target.value.as_ptr();
+    let source = HashOf::new(&witness);
+    let refused = norito::with_decode_limits_scope(limits, || {
+        NativeLaneStateProof::from_witness(&witness, &budget)
+    })
+    .unwrap_err();
+    let NativeLaneStateProofError::Decode(original) = &refused else {
+        panic!("the actual canonical commitment must retain its captured decoder error: {refused}")
+    };
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeAttemptErrorKind::EnclosingLimit
+    );
+    assert!(matches!(
+        std::error::Error::source(original)
+            .unwrap()
+            .downcast_ref::<norito::Error>()
+            .unwrap()
+            .decode_resource_error(),
+        Some(norito::core::DecodeResourceError::NestingDepthExceeded {
+            limit: 0,
+            context: "decode budget",
+            ..
+        })
+    ));
+    assert!(
+        refused.is_local_refusal(),
+        "caller origin must survive scope retirement"
+    );
+    assert_eq!(
+        budget.reserved_bytes(),
+        0,
+        "commitment decode refused before scratch admission"
+    );
+    assert_eq!(witness.writes.as_ptr(), writes);
+    assert_eq!(target.value.as_ptr(), pointer);
+    assert_eq!(HashOf::new(&witness), source);
+    assert!(
+        NativeLaneStateProof::from_witness(&witness, &budget)
+            .unwrap()
+            .verify(network, 2, root)
+    );
+    assert_eq!(budget.reserved_bytes(), 0);
+}
+
+#[test]
+fn malformed_original_commitment_keeps_terminal_decoder_origin_under_wider_caller() {
+    let (_, mut witness, _) = fixture();
+    let budget =
+        AllocationBudget::new(NativeLaneStateProof::scratch_bytes(witness.writes.len()).unwrap());
+    witness
+        .writes
+        .iter_mut()
+        .find(|write| write.key == SUMERAGI_LANE_STATE_WITNESS_KEY)
+        .unwrap()
+        .value
+        .pop()
+        .unwrap();
+    let refused = norito::with_decode_limits_scope(
+        norito::DecodeLimits::new(
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            usize::MAX,
+            norito::core::MAX_VALUE_NESTING_DEPTH,
+        ),
+        || NativeLaneStateProof::from_witness(&witness, &budget),
+    )
+    .unwrap_err();
+    let NativeLaneStateProofError::Decode(original) = &refused else {
+        panic!("truncated genuine commitment must preserve its terminal decoder source: {refused}")
+    };
+    assert_eq!(
+        original.kind(),
+        norito::core::DecodeAttemptErrorKind::Invalid
+    );
+    assert!(
+        std::error::Error::source(original)
+            .unwrap()
+            .downcast_ref::<norito::Error>()
+            .unwrap()
+            .decode_resource_error()
+            .is_none()
+    );
+    assert!(!refused.is_local_refusal());
+    assert_eq!(budget.reserved_bytes(), 0);
+}

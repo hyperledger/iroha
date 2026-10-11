@@ -507,6 +507,18 @@ pub(super) fn proposal_with_transaction(
         u64,
     ) -> iroha_data_model::transaction::SignedTransaction,
 ) -> AvailableBody {
+    proposal_with_transactions(chain, worker, |chain, time| vec![transaction(chain, time)])
+}
+
+/// Assemble separately signed original inputs through the same admission owner.
+pub(super) fn proposal_with_transactions(
+    chain: &CertifiedTestChain,
+    worker: &Worker<'_>,
+    transactions: impl FnOnce(
+        &CertifiedTestChain,
+        u64,
+    ) -> Vec<iroha_data_model::transaction::SignedTransaction>,
+) -> AvailableBody {
     let height = worker.applied.0 + 1;
     let certified_parent = chain.committed(worker.applied.0);
     let scheduled = worker.scheduled(height).unwrap().height_config().unwrap();
@@ -518,17 +530,22 @@ pub(super) fn proposal_with_transaction(
         .unwrap();
     let cadence = Duration::from_millis(scheduled.params.block_time);
     let block_time = parent.header().creation_time() + cadence;
-    let tx = transaction(chain, u64::try_from(block_time.as_millis()).unwrap() - 1);
+    let transactions = transactions(chain, u64::try_from(block_time.as_millis()).unwrap() - 1);
     let (_, time) = iroha_primitives::time::TimeSource::new_mock(block_time);
-    let accepted = crate::tx::AcceptedTransaction::accept_with_time_source(
-        tx,
-        &chain.network_id(),
-        Duration::from_secs(1),
-        view.world().parameters().transaction(),
-        &iroha_config::parameters::actual::Crypto::default(),
-        &time,
-    )
-    .unwrap();
+    let accepted = transactions
+        .into_iter()
+        .map(|tx| {
+            crate::tx::AcceptedTransaction::accept_with_time_source(
+                tx,
+                &chain.network_id(),
+                Duration::from_secs(1),
+                view.world().parameters().transaction(),
+                &iroha_config::parameters::actual::Crypto::default(),
+                &time,
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
     drop(view);
     let proposal = payload::assemble(
         chain.state(),
@@ -537,7 +554,7 @@ pub(super) fn proposal_with_transaction(
             view: 0,
             cadence,
         },
-        &[accepted],
+        &accepted,
     )
     .unwrap();
     let payload = payload::encode(&proposal).unwrap();
@@ -2581,6 +2598,471 @@ fn boundary_discard_releases_only_the_unretained_original_execution_and_result()
     );
 }
 
+// Traverse actual retained error owners without reconstructing decoder fields. This also
+// keeps the before control independent of the prospective captured Decode variant.
+fn native_archive_error_source<'a, E: std::error::Error + 'static>(
+    mut original: &'a (dyn std::error::Error + 'static),
+) -> &'a E {
+    loop {
+        if let Some(error) = original.downcast_ref::<E>() {
+            return error;
+        }
+        original = original
+            .source()
+            .expect("actual original decoder remains in the error chain");
+    }
+}
+
+#[test]
+fn context_proof_decoder_refusal_retains_original_inputs_and_retries() {
+    use iroha_data_model::sumeragi_finality::{
+        NativeLaneStateProof, SUMERAGI_LANE_STATE_WITNESS_KEY,
+    };
+
+    with_worker(|chain, worker, blocks, events| {
+        let block = proposal(chain, worker);
+        let block_hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
+        let budget = worker.state.ivm_execution_budget();
+        let epoch = crossbeam_epoch::pin();
+        let mut identities = None;
+        let mut original_resource = None;
+        let mut held = None;
+        let outcome = worker.run_execution_with_finisher(&block, block_hash, |worker| {
+            let original = worker.finishing.as_ref().unwrap();
+            let FinishingPhase::ContextProof {
+                inputs,
+                refusal: None,
+            } = &original.phase
+            else {
+                panic!("actual original execution precedes its first result proof")
+            };
+            let target = original
+                .witness
+                .writes
+                .iter()
+                .find(|write| write.key == SUMERAGI_LANE_STATE_WITNESS_KEY)
+                .unwrap();
+            let canonical = norito::canonical_decode_limits(target.value.len());
+            let limits = norito::DecodeLimits::new(
+                canonical.max_sequence_elements(),
+                canonical.max_field_bytes(),
+                canonical.max_total_elements(),
+                canonical.max_total_allocated_bytes(),
+                0,
+            );
+            NativeLaneStateProof::from_witness(&original.witness, &budget).unwrap();
+            let error = norito::with_decode_limits_scope(limits, || {
+                NativeLaneStateProof::from_witness(&original.witness, &budget).unwrap_err()
+            });
+            original_resource =
+                native_archive_error_source::<norito::Error>(&error).decode_resource_error();
+            assert!(matches!(
+                original_resource,
+                Some(norito::core::DecodeResourceError::NestingDepthExceeded {
+                    limit: 0,
+                    context: "decode budget",
+                    ..
+                })
+            ));
+            assert!(inputs.belongs_to(&budget));
+            assert!(original.witness.pool().same_pool(&budget));
+            identities = Some((
+                std::ptr::from_ref(original.overlay.as_ref()),
+                inputs.get().schedule.current.committee.as_ptr(),
+                original.witness.writes.as_ptr(),
+                target.value.as_ptr(),
+                iroha_crypto::HashOf::new(original.witness.wire()),
+                original.events.len(),
+            ));
+            held = Some(budget.reserved_bytes());
+            norito::with_decode_limits_scope(limits, || {
+                worker.finish_execution_with_encoder(encode_result_preimage)
+            })
+        });
+        assert!(
+            matches!(&outcome, Err(PublicationError::Deferred(PublicationDeferral::Execution(original)))
+            if original.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+                && original.allocation_refusal().is_none()),
+            "original result proof decoder refusal must remain deferred, got {outcome:?}"
+        );
+        let Err(PublicationError::Deferred(original_deferral)) = outcome else {
+            unreachable!("exact local category checked above")
+        };
+        assert!(original_deferral.release_wait().is_none());
+        assert!(worker.recovery.is_none());
+        assert!(worker.live.is_none());
+        assert!(!worker.results.contains_key(&block_hash));
+        let original = worker.finishing.as_ref().unwrap();
+        let FinishingPhase::ContextProof { inputs, refusal } = &original.phase else {
+            panic!("same original proof frontier must survive admission refusal")
+        };
+        let refused = refusal.as_ref().unwrap();
+        let decoder = native_archive_error_source::<norito::core::DecodeAttemptError>(refused);
+        assert_eq!(
+            decoder.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        assert_eq!(
+            native_archive_error_source::<norito::Error>(decoder).decode_resource_error(),
+            original_resource
+        );
+        assert!(refused.is_local_refusal());
+        assert!(original.native_contexts.is_none());
+        assert!(original.archive_refusal.is_none());
+        let (overlay, committee, writes, commitment_bytes, witness_hash, event_count) =
+            identities.unwrap();
+        assert_eq!(std::ptr::from_ref(original.overlay.as_ref()), overlay);
+        assert_eq!(inputs.get().schedule.current.committee.as_ptr(), committee);
+        assert_eq!(original.witness.writes.as_ptr(), writes);
+        assert_eq!(
+            original
+                .witness
+                .writes
+                .iter()
+                .find(|write| write.key == SUMERAGI_LANE_STATE_WITNESS_KEY)
+                .unwrap()
+                .value
+                .as_ptr(),
+            commitment_bytes
+        );
+        assert_eq!(
+            iroha_crypto::HashOf::new(original.witness.wire()),
+            witness_hash
+        );
+        assert_eq!(original.events.len(), event_count);
+        assert_eq!(budget.reserved_bytes(), held.unwrap());
+        assert_eq!(worker.state.committed_height(), 1);
+        assert!(events.try_recv().is_err());
+        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, block_hash) else {
+            panic!("same original result proof must complete after the caller scope retires")
+        };
+        let live = worker.live.as_ref().unwrap();
+        assert_eq!(
+            std::ptr::from_ref(live.overlay.as_deref().unwrap()),
+            overlay
+        );
+        assert_eq!(
+            live.commitment().get().schedule.current.committee.as_ptr(),
+            committee
+        );
+        let witness = live.witness.as_ref().unwrap();
+        assert_eq!(witness.writes.as_ptr(), writes);
+        assert_eq!(iroha_crypto::HashOf::new(witness.wire()), witness_hash);
+        assert!(witness.pool().same_pool(&budget));
+        assert!(live.commitment().belongs_to(&budget));
+        let context = live.native_contexts.as_ref().unwrap();
+        let bytes = context.canonical_bytes().to_vec();
+        let carrier = context.carrier_hash();
+        let qc = chain.commit_qc(2, block_hash, result, Signers::Quorum);
+        worker.prepare(&block, &qc).unwrap();
+        blocks.append(&block, &qc).unwrap();
+        worker.commit(&block, &qc).unwrap();
+        let durable = worker
+            .context
+            .native_context_archive
+            .read_exact(2, carrier)
+            .unwrap();
+        assert_eq!(durable.as_slice(), bytes);
+        assert_eq!(worker.state.committed_height(), 2);
+        drop(durable);
+        drop(epoch);
+    });
+}
+
+#[test]
+fn native_context_archive_decoder_refusal_retains_original_execution_and_retries() {
+    use crate::sumeragi::driver::traits::PublicationDeferral;
+    use iroha_data_model::sumeragi_finality::{
+        NativeLaneStateProof, SUMERAGI_LANE_STATE_WITNESS_KEY,
+    };
+
+    with_worker(|chain, worker, blocks, events| {
+        let block = proposal(chain, worker);
+        let block_hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
+        let budget = worker.state.ivm_execution_budget();
+        let epoch = crossbeam_epoch::pin();
+        let mut identities = None;
+        let mut original_resource = None;
+        let mut held = None;
+        let outcome = worker.run_execution_with_finisher(&block, block_hash, |worker| {
+            // Complete the actual native result before narrowing only the archive decoder.
+            worker.prepare_original_result().unwrap();
+            let original = worker.finishing.as_ref().unwrap();
+            let target = original
+                .witness
+                .writes
+                .iter()
+                .find(|write| write.key == SUMERAGI_LANE_STATE_WITNESS_KEY)
+                .expect("genuine completed lane-state commitment");
+            let canonical = norito::canonical_decode_limits(target.value.len());
+            let limits = norito::DecodeLimits::new(
+                canonical.max_sequence_elements(),
+                canonical.max_field_bytes(),
+                canonical.max_total_elements(),
+                canonical.max_total_allocated_bytes(),
+                0,
+            );
+            assert_eq!(
+                NativeLaneStateProof::from_witness(&original.witness, &budget).unwrap(),
+                original.phase.ready().unwrap().get().native_lanes,
+                "the same original witness is valid before local admission refusal"
+            );
+            let oracle = norito::with_decode_limits_scope(limits, || {
+                NativeLaneStateProof::from_witness(&original.witness, &budget).unwrap_err()
+            });
+            let cause =
+                native_archive_error_source::<norito::Error>(&oracle).decode_resource_error();
+            assert!(matches!(
+                cause,
+                Some(norito::core::DecodeResourceError::NestingDepthExceeded {
+                    limit: 0,
+                    context: "decode budget",
+                    ..
+                })
+            ));
+            original_resource = cause;
+            let result = original.phase.ready().unwrap();
+            assert!(result.belongs_to(&budget));
+            assert!(original.witness.pool().same_pool(&budget));
+            identities = Some((
+                std::ptr::from_ref(original.overlay.as_ref()),
+                original.witness.writes.as_ptr(),
+                target.value.as_ptr(),
+                iroha_crypto::HashOf::new(original.witness.wire()),
+                result.get().schedule.current.committee.as_ptr(),
+                norito::encode_canonical(result.get()).unwrap(),
+                original.valid.as_ref().hash(),
+            ));
+            held = Some(budget.reserved_bytes());
+            norito::with_decode_limits_scope(limits, || {
+                worker.finish_execution_with_encoder(encode_result_preimage)
+            })
+        });
+        assert!(
+            matches!(
+                &outcome,
+                Err(PublicationError::Deferred(PublicationDeferral::Execution(original)))
+                    if original.reason() == ivm::error::ExecutionDeferral::ActiveMemoryCapacity
+                        && original.allocation_refusal().is_none()
+            ),
+            "original archive decoder refusal must remain deferred, got {outcome:?}"
+        );
+        let Err(PublicationError::Deferred(deferral)) = outcome else {
+            unreachable!("exact local category checked above")
+        };
+        assert!(
+            deferral.release_wait().is_none(),
+            "codec admission has no invented pool waiter"
+        );
+        assert!(worker.recovery.is_none());
+        assert!(worker.live.is_none());
+        assert!(!worker.results.contains_key(&block_hash));
+        let original = worker.finishing.as_ref().unwrap();
+        assert!(original.native_contexts.is_none());
+        let refused = original.archive_refusal.as_ref().unwrap();
+        let decoder = native_archive_error_source::<norito::core::DecodeAttemptError>(refused);
+        assert_eq!(
+            decoder.kind(),
+            norito::core::DecodeAttemptErrorKind::EnclosingLimit
+        );
+        assert_eq!(
+            std::error::Error::source(decoder)
+                .unwrap()
+                .downcast_ref::<norito::Error>()
+                .unwrap()
+                .decode_resource_error(),
+            original_resource,
+        );
+        assert!(
+            refused.is_local_refusal(),
+            "captured decoder origin survives scope retirement"
+        );
+        let (
+            overlay,
+            writes,
+            commitment_bytes,
+            witness_hash,
+            committee,
+            canonical_result,
+            executed_hash,
+        ) = identities.unwrap();
+        assert_eq!(std::ptr::from_ref(original.overlay.as_ref()), overlay);
+        assert_eq!(original.witness.writes.as_ptr(), writes);
+        assert_eq!(
+            original
+                .witness
+                .writes
+                .iter()
+                .find(|write| write.key == SUMERAGI_LANE_STATE_WITNESS_KEY)
+                .unwrap()
+                .value
+                .as_ptr(),
+            commitment_bytes,
+        );
+        assert_eq!(
+            iroha_crypto::HashOf::new(original.witness.wire()),
+            witness_hash
+        );
+        assert_eq!(
+            original
+                .phase
+                .ready()
+                .unwrap()
+                .get()
+                .schedule
+                .current
+                .committee
+                .as_ptr(),
+            committee
+        );
+        assert_eq!(
+            norito::encode_canonical(original.phase.ready().unwrap().get()).unwrap(),
+            canonical_result
+        );
+        assert_eq!(original.valid.as_ref().hash(), executed_hash);
+        assert_eq!(budget.reserved_bytes(), held.unwrap());
+        assert_eq!(worker.state.committed_height(), 1);
+        assert!(events.try_recv().is_err());
+
+        let Some(ExecOutcome::Valid(result)) = worker.execute(&block, block_hash) else {
+            panic!(
+                "the unchanged original execution must finish after the caller decoder scope retires"
+            )
+        };
+        let live = worker.live.as_ref().unwrap();
+        assert_eq!(
+            std::ptr::from_ref(live.overlay.as_deref().unwrap()),
+            overlay
+        );
+        let witness = live.witness.as_ref().unwrap();
+        assert_eq!(witness.writes.as_ptr(), writes);
+        assert_eq!(iroha_crypto::HashOf::new(witness.wire()), witness_hash);
+        assert_eq!(
+            live.commitment().get().schedule.current.committee.as_ptr(),
+            committee
+        );
+        assert_eq!(
+            norito::encode_canonical(live.commitment().get()).unwrap(),
+            canonical_result
+        );
+        assert!(live.commitment().belongs_to(&budget));
+        assert!(witness.pool().same_pool(&budget));
+        let context = live.native_contexts.as_ref().unwrap();
+        let bytes = context.canonical_bytes().to_vec();
+        let carrier = context.carrier_hash();
+        assert_eq!(carrier, executed_hash);
+        assert!(worker.recovery.is_none());
+        let qc = chain.commit_qc(2, block_hash, result, Signers::Quorum);
+        worker.prepare(&block, &qc).unwrap();
+        blocks.append(&block, &qc).unwrap();
+        worker.commit(&block, &qc).unwrap();
+        let durable = worker
+            .context
+            .native_context_archive
+            .read_exact(2, carrier)
+            .unwrap();
+        assert_eq!(durable.as_slice(), bytes);
+        assert_eq!(worker.state.committed_height(), 2);
+        drop(durable);
+        drop(epoch);
+    });
+}
+
+#[test]
+fn native_context_archive_corrupt_commitment_remains_sticky_recovery() {
+    use iroha_data_model::sumeragi_finality::{
+        NativeLaneStateProof, SUMERAGI_LANE_STATE_WITNESS_KEY,
+    };
+
+    for result_completed in [false, true] {
+        with_worker(move |chain, worker, _blocks, events| {
+            let block = proposal(chain, worker);
+            let block_hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
+            let budget = worker.state.ivm_execution_budget();
+            let epoch = crossbeam_epoch::pin();
+            let mut identities = None;
+            let mut held = None;
+            let outcome = worker.run_execution_with_finisher(&block, block_hash, |worker| {
+                if result_completed {
+                    worker.prepare_original_result().unwrap();
+                }
+                let original = worker.finishing.as_mut().unwrap();
+                // Offer an adversarial reconstruction through the existing seam; the funded
+                // original stays immutable and cannot be extracted by this test.
+                original
+                    .witness
+                    .offer_reconstructed_tamper_for_test(|offered| {
+                        offered
+                            .writes
+                            .iter_mut()
+                            .find(|write| write.key == SUMERAGI_LANE_STATE_WITNESS_KEY)
+                            .unwrap()
+                            .value
+                            .pop()
+                            .unwrap();
+                    });
+                let error =
+                    NativeLaneStateProof::from_witness(&original.witness, &budget).unwrap_err();
+                assert!(
+                    native_archive_error_source::<norito::Error>(&error)
+                        .decode_resource_error()
+                        .is_none(),
+                    "malformed bytes must not masquerade as local admission"
+                );
+                identities = Some((
+                    std::ptr::from_ref(original.overlay.as_ref()),
+                    original.committee.as_ptr(),
+                    iroha_crypto::HashOf::new(original.witness.wire()),
+                ));
+                held = Some(budget.reserved_bytes());
+                worker.finish_execution_with_encoder(encode_result_preimage)
+            });
+            assert!(
+                matches!(outcome, Err(PublicationError::RecoveryRequired(_))),
+                "corrupt original commitment must require recovery: {outcome:?}"
+            );
+            assert!(worker.recovery.is_some());
+            let original = worker.finishing.as_ref().unwrap();
+            assert_eq!(original.phase.ready().is_some(), result_completed);
+            match &original.phase {
+                FinishingPhase::ContextProof { refusal, .. } => {
+                    assert!(!refusal.as_ref().unwrap().is_local_refusal());
+                    assert!(original.archive_refusal.is_none());
+                }
+                FinishingPhase::Ready(_) => assert!(
+                    !original
+                        .archive_refusal
+                        .as_ref()
+                        .unwrap()
+                        .is_local_refusal()
+                ),
+                FinishingPhase::Consuming => {
+                    panic!("no destructive transition begins on corrupt commitment")
+                }
+            }
+            assert!(original.native_contexts.is_none());
+            assert!(worker.live.is_none());
+            let (overlay, committee, witness) = identities.unwrap();
+            for _ in 0..2 {
+                let Some(ExecOutcome::Failed(reason)) = worker.execute(&block, block_hash) else {
+                    panic!("unchanged corrupt execution stays in recovery")
+                };
+                assert!(reason.contains("publication recovery required"));
+                let original = worker.finishing.as_ref().unwrap();
+                assert_eq!(std::ptr::from_ref(original.overlay.as_ref()), overlay);
+                assert_eq!(original.committee.as_ptr(), committee);
+                assert_eq!(iroha_crypto::HashOf::new(original.witness.wire()), witness);
+                assert!(original.native_contexts.is_none());
+                assert_eq!(budget.reserved_bytes(), held.unwrap());
+                assert!(!worker.results.contains_key(&block_hash));
+                assert_eq!(worker.state.committed_height(), 1);
+                assert!(events.try_recv().is_err());
+            }
+            drop(epoch);
+        });
+    }
+}
+
 #[test]
 fn native_context_archive_capacity_retry_retains_original_overlay_and_result() {
     with_worker(|chain, worker, blocks, events| {
@@ -3616,4 +4098,49 @@ fn original_worker_completed_world_cut_refuses_changed_publication_source() {
             assert_eq!(observation.snapshot(), completed);
         });
     });
+}
+
+#[test]
+fn native_lane_proof_scratch_ceiling_remains_terminal_in_both_worker_stages() {
+    for result_completed in [false, true] {
+        with_worker(move |chain, worker, _blocks, events| {
+            let block = proposal(chain, worker);
+            let block_hash = block.hash(&**worker.context.crypto.as_ref().unwrap());
+            let budget = worker.state.ivm_execution_budget();
+            let original_limit = budget.limit_bytes();
+            let epoch = crossbeam_epoch::pin();
+            let mut identities = None;
+            let mut held = None;
+            let outcome = worker.run_execution_with_finisher(&block, block_hash, |worker| {
+                if result_completed { worker.prepare_original_result().unwrap(); }
+                let original = worker.finishing.as_ref().unwrap();
+                let demand = NativeLaneStateProof::scratch_bytes(original.witness.writes.len()).unwrap();
+                assert!(demand > 0);
+                budget.set_limit_bytes(demand - 1);
+                let error = NativeLaneStateProof::from_witness(&original.witness, &budget).unwrap_err();
+                assert!(matches!(error, NativeLaneStateProofError::Scratch(iroha_allocation::ChargedBufferError::Admission(iroha_allocation::AllocationRefusal::ExceedsLimit { requested_bytes, limit_bytes })) if requested_bytes == demand && limit_bytes == demand - 1));
+                assert!(!error.is_local_refusal());
+                identities = Some((std::ptr::from_ref(original.overlay.as_ref()), original.witness.writes.as_ptr(), iroha_crypto::HashOf::new(original.witness.wire())));
+                held = Some(budget.reserved_bytes());
+                worker.finish_execution_with_encoder(encode_result_preimage)
+            });
+            budget.set_limit_bytes(original_limit);
+            assert!(
+                matches!(outcome, Err(PublicationError::RecoveryRequired(_))),
+                "a proof scratch demand above its hard ceiling remains terminal: {outcome:?}"
+            );
+            assert!(worker.recovery.is_some());
+            assert!(worker.live.is_none());
+            let original = worker.finishing.as_ref().unwrap();
+            assert_eq!(original.phase.ready().is_some(), result_completed);
+            let (overlay, writes, witness) = identities.unwrap();
+            assert_eq!(std::ptr::from_ref(original.overlay.as_ref()), overlay);
+            assert_eq!(original.witness.writes.as_ptr(), writes);
+            assert_eq!(iroha_crypto::HashOf::new(original.witness.wire()), witness);
+            assert_eq!(budget.reserved_bytes(), held.unwrap());
+            assert_eq!(worker.state.committed_height(), 1);
+            assert!(events.try_recv().is_err());
+            drop(epoch);
+        });
+    }
 }

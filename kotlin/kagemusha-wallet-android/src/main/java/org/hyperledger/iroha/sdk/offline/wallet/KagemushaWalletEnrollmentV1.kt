@@ -104,7 +104,7 @@ class KagemushaWalletEnrollmentV1 internal constructor(handle: Long, private val
     private fun call(selector: Int, first: ByteArray = byteArrayOf(), second: ByteArray = byteArrayOf(), third: ByteArray = byteArrayOf(), certificates: List<ByteArray> = emptyList()): KagemushaWalletCallV1 {
         if (retired) throw closeFailure ?: KagemushaWalletExceptionV1(-2)
         if (owner == 0L) throw KagemushaWalletExceptionV1(-2)
-        val limits = when (selector) { 0 -> listOf(32,4096,1024); 1,5 -> listOf(64,0,0); 2,3,7,10,16,18 -> listOf(0,0,0); 4 -> listOf(32,65536,4096); 6 -> listOf(RESULT_MAX_BYTES,0,0); 9 -> listOf(PERMIT_MAX_BYTES,0,0); 19 -> listOf(16384,4096,16384); else -> throw IllegalArgumentException("selector") }
+        val limits = when (selector) { 0 -> listOf(32,4096,1024); 1,5 -> listOf(64,0,0); 2,3,7,10,16,18,20 -> listOf(0,0,0); 4 -> listOf(32,65536,4096); 6 -> listOf(RESULT_MAX_BYTES,0,0); 9 -> listOf(PERMIT_MAX_BYTES,0,0); 19 -> listOf(16384,4096,16384); else -> throw IllegalArgumentException("selector") }
         require(listOf(first,second,third).zip(limits).all { (bytes,bound) -> bytes.size <= bound })
         // Android evidence is the leaf-first KeyMint chain only: no token or verdict rides along.
         require(if (selector == 3) certificates.size in CHAIN_MIN_CERTIFICATES..CHAIN_MAX_CERTIFICATES &&
@@ -112,8 +112,8 @@ class KagemushaWalletEnrollmentV1 internal constructor(handle: Long, private val
             else certificates.isEmpty()) { "Android E5 evidence is 2-8 DER certificates, each 1-16,384 bytes, at most 65,536 bytes" }
         val value = driver.call(owner,selector,first.copyOf(),second.copyOf(),third.copyOf(),certificates.map { it.copyOf() }.toTypedArray()) ?: throw KagemushaWalletExceptionV1(-100)
         if (value.status < 0) throw KagemushaWalletExceptionV1(value.status,value.reason,value.platformCode)
-        val expected = when (selector) { 0 -> setOf(27); 1,2 -> setOf(19,20,21,22); 3,4 -> setOf(23,24); 5 -> setOf(24); 6 -> setOf(25); 7 -> setOf(26); 9 -> setOf(18); 10 -> setOf(KagemushaWalletCallV1.ENROLLMENT_ABANDONMENT, KagemushaWalletCallV1.ENROLLMENT_LOCAL_ABANDONED); 16 -> setOf(20,24); 18 -> setOf(20,25); 19 -> setOf(39); else -> emptySet() }
-        val bound = when (value.status) { 18,23 -> 32; 19 -> 161; 24 -> REQUEST_MAX_BYTES; 25 -> RESULT_MAX_BYTES; 27 -> DISPATCH_MAX_BYTES; 28 -> ABANDONMENT_MAX_BYTES; else -> 0 }
+        val expected = when (selector) { 0 -> setOf(27); 1,2 -> setOf(19,20,21,22); 3,4 -> setOf(23,24); 5 -> setOf(24); 6 -> setOf(25); 7 -> setOf(26); 9 -> setOf(18); 10 -> setOf(KagemushaWalletCallV1.ENROLLMENT_ABANDONMENT, KagemushaWalletCallV1.ENROLLMENT_LOCAL_ABANDONED); 16 -> setOf(20,24); 18 -> setOf(20,25); 19 -> setOf(39); 20 -> setOf(58,59); else -> emptySet() }
+        val bound = when (value.status) { 18,23 -> 32; 19 -> 161; 24 -> REQUEST_MAX_BYTES; 25 -> RESULT_MAX_BYTES; 27 -> DISPATCH_MAX_BYTES; 28 -> ABANDONMENT_MAX_BYTES; 59 -> 65_536; else -> 0 }
         val size = value.bytes().size
         if (value.status !in expected || value.sequenceLow != owner || value.sequenceHigh != 0L || value.detail != 0 ||
             (if (bound == 0) size != 0 else size !in 1..bound) ||
@@ -198,6 +198,14 @@ class KagemushaWalletEnrollmentV1 internal constructor(handle: Long, private val
             KagemushaWalletCallV1.ENROLLMENT_LOCAL_ABANDONED -> KagemushaWalletEnrollmentAbandonmentV1.LocalAbandoned
             else -> throw KagemushaWalletExceptionV1(KagemushaWalletExceptionV1.INVALID_NATIVE_OUTPUT)
         }
+    }
+    /** Permanently abandon the unused enrollment and obtain its exact canonical ledger
+     * instruction for an ordinary account-signed transaction. Null means Native committed the
+     * local no-marker form, which has nothing to submit. Repeated calls retain the same signed
+     * inner original; this is not a submission or finality acknowledgement. */
+    @Synchronized fun abandonmentLedgerInstruction(): ByteArray? {
+        val value = call(20)
+        return if (value.status == KagemushaWalletCallV1.ENROLLMENT_LOCAL_ABANDONED) null else value.bytes()
     }
     @Synchronized override fun close() { closeFailure?.let { throw it }; closeAttempt() }
     @Synchronized override fun retryCleanup() { closeAttempt() }

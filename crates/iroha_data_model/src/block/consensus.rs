@@ -417,7 +417,7 @@ impl Evidence {
     /// Historical signer authority is not supplied by this syntax operation.
     ///
     /// # Errors
-    /// Preserves the same bounded framing, artifact and pair-order error as decode_native.
+    /// Preserves the same bounded framing, artifact and pair-order error as `decode_native`.
     pub fn decode_native_frame(
         bytes: &[u8],
     ) -> Result<iroha_sumeragi::message::Evidence, iroha_sumeragi::message::CodecError> {
@@ -499,8 +499,8 @@ impl norito::json::JsonDeserialize for Evidence {
             native: wire.native,
         };
         evidence.decode_native().map_err(|error| match error {
-            iroha_sumeragi::message::CodecError::Resource(_) => {
-                norito::json::Error::DecodeResourceLimit
+            iroha_sumeragi::message::CodecError::Resource(resource) => {
+                norito::json::Error::from_decode_resource(resource.into())
             }
             other => norito::json::Error::Message(other.to_string()),
         })?;

@@ -242,7 +242,8 @@ class HttpClientTransportTest {
         for (input in listOf("", "x".repeat(513), "\uD800")) {
             assertFailsWith<IllegalArgumentException> { RamLfeExecuteRequest.ownerInput(input, "12".repeat(32)) }
         }
-        assertFailsWith<IllegalArgumentException> { samplePlaintextOnlyPolicy().prepareRequest("private@example.org", "12".repeat(32)) }
+        assertEquals("prepare", sampleHkdfOwnerPolicy().prepareRequest("private@example.org", "12".repeat(32)).phase)
+        assertFailsWith<IllegalArgumentException> { sampleBfvPolicy(sampleBfvParameters()).prepareRequest("private@example.org", "12".repeat(32)) }
         assertFailsWith<IllegalArgumentException> { IdentifierResolveRequest.claim("phone#retail", "+819012345678", "12".repeat(32), sampleOpening()) }
     }
 
@@ -257,6 +258,10 @@ class HttpClientTransportTest {
         )
 
         assertTrue(receipt.verifyResolverAttestation(policy, verifyingKeyNetworkId))
+        assertTrue(IdentifierResolutionReceipt(
+            payload,
+            IdentifierReceiptAttestation("signed", fixture.signatureHex.uppercase(), null, null),
+        ).verifyResolverAttestation(policy, verifyingKeyNetworkId))
         assertFailsWith<IllegalArgumentException> { receipt.verifyResolverAttestation(policy, otherNetworkId) }
 
         val tamperedReceipt = IdentifierResolutionReceipt(
@@ -281,11 +286,14 @@ class HttpClientTransportTest {
             receipt.verifyResolverAttestation(sampleIdentifierVerifierPolicy(fixture.resolverPublicKey, policyId = "phone#retail"), verifyingKeyNetworkId)
         }
 
-        assertFailsWith<IllegalArgumentException> {
-            IdentifierResolutionReceipt(
-                payload,
-                IdentifierReceiptAttestation("signed", "abc", null, null),
-            ).verifyResolverAttestation(policy, verifyingKeyNetworkId)
+        for (signature in listOf("", "abc", "zz", "ＦＦ", " ${fixture.signatureHex}", "${fixture.signatureHex} ",
+            "00".repeat(CanonicalRequestSigner.CANONICAL_REQUEST_MAX_SIGNATURE_BYTES_V1 + 1))) {
+            assertFailsWith<IllegalArgumentException> {
+                IdentifierResolutionReceipt(
+                    payload,
+                    IdentifierReceiptAttestation("signed", signature, null, null),
+                ).verifyResolverAttestation(policy, verifyingKeyNetworkId)
+            }
         }
     }
 
@@ -6076,7 +6084,7 @@ class HttpClientTransportTest {
             note = null,
             outputOpeningPublicKey = "ed25519:ed01203B6A27BCCEB6A42D62A3A8D02A6F0D73653215771DE243A63AC048A18B59DA29",
         )
-    private fun samplePlaintextOnlyPolicy(): IdentifierPolicySummary =
+    private fun sampleHkdfOwnerPolicy(): IdentifierPolicySummary =
         IdentifierPolicySummary(
             policyId = "string#retail",
             programId = "string-retail-fixture",

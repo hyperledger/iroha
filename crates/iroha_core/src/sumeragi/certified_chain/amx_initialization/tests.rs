@@ -170,3 +170,40 @@ fn initial_prefix_decoder_refusal_reuses_original_genesis_body_raw_and_cumulativ
     drop(context);
     assert_eq!(budget.reserved_bytes(), baseline);
 }
+
+#[test]
+fn original_policy_admission_preserves_real_pool_release_and_decoder_causes() {
+    use iroha_allocation::{AllocationBudget, ChargedBufferError};
+    use iroha_data_model::sumeragi_finality::GenesisReadError;
+    use ivm::error::ExecutionDeferral;
+    let pool = AllocationBudget::new(8);
+    let occupied = pool.try_reserve_bytes(8).unwrap();
+    let original = pool.try_reserve_bytes(1).unwrap_err();
+    let ExecutionAttemptError::Deferred(retained) = original_authentication_error(
+        OriginalGenesisReadError::Allocation(ChargedBufferError::Admission(original.clone())),
+    ) else {
+        panic!("original allocation refusal cannot become a genesis rejection");
+    };
+    assert_eq!(retained.allocation_refusal(), Some(&original));
+    let ExecutionAttemptError::Deferred(retained) = original_authentication_error(
+        OriginalGenesisReadError::Allocation(ChargedBufferError::Allocator { requested_bytes: 8 }),
+    ) else {
+        panic!("physical allocator refusal cannot become a genesis rejection");
+    };
+    assert_eq!(retained.reason(), ExecutionDeferral::AllocationUnavailable);
+    assert!(retained.allocation_refusal().is_none());
+    let ExecutionAttemptError::Deferred(retained) =
+        original_authentication_error(OriginalGenesisReadError::Validation(
+            GenesisReadError::Json(norito::json::Error::DecodeResourceLimit),
+        ))
+    else {
+        panic!("original decoder refusal cannot become a genesis rejection");
+    };
+    assert_eq!(retained.reason(), ExecutionDeferral::ActiveMemoryCapacity);
+    assert!(retained.allocation_refusal().is_none());
+    assert!(matches!(
+        original_authentication_error(OriginalGenesisReadError::ForeignPool),
+        ExecutionAttemptError::Rejected(ChainReadError::ForeignGenesis)
+    ));
+    drop(occupied);
+}

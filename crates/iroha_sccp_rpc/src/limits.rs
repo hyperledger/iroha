@@ -188,7 +188,7 @@ fn is_resource_error(error: &norito::json::Error) -> bool {
         error,
         Error::DecodeResourceLimit
             | Error::ScopedDecodeResource(_)
-            | Error::DecodeAllocationFailed { .. }
+            | Error::DecodeResource(_)
             | Error::AllocationFailed
             | Error::NestingDepthExceeded { .. }
     )

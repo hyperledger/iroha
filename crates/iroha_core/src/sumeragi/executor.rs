@@ -117,6 +117,23 @@ use crate::{
     },
 };
 
+/// Borrow only a retryable refusal while the original shared proof error stays in its phase.
+/// Invalid source, encoder failures and scratch demand above the hard pool ceiling remain recovery.
+fn original_lane_proof_deferral(
+    error: &NativeLaneStateProofError,
+) -> Option<crate::execution_attempt::ExecutionDeferred> {
+    if !error.is_local_refusal() {
+        return None;
+    }
+    match error {
+        NativeLaneStateProofError::Scratch(original) => Some(preparation::buffer_refusal(original)),
+        NativeLaneStateProofError::Decode(original) => {
+            crate::execution_attempt::canonical_decode_deferral(original)
+        }
+        _ => None,
+    }
+}
+
 /// Payload bytes kept free for the block's non-transaction fields when selecting. The data
 /// model owns the reserve so queue admission and SDK preflight use the same value.
 const PAYLOAD_OVERHEAD: usize =
@@ -1835,11 +1852,9 @@ impl<'s> Worker<'s> {
         let proof = match NativeLaneStateProof::from_witness(&original.witness, &budget) {
             Ok(proof) => proof,
             Err(error) => {
-                let failure = match &error {
-                    NativeLaneStateProofError::Scratch(error) => {
-                        PublicationError::Deferred(preparation::buffer_refusal(error).into())
-                    }
-                    _ => PublicationError::RecoveryRequired(format!(
+                let failure = match original_lane_proof_deferral(&error) {
+                    Some(original) => PublicationError::Deferred(original.into()),
+                    None => PublicationError::RecoveryRequired(format!(
                         "original context proof requires recovery: {error}"
                     )),
                 };
@@ -1951,6 +1966,14 @@ impl<'s> Worker<'s> {
                 let failure = match &error {
                     NativeContextArchiveError::Allocation(error) => {
                         PublicationError::Deferred(preparation::buffer_refusal(error).into())
+                    }
+                    NativeContextArchiveError::Proof(error) => {
+                        match original_lane_proof_deferral(error) {
+                            Some(original) => PublicationError::Deferred(original.into()),
+                            None => PublicationError::RecoveryRequired(format!(
+                                "original native context archive requires recovery: {error}"
+                            )),
+                        }
                     }
                     _ => PublicationError::RecoveryRequired(format!(
                         "original native context archive requires recovery: {error}"

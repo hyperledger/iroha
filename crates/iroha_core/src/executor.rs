@@ -797,16 +797,26 @@ fn read_permission_payload<T: norito::json::JsonDeserialize>(
 ) -> Result<Option<T>, crate::execution_attempt::ExecutionAttemptError<ValidationFail>> {
     match norito::json::from_str(permission.payload().get()) {
         Ok(grant) => Ok(Some(grant)),
-        Err(norito::json::Error::DecodeResourceLimit)
-            if !cfg!(all(test, sumeragi_core_mutation = "HC30")) =>
-        {
+        Err(
+            norito::json::Error::DecodeResourceLimit
+            | norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+                | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+                | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+                | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+                | norito::core::DecodeResourceError::TotalAllocationExceeded { .. },
+            ),
+        ) if !cfg!(all(test, sumeragi_core_mutation = "HC30")) => {
             Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
                 ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into(),
             ))
         }
-        Err(norito::json::Error::AllocationFailed)
-            if !cfg!(all(test, sumeragi_core_mutation = "HC30")) =>
-        {
+        Err(
+            norito::json::Error::AllocationFailed
+            | norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::AllocationFailed { .. },
+            ),
+        ) if !cfg!(all(test, sumeragi_core_mutation = "HC30")) => {
             Err(crate::execution_attempt::ExecutionAttemptError::Deferred(
                 ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
             ))

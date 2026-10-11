@@ -11,7 +11,7 @@ use crate::{
 };
 use iroha_data_model::{
     nexus::FeeDebitSource,
-    sumeragi_amx::AmxRecordProofV1,
+    sumeragi_amx::{AllocatedAmxRecordProofV1, AmxRecordProofV1},
     transaction::{
         Executable, FeeChargeKind, FeeChargeLimit, FeePaymentIntent, SignedTransaction,
         TransactionBuilder, TransactionEntrypoint,
@@ -826,8 +826,49 @@ fn native_amx_paid_owned_queue_and_payload_clones_retain_original_proof_graph_an
 pub(super) fn with_paid_prepare_retry_fixture(
     test: impl FnOnce(&CertifiedTestChain, InstructionBox, KeyPair),
 ) {
+    with_paid_prepare_retry_fixture_with_receiver(false, test);
+}
+
+pub(super) fn with_paid_multisig_prepare_retry_fixture(
+    test: impl FnOnce(&CertifiedTestChain, InstructionBox, KeyPair),
+) {
+    with_paid_prepare_retry_fixture_with_receiver(true, test);
+}
+
+fn with_paid_prepare_retry_fixture_with_receiver(
+    multisig_receiver: bool,
+    test: impl FnOnce(&CertifiedTestChain, InstructionBox, KeyPair),
+) {
     let mut roots = paid_roots();
-    let transaction = roots.transaction(100, 0x64);
+    let mut transaction = roots.transaction(100, 0x64);
+    if multisig_receiver {
+        use iroha_data_model::account::{MultisigMember, MultisigPolicy};
+        // Change the canonical receiver before transaction identity, the real
+        // signed Begin, its certified write proof and the paid Prepare are made.
+        let leg = transaction
+            .legs
+            .iter_mut()
+            .find(|leg| leg.dataspace == FIRST)
+            .unwrap();
+        let mut transfer = norito::decode_canonical::<AmxTransferLegV1>(&leg.payload).unwrap();
+        transfer.destination = AccountId::new_multisig(
+            MultisigPolicy::new(
+                2,
+                vec![
+                    MultisigMember::new(payer().public_key().clone(), 1).unwrap(),
+                    MultisigMember::new(
+                        KeyPair::from_seed(vec![0xD4; 32], Algorithm::Ed25519)
+                            .public_key()
+                            .clone(),
+                        1,
+                    )
+                    .unwrap(),
+                ],
+            )
+            .unwrap(),
+        );
+        leg.payload = norito::encode_canonical(&transfer).unwrap();
+    }
     let tx = transaction.id().unwrap();
     let signed = paid_global_sign(
         &roots.global,
@@ -943,4 +984,398 @@ pub(super) fn with_paid_prepare_pruning_fixture(
         payer(),
         [expired_tx, next_tx],
     );
+}
+
+// Genuine paid commit and native replay, never injected coordinates or a fabricated proof.
+#[inline(never)]
+fn with_restarted_paid_prepared_intent(
+    test: impl FnOnce(&CertifiedTestChain, &AllocatedAmxRecordProofV1, [u8; 32]),
+) {
+    let mut roots = paid_roots();
+    let transaction = roots.transaction(100, 0x78);
+    let tx = transaction.id().unwrap();
+    let signed = paid_global_sign(
+        &roots.global,
+        [BeginAmxV1 {
+            transaction: transaction.clone(),
+        }
+        .into()],
+        2_999,
+    );
+    assert_eq!(roots.global.commit_at(3_000, vec![signed]), vec![true]);
+    global_paid_images(&roots.global, 3);
+    let begin = super::super::super::amx_record_proof(
+        &roots.global.state().view(),
+        roots.global.height(),
+        AmxRecordKind::Begin,
+        tx,
+    )
+    .complete()
+    .unwrap()
+    .unwrap();
+    let original = roots.prepare(0, &transaction, &begin);
+    authenticate_original_prepared(&roots, 0, original.canonical(), tx);
+    let mut restored = CertifiedTestChain::start(private_config(&roots.global, FIRST)).unwrap();
+    restored.replay_from(&roots.participants[0]).unwrap();
+    assert_eq!(restored.height(), roots.participants[0].height());
+    assert_eq!(restored.network_id(), roots.participants[0].network_id());
+    assert_ne!(
+        restored.kura().store_root(),
+        roots.participants[0].kura().store_root()
+    );
+    assert!(
+        !restored
+            .state()
+            .ivm_execution_budget()
+            .same_pool(&roots.participants[0].state().ivm_execution_budget())
+    );
+    assert_eq!(
+        std::fs::read(prepared_intent_path(&restored)).unwrap(),
+        std::fs::read(prepared_intent_path(&roots.participants[0])).unwrap(),
+        "actual native replay regenerates the same unresolved durable intent"
+    );
+    test(&restored, &original, tx);
+}
+fn prepared_intent_path(chain: &CertifiedTestChain) -> std::path::PathBuf {
+    let hash = chain.committed(chain.height()).block().hash();
+    chain
+        .kura()
+        .store_root()
+        .join("native-contexts")
+        .join(format!(
+            "{:020}-{}.ami",
+            chain.height(),
+            hex::encode(hash.as_ref())
+        ))
+}
+fn instruction_relay(instruction: &InstructionBox) -> &AmxRecordProofV1 {
+    &instruction
+        .as_any()
+        .downcast_ref::<RelayAmxPreparedV1>()
+        .expect("actual move-only Prepared relay instruction")
+        .proof
+}
+
+#[test]
+fn restarted_paid_intent_delivers_exact_native_prepared_relay_and_refunds_original_pool() {
+    with_restarted_paid_prepared_intent(|chain, expected, tx| {
+        let budget = chain.state().ivm_execution_budget();
+        budget.with_deferred_refund_notifications(|_| {
+            let view = chain.state().view();
+            let baseline = budget.reserved_bytes();
+            let source_path = prepared_intent_path(chain);
+            let original = std::fs::read(&source_path).unwrap();
+            let mut read = crate::query::native_receipts::prepared_amx_relays(&view, chain.height()).unwrap();
+            let instruction = read.complete_next().unwrap().expect("actual restarted committed Prepared row");
+            let relay = instruction_relay(&instruction);
+            assert_eq!(relay, expected.canonical(), "same genuine native certificate, record and original write path");
+            assert_eq!(relay.record.tx(), tx);
+            assert!(instruction.amx_proof_admitted_to(&budget));
+            let bytes = instruction.amx_proof_allocation_bytes().unwrap();
+            assert!(bytes > 0 && budget.reserved_bytes() >= baseline + original.len() + bytes,
+                "actual intent bytes and complete proof/instruction backing remain simultaneously funded");
+            assert!(read.complete_next().unwrap().is_none(), "every distinct original row delivered exactly once");
+            assert!(read.complete_next().is_err(), "completed selection cannot silently restart");
+            assert_eq!(std::fs::read(source_path).unwrap(), original, "delivery neither signs nor acknowledges/removes durable intent");
+            drop(read);
+            assert!(instruction.amx_proof_admitted_to(&budget));
+            assert_eq!(budget.reserved_bytes(), baseline + bytes, "the delivered original graph owns its exact remaining charge");
+            drop(instruction);
+            assert_eq!(budget.reserved_bytes(), baseline, "original proof and intent backing refund on explicit retirement");
+            drop(view);
+        });
+    });
+}
+
+struct IntentNamespaceReplacement {
+    original: std::path::PathBuf,
+    held: std::path::PathBuf,
+    replaced: bool,
+}
+impl IntentNamespaceReplacement {
+    fn new(chain: &CertifiedTestChain) -> Self {
+        Self {
+            original: chain.kura().store_root().join("native-contexts"),
+            held: chain
+                .kura()
+                .store_root()
+                .join("held-original-intent-namespace"),
+            replaced: false,
+        }
+    }
+    fn replace(&mut self) {
+        std::fs::rename(&self.original, &self.held).unwrap();
+        std::fs::create_dir(&self.original).unwrap();
+        self.replaced = true;
+    }
+    fn restore(&mut self) {
+        if self.replaced {
+            std::fs::remove_dir(&self.original).unwrap();
+            std::fs::rename(&self.held, &self.original).unwrap();
+            self.replaced = false;
+        }
+    }
+}
+impl Drop for IntentNamespaceReplacement {
+    fn drop(&mut self) {
+        self.restore();
+    }
+}
+
+#[test]
+fn restarted_paid_intent_final_namespace_refusal_retains_exact_funded_instruction_until_original_retry()
+ {
+    use crate::query::native_context_archive::NativeContextArchiveError;
+    use crate::query::native_receipts::{
+        NativeAmxPreparedRelayErrorV1 as Error, NativeAmxPreparedRelayPollV1 as Poll,
+    };
+    with_restarted_paid_prepared_intent(|chain, expected, _| {
+        let budget = chain.state().ivm_execution_budget();
+        budget.with_deferred_refund_notifications(|_| {
+            let view = chain.state().view();
+            let baseline = budget.reserved_bytes();
+            let replacement = std::rc::Rc::new(std::cell::RefCell::new(IntentNamespaceReplacement::new(chain)));
+            let observed = std::rc::Rc::new(std::cell::Cell::new(None));
+            let mut read = crate::query::native_receipts::prepared_amx_relays(&view, chain.height()).unwrap();
+            read.probe_instruction_prepared_once({ let replacement = replacement.clone(); let observed = observed.clone(); move |instruction| {
+                observed.set(Some(proof_pointers(instruction_relay(instruction))));
+                replacement.borrow_mut().replace();
+            }});
+            let refused = read.complete_next();
+            let retained_pointer = read.acquired_frame().unwrap().as_ptr();
+            let retained_bytes = read.acquired_frame().unwrap().to_vec();
+            let original_pointers = observed.get().expect("real instruction admission completed before the source join");
+            let retained = budget.reserved_bytes();
+            // Restore before any assertion, including the mutation's intentional failed assertion.
+            replacement.borrow_mut().restore();
+            assert!(matches!(refused, Err(Error::Archive(NativeContextArchiveError::Io(ref cause))) if cause.kind() == std::io::ErrorKind::Other && cause.to_string() == "native context record identity changed"),
+                "completed restarted intent must retain exact funded relay through final original namespace refusal; got {refused:?}");
+            let instruction = read.retained_instruction().expect("source refusal retains complete instruction");
+            assert!(instruction.amx_proof_admitted_to(&budget));
+            assert_eq!(proof_pointers(instruction_relay(instruction)), original_pointers);
+            assert!(retained > baseline);
+            let Poll::Relay(delivered) = read.poll().unwrap() else { panic!("same original instruction must complete after genuine namespace recovery"); };
+            assert_eq!(proof_pointers(instruction_relay(&delivered)), original_pointers);
+            assert_eq!(instruction_relay(&delivered), expected.canonical());
+            assert_eq!(read.acquired_frame().unwrap().as_ptr(), retained_pointer);
+            assert_eq!(read.acquired_frame().unwrap(), retained_bytes);
+            // Successful delivery retires the original proof reader's .nrt frame,
+            // full witness and certified prefix. Only the .ami frame and delivered
+            // instruction retain charges; the source guard above retains both unchanged.
+            let delivered_bytes = delivered.amx_proof_allocation_bytes().unwrap();
+            let after_delivery = baseline + retained_bytes.len() + delivered_bytes;
+            assert_eq!(
+                budget.reserved_bytes(),
+                after_delivery,
+                "the exact original intent frame and delivered instruction remain funded",
+            );
+            assert!(
+                retained > after_delivery,
+                "successful delivery retires the original proof reader backing",
+            );
+            drop(read); drop(delivered);
+            assert_eq!(budget.reserved_bytes(), baseline);
+            drop(view);
+        });
+    });
+}
+
+#[test]
+fn restarted_paid_intent_original_pool_refusal_keeps_frame_and_selected_source_without_reread() {
+    use crate::execution_attempt::ExecutionAttemptError;
+    use crate::query::native_receipts::{
+        NativeAmxPreparedRelayErrorV1 as Error, NativeAmxPreparedRelayPollV1 as Poll,
+        NativeAmxRecordProofErrorV1,
+    };
+    with_restarted_paid_prepared_intent(|chain, expected, _| {
+        let budget = chain.state().ivm_execution_budget();
+        budget.with_deferred_refund_notifications(|_| {
+            let view = chain.state().view();
+            let baseline = budget.reserved_bytes();
+            let mut read = crate::query::native_receipts::prepared_amx_relays(&view, chain.height()).unwrap();
+            while !read.acquired_frame_is_complete() { assert!(matches!(read.poll().unwrap(), Poll::Pending)); }
+            let bytes = read.acquired_frame().unwrap().to_vec();
+            let pointer = read.acquired_frame().unwrap().as_ptr();
+            let before_decode = budget.reserved_bytes();
+            let no_depth = norito::core::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, 0);
+            let refused = norito::core::with_decode_limits_scope(no_depth, || read.poll());
+            assert!(matches!(refused, Err(Error::Decode(ref cause)) if cause.kind() == norito::core::DecodeAttemptErrorKind::EnclosingLimit),
+                "actual restarted intent decoding must retain captured original depth refusal, got {refused:?}");
+            assert_eq!(read.acquired_frame().unwrap().as_ptr(), pointer);
+            assert_eq!(read.acquired_frame().unwrap(), bytes);
+            assert_eq!(budget.reserved_bytes(), before_decode);
+            let limit = budget.limit_bytes();
+            let blocker = budget.try_reserve_bytes(limit - budget.reserved_bytes()).unwrap();
+            let before = budget.reserved_bytes();
+            let iroha_allocation::AllocationRefusal::Capacity { release: original_release, .. } = budget.try_reserve_bytes(1).unwrap_err() else {
+                panic!("genuine occupied original pool supplies its release source");
+            };
+            let refused = read.poll();
+            assert!(matches!(&refused, Err(Error::Proof(NativeAmxRecordProofErrorV1::Chain(ExecutionAttemptError::Deferred(cause))))
+                if matches!(cause.allocation_refusal(), Some(iroha_allocation::AllocationRefusal::Capacity { reserved_bytes, limit_bytes, release, .. })
+                    if *reserved_bytes == before && *limit_bytes == limit && *release == original_release)),
+                "original proof acquisition must retain typed actual pool Capacity, got {refused:?}");
+            assert_eq!(read.acquired_frame().unwrap().as_ptr(), pointer);
+            assert_eq!(read.acquired_frame().unwrap(), bytes);
+            assert_eq!(budget.reserved_bytes(), before);
+            drop(blocker);
+            let instruction = read.complete_next().unwrap().unwrap();
+            assert!(instruction.amx_proof_admitted_to(&budget));
+            assert_eq!(instruction_relay(&instruction), expected.canonical());
+            assert_eq!(read.acquired_frame().unwrap().as_ptr(), pointer);
+            assert_eq!(read.acquired_frame().unwrap(), bytes);
+            drop(read); drop(instruction);
+            assert_eq!(budget.reserved_bytes(), baseline);
+            drop(view);
+        });
+    });
+}
+
+#[test]
+fn restarted_paid_intent_rejects_substituted_authority_carrier_and_execution_claims() {
+    use crate::query::native_context_archive::prepared_intent_test_helpers::rewrite_claims;
+    use crate::query::native_receipts::NativeAmxPreparedRelayErrorV1 as Error;
+    with_restarted_paid_prepared_intent(|chain, _, _| {
+        let budget = chain.state().ivm_execution_budget();
+        budget.with_deferred_refund_notifications(|_| {
+            let view = chain.state().view();
+            let path = prepared_intent_path(chain);
+            let original = std::fs::read(&path).unwrap();
+            let baseline = budget.reserved_bytes();
+            for variant in 0..3 {
+                let changed = rewrite_claims(&original, variant);
+                assert_ne!(
+                    changed, original,
+                    "negative must alter the actual canonical source"
+                );
+                std::fs::write(&path, changed).unwrap();
+                let mut read =
+                    crate::query::native_receipts::prepared_amx_relays(&view, chain.height())
+                        .unwrap();
+                let result = read.complete_next();
+                std::fs::write(&path, &original).unwrap();
+                match variant {
+                    0 => assert!(
+                        matches!(result, Err(Error::Decode(_))),
+                        "nonzero intent byte never supplies outbound authority"
+                    ),
+                    1 => assert!(
+                        matches!(result, Err(Error::Source(_))),
+                        "captured carrier selection cannot come from file claims"
+                    ),
+                    _ => assert!(
+                        matches!(result, Err(Error::Source(_))),
+                        "canonical intent still requires actual original certified write root"
+                    ),
+                }
+                drop(read);
+                assert_eq!(budget.reserved_bytes(), baseline);
+            }
+            let mut pristine =
+                crate::query::native_receipts::prepared_amx_relays(&view, chain.height()).unwrap();
+            let delivered = pristine.complete_next().unwrap().unwrap();
+            assert!(delivered.amx_proof_admitted_to(&budget));
+            drop(pristine);
+            drop(delivered);
+            assert_eq!(budget.reserved_bytes(), baseline);
+            drop(view);
+        });
+    });
+}
+
+#[test]
+fn restarted_paid_intent_refuses_authenticated_row_subset_before_any_delivery() {
+    use crate::query::native_context_archive::prepared_intent_test_helpers::one_row_subset;
+    use crate::query::native_receipts::NativeAmxPreparedRelayErrorV1 as Error;
+    let mut roots = paid_roots();
+    let transactions = [roots.transaction(40, 0x79), roots.transaction(60, 0x7A)];
+    let signed = paid_global_sign(
+        &roots.global,
+        transactions.iter().map(|transaction| {
+            BeginAmxV1 {
+                transaction: transaction.clone(),
+            }
+            .into()
+        }),
+        2_999,
+    );
+    assert_eq!(roots.global.commit_at(3_000, vec![signed]), vec![true]);
+    global_paid_images(&roots.global, 3);
+    let prepares: Vec<_> = transactions
+        .iter()
+        .map(|transaction| {
+            super::super::super::amx_record_proof(
+                &roots.global.state().view(),
+                roots.global.height(),
+                AmxRecordKind::Begin,
+                transaction.id().unwrap(),
+            )
+            .complete()
+            .unwrap()
+            .unwrap()
+            .into_prepare(FIRST, transaction)
+            .complete(&roots.global.state().ivm_execution_budget())
+            .unwrap()
+        })
+        .collect();
+    let signed = roots.participants[0].sign(&payer(), prepares, 3_999);
+    assert_eq!(
+        roots.participants[0].commit_at(4_000, vec![signed]),
+        vec![true]
+    );
+    let expected = transactions.each_ref().map(|transaction| {
+        super::super::super::amx_record_proof(
+            &roots.participants[0].state().view(),
+            roots.participants[0].height(),
+            AmxRecordKind::Prepared,
+            transaction.id().unwrap(),
+        )
+        .complete()
+        .unwrap()
+        .unwrap()
+    });
+    for (proof, transaction) in expected.iter().zip(&transactions) {
+        authenticate_original_prepared(&roots, 0, proof.canonical(), transaction.id().unwrap());
+    }
+    let mut restored = CertifiedTestChain::start(private_config(&roots.global, FIRST)).unwrap();
+    restored.replay_from(&roots.participants[0]).unwrap();
+    assert_eq!(restored.height(), roots.participants[0].height());
+    let path = prepared_intent_path(&restored);
+    let original = std::fs::read(&path).unwrap();
+    assert_eq!(
+        original,
+        std::fs::read(prepared_intent_path(&roots.participants[0])).unwrap()
+    );
+    let subset = one_row_subset(&original);
+    assert_ne!(
+        subset, original,
+        "canonical subset must alter the actual two-row source"
+    );
+    let budget = restored.state().ivm_execution_budget();
+    budget.with_deferred_refund_notifications(|_| {
+        let view = restored.state().view();
+        let baseline = budget.reserved_bytes();
+        std::fs::write(&path, subset).unwrap();
+        let mut omitted = crate::query::native_receipts::prepared_amx_relays(&view, restored.height()).unwrap();
+        let refused = omitted.complete_next();
+        // Restore even on the mutation's intentional failure; no bad fixture escapes.
+        std::fs::write(&path, &original).unwrap();
+        assert!(matches!(refused, Err(Error::Source("intent omits original certified Prepared writes"))),
+            "restarted canonical intent must match every authenticated Prepared row before first delivery; got {refused:?}");
+        assert!(omitted.retained_instruction().is_none());
+        drop(omitted);
+        assert_eq!(budget.reserved_bytes(), baseline);
+        let mut complete = crate::query::native_receipts::prepared_amx_relays(&view, restored.height()).unwrap();
+        let first = complete.complete_next().unwrap().unwrap();
+        let second = complete.complete_next().unwrap().unwrap();
+        assert_ne!(instruction_relay(&first).record.tx(), instruction_relay(&second).record.tx());
+        for original in &expected {
+            assert!([instruction_relay(&first), instruction_relay(&second)].into_iter().any(|delivered| delivered == original.canonical()));
+        }
+        assert!(complete.complete_next().unwrap().is_none());
+        assert!(first.amx_proof_admitted_to(&budget) && second.amx_proof_admitted_to(&budget));
+        drop(complete); drop(first); drop(second);
+        assert_eq!(budget.reserved_bytes(), baseline);
+        drop(view);
+    });
 }

@@ -438,7 +438,12 @@ mod tests {
                 ncore::with_decode_limits_scope(smallstr_decode_limits(sample.len() - 1), || {
                     json::from_json::<SmallStr>(&input)
                 });
-            assert!(matches!(rejected, Err(json::Error::DecodeResourceLimit)));
+            assert!(matches!(
+                rejected,
+                Err(json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                ))
+            ));
         }
     }
 

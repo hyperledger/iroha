@@ -132,11 +132,10 @@ impl AssetDefinitionHome {
             (Some(_), Some(_)) => Err(ParseError::new(
                 "asset definition cannot have both domain and direct-dataspace homes",
             )),
-            (Some(_), None) => Ok(()),
             (None, Some(DataSpaceId::UNIVERSAL)) => Err(ParseError::new(
                 "direct-dataspace asset home must be a non-universal dataspace",
             )),
-            (None, Some(_)) => Ok(()),
+            (Some(_), None) | (None, Some(_)) => Ok(()),
             (None, None) if definition.balance_scope_policy == AssetBalancePolicy::Global => Ok(()),
             (None, None) => Err(ParseError::new(
                 "dataspace-restricted asset definition requires an immutable home",

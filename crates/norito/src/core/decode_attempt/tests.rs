@@ -317,3 +317,253 @@ fn public_closure_admission_uses_same_origin_kernel_after_caller_unwind() {
         value
     );
 }
+
+// Direct checked JSON producers share the original attempt provenance owner.
+
+#[cfg(feature = "json")]
+#[test]
+fn direct_json_refusal_keeps_original_context_and_retry() {
+    let source = "[1,2]";
+    let expected = crate::json::parse_value(source).unwrap();
+    let pool = iroha_allocation::AllocationBudget::new(65_536);
+    let original =
+        super::super::DecodeBudgetContext::try_new_owned(allocation_limit(usize::MAX), &pool)
+            .unwrap();
+    let quota = super::super::DecodeBudgetContext::new(allocation_limit(0));
+    let baseline = pool.reserved_bytes();
+    for parse in [true, false] {
+        let refusal = original
+            .with(|| {
+                quota.with(|| {
+                    classify_decode_attempt(|| {
+                        if parse {
+                            crate::json::parse_value(source)
+                                .map(crate::json::drop_json_value_iteratively)
+                                .map_err(crate::json::Error::into_core_error)
+                        } else {
+                            crate::json::to_json_bounded(&crate::json::Value::Null, 4)
+                                .map(drop)
+                                .map_err(crate::json::BoundedJsonError::into_core_error)
+                        }
+                    })
+                })
+            })
+            .unwrap_err();
+        assert_eq!(
+            refusal.kind(),
+            DecodeAttemptErrorKind::EnclosingLimit,
+            "direct checked JSON refusal must retain its original enclosing provenance"
+        );
+        assert!(matches!(
+            refusal.into_error().decode_resource_error(),
+            Some(DecodeResourceError::TotalAllocationExceeded { limit: 0, .. })
+        ));
+        assert_eq!(pool.reserved_bytes(), baseline);
+        original.with(|| {
+            assert_eq!(crate::json::parse_value(source).unwrap(), expected);
+            assert_eq!(
+                crate::json::to_json_bounded(&crate::json::Value::Null, 4).unwrap(),
+                "null"
+            );
+        });
+        assert_eq!(pool.reserved_bytes(), baseline);
+    }
+    let malformed = original
+        .with(|| {
+            classify_decode_attempt(|| {
+                crate::json::parse_value("{not-json}").map_err(crate::json::Error::into_core_error)
+            })
+        })
+        .unwrap_err();
+    assert_eq!(malformed.kind(), DecodeAttemptErrorKind::Invalid);
+    drop(malformed);
+    drop(quota);
+    drop(original);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn direct_attempt_replay_under_same_counter_owner_is_invalid() {
+    let pool = iroha_allocation::AllocationBudget::new(65_536);
+    let original =
+        super::super::DecodeBudgetContext::try_new_owned(allocation_limit(0), &pool).unwrap();
+    let baseline = pool.reserved_bytes();
+    original.with(|| {
+        let failure =
+            classify_decode_attempt(|| super::super::reserve_decode_allocation(1)).unwrap_err();
+        assert_eq!(failure.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+        let Error::ScopedDecodeResource(saved) = failure.into_error() else {
+            panic!("actual original scope identity must be retained");
+        };
+        for swallow_fresh in [false, true] {
+            let replay = classify_decode_attempt(|| {
+                if swallow_fresh {
+                    let current = super::super::reserve_decode_allocation(1).unwrap_err();
+                    let Error::ScopedDecodeResource(current) = current else {
+                        panic!("fresh same-context refusal must retain provenance");
+                    };
+                    assert!(saved.family.same(&current.family));
+                    drop(current);
+                }
+                Err::<(), _>(Error::ScopedDecodeResource(saved.clone()))
+            })
+            .unwrap_err();
+            assert_eq!(
+                replay.kind(),
+                DecodeAttemptErrorKind::Invalid,
+                "saved refusal cannot acquire a later direct boundary under the same counters"
+            );
+        }
+        let reconstructed =
+            classify_decode_attempt(|| Err::<(), _>(Error::from(saved.resource()))).unwrap_err();
+        assert_eq!(reconstructed.kind(), DecodeAttemptErrorKind::Invalid);
+    });
+    assert_eq!(pool.reserved_bytes(), baseline);
+    drop(original);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn direct_attempt_cross_thread_replay_with_original_shared_context_is_invalid() {
+    let pool = iroha_allocation::AllocationBudget::new(65_536);
+    let original =
+        super::super::DecodeBudgetContext::try_new_owned(allocation_limit(0), &pool).unwrap();
+    let baseline = pool.reserved_bytes();
+    let saved = original.with(|| {
+        let failure =
+            classify_decode_attempt(|| super::super::reserve_decode_allocation(1)).unwrap_err();
+        assert_eq!(failure.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+        let Error::ScopedDecodeResource(saved) = failure.into_error() else {
+            panic!("actual original scope identity must be retained");
+        };
+        saved
+    });
+    let shared = original.clone();
+    std::thread::spawn(move || {
+        shared.with(|| {
+            for swallow_fresh in [false, true] {
+                let replay = classify_decode_attempt(|| {
+                    if swallow_fresh {
+                        let current = super::super::reserve_decode_allocation(1).unwrap_err();
+                        let Error::ScopedDecodeResource(current) = current else {
+                            panic!("fresh same-context refusal must retain provenance");
+                        };
+                        assert!(saved.family.same(&current.family));
+                        drop(current);
+                    }
+                    Err::<(), _>(Error::ScopedDecodeResource(saved.clone()))
+                })
+                .unwrap_err();
+                assert_eq!(
+                    replay.kind(),
+                    DecodeAttemptErrorKind::Invalid,
+                    "foreign observer cannot adopt a saved refusal from the same shared counters"
+                );
+            }
+            let current =
+                classify_decode_attempt(|| super::super::reserve_decode_allocation(1)).unwrap_err();
+            assert_eq!(current.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+        });
+    })
+    .join()
+    .unwrap();
+    assert_eq!(pool.reserved_bytes(), baseline);
+    drop(original);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn already_active_direct_attempt_rejects_later_foreign_thread_root() {
+    let pool = iroha_allocation::AllocationBudget::new(65_536);
+    let original =
+        super::super::DecodeBudgetContext::try_new_owned(allocation_limit(0), &pool).unwrap();
+    let baseline = pool.reserved_bytes();
+    let shared = original.clone();
+    let replay = original
+        .with(|| {
+            classify_decode_attempt(|| {
+                // The receiver's observer already exists. A foreign refusal therefore
+                // has a later ordinal, which alone cannot exclude its unrelated root.
+                let saved = std::thread::spawn(move || {
+                    shared.with(|| {
+                        let refusal =
+                            classify_decode_attempt(|| super::super::reserve_decode_allocation(1))
+                                .unwrap_err();
+                        assert_eq!(refusal.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+                        let Error::ScopedDecodeResource(saved) = refusal.into_error() else {
+                            panic!("foreign original scope identity must be retained");
+                        };
+                        saved
+                    })
+                })
+                .join()
+                .unwrap();
+                let Error::ScopedDecodeResource(current) =
+                    super::super::reserve_decode_allocation(1).unwrap_err()
+                else {
+                    panic!("fresh local refusal must retain provenance");
+                };
+                assert!(saved.family.same(&current.family));
+                assert_ne!(saved.identity.root, current.identity.root);
+                assert!(saved.identity.boundary > current.identity.boundary);
+                drop(current);
+                Err::<(), _>(Error::ScopedDecodeResource(saved))
+            })
+        })
+        .unwrap_err();
+    assert_eq!(
+        replay.kind(),
+        DecodeAttemptErrorKind::Invalid,
+        "a later foreign-thread refusal cannot borrow an already-active receiver's root"
+    );
+    drop(replay);
+    assert_eq!(pool.reserved_bytes(), baseline);
+    drop(original);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn direct_nested_attempts_preserve_parent_origin_and_refuse_old_sibling() {
+    let pool = iroha_allocation::AllocationBudget::new(65_536);
+    let original =
+        super::super::DecodeBudgetContext::try_new_owned(allocation_limit(0), &pool).unwrap();
+    let propagated = original
+        .with(|| {
+            classify_decode_attempt(|| {
+                let inner = classify_decode_attempt(|| super::super::reserve_decode_allocation(1))
+                    .unwrap_err();
+                assert_eq!(inner.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+                Err::<(), _>(inner.into_error())
+            })
+        })
+        .unwrap_err();
+    assert_eq!(propagated.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+    drop(propagated);
+    original.with(|| {
+        classify_decode_attempt(|| {
+            let saved =
+                classify_decode_attempt(|| super::super::reserve_decode_allocation(1)).unwrap_err();
+            assert_eq!(saved.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+            let saved = saved.into_error();
+            let sibling = classify_decode_attempt(|| {
+                drop(super::super::reserve_decode_allocation(1).unwrap_err());
+                Err::<(), _>(saved)
+            })
+            .unwrap_err();
+            assert_eq!(sibling.kind(), DecodeAttemptErrorKind::Invalid);
+            Ok(())
+        })
+        .unwrap();
+    });
+    drop(original);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn observer_boundary_sequence_exhaustion_never_wraps() {
+    let sequence = super::super::AtomicU64::new(u64::MAX - 1);
+    assert_eq!(super::next_boundary(&sequence), Some(u64::MAX));
+    assert_eq!(super::next_boundary(&sequence), None);
+    assert_eq!(super::next_boundary(&sequence), None);
+    assert_eq!(sequence.load(super::super::Ordering::Relaxed), u64::MAX);
+}

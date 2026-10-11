@@ -366,7 +366,9 @@ fn cold_prepare_refusal_retains_original_finishing_owner_and_exact_release() {
                     _ => panic!("retain the same unfinished context proof"),
                 },
                 1 => match &pending.archive_refusal {
-                    Some(NativeContextArchiveError::Allocation(error)) => error,
+                    Some(NativeContextArchiveError::Proof(NativeLaneStateProofError::Scratch(
+                        error,
+                    ))) => error,
                     _ => panic!("retain the same unfinished context archive"),
                 },
                 _ => match &pending.encoding_refusal {

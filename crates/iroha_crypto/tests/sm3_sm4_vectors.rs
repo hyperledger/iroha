@@ -1,10 +1,8 @@
 //! Regression tests for SM3 and SM4 helpers.
 #![cfg(feature = "sm")]
+use super::sm4_wycheproof_fixture::{Sm4WycheproofMode, load_sm4_wycheproof_cases};
 use hex::decode as hex_decode;
 use iroha_crypto::{Sm3Digest, Sm4Key};
-#[path = "sm4_wycheproof_fixture.rs"]
-mod sm4_wycheproof_fixture;
-use sm4_wycheproof_fixture::{Sm4WycheproofMode, load_sm4_wycheproof_cases};
 fn hex_to_vec(input: &str) -> Vec<u8> {
     if input.is_empty() {
         Vec::new()

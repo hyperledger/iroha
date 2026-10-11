@@ -1666,10 +1666,18 @@ fn final_usable_row_case<F: PastaField>(modulus_index: u64, leaf: bool) {
 
 #[test]
 fn ff_final_usable_row_binds_fused_and_comparison_blocks() {
-    final_usable_row_case::<Fp>(FQ_INDEX, false);
-    final_usable_row_case::<Fq>(FP_INDEX, false);
-    final_usable_row_case::<Fp>(P256_P_INDEX, true);
-    final_usable_row_case::<Fq>(P256_N_INDEX, true);
+    // The private range-table configuration supports all four moduli in
+    // either native field, including a modulus equal to the native order.
+    for modulus in [FP_INDEX, FQ_INDEX, P256_P_INDEX, P256_N_INDEX] {
+        final_usable_row_case::<Fp>(modulus, false);
+        final_usable_row_case::<Fq>(modulus, false);
+    }
+    // QLeafConfig configures exactly P-256 p and n; the shared-table
+    // matrix therefore contains only those supported moduli.
+    for modulus in [P256_P_INDEX, P256_N_INDEX] {
+        final_usable_row_case::<Fp>(modulus, true);
+        final_usable_row_case::<Fq>(modulus, true);
+    }
 }
 
 /// Isolates all four carry range arguments from the arithmetic equations.

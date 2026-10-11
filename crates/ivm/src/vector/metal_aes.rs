@@ -225,7 +225,7 @@ pub(super) fn measured_in_place(
 
 // Direct required-hardware controls exercise qualified physical kernels without
 // pretending that a public workload cost profile selected them.
-#[cfg(test)]
+#[cfg(all(test, feature = "metal-hardware-tests"))]
 pub(crate) fn metal_aes_batch_in_place(
     states: &mut [[u8; 16]],
     keys: &[[u8; 16]],

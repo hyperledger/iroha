@@ -61482,6 +61482,215 @@
         "x-iroha-tool-effect": "read"
       }
     },
+    "/v1/bridge/finality/interval/{from}/{to}": {
+      "get": {
+        "description": "Returns 1 to 64 consecutive durable current consensus proofs in ascending inclusive height order. Each item is the complete canonical SumeragiFinalityProof, including its executed block frame, embedded CommitCertificate and authenticated committee with BLS proofs of possession. Select positive from and to with from <= to and to - from + 1 <= 64. Verifiers independently select signed genesis or an independently authenticated checkpoint and authenticate every required predecessor and lag-2 committee transition; neither this interval nor a proof-supplied committee selects a trust root. The existing 65-second route deadline and configured response byte cap include the complete outer JSON array or canonical Norito Vec frame. There is no per-height fallback or partial success response.",
+        "operationId": "bridgeFinalityProofInterval",
+        "parameters": [
+          {
+            "description": "First block height, inclusive (1-indexed).",
+            "in": "path",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "uint64",
+              "maximum": 18446744073709551615,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Final block height, inclusive; at most 63 greater than from.",
+            "in": "path",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "uint64",
+              "maximum": 18446744073709551615,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SumeragiFinalityProof"
+                  },
+                  "maxItems": 64,
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito Vec<SumeragiFinalityProof> frame, including its outer header and sequence framing.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "All requested complete proofs in exact ascending height order; the array has to - from + 1 items."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Invalid positive selectors, reversed interval, or interval longer than 64 heights."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The existing Torii API-token policy rejected the request."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A requested canonical committed block or its certificate is unavailable."
+          },
+          "406": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Requested content type is not acceptable; supported: application/json, application/x-norito."
+          },
+          "408": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The original 65-second route execution deadline elapsed; no partial success is returned."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The original query, allocation, decode, rate or proof-egress admission refused the request."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Canonical history, source identity, proof verification or response construction failed."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              },
+              "application/x-norito": {
+                "schema": {
+                  "description": "Canonical Norito encoding of ErrorEnvelope.",
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The original State publication or canonical history resource is temporarily unavailable."
+          }
+        },
+        "security": [
+          {},
+          {
+            "IrohaApiToken": []
+          }
+        ],
+        "summary": "Return a bounded interval of complete Sumeragi finality proofs.",
+        "tags": [
+          "Bridge"
+        ],
+        "x-iroha-route-auth": {
+          "admission": "public",
+          "authentication": "torii_default",
+          "schemaVersion": 1,
+          "stableRouteId": "bridge.finality_interval.read"
+        },
+        "x-iroha-tool-effect": "read"
+      }
+    },
     "/v1/bridge/finality/{height}": {
       "get": {
         "description": "Returns a durable current consensus proof: canonical executed block frame with embedded CommitCertificate and authenticated committee with BLS proofs of possession. Verifiers independently select signed genesis, then authenticate the contiguous chain and lag-2 committee schedule; a proof-supplied committee alone does not establish authority.",

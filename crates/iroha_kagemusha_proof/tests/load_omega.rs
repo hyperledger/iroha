@@ -11,6 +11,8 @@ mod bootstrap;
 #[allow(dead_code)]
 mod bootstrap_objects;
 mod common;
+#[path = "common/first_load_fixture.rs"]
+mod first_load_fixture;
 #[path = "common/ordinary_load_fixture.rs"]
 mod load_fixture;
 #[path = "common/load_objects.rs"]
@@ -25,42 +27,7 @@ pub mod load_chain;
 
 include!("common/proof_fixtures/load_omega_body.rs");
 
-fn first_load_fixture(
-    expected_rebuilds: usize,
-) -> (LoadFixture, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
-    use std::{
-        fs,
-        path::PathBuf,
-        sync::{
-            Arc,
-            atomic::{AtomicUsize, Ordering},
-        },
-    };
-
-    let capture = ordinary_load_receipt::first_capture();
-    // Bind scheme, asset, wallet, ordinal and the actual local sigma relation to
-    // the Bootstrap fixture before producing any key or proof.
-    load_fixture::check_first_capture(&capture);
-    let receipt = ordinary_load_receipt::verified_receipt(&capture);
-    let output = PathBuf::from(
-        std::env::var_os("KAGEMUSHA_LOAD_OUTPUT")
-            .expect("fresh exclusive Load Omega original output directory"),
-    );
-    fs::create_dir(&output).expect("fresh output; no overwrite or implicit resume");
-    let rebuilds = Arc::new(AtomicUsize::new(0));
-    let observed = Arc::clone(&rebuilds);
-    let fixture: LoadFixture = Arc::new(move |rooted| {
-        let index = observed.fetch_add(1, Ordering::Relaxed);
-        assert!(
-            index < expected_rebuilds,
-            "unexpected predecessor reconstruction"
-        );
-        let directory = output.join(format!("predecessor-{index}"));
-        fs::create_dir(&directory).expect("fresh originals for each selected predecessor");
-        load_fixture::build(rooted, &receipt, &directory)
-    });
-    (fixture, rebuilds)
-}
+use first_load_fixture::first_load_fixture;
 
 #[test]
 #[ignore = "explicit genuine BLS-admitted Load and diagnostic outer proof; not full52 or carried-key continuity"]

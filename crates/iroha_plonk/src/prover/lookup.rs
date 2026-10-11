@@ -108,6 +108,11 @@ impl<F: iroha_pasta::PastaField> Drop for Committed<F> {
 /// drive a lookup violation through the verifier while every other prover
 /// step stays the real one.
 pub(super) trait LookupPermutation<F> {
+    /// Only the production membership-checking permutation opts into public
+    /// fixed-table bounds. Malicious-prover strategies keep the original
+    /// full-width commitment route so verifier-negative tests still form proofs.
+    const PUBLIC_TABLE_BOUND: bool = false;
+
     /// The permuted input and table columns of lookup `lookup`.
     ///
     /// # Errors
@@ -129,6 +134,8 @@ pub(super) trait LookupPermutation<F> {
 pub(super) struct VendoredPermutation;
 
 impl<F: PastaField> LookupPermutation<F> for VendoredPermutation {
+    const PUBLIC_TABLE_BOUND: bool = true;
+
     fn permute<R: RngCore>(
         &mut self,
         input: &[F],
@@ -227,6 +234,56 @@ fn canonical_value<F: PastaField>(mut key: [u64; 4]) -> F {
     F::from_raw_reduced(key)
 }
 
+/// Only a singleton, unrotated fixed query is eligible. Inspect the full
+/// public fixed column conservatively, including unused rows. This width never
+/// depends on compressed inputs, theta, advice or the actual permuted scalars.
+fn public_table_bits<F: PastaField>(
+    descriptor: &crate::cs::descriptor_v2::ProtocolDescriptor,
+    fixed: &[Vec<F>],
+    lookup: usize,
+    cancellation: Option<&CancellationToken>,
+) -> Result<Option<usize>, ProverError> {
+    use crate::cs::descriptor::ExprNodeV1;
+    CancellationToken::checkpoint(cancellation)?;
+    let Some(argument) = descriptor.lookups.get(lookup) else {
+        return Ok(None);
+    };
+    let [table] = argument.tables.as_slice() else {
+        return Ok(None);
+    };
+    if argument.inputs.len() != 1 {
+        return Ok(None);
+    }
+    let [ExprNodeV1::Fixed(query)] = table.as_slice() else {
+        return Ok(None);
+    };
+    let Some(query) = usize::try_from(*query)
+        .ok()
+        .and_then(|index| descriptor.fixed_queries.get(index))
+    else {
+        return Ok(None);
+    };
+    if query.rotation != 0 {
+        return Ok(None);
+    }
+    let Some(column) = usize::try_from(query.column)
+        .ok()
+        .and_then(|index| fixed.get(index))
+    else {
+        return Ok(None);
+    };
+    let mut bits = 0;
+    for chunk in column.chunks(1024) {
+        CancellationToken::checkpoint(cancellation)?;
+        for value in chunk {
+            bits = bits.max(value.bit_length_vartime() as usize);
+        }
+    }
+    CancellationToken::checkpoint(cancellation)?;
+    // A full-width fixed table has no optimization to offer.
+    Ok((bits < 255).then_some(bits))
+}
+
 /// Compresses, permutes (with `permutation`), blinds, commits and writes
 /// every lookup's `A'` and `S'` (`BlindingScheduleV1` item 2).
 ///
@@ -284,26 +341,42 @@ where
         let permuted_table = SecretPolynomial::new(permuted_table);
         let input_blind = C::ScalarExt::random(&mut *rng);
         let table_blind = C::ScalarExt::random(&mut *rng);
-        let input_commitment = tables
-            .commit_lagrange_cancellable(
-                params.params(),
-                &permuted_input,
-                &input_blind,
-                Secrecy::Secret,
-                budget,
+        let public_bits = if P::PUBLIC_TABLE_BOUND {
+            public_table_bits(
+                pk.binding().descriptor(),
+                pk.fixed_values(),
+                lookup,
                 cancellation,
             )?
-            .to_affine();
-        let table_commitment = tables
-            .commit_lagrange_cancellable(
-                params.params(),
-                &permuted_table,
-                &table_blind,
-                Secrecy::Secret,
-                budget,
-                cancellation,
-            )?
-            .to_affine();
+        } else {
+            None
+        };
+        let commit = |values: &[C::ScalarExt], blind: &C::ScalarExt| {
+            public_bits.map_or_else(
+                || {
+                    tables.commit_lagrange_cancellable(
+                        params.params(),
+                        values,
+                        blind,
+                        Secrecy::Secret,
+                        budget,
+                        cancellation,
+                    )
+                },
+                |bits| {
+                    tables.commit_lagrange_bounded_prefix_cancellable(
+                        params.params(),
+                        values,
+                        (shape.usable_rows, bits),
+                        blind,
+                        budget,
+                        cancellation,
+                    )
+                },
+            )
+        };
+        let input_commitment = commit(&permuted_input, &input_blind)?.to_affine();
+        let table_commitment = commit(&permuted_table, &table_blind)?.to_affine();
         write_point(transcript, &input_commitment)?;
         write_point(transcript, &table_commitment)?;
         permuted.push(Permuted {
@@ -743,3 +816,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "lookup/bounded_tests.rs"]
+mod bounded_tests;

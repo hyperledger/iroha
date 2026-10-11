@@ -351,10 +351,7 @@ mod tests {
     };
     use iroha_model_base::{topology::DataSpaceId, topology::LaneId};
     use iroha_torii_shared::da::{DA_QUERY_REQUEST_MAX_BYTES, MAX_DA_QUERY_PAGE_SIZE};
-    use std::{
-        num::{NonZeroU32, NonZeroU64},
-        sync::Arc,
-    };
+    use std::num::{NonZeroU32, NonZeroU64};
     fn sample_authorization(lane: LaneId, epoch: u64, sequence: u64) -> DaIngestAuthorizationV1 {
         let key_pair = KeyPair::try_from_seed(vec![0xD5; 32], Algorithm::Ed25519)
             .expect("valid deterministic DA query key");

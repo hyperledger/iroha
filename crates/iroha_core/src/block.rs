@@ -613,7 +613,7 @@ pub(crate) fn parse_account_literal_with_world(
             });
         match parsed {
             Ok(account_id) => return Ok(Some(account_id)),
-            Err(AccountAddressError::DecodeResourceLimit) => {
+            Err(error) if error.is_decode_resource_limit() => {
                 if cfg!(all(test, sumeragi_core_mutation = "HC37")) {
                     return Ok(None);
                 }
@@ -10229,20 +10229,8 @@ seiyaku GuardedOverlay { permission CanWriteGuardedOverlay;
         let alice_account = Account::new(alice.clone()).build(&alice);
         let bob_account = Account::new(bob.clone()).build(&alice);
         let mut world = World::with([domain], [alice_account, bob_account], []);
-        for authority in [&alice, &bob] {
-            let mut permissions = iroha_data_model::permission::Permissions::new();
-            assert!(
-                permissions.insert(iroha_data_model::permission::Permission::new(
-                    "CanEnactGovernance".to_owned(),
-                    Json::new(()),
-                ))
-            );
-            world
-                .account_permissions_mut_for_testing()
-                .insert(authority.clone(), permissions);
-        }
         let source = r#"
-seiyaku DynamicAccessCounter { permission CanEnactGovernance;
+seiyaku DynamicAccessCounter { permission CanWriteCounters;
   state StateMap<int, int> Counters;
 
   fn bump_hidden(int key, int delta) {
@@ -10250,12 +10238,12 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
     Counters[key] = current + delta;
   }
 
-  kotoage fn bump_direct(int key, int delta) authorize(CanEnactGovernance) {
+  kotoage fn bump_direct(int key, int delta) authorize(CanWriteCounters) {
     let current = Counters.get(key).unwrap_or(0);
     Counters[key] = current + delta;
   }
 
-  kotoage fn bump_via_helper(int key, int delta) authorize(CanEnactGovernance) {
+  kotoage fn bump_via_helper(int key, int delta) authorize(CanWriteCounters) {
     bump_hidden(key: key, delta: delta);
   }
 }
@@ -10277,6 +10265,20 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
             DataSpaceId::UNIVERSAL,
         )
         .expect("derive contract address");
+        // Contract-local declarations require the exact instance and permission grant.
+        for authority in [&alice, &bob] {
+            let mut permissions = iroha_data_model::permission::Permissions::new();
+            assert!(permissions.insert(
+                iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                    contract: contract_address.clone(),
+                    permission: "CanWriteCounters".parse().expect("declared contract permission"),
+                }
+                .into(),
+            ));
+            world
+                .account_permissions_mut_for_testing()
+                .insert(authority.clone(), permissions);
+        }
         let artifact_id = ContractArtifactId::for_address(&contract_address, code_hash)
             .expect("contract address retains its exact artifact dataspace");
         world.contract_code.insert(artifact_id, program);
@@ -10434,20 +10436,8 @@ seiyaku DynamicAccessCounter { permission CanEnactGovernance;
             Account::new(dave.clone()).build(&alice),
         ];
         let mut world = World::with([domain], accounts, []);
-        for authority in [&alice, &bob, &charlie, &dave] {
-            let mut permissions = iroha_data_model::permission::Permissions::new();
-            assert!(
-                permissions.insert(iroha_data_model::permission::Permission::new(
-                    "CanEnactGovernance".to_owned(),
-                    Json::new(()),
-                ))
-            );
-            world
-                .account_permissions_mut_for_testing()
-                .insert(authority.clone(), permissions);
-        }
         let source = r#"
-seiyaku DynamicTarget { permission CanEnactGovernance;
+seiyaku DynamicTarget { permission CanWriteCounters;
   error enum DynamicTargetError {
     SelectorClosed = 1,
   }
@@ -10455,20 +10445,20 @@ seiyaku DynamicTarget { permission CanEnactGovernance;
   state StateMap<int, int> Selector;
   state StateMap<int, int> Counters;
 
-  kotoage fn choose(int key) authorize(CanEnactGovernance) {
+  kotoage fn choose(int key) authorize(CanWriteCounters) {
     Selector[0] = key;
   }
 
-  kotoage fn set_selected(int value) authorize(CanEnactGovernance) {
+  kotoage fn set_selected(int value) authorize(CanWriteCounters) {
     let key = Selector.get(0).unwrap_or(1);
     Counters[key] = value;
   }
 
-  kotoage fn set_direct(int key, int value) authorize(CanEnactGovernance) {
+  kotoage fn set_direct(int key, int value) authorize(CanWriteCounters) {
     Counters[key] = value;
   }
 
-  kotoage fn guarded_set(int value) authorize(CanEnactGovernance) {
+  kotoage fn guarded_set(int value) authorize(CanWriteCounters) {
     require(Selector.get(0).unwrap_or(0) == 2, DynamicTargetError::SelectorClosed);
     Counters[3] = value;
   }
@@ -10491,6 +10481,20 @@ seiyaku DynamicTarget { permission CanEnactGovernance;
             DataSpaceId::UNIVERSAL,
         )
         .expect("derive contract address");
+        // Contract-local declarations require the exact instance and permission grant.
+        for authority in [&alice, &bob, &charlie, &dave] {
+            let mut permissions = iroha_data_model::permission::Permissions::new();
+            assert!(permissions.insert(
+                iroha_executor_data_model::permission::smart_contract::CanUseContractPermission {
+                    contract: contract_address.clone(),
+                    permission: "CanWriteCounters".parse().expect("declared contract permission"),
+                }
+                .into(),
+            ));
+            world
+                .account_permissions_mut_for_testing()
+                .insert(authority.clone(), permissions);
+        }
         let artifact_id = ContractArtifactId::for_address(&contract_address, code_hash)
             .expect("contract address retains its exact artifact dataspace");
         world.contract_code.insert(artifact_id, program);

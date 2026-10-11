@@ -1459,7 +1459,7 @@ fn first_public(first: &First) -> Vec<Vec<Fp>> {
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
+#[allow(dead_code)] // Registered by receive_omega; other consumers select shared helpers only.
 pub fn common_key_send_executes_all_authorization_and_map_tasks(fixture: &LoadFixture) {
     let rooted = load_outer::two_terminal_load_omega(fixture);
     run_send_schedule_with_profile(&rooted, SourceProfile::Tagged { buses: 3 }, Some(2));

@@ -80,6 +80,8 @@ impl RecordSnapshot {
         let observed = bytes
             .as_ref()
             .map(|bytes| (bytes.len(), *Hash::new(bytes).as_ref()));
+        #[cfg(test)]
+        snapshot_root_scope_tests::after_record(self)?;
         if observed != self.observed {
             return Err(invalid("retained enrollment body material changed"));
         }
@@ -94,6 +96,8 @@ impl RecordSnapshot {
         } else {
             reader.read_optional(&self.name, self.maximum, observe)?
         };
+        #[cfg(test)]
+        snapshot_root_scope_tests::after_record(self)?;
         if observed != self.observed {
             return Err(invalid("retained enrollment body material changed"));
         }
@@ -156,8 +160,11 @@ impl SnapshotReadPass<'_> {
 }
 impl Snapshot {
     fn revalidate(&self) -> Result<()> {
+        #[cfg(test)]
+        let _snapshot_timing = finish_timing::phase(finish_timing::Phase::SnapshotRevalidate);
         match self.tree_root() {
-            Some(root) => root.read_tree_scope(|tree| self.revalidate_in_tree(Some(tree))),
+            Some(root) => root
+                .read_tree_scope(|tree| self.revalidate_in_tree_with_root(Some(tree), Some(root))),
             None => self.revalidate_in_tree(None),
         }
     }
@@ -248,18 +255,55 @@ impl Snapshot {
     // refusal wins ordinary body errors; a prefix changed and restored inside may be unseen.
     fn revalidate_in_tree(
         &self,
+        tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
+    ) -> Result<()> {
+        self.revalidate_in_tree_with_root(tree, None)
+    }
+    fn revalidate_in_tree_with_root(
+        &self,
         mut tree: Option<&mut iroha_fs::PrivateReadTreeScope<'_>>,
+        canonical_root: Option<&PrivateDirectory>,
     ) -> Result<()> {
         #[cfg(test)]
         shared_snapshot_tests::snapshot_visit();
+        let mut index = 0;
         if let Some(root) = &self.root {
-            root.revalidate()?;
-            check_names(root, &["original.nrt", "anchor.nrt", "bodies", "epochs"], 4)?;
+            if tree.is_some()
+                && reuse_root_scope()
+                && canonical_root.is_some_and(|admitted| std::ptr::eq(admitted, root.as_ref()))
+            {
+                // This exact base has no predecessor or names snapshot. Its original
+                // inventory and two adjacent root records are one read-only transaction;
+                // the external selection reference keeps its independent full bracket.
+                // The root exit precedes that reference and overrides ordinary inner errors.
+                // Interior root changes fully restored within this bracket may be unseen.
+                #[cfg(test)]
+                snapshot_root_scope_tests::root_scope(true);
+                root.read_scope(|reader| {
+                    let names = reader.entries(4)?;
+                    let inventory = require_allowed_names(&names, &SCOPE_ROOT_NAMES);
+                    #[cfg(test)]
+                    snapshot_root_scope_tests::after_inventory(root)?;
+                    inventory?;
+                    for record in &self.records[..2] {
+                        record.revalidate_in_scope(reader)?;
+                    }
+                    Ok::<_, crate::managed::Error>(())
+                })?;
+                index = 2;
+            } else {
+                #[cfg(test)]
+                snapshot_root_scope_tests::root_scope(false);
+                root.revalidate()?;
+                let inventory = check_names(root, &SCOPE_ROOT_NAMES, 4);
+                #[cfg(test)]
+                snapshot_root_scope_tests::after_inventory(root)?;
+                inventory?;
+            }
         }
         if let Some(previous) = &self.previous {
-            previous.revalidate_in_tree(tree.as_deref_mut())?;
+            previous.revalidate_in_tree_with_root(tree.as_deref_mut(), canonical_root)?;
         }
-        let mut index = 0;
         while index < self.records.len() {
             let mut end = index + 1;
             while end < self.records.len()
@@ -299,6 +343,14 @@ impl Snapshot {
     }
 }
 const SCOPE_ROOT_NAMES: [&str; 4] = ["original.nrt", "anchor.nrt", "bodies", "epochs"];
+
+fn reuse_root_scope() -> bool {
+    #[cfg(test)]
+    if snapshot_root_scope_tests::original_recipe() {
+        return false;
+    }
+    !norito::core::decode_limits_active()
+}
 
 fn reuse_scope_ancestry() -> bool {
     #[cfg(test)]
@@ -371,23 +423,35 @@ impl EnrollmentScopeEvidence for ScopeEvidence {
         &self,
         pass: Option<&SnapshotReadPass<'_>>,
         tree: &mut iroha_fs::PrivateReadTreeScope<'_>,
+        root_read: Option<&mut attempts::GraphRootReadPass<'_, '_>>,
     ) -> Result<()> {
         if !reuse_scope_ancestry() || !pass.is_some_and(|pass| pass.covers(&self.snapshots)) {
             return self.revalidate_with_snapshot_read_pass(pass);
         }
         #[cfg(test)]
         scope_ancestry_tests::record(scope_ancestry_tests::Point::Tree);
-        // The anchor still receives full native entry/exit checks. Only its adjacent
-        // repeated entry is consolidated; the actual inventory and its comparison stay fresh.
-        let names = tree.read_scope(&self.root, |reader| {
+        // A complete graph direction may lend its exact original root reader. The actual
+        // inventory and allowed-name comparison still run at every original position.
+        // Only root ancestry observations consolidate into that direction's closed entry/exit;
+        // foreign owners and a decoder activated after scope entry keep the literal recipe.
+        let read_names = |reader: &mut iroha_fs::PrivateReadScope<'_>| {
             let names = reader.entries(4)?;
             #[cfg(test)]
             {
                 scope_ancestry_tests::record(scope_ancestry_tests::Point::Inventory);
                 scope_ancestry_tests::hit(scope_ancestry_tests::Boundary::InventoryRead)?;
+                graph_root_scope_tests::hit(graph_root_scope_tests::Boundary::InventoryRead)?;
             }
             Ok::<_, crate::managed::Error>(names)
-        })?;
+        };
+        let names = match root_read.filter(|read| read.covers(&self.root)) {
+            Some(read) => read.read(read_names),
+            None => {
+                #[cfg(test)]
+                graph_root_scope_tests::record(graph_root_scope_tests::Point::InventoryBracket);
+                tree.read_scope(&self.root, read_names)
+            }
+        }?;
         require_allowed_names(&names, &SCOPE_ROOT_NAMES)?;
         #[cfg(test)]
         scope_ancestry_tests::hit(scope_ancestry_tests::Boundary::RootClosed)?;
@@ -397,6 +461,8 @@ impl EnrollmentScopeEvidence for ScopeEvidence {
         tree.revalidate_directory(&self.body)?;
         #[cfg(test)]
         scope_ancestry_tests::hit(scope_ancestry_tests::Boundary::BodyClosed)?;
+        #[cfg(test)]
+        graph_root_scope_tests::hit(graph_root_scope_tests::Boundary::BodyClosed)?;
         Ok(())
     }
     fn covers_semantic_original(&self, pass: &SnapshotReadPass<'_>, semantic: [u8; 32]) -> bool {
@@ -2558,5 +2624,13 @@ pub(in crate::managed) mod operation_scope_tests;
 #[path = "body_history/graph_original_tests.rs"]
 pub(in crate::managed) mod graph_original_tests;
 #[cfg(test)]
+#[path = "body_history/graph_root_scope_tests.rs"]
+pub(in crate::managed) mod graph_root_scope_tests;
+
+#[cfg(test)]
 #[path = "body_history/scope_ancestry_tests.rs"]
 mod scope_ancestry_tests;
+
+#[cfg(test)]
+#[path = "body_history/snapshot_root_scope_tests.rs"]
+mod snapshot_root_scope_tests;

@@ -44,8 +44,12 @@ gadget or recursion code.
 - MSM bucket selection and reduction are explicitly variable-time. Sparse
   reduction weights each running sum by the exact following gap using complete
   curve formulas; dense windows retain linear summation. Occupancy includes
-  affine and overflow contributions, including cancellation. Full 255-bit
-  secret scalar planning, secret inversion and scratch clearing are unchanged.
+  affine and overflow contributions, including cancellation. Ordinary secret
+  MSMs plan for 255-bit scalars. `BoundedSecretScalars` validates every canonical
+  integer against a caller-selected public bound before the same secret kernel
+  can use fewer windows. Bounds must come from public protocol data, never a
+  witness maximum. Constant-time secret inversion and scratch clearing remain
+  unchanged; this does not make bucket access constant-time.
 - Memory budgets are charged for everything a kernel holds at once (fixed-base
   tables include their construction scratch), and whether a kernel fits a
   budget never depends on the Rayon pool size.

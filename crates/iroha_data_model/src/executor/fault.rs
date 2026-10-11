@@ -269,7 +269,7 @@ pub enum IvmFaultPositionV1 {
     /// Root argument/call-table preparation failed before instruction execution.
     #[codec(index = 0)]
     Initialization,
-    /// PC measured from the executable stream; its end is valid for MissingHalt.
+    /// PC measured from the executable stream; its end is valid for `MissingHalt`.
     #[codec(index = 1)]
     Execute {
         /// Byte offset in this artifact's executable instruction stream.
@@ -546,7 +546,7 @@ mod tests {
         let expected: Vec<_> = names
             .into_iter()
             .enumerate()
-            .map(|(index, name)| (index as u32, name))
+            .map(|(index, name)| (u32::try_from(index).unwrap(), name))
             .collect();
         assert_eq!(
             actual, expected,

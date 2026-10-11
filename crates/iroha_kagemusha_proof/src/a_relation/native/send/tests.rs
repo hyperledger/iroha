@@ -163,6 +163,322 @@ fn all_five_signed_originals_bind_body_and_each_raw_signature_limb() {
     }
 }
 
+// Binding-only fixture: the signature-Q public encoder is the independent
+// export oracle. There are no actual signatures/proofs or admitted Send here.
+fn bound_originals(held_fee: bool) -> (Inputs, OwnPolicy) {
+    use iroha_plonk_gadgets::p256::native::{self, Affine};
+
+    let policy = OwnPolicy::new([31, 32], Affine::GENERATOR).unwrap();
+    let payment_key = native::mul(&Affine::GENERATOR, &[29, 0, 0, 0]).unwrap();
+    let enrollment_key = native::mul(&Affine::GENERATOR, &[17, 0, 0, 0]).unwrap();
+    let mut input = original(0);
+    input.omega = vec![79; 97];
+    input.objects = object_kinds().map(|kind| {
+        let mut raw = (0..kind.body_len() + 64)
+            .map(|i| u8::try_from(i % 251).unwrap())
+            .collect::<Vec<_>>();
+        raw[..2].copy_from_slice(&1_u16.to_le_bytes());
+        raw
+    });
+    let sec1 = |key: Affine| {
+        let mut raw = vec![4];
+        for coordinate in [key.x, key.y] {
+            for word in coordinate.iter().rev() {
+                raw.extend(word.to_be_bytes());
+            }
+        }
+        raw
+    };
+    for (object, offset, key) in [(0, 130, payment_key), (3, 35, enrollment_key)] {
+        input.objects[object][offset..offset + 65].copy_from_slice(&sec1(key));
+    }
+    input.objects[3][34] = 1;
+    for object in [0, 3] {
+        for (offset, value) in [(2, 3_u128), (18, 4)] {
+            input.objects[object][offset..offset + 16].copy_from_slice(&value.to_le_bytes());
+        }
+    }
+    for (offset, value) in [(195, 31_u128), (211, 32)] {
+        input.objects[0][offset..offset + 16].copy_from_slice(&value.to_le_bytes());
+    }
+    let certificate = object_digest(ObjectKind::Certificate, &input.objects[3]).unwrap();
+    input.objects[0][444..476].copy_from_slice(&certificate.to_repr());
+    let credential = object_digest(ObjectKind::Credential, &input.objects[0]).unwrap();
+    for state in [&mut input.state.before, &mut input.state.after] {
+        state.core[1] = Fp::from(3);
+        state.core[2] = Fp::from(4);
+        state.core[7] = credential;
+        state.lineage[8] = credential;
+    }
+    input.state.before.lineage[6] = Fp::from(5);
+    input.state.before.lineage[7] = Fp::from(6);
+    for (coordinate, words) in [payment_key.x, payment_key.y].iter().enumerate() {
+        input.state.before.lineage[9 + 2 * coordinate] =
+            Fp::from_u128(u128::from(words[0]) | (u128::from(words[1]) << 64));
+        input.state.before.lineage[10 + 2 * coordinate] =
+            Fp::from_u128(u128::from(words[2]) | (u128::from(words[3]) << 64));
+    }
+    let held = if held_fee {
+        object_digest(ObjectKind::FeeSchedule, &input.objects[2]).unwrap()
+    } else {
+        Fp::ZERO
+    };
+    input.state.before.rest[2] = held;
+    input.objects[1][258..290].copy_from_slice(&held.to_repr());
+    let fee = if held_fee { 9_u128 } else { 0 };
+    input.objects[1][290..306].copy_from_slice(&fee.to_le_bytes());
+    input.state.statement[3] = Fp::from(3);
+    input.state.statement[4] = Fp::from(4);
+    input.state.statement[7] = credential;
+    input.state.statement[9] = Fp::from(10);
+    input.state.statement[14] = Fp::from(11);
+    input.state.statement[15] = Fp::from(12);
+    input.state.statement[16] = Fp::from(3);
+    input.state.statement[17] = Fp::from(13);
+    input.state.statement[22] = Fp::from_u128(fee);
+    input.state.statement[23] = object_digest(ObjectKind::Request, &input.objects[1]).unwrap();
+    bind_original_receipt(&mut input, policy);
+    bind_original_signature_exports(&mut input, policy);
+    (input, policy)
+}
+
+fn bind_original_receipt(input: &mut Inputs, policy: OwnPolicy) {
+    let statement = &input.state.statement;
+    let wallet = &input.state.before.lineage[6..8];
+    let mut body = 1_u16.to_le_bytes().to_vec();
+    for pair in [
+        [statement[3], statement[4]],
+        [wallet[0], wallet[1]],
+        policy.provider.map(Fp::from_u128),
+    ] {
+        for word in pair {
+            body.extend_from_slice(&word.to_repr()[..16]);
+        }
+    }
+    body.extend_from_slice(&statement[9].to_repr()[..16]);
+    let mut proof = frame(&input.omega).unwrap();
+    proof.extend(frame(&input.sigma).unwrap());
+    for word in [
+        hash_with_domain(
+            u64::from_le_bytes(*b"kgwopid1"),
+            &[wallet[0], wallet[1], statement[16], statement[17]],
+        ),
+        statement[14],
+        statement[15],
+        hash_with_domain(iroha_plonk_gadgets::statement::STATEMENT_DOMAIN, statement),
+        p_bytes_native(u64::from_le_bytes(*b"kgwprf_1"), &proof),
+    ] {
+        body.extend(word.to_repr());
+    }
+    body.extend([41; 32]);
+    body.extend(Fp::ZERO.to_repr());
+    assert_eq!(body.len(), ObjectKind::Receipt.body_len());
+    input.objects[4][..body.len()].copy_from_slice(&body);
+}
+
+fn bind_original_signature_exports(input: &mut Inputs, policy: OwnPolicy) {
+    use crate::q_signature::{QSignatureCircuit, SignatureSlot, SignatureWitness};
+    use iroha_plonk_gadgets::p256::native::words_from_be;
+
+    let plan = QSignaturePlan::new(vec![
+        SignatureSlot {
+            mode: VerifyMode::Hard,
+            key: SignatureKey::Variable,
+        },
+        SignatureSlot {
+            mode: VerifyMode::Hard,
+            key: SignatureKey::Variable,
+        },
+        SignatureSlot {
+            mode: VerifyMode::Hard,
+            key: SignatureKey::Fixed(policy.root),
+        },
+    ])
+    .unwrap();
+    let witnesses = [4, 0, 3].map(|index| {
+        let kind = object_kinds()[index];
+        let raw = &input.objects[index];
+        let end = kind.body_len();
+        let key = match index {
+            4 => [&input.objects[0][131..163], &input.objects[0][163..195]]
+                .map(|bytes| words_from_be(bytes.try_into().unwrap())),
+            0 => [&input.objects[3][36..68], &input.objects[3][68..100]]
+                .map(|bytes| words_from_be(bytes.try_into().unwrap())),
+            _ => [policy.root.x, policy.root.y],
+        };
+        SignatureWitness {
+            digest: p_bytes_native(kind.signing_domain(), &raw[..end]),
+            key,
+            signature: core::array::from_fn(|half| {
+                core::array::from_fn(|word| {
+                    let start = end + half * 32 + (3 - word) * 8;
+                    u64::from_be_bytes(raw[start..start + 8].try_into().unwrap())
+                })
+            }),
+        }
+    });
+    input.q[1].instances = QSignatureCircuit::new(plan, witnesses.to_vec())
+        .unwrap()
+        .instances(&[true; 3])
+        .unwrap()
+        .to_vec();
+}
+
+#[test]
+fn signed_send_original_admission_rejects_every_changed_original_byte() {
+    let (source, policy) = bound_originals(true);
+    assert_eq!(check_object_tapes(&source, policy), Ok(()));
+    for object in 0..source.objects.len() {
+        for byte in 0..source.objects[object].len() {
+            let mut changed = source.clone();
+            changed.objects[object][byte] ^= 1;
+            assert_eq!(
+                check_object_tapes(&changed, policy),
+                Err(Error::Input),
+                "object {object}, byte {byte}"
+            );
+        }
+    }
+}
+
+#[test]
+fn signed_send_original_admission_binds_exact_signature_exports_and_shapes() {
+    let (source, policy) = bound_originals(true);
+    assert_eq!(check_object_tapes(&source, policy), Ok(()));
+    for index in 0..30 {
+        let mut changed = source.clone();
+        changed.q[1].instances[0][index] += Fq::ONE;
+        assert_eq!(
+            check_object_tapes(&changed, policy),
+            Err(Error::Input),
+            "export {index}"
+        );
+    }
+    for index in [9, 19, 29] {
+        let mut changed = source.clone();
+        changed.q[1].instances[0][index] = Fq::ZERO;
+        assert_eq!(check_object_tapes(&changed, policy), Err(Error::Input));
+    }
+    let mut swapped = source.clone();
+    for index in 0..10 {
+        swapped.q[1].instances[0].swap(index, index + 10);
+    }
+    assert_eq!(check_object_tapes(&swapped, policy), Err(Error::Input));
+    for public in [
+        vec![],
+        vec![vec![]],
+        vec![vec![Fq::ONE; 29]],
+        vec![vec![Fq::ONE; 31]],
+        vec![vec![Fq::ONE; 30], vec![]],
+    ] {
+        let mut changed = source.clone();
+        changed.q[1].instances = public;
+        assert_eq!(check_object_tapes(&changed, policy), Err(Error::Input));
+    }
+    for object in 0..5 {
+        for length in [
+            0,
+            source.objects[object].len() - 1,
+            source.objects[object].len() + 1,
+        ] {
+            let mut changed = source.clone();
+            changed.objects[object].resize(length, 0);
+            assert_eq!(check_object_tapes(&changed, policy), Err(Error::Input));
+        }
+    }
+}
+
+#[test]
+fn signed_send_original_admission_binds_state_statement_and_receipt_projections() {
+    let (source, policy) = bound_originals(true);
+    for mutation in 0..14 {
+        let mut changed = source.clone();
+        match mutation {
+            0 => changed.state.before.core[7] += Fp::ONE,
+            1 => changed.state.after.core[7] += Fp::ONE,
+            2 => changed.state.before.lineage[8] += Fp::ONE,
+            3 => changed.state.after.lineage[8] += Fp::ONE,
+            4 => changed.state.statement[7] += Fp::ONE,
+            5 => changed.state.statement[23] += Fp::ONE,
+            6 => changed.state.before.rest[2] += Fp::ONE,
+            7 => changed.state.before.lineage[9] += Fp::ONE,
+            8 => changed.state.statement[14] += Fp::ONE,
+            9 => changed.state.statement[15] += Fp::ONE,
+            10 => changed.state.statement[9] += Fp::ONE,
+            11 => changed.state.statement[17] += Fp::ONE,
+            12 => changed.sigma[0] ^= 1,
+            _ => changed.omega[0] ^= 1,
+        }
+        assert_eq!(
+            check_object_tapes(&changed, policy),
+            Err(Error::Input),
+            "binding {mutation}"
+        );
+    }
+    // Re-exporting a changed receipt does not replace its statement/proof binding.
+    for offset in [2, 34, 66, 98, 114, 146, 178, 210, 242, 306] {
+        let mut changed = source.clone();
+        changed.objects[4][offset] ^= 1;
+        bind_original_signature_exports(&mut changed, policy);
+        assert_eq!(
+            check_object_tapes(&changed, policy),
+            Err(Error::Input),
+            "receipt {offset}"
+        );
+    }
+    let mut changed = source.clone();
+    changed.objects[4][274..306].fill(0);
+    bind_original_signature_exports(&mut changed, policy);
+    assert_eq!(check_object_tapes(&changed, policy), Err(Error::Input));
+    let mut changed_policy = policy;
+    changed_policy.provider[1] += 1;
+    assert_eq!(
+        check_object_tapes(&source, changed_policy),
+        Err(Error::Input)
+    );
+    changed_policy = policy;
+    changed_policy.root = policy.root.neg();
+    assert_eq!(
+        check_object_tapes(&source, changed_policy),
+        Err(Error::Input)
+    );
+}
+
+#[test]
+fn absent_send_fee_preserves_fixed_dummy_policy_without_admitting_a_charge() {
+    let (source, policy) = bound_originals(false);
+    assert_eq!(check_object_tapes(&source, policy), Ok(()));
+    for byte in 0..source.objects[2].len() {
+        let mut changed = source.clone();
+        changed.objects[2][byte] ^= 1;
+        assert_eq!(
+            check_object_tapes(&changed, policy),
+            Ok(()),
+            "dummy byte {byte}"
+        );
+    }
+    let mut changed = source.clone();
+    changed.objects[2].fill(255);
+    assert_eq!(check_object_tapes(&changed, policy), Ok(()));
+    for offset in [258, 290] {
+        let mut changed = source.clone();
+        changed.objects[1][offset] = 1;
+        changed.state.statement[23] =
+            object_digest(ObjectKind::Request, &changed.objects[1]).unwrap();
+        bind_original_receipt(&mut changed, policy);
+        bind_original_signature_exports(&mut changed, policy);
+        assert_eq!(check_object_tapes(&changed, policy), Err(Error::Input));
+    }
+    let mut changed = source.clone();
+    changed.state.statement[22] = Fp::ONE;
+    bind_original_receipt(&mut changed, policy);
+    bind_original_signature_exports(&mut changed, policy);
+    assert_eq!(check_object_tapes(&changed, policy), Err(Error::Input));
+    changed = source;
+    changed.objects[2].pop();
+    assert_eq!(check_object_tapes(&changed, policy), Err(Error::Input));
+}
+
 #[test]
 fn final_digest_has_exact52_fields_and_keeps_high_foreign_challenge_limbs() {
     let ep = iroha_plonk::transcript::decode_point::<Ep>(

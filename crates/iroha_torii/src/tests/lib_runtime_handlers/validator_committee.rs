@@ -64,7 +64,10 @@ async fn validator_committee_status_serves_exact_finality_and_closed_queries() {
             .await
             .unwrap()
             .to_bytes();
-        assert_eq!(app.query_fanout_inflight.available_permits(), available);
+        assert!(
+            app.query_fanout_inflight.available_permits() < available,
+            "collected bytes still retain the original response memory"
+        );
         let status: ValidatorCommitteeStatusV1 = if accept == "application/x-norito" {
             norito::decode_from_bytes(&body).unwrap()
         } else {
@@ -75,6 +78,14 @@ async fn validator_committee_status_serves_exact_finality_and_closed_queries() {
         assert_eq!(status.network_id, network_id);
         assert_eq!(status.selected, None);
         assert_eq!(status.pending_beacon_session, None);
+        let retained = body.clone();
+        drop(body);
+        assert!(
+            app.query_fanout_inflight.available_permits() < available,
+            "the last byte clone owns the original reservation"
+        );
+        drop(retained);
+        assert_eq!(app.query_fanout_inflight.available_permits(), available);
     }
     for query in [
         "unknown=2",

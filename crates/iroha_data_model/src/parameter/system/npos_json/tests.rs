@@ -1,4 +1,4 @@
-//! Captured derive parity and exact original-pool NPoS record destination controls.
+//! Captured derive parity and exact original-pool `NPoS` record destination controls.
 
 use std::{
     error::Error as _,
@@ -10,6 +10,8 @@ use std::{
 use iroha_allocation::{AllocationRefusal, release::ReleaseRegistration};
 use norito::core::{DecodeBudgetContext, DecodeLimits, serialize_to_buffer};
 use norito::json::JsonDeserialize;
+
+use crate::amx_prepare_streaming_allocations::PhysicalObservation;
 
 use super::*;
 
@@ -58,10 +60,12 @@ fn limits(bytes: usize) -> DecodeLimits {
     DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
 }
 fn source() -> String {
-    let mut value = SumeragiNposParameters::default();
-    value.max_validators = 4;
-    value.min_self_bond = "123456789012345678901234567890".parse().unwrap();
-    value.min_nomination_bond = "234567890123456789012345678901".parse().unwrap();
+    let value = SumeragiNposParameters {
+        max_validators: 4,
+        min_self_bond: "123456789012345678901234567890".parse().unwrap(),
+        min_nomination_bond: "234567890123456789012345678901".parse().unwrap(),
+        ..SumeragiNposParameters::default()
+    };
     json::to_json(&value).unwrap()
 }
 fn observed_demand(source: &str) -> (SumeragiNposParameters, usize) {
@@ -86,15 +90,6 @@ fn decode(
         parser.finish_document()?;
         Ok(value)
     })
-}
-fn digit_pointer(value: &Quantity) -> *const () {
-    value
-        .mantissa()
-        .inner()
-        .magnitude()
-        .native_digits()
-        .as_ptr()
-        .cast::<()>()
 }
 
 #[test]
@@ -159,7 +154,9 @@ fn ordinary_and_admitted_npos_keep_captured_field_error_order_and_outer_validati
 
 struct ObservedDestination<'a> {
     inner: AdmittedDestination<'a>,
-    pointers: [Option<*const ()>; 2],
+    observation: &'a PhysicalObservation,
+    pointers: [Option<usize>; 2],
+    original_checkpoints: [usize; 2],
     bonds: usize,
 }
 impl Destination for ObservedDestination<'_> {
@@ -184,8 +181,18 @@ impl Destination for ObservedDestination<'_> {
         &mut self,
         parser: &mut json::Parser<'_>,
     ) -> Result<ChargedQuantity, Self::Error> {
+        let before = self.observation.checkpoint();
         let bond = self.inner.parse_bond(parser)?;
-        self.pointers[self.bonds] = Some(digit_pointer(bond.get()));
+        self.original_checkpoints[self.bonds] = before;
+        // This is the actual canonical leaf's native allocation, selected by its
+        // source-derived exact native-digit layout, after temporary text retires.
+        let layout = bond.get().admission_clone_layout().unwrap();
+        self.pointers[self.bonds] = Some(
+            self.observation
+                .since(before)
+                .single_live_pointer(layout)
+                .expect("one exact original native-digit allocation remains live"),
+        );
         self.bonds += 1;
         Ok(bond)
     }
@@ -194,7 +201,22 @@ impl Destination for ObservedDestination<'_> {
         record: Self::Record,
         fields: RecordFields<ChargedQuantity>,
     ) -> Result<Self::Output, Self::Error> {
-        self.inner.finish(record, fields)
+        let before = self.observation.checkpoint();
+        let owner = self.inner.finish(record, fields)?;
+        let transfer = self.observation.since(before);
+        assert_eq!(
+            transfer.requests(),
+            [0; 3],
+            "record transfer allocates/reallocates no replacement digit graph"
+        );
+        for pointer in self.pointers.into_iter().flatten() {
+            assert_eq!(
+                transfer.retirements(pointer),
+                0,
+                "record transfer retains the actual original digit backing"
+            );
+        }
+        Ok(owner)
     }
 }
 
@@ -222,9 +244,12 @@ fn admitted_npos_record_moves_exact_original_quantity_backing_and_funded_charge_
         AllocationBudget::new(control + record + source.len() + self_digits + nomination_digits);
     let foreign = AllocationBudget::new(budget.limit_bytes());
     let context = DecodeBudgetContext::try_new_owned(limits(demand * 2), &budget).unwrap();
+    let observation = PhysicalObservation::start();
     let mut observed = ObservedDestination {
         inner: AdmittedDestination { budget: &budget },
+        observation: &observation,
         pointers: [None; 2],
+        original_checkpoints: [0; 2],
         bonds: 0,
     };
     let owner = context
@@ -237,14 +262,15 @@ fn admitted_npos_record_moves_exact_original_quantity_backing_and_funded_charge_
         })
         .unwrap();
     assert_eq!(owner.get(), &expected);
-    assert_eq!(
-        digit_pointer(&owner.get().min_self_bond),
-        observed.pointers[0].unwrap()
-    );
-    assert_eq!(
-        digit_pointer(&owner.get().min_nomination_bond),
-        observed.pointers[1].unwrap()
-    );
+    assert_ne!(observed.pointers[0], observed.pointers[1]);
+    for (index, pointer) in observed.pointers.into_iter().enumerate() {
+        assert_eq!(
+            observation
+                .since(observed.original_checkpoints[index])
+                .retirements(pointer.unwrap()),
+            0
+        );
+    }
     assert!(owner.belongs_to(&budget));
     assert!(!owner.belongs_to(&foreign));
     assert_eq!(
@@ -261,11 +287,26 @@ fn admitted_npos_record_moves_exact_original_quantity_backing_and_funded_charge_
     serialize_to_buffer(owner.get(), &mut actual_wire).unwrap();
     assert_eq!(actual_wire, expected_wire);
     budget.set_limit_bytes(0);
-    assert_eq!(
-        digit_pointer(&owner.get().min_self_bond),
-        observed.pointers[0].unwrap()
-    );
+    for (index, pointer) in observed.pointers.into_iter().enumerate() {
+        assert_eq!(
+            observation
+                .since(observed.original_checkpoints[index])
+                .retirements(pointer.unwrap()),
+            0,
+            "actual original native digits remain live after reducing pool limit"
+        );
+    }
     drop(owner);
+    for (index, pointer) in observed.pointers.into_iter().enumerate() {
+        assert_eq!(
+            observation
+                .since(observed.original_checkpoints[index])
+                .retirements(pointer.unwrap()),
+            1,
+            "each original native-digit allocation retires exactly with its admitted record"
+        );
+    }
+    drop(observation);
     assert_eq!(budget.reserved_bytes(), control);
     budget.set_limit_bytes(control + record + source.len() + self_digits + nomination_digits);
     let retry = decode(&source, &budget, &context).unwrap();
@@ -292,13 +333,31 @@ fn admitted_npos_record_moves_exact_original_quantity_backing_and_funded_charge_
 #[test]
 fn admitted_npos_record_refuses_original_capacity_before_field_work_then_retries_same_context() {
     let source = source();
-    let (_, demand) = observed_demand(&source);
+    let (expected, demand) = observed_demand(&source);
+    // The unchanged kernel charges object-entry planning before admitting the
+    // record. Measure that exact prefix independently, without decoding a field.
+    let preflight_demand = {
+        let prefix = DecodeBudgetContext::new(limits(usize::MAX));
+        prefix.with(|| {
+            let mut parser = json::Parser::new(&source);
+            parser.preflight_document().unwrap();
+            assert_eq!(prefix.consumed_allocated_bytes(), 0);
+            let position = parser.position();
+            assert_eq!(parser.preflight_object_entries().unwrap(), 10);
+            assert_eq!(parser.position(), position);
+        });
+        let consumed = usize::try_from(prefix.consumed_allocated_bytes()).unwrap();
+        assert_eq!(consumed, 10);
+        consumed
+    };
+    assert!(preflight_demand < demand);
+    let cumulative_demand = preflight_demand.checked_add(demand).unwrap();
     let record = AdmittedSumeragiNposParameters::allocation_layout().size();
     let control = DecodeBudgetContext::allocation_layout().size();
     let registration_layout = ReleaseRegistration::allocation_layout();
     let baseline = control + registration_layout.size();
     let budget = AllocationBudget::new(baseline + record + source.len());
-    let context = DecodeBudgetContext::try_new_owned(limits(demand), &budget).unwrap();
+    let context = DecodeBudgetContext::try_new_owned(limits(cumulative_demand), &budget).unwrap();
     let mut reservation = budget.try_reserve(registration_layout).unwrap();
     let mut registration = ReleaseRegistration::from_reservation(&mut reservation).unwrap();
     drop(reservation);
@@ -327,7 +386,11 @@ fn admitted_npos_record_refuses_original_capacity_before_field_work_then_retries
     assert_eq!(reserved_bytes, before);
     assert_eq!(limit_bytes, budget.limit_bytes());
     assert_eq!(budget.reserved_bytes(), before);
-    assert_eq!(context.consumed_allocated_bytes(), 0);
+    assert_eq!(
+        context.consumed_allocated_bytes(),
+        u64::try_from(preflight_demand).unwrap(),
+        "record refusal consumes only the original preflight, without field charges"
+    );
     let mut waiting = release.wait_for_release(&mut registration);
     let mut task = Context::from_waker(Waker::noop());
     assert!(matches!(
@@ -343,11 +406,22 @@ fn admitted_npos_record_refuses_original_capacity_before_field_work_then_retries
     assert_eq!(budget.reserved_bytes(), baseline);
     let owner = decode(&source, &budget, &context).unwrap();
     assert!(owner.belongs_to(&budget));
+    assert_eq!(owner.get(), &expected);
     assert_eq!(
         context.consumed_allocated_bytes(),
-        u64::try_from(demand).unwrap()
+        u64::try_from(cumulative_demand).unwrap()
     );
     drop(owner);
+    assert_eq!(budget.reserved_bytes(), baseline);
+    let exhausted = decode(&source, &budget, &context).unwrap_err();
+    assert!(
+        matches!(exhausted, SumeragiNposJsonAdmissionError::Json(ref error) if error.is_decode_resource_limit())
+    );
+    assert_eq!(
+        context.consumed_allocated_bytes(),
+        u64::try_from(cumulative_demand).unwrap()
+    );
+    assert_eq!(budget.reserved_bytes(), baseline);
     drop(registration);
     drop(context);
     assert_eq!(budget.reserved_bytes(), 0);

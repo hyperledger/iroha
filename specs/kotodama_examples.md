@@ -189,7 +189,12 @@ inclusively at 1 MiB. For a prepared call, the host validates the trusted flat
 schema and derives its conservative maximum aggregate and pointer-allocation
 bound before decoding the untrusted record. The signed wire lengths and that
 bound must be affordable first; the host then validates and decodes the record
-exactly once. The complete signed record remains host-owned, and the public
+exactly once. Default hosts acquire that record through the metered
+`entrypoint_argument_record` public input as `NoritoBytes`; admitted hosts may
+provide the prepared owner directly. `trigger_event_json` independently exposes
+the actual firing `Json`, never the argument record. Missing record inputs
+are refused without falling back to the event key. The complete signed record
+remains host-owned, and the public
 wrapper receives only its domain-separated binding plus typed ABI words. The
 host preflights the complete aligned allocation sequence: pointer TLVs and the
 word table prefer INPUT and spill into owned HEAP, while raw `List` and sum

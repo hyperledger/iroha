@@ -9,6 +9,9 @@
 //!   for full 255-bit scalars so the plan does not depend on their magnitude,
 //!   the shared bucket inversion is constant time, and digit and bucket
 //!   buffers are zeroised. See [`pippenger`] for the remaining timing posture.
+//! - [`msm_secret_bounded_cancellable`]: the same secret kernel with a bound
+//!   chosen from public protocol data and checked against every scalar before
+//!   planning. It does not choose a width from witness values.
 //! - [`FixedBaseTable`]: precomputed window multiples of a fixed commitment
 //!   key; one bucket set and no doublings per MSM.
 //!
@@ -48,6 +51,8 @@ pub enum MsmError {
     LengthMismatch(crate::LengthMismatch),
     /// No window plan fits the memory budget.
     Budget(BudgetExceeded),
+    /// A public bit bound exceeds 255, or a scalar does not fit that bound.
+    ScalarBound,
     /// More points than the engine indexes (`u32::MAX`).
     TooLarge {
         /// The number of points.
@@ -61,6 +66,7 @@ impl core::fmt::Display for MsmError {
             Self::Cancelled => f.write_str("msm: operation cancelled"),
             Self::LengthMismatch(e) => write!(f, "msm: {e}"),
             Self::Budget(e) => write!(f, "msm: {e}"),
+            Self::ScalarBound => f.write_str("msm: scalar exceeds the public bit bound"),
             Self::TooLarge { n } => write!(f, "msm: {n} points exceed the engine limit"),
         }
     }
@@ -137,7 +143,7 @@ pub fn msm_public_with_shared_budget<C: PastaCurve>(
     budget: MemoryBudget,
     shared: &SharedMemoryBudget,
 ) -> Result<C, MsmError> {
-    msm_impl::<C, false>(scalars, bases, budget, shared, None)
+    msm_impl::<C, false>(scalars, bases, budget, shared, None, None)
 }
 
 /// Secret MSM with an explicitly shared caller scratch ceiling.
@@ -150,7 +156,7 @@ pub fn msm_secret_with_shared_budget<C: PastaCurve>(
     budget: MemoryBudget,
     shared: &SharedMemoryBudget,
 ) -> Result<C, MsmError> {
-    msm_impl::<C, true>(scalars, bases, budget, shared, None)
+    msm_impl::<C, true>(scalars, bases, budget, shared, None, None)
 }
 
 /// Public MSM with an explicit cancellation signal and scratch ceiling.
@@ -164,7 +170,7 @@ pub fn msm_public_cancellable<C: PastaCurve>(
     shared: &SharedMemoryBudget,
     cancellation: Option<&CancellationToken>,
 ) -> Result<C, MsmError> {
-    msm_impl::<C, false>(scalars, bases, budget, shared, cancellation)
+    msm_impl::<C, false>(scalars, bases, budget, shared, cancellation, None)
 }
 
 /// Secret MSM with an explicit cancellation signal and scratch ceiling.
@@ -179,7 +185,84 @@ pub fn msm_secret_cancellable<C: PastaCurve>(
     shared: &SharedMemoryBudget,
     cancellation: Option<&CancellationToken>,
 ) -> Result<C, MsmError> {
-    msm_impl::<C, true>(scalars, bases, budget, shared, cancellation)
+    msm_impl::<C, true>(scalars, bases, budget, shared, cancellation, None)
+}
+
+/// Borrowed secret scalars checked against one independently chosen public bit bound.
+///
+/// Construction checks every scalar before any small-input, zero-width or scratch
+/// fallback can run. It never chooses a width from the values or exposes a private
+/// maximum. Callers must derive `bits` from public protocol data, not a witness.
+/// This type proves only the numerical bound; it authenticates no protocol data.
+/// The borrow prevents mutation of the checked scalars while the proof is held.
+pub struct BoundedSecretScalars<'a, F: PastaField> {
+    scalars: &'a [F],
+    bits: usize,
+}
+
+impl<'a, F: PastaField> BoundedSecretScalars<'a, F> {
+    /// Check all canonical integers are below `2^bits`, with no allocation.
+    /// Zero bits admit only zero. No scalar-dependent early exit or bit-length
+    /// scan is used; stack limbs and the accumulated overflow mask are cleared.
+    ///
+    /// # Errors
+    /// [`MsmError::ScalarBound`] for `bits > 255` or any out-of-bound value;
+    /// [`MsmError::Cancelled`] at a cooperative chunk boundary.
+    pub fn new(
+        scalars: &'a [F],
+        bits: usize,
+        cancellation: Option<&CancellationToken>,
+    ) -> Result<Self, MsmError> {
+        CancellationToken::checkpoint(cancellation)?;
+        if bits > 255 {
+            return Err(MsmError::ScalarBound);
+        }
+        let masks: [u64; 4] = core::array::from_fn(|index| {
+            let kept = bits.saturating_sub(index * 64).min(64);
+            if kept == 64 { 0 } else { u64::MAX << kept }
+        });
+        let mut overflow = Zeroizing::new(0_u64);
+        for chunk in scalars.chunks(1024) {
+            CancellationToken::checkpoint(cancellation)?;
+            for scalar in chunk {
+                let limbs = Zeroizing::new(scalar.to_canonical_limbs());
+                for (limb, mask) in limbs.iter().zip(masks) {
+                    *overflow |= limb & mask;
+                }
+            }
+        }
+        CancellationToken::checkpoint(cancellation)?;
+        if *overflow != 0 {
+            return Err(MsmError::ScalarBound);
+        }
+        Ok(Self { scalars, bits })
+    }
+}
+
+/// Secret MSM whose window width is bounded by independently public data.
+///
+/// Uses the same secret kernel: constant-time inversion and clearing of secret
+/// scratch. Digit buckets, skips and conflict handling remain variable-time,
+/// exactly as in [`msm_secret_cancellable`]. No witness-derived width is chosen.
+///
+/// # Errors
+/// As [`msm_secret_cancellable`]. The checked prefix is already fully validated
+/// before this function considers a small/zero-width or scratch fallback.
+pub fn msm_secret_bounded_cancellable<C: PastaCurve>(
+    scalars: &BoundedSecretScalars<'_, C::ScalarExt>,
+    bases: &[C::AffineExt],
+    budget: MemoryBudget,
+    shared: &SharedMemoryBudget,
+    cancellation: Option<&CancellationToken>,
+) -> Result<C, MsmError> {
+    msm_impl::<C, true>(
+        scalars.scalars,
+        bases,
+        budget,
+        shared,
+        cancellation,
+        Some(scalars.bits),
+    )
 }
 
 fn msm_impl<C: PastaCurve, const SECRET: bool>(
@@ -188,6 +271,7 @@ fn msm_impl<C: PastaCurve, const SECRET: bool>(
     budget: MemoryBudget,
     shared: &SharedMemoryBudget,
     cancellation: Option<&CancellationToken>,
+    public_bits: Option<usize>,
 ) -> Result<C, MsmError> {
     CancellationToken::checkpoint(cancellation)?;
     if scalars.len() != bases.len() {
@@ -207,7 +291,7 @@ fn msm_impl<C: PastaCurve, const SECRET: bool>(
         return small_msm::<C, SECRET>(scalars, bases, cancellation);
     }
     let bits = if SECRET {
-        255
+        public_bits.unwrap_or(255)
     } else {
         scalars
             .par_iter()
@@ -449,3 +533,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod bounded_tests;

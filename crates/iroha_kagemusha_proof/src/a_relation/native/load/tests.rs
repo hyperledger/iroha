@@ -64,6 +64,27 @@ fn original() -> Inputs {
 }
 
 #[test]
+fn exact_load_receipt_tape_matches_bound_statement_digest() {
+    let mut source = original();
+    // Only byte binding is under test; this synthetic tape grants no native
+    // receipt, finality, state-transition or monetary admission authority.
+    source.state.statement[17] = p_bytes_native::<Fp>(LoadReceiptCells::DOMAIN, &source.receipt);
+    assert_eq!(check_receipt_tape(&source), Ok(()));
+    for offset in 0..LoadReceiptCells::BYTES {
+        let mut bad = source.clone();
+        bad.receipt[offset] ^= 1;
+        assert_eq!(check_receipt_tape(&bad), Err(Error::Input), "byte {offset}");
+    }
+    let mut foreign_domain = source.clone();
+    foreign_domain.state.statement[17] =
+        p_bytes_native::<Fp>(u64::from_le_bytes(*b"kgwstep1"), &source.receipt);
+    assert_eq!(check_receipt_tape(&foreign_domain), Err(Error::Input));
+    let mut changed_statement = source;
+    changed_statement.state.statement[17] += Fp::ONE;
+    assert_eq!(check_receipt_tape(&changed_statement), Err(Error::Input));
+}
+
+#[test]
 fn exact_load_sigma_tape_statement_length_and_selector_are_bound() {
     let source = original();
     assert_eq!(check_sigma_tape(&source), Ok(()));

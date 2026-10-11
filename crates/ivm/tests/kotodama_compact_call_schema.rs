@@ -60,7 +60,9 @@ fn compact_schema_validates_an_unused_numeric_root_argument_before_its_constant_
     ));
     let invalid = norito::encode_canonical(&record).unwrap();
     for (payload, valid) in [(original, true), (invalid, false)] {
-        let key: Name = "trigger_event_json".parse().unwrap();
+        let key: Name = ivm_abi::arguments::ENTRYPOINT_ARGUMENT_RECORD_PUBLIC_INPUT_KEY
+            .parse()
+            .unwrap();
         let mut host = DefaultHost::new().with_public_inputs(BTreeMap::from([(
             key,
             tlv(PointerType::NoritoBytes, &payload),

@@ -419,6 +419,61 @@ impl Client {
         Ok(proof)
     }
 
+    /// Fetch 1 to 64 consecutive canonical full proofs under this client's original deadline.
+    ///
+    /// This returns structural evidence, not an authenticated committee or trust root.
+    /// Consumers must authenticate the complete history from their independent signed
+    /// genesis. One interval uses the existing response/codec ceiling; it cannot multiply
+    /// that ceiling by its row count or fall back to per-height requests.
+    ///
+    /// # Errors
+    /// Invalid range before dispatch, original deadline/transport/codec refusal,
+    /// oversized or noncanonical response, missing/reordered rows or invalid certificates.
+    pub fn get_sumeragi_finality_interval(
+        &self,
+        from: NonZeroU64,
+        to: NonZeroU64,
+    ) -> Result<Vec<iroha_data_model::sumeragi_finality::SumeragiFinalityProof>> {
+        let count = to
+            .get()
+            .checked_sub(from.get())
+            .and_then(|count| count.checked_add(1))
+            .filter(|count| *count <= 64)
+            .ok_or_else(|| eyre!("finality interval requires 1 to 64 consecutive heights"))?;
+        self.ensure_activation_evidence_deadline()?;
+        self.ensure_data_model_compatibility()?;
+        let path = iroha_torii_shared::route_catalog::sumeragi::BRIDGE_FINALITY_INTERVAL
+            .path()
+            .replace("{from}", &from.get().to_string())
+            .replace("{to}", &to.get().to_string());
+        let response = self.send_activation_evidence_read(
+            &path,
+            SUMERAGI_FINALITY_RESPONSE_MAX_BYTES,
+            None,
+            ActivationEvidenceReadAuth::Public,
+        )?;
+        let proofs: Vec<iroha_data_model::sumeragi_finality::SumeragiFinalityProof> =
+            Self::decode_canonical_norito_response(
+                &response,
+                SUMERAGI_FINALITY_RESPONSE_MAX_BYTES,
+                "sumeragi.finality_interval.read",
+            )?;
+        if u64::try_from(proofs.len())? != count {
+            return Err(eyre!("finality interval differs from requested row count"));
+        }
+        for (index, proof) in proofs.iter().enumerate() {
+            self.ensure_activation_evidence_deadline()?;
+            if proof.height() != from.get() + u64::try_from(index)? {
+                return Err(eyre!(
+                    "finality interval differs from requested consecutive heights"
+                ));
+            }
+            proof.decode_checked()?;
+        }
+        self.ensure_activation_evidence_deadline()?;
+        Ok(proofs)
+    }
+
     /// Fetch this child's compact registration using the retained owner listener token.
     ///
     /// The bounded response must match this client's child network and chain label and the

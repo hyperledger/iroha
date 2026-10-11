@@ -132,7 +132,7 @@ fn prepared_quantity_one_byte_short_and_foreign_charge_preserve_exact_original_p
     let (charge, error) = PreparedQuantityDecode::try_from_charge(&plan, &foreign, charge)
         .err()
         .unwrap();
-    assert!(matches!(error, QuantityDestinationError::ForeignPool));
+    assert!(matches!(error, QuantityBackingError::ForeignPool));
     assert!(charge.belongs_to(&original));
     assert_eq!(charge.layout(), layout);
     assert_eq!(original.reserved_bytes(), layout.size());
@@ -283,7 +283,7 @@ fn prepared_quantity_wrong_layout_returns_same_charge_without_physical_construct
     let (charge, reason) = PreparedQuantityDecode::try_from_charge(&plan, &original, charge)
         .err()
         .unwrap();
-    assert!(matches!(reason, QuantityDestinationError::Allocation(
+    assert!(matches!(reason, QuantityBackingError::Allocation(
         ChargedBufferFromChargeError::LayoutMismatch { expected, actual }
     ) if expected == plan.allocation_layout() && actual == wrong_layout));
     assert!(charge.belongs_to(&original));
@@ -655,4 +655,182 @@ fn one_pass_quantity_capacity_precedes_late_scalar_and_refunds_only_physical_cre
     );
     drop(owner);
     assert_eq!(zero_pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn quantity_backing_errors_preserve_original_diagnostics_and_sources() {
+    use std::error::Error as _;
+
+    let foreign = QuantityBackingError::ForeignPool;
+    assert_eq!(
+        foreign.to_string(),
+        "quantity backing belongs to another pool"
+    );
+    assert!(foreign.source().is_none());
+    let expected = Layout::from_size_align(16, 8).unwrap();
+    let actual = Layout::from_size_align(8, 8).unwrap();
+    for original in [
+        ChargedBufferFromChargeError::DemandOverflow,
+        ChargedBufferFromChargeError::LayoutMismatch { expected, actual },
+        ChargedBufferFromChargeError::Allocator { layout: expected },
+    ] {
+        let diagnostic = original.to_string();
+        let error = QuantityBackingError::Allocation(original);
+        assert_eq!(error.to_string(), diagnostic);
+        let QuantityBackingError::Allocation(original) = &error else {
+            unreachable!("constructed original allocation cause");
+        };
+        let retained = error
+            .source()
+            .unwrap()
+            .downcast_ref::<ChargedBufferFromChargeError>()
+            .unwrap();
+        assert!(core::ptr::eq(retained, original));
+    }
+}
+
+#[test]
+fn retained_quantity_digits_survive_late_scale_rejection_and_same_backing_retry() {
+    let _flags = DecodeFlagsGuard::enter(0);
+    let valid = payload(BigInt::from(17_u32), 0);
+    let late = payload(BigInt::from(17_u32), u32::MAX);
+    let plan = QuantityDecodePlan::decode_payload(&valid).unwrap();
+    let pool = AllocationBudget::new(plan.allocation_layout().size());
+    let mut destination = None;
+    let failure = PreparedQuantityDecode::decode_payload_retained(&late, &pool, &mut destination)
+        .unwrap_err();
+    let QuantityDecodeAdmissionError::Codec(failure) = failure else {
+        panic!("original late scale cause");
+    };
+    let ordinary = Quantity::decode_from_slice(&late).unwrap_err();
+    assert_eq!(failure.to_string(), ordinary.to_string());
+    let original = destination.as_ref().unwrap().digits.as_slice().as_ptr();
+    assert!(destination.as_ref().unwrap().scale.is_none());
+    assert_eq!(pool.reserved_bytes(), plan.allocation_layout().size());
+    let retry = PreparedQuantityDecode::decode_payload_retained(&late, &pool, &mut destination)
+        .unwrap_err();
+    let QuantityDecodeAdmissionError::Codec(retry) = retry else {
+        panic!("same late scale cause");
+    };
+    assert_eq!(retry.to_string(), ordinary.to_string());
+    assert_eq!(
+        destination.as_ref().unwrap().digits.as_slice().as_ptr(),
+        original
+    );
+    assert_eq!(pool.reserved_bytes(), plan.allocation_layout().size());
+    drop(destination);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn retained_quantity_original_quota_refusal_does_not_retire_digits_or_reset_outer_work() {
+    let _flags = DecodeFlagsGuard::enter(0);
+    let bytes = payload(BigInt::from(17_u32), 0);
+    let plan = QuantityDecodePlan::decode_payload(&bytes).unwrap();
+    let pool = AllocationBudget::new(plan.allocation_layout().size());
+    let limits = norito::core::DecodeLimits::new(4096, 4096, 4096, 4096, 64);
+    let outer = norito::core::DecodeBudgetContext::new(limits);
+    let mut destination = None;
+    outer
+        .with(|| PreparedQuantityDecode::decode_payload_retained(&bytes, &pool, &mut destination))
+        .unwrap();
+    let original = destination.as_ref().unwrap().digits.as_slice().as_ptr();
+    let before = outer.consumed_allocated_bytes();
+    let failure = outer
+        .with(|| {
+            norito::core::with_decode_limits_scope(
+                norito::core::DecodeLimits::new(4096, 4096, 4096, 0, 64),
+                || PreparedQuantityDecode::decode_payload_retained(&bytes, &pool, &mut destination),
+            )
+        })
+        .unwrap_err();
+    let QuantityDecodeAdmissionError::Codec(failure) = failure else {
+        panic!("original inner quota refusal");
+    };
+    assert!(failure.is_decode_resource_limit());
+    assert!(outer.consumed_allocated_bytes() >= before);
+    assert_eq!(
+        destination.as_ref().unwrap().digits.as_slice().as_ptr(),
+        original
+    );
+    assert!(destination.as_ref().unwrap().scale.is_none());
+    assert_eq!(pool.reserved_bytes(), plan.allocation_layout().size());
+    let before_retry = outer.consumed_allocated_bytes();
+    outer
+        .with(|| PreparedQuantityDecode::decode_payload_retained(&bytes, &pool, &mut destination))
+        .unwrap();
+    assert!(
+        outer.consumed_allocated_bytes() > before_retry,
+        "same outer cumulative counters consume retry work"
+    );
+    assert_eq!(
+        destination.as_ref().unwrap().digits.as_slice().as_ptr(),
+        original
+    );
+    let completed = destination
+        .take()
+        .unwrap()
+        .finish()
+        .unwrap_or_else(|_| panic!("same original canonical input"));
+    assert_eq!(completed.get(), &Quantity::from(17_u32));
+    assert_eq!(
+        completed
+            .get()
+            .mantissa()
+            .inner()
+            .magnitude()
+            .native_digits()
+            .as_ptr(),
+        original
+    );
+    drop(failure);
+    drop(completed);
+    assert_eq!(pool.reserved_bytes(), 0);
+}
+
+#[test]
+fn borrowed_quantity_recheck_preserves_original_field_limits_without_backing_allocation() {
+    let original = Quantity::from(17_u32);
+    let _flags = norito::core::DecodeFlagsGuard::enter(norito::core::default_encode_flags());
+    let bytes = payload(original.mantissa().clone(), original.scale());
+    let pool = AllocationBudget::new(original.admission_clone_layout().unwrap().size());
+    let destination = PreparedQuantityDecode::try_decode_payload(&bytes, &pool).unwrap();
+    let pointer = destination
+        .get()
+        .mantissa()
+        .inner()
+        .magnitude()
+        .native_digits()
+        .as_ptr();
+    let reserved = pool.reserved_bytes();
+    PreparedQuantityDecode::recheck_payload(&bytes).unwrap();
+    let ceiling = norito::core::DecodeLimits::new(usize::MAX, 0, usize::MAX, usize::MAX, 64);
+    let ordinary = norito::core::with_decode_limits_scope(ceiling, || {
+        PreparedQuantityDecode::try_decode_payload(&bytes, &pool)
+    });
+    let Err(QuantityDecodeAdmissionError::Codec(ordinary)) = ordinary else {
+        panic!("canonical field ceiling precedes retained digit allocation");
+    };
+    let actual = norito::core::with_decode_limits_scope(ceiling, || {
+        PreparedQuantityDecode::recheck_payload(&bytes)
+    })
+    .unwrap_err();
+    assert_eq!(
+        actual.decode_resource_error(),
+        ordinary.decode_resource_error()
+    );
+    assert_eq!(
+        destination
+            .get()
+            .mantissa()
+            .inner()
+            .magnitude()
+            .native_digits()
+            .as_ptr(),
+        pointer
+    );
+    assert_eq!(pool.reserved_bytes(), reserved);
+    PreparedQuantityDecode::recheck_payload(&bytes).unwrap();
+    drop(destination);
+    assert_eq!(pool.reserved_bytes(), 0);
 }

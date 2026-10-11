@@ -34,6 +34,10 @@ impl<B: Buf> Collected<B> {
     }
 
     /// Convert this body into a [`Bytes`].
+    #[expect(
+        clippy::wrong_self_convention,
+        reason = "canonical upstream HTTP body API consumed by reqwest and axum"
+    )]
     pub fn to_bytes(mut self) -> Bytes {
         self.bufs.copy_to_bytes(self.bufs.remaining())
     }

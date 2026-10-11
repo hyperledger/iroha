@@ -147,7 +147,7 @@ async fn transactions_endpoint_rejects_public_key_segments() {
     let literal = format!("{ACCOUNT_SIGNATORY}@banka.dataspace");
     let reason = AccountId::parse_encoded(&literal)
         .expect_err("public-key literal must fail to parse")
-        .reason();
+        .code_str();
     let counter = metrics
         .torii_address_invalid_total
         .with_label_values(&[ACCOUNTS_TRANSACTIONS_CTX, reason]);
@@ -176,7 +176,7 @@ async fn invalid_account_segments_increment_metric() {
     let literal = "sorabaddigest";
     let reason = AccountId::parse_encoded(literal)
         .expect_err("literal must fail to parse")
-        .reason();
+        .code_str();
     let before = metrics
         .torii_address_invalid_total
         .with_label_values(&[ACCOUNTS_TRANSACTIONS_CTX, reason])
@@ -209,7 +209,7 @@ async fn malformed_segments_increment_invalid_metric() {
     let literal = "sn1short";
     let reason = AccountId::parse_encoded(literal)
         .expect_err("malformed literal must fail to parse")
-        .reason();
+        .code_str();
     let before_invalid = metrics
         .torii_address_invalid_total
         .with_label_values(&[ACCOUNTS_TRANSACTIONS_CTX, reason])
@@ -288,7 +288,7 @@ async fn transactions_query_invalid_segments_increment_metric() {
     let literal = "sorabaddigest";
     let reason = AccountId::parse_encoded(literal)
         .expect_err("literal must fail to parse")
-        .reason();
+        .code_str();
     let before = metrics
         .torii_address_invalid_total
         .with_label_values(&[ACCOUNTS_TRANSACTIONS_QUERY_CTX, reason])
@@ -352,7 +352,7 @@ async fn transactions_query_placeholder_literal_rejected_without_shim() {
     let literal = "ignored@banka.dataspace";
     let reason = AccountId::parse_encoded(literal)
         .expect_err("placeholder literal should fail checksum validation")
-        .reason();
+        .code_str();
     let counter = metrics
         .torii_address_invalid_total
         .with_label_values(&[ACCOUNTS_TRANSACTIONS_QUERY_CTX, reason]);
@@ -418,7 +418,7 @@ async fn transactions_query_endpoint_rejects_public_key_segment() {
     let literal = format!("{ACCOUNT_SIGNATORY}@banka.dataspace");
     let reason = AccountId::parse_encoded(&literal)
         .expect_err("public-key literal must fail to parse")
-        .reason();
+        .code_str();
     let counter = metrics
         .torii_address_invalid_total
         .with_label_values(&[ACCOUNTS_TRANSACTIONS_QUERY_CTX, reason]);
@@ -516,7 +516,7 @@ async fn assets_endpoint_invalid_segments_increment_metric() {
     let literal = "sorabaddigest";
     let reason = AccountId::parse_encoded(literal)
         .expect_err("literal must fail to parse")
-        .reason();
+        .code_str();
     let before = metrics
         .torii_address_invalid_total
         .with_label_values(&[ACCOUNTS_ASSETS_CTX, reason])
@@ -549,7 +549,7 @@ async fn assets_endpoint_rejects_public_key_segments() {
     let literal = format!("{ACCOUNT_SIGNATORY}@banka.dataspace");
     let reason = AccountId::parse_encoded(&literal)
         .expect_err("public-key literal must fail to parse")
-        .reason();
+        .code_str();
     let counter = metrics
         .torii_address_invalid_total
         .with_label_values(&[ACCOUNTS_ASSETS_CTX, reason]);
@@ -605,7 +605,7 @@ async fn assets_query_endpoint_invalid_segments_increment_metric() {
     let literal = "sorabaddigest";
     let reason = AccountId::parse_encoded(literal)
         .expect_err("literal must fail to parse")
-        .reason();
+        .code_str();
     let before = metrics
         .torii_address_invalid_total
         .with_label_values(&[ACCOUNTS_ASSETS_QUERY_CTX, reason])
@@ -640,7 +640,7 @@ async fn assets_query_endpoint_rejects_public_key_segments() {
     let literal = format!("{ACCOUNT_SIGNATORY}@banka.dataspace");
     let reason = AccountId::parse_encoded(&literal)
         .expect_err("public-key literal must fail to parse")
-        .reason();
+        .code_str();
     let counter = metrics
         .torii_address_invalid_total
         .with_label_values(&[ACCOUNTS_ASSETS_QUERY_CTX, reason]);
@@ -721,7 +721,7 @@ async fn permissions_endpoint_invalid_segments_increment_metric() {
     let literal = "sorabaddigest";
     let reason = AccountId::parse_encoded(literal)
         .expect_err("literal must fail to parse")
-        .reason();
+        .code_str();
     let before = metrics
         .torii_address_invalid_total
         .with_label_values(&[ACCOUNTS_PERMISSIONS_CTX, reason])
@@ -782,7 +782,7 @@ async fn explorer_domains_query_invalid_account_param_records_metric() {
     let literal = "sorainvalid";
     let reason = AccountId::parse_encoded(literal)
         .expect_err("literal must fail to parse")
-        .reason();
+        .code_str();
     let context = "/v1/explorer?filter";
     let before = metrics
         .torii_address_invalid_total
@@ -844,7 +844,7 @@ async fn explorer_account_detail_invalid_segments_increment_metric() {
     let literal = "sorainvalid";
     let reason = AccountId::parse_encoded(literal)
         .expect_err("literal must fail to parse")
-        .reason();
+        .code_str();
     let context = "/v1/explorer/accounts/{account_id}";
     let before = metrics
         .torii_address_invalid_total
@@ -975,7 +975,7 @@ async fn repo_agreements_query_filter_rejects_invalid_literal() {
     let literal = "sorabaddigest";
     let reason = AccountId::parse_encoded(literal)
         .expect_err("literal must fail")
-        .reason();
+        .code_str();
     let counter = metrics
         .torii_address_invalid_total
         .with_label_values(&[REPO_AGREEMENTS_ENDPOINT, reason]);
@@ -1007,7 +1007,7 @@ async fn repo_agreements_query_filter_rejects_malformed_literal() {
     let literal = "sn1short";
     let reason = AccountId::parse_encoded(literal)
         .expect_err("literal must fail")
-        .reason();
+        .code_str();
     let invalid_counter = metrics
         .torii_address_invalid_total
         .with_label_values(&[REPO_AGREEMENTS_ENDPOINT, reason]);
@@ -1079,7 +1079,7 @@ async fn kaigi_relay_detail_invalid_segment_increments_metric() {
     let literal = "sorainvalid";
     let reason = AccountId::parse_encoded(literal)
         .expect_err("literal must fail to parse")
-        .reason();
+        .code_str();
     let counter = metrics
         .torii_address_invalid_total
         .with_label_values(&[KAIGI_RELAY_DETAIL_CTX, reason]);
@@ -1103,7 +1103,7 @@ async fn kaigi_relay_detail_malformed_segment_increments_invalid_metric() {
     let literal = "sn1short";
     let reason = AccountId::parse_encoded(literal)
         .expect_err("literal must fail to parse")
-        .reason();
+        .code_str();
     let invalid_counter = metrics
         .torii_address_invalid_total
         .with_label_values(&[KAIGI_RELAY_DETAIL_CTX, reason]);
@@ -1203,7 +1203,7 @@ async fn nexus_public_lane_stake_rejects_public_key_validator() {
     let encoded = encode_query_value(&literal);
     let reason = AccountId::parse_encoded(&literal)
         .expect_err("public-key literal must fail to parse")
-        .reason();
+        .code_str();
     let counter = metrics
         .torii_address_invalid_total
         .with_label_values(&[NEXUS_PUBLIC_LANE_STAKE_CTX, reason]);
@@ -1235,7 +1235,7 @@ async fn nexus_public_lane_stake_invalid_literal_increments_metric() {
     let encoded = encode_query_value(literal);
     let reason = AccountId::parse_encoded(literal)
         .expect_err("literal must fail")
-        .reason();
+        .code_str();
     let counter = metrics
         .torii_address_invalid_total
         .with_label_values(&[NEXUS_PUBLIC_LANE_STAKE_CTX, reason]);
@@ -1263,7 +1263,7 @@ async fn nexus_public_lane_stake_malformed_literal_increments_invalid_metric() {
     let encoded = encode_query_value(literal);
     let reason = AccountId::parse_encoded(literal)
         .expect_err("literal must fail")
-        .reason();
+        .code_str();
     let invalid_counter = metrics
         .torii_address_invalid_total
         .with_label_values(&[NEXUS_PUBLIC_LANE_STAKE_CTX, reason]);

@@ -23308,6 +23308,90 @@ public final class ToriiClient: ToriiTransactionEntrypointSubmitting, @unchecked
                                            exactSuccessStatus: 202)
     }
 
+    /// Send exactly one enrollment action with fresh explicit account authentication.
+    /// Recovery resubmits the same request originals; Pending or a transport failure never
+    /// permits a new platform attempt. Permit/E6 authority belongs to the native owner.
+    /// The smaller positive finite URLSession request/resource timeout sets a monotonic
+    /// deadline including owner callbacks; a late response is never published as progress.
+    public func kagemushaEnrollmentV1(
+        request original: ToriiKagemushaEnrollmentRequestV1,
+        canonicalAuth: ToriiCanonicalRequestAuth,
+        requireCurrentOwner: @escaping @Sendable () async throws -> Void
+    ) async throws -> ToriiKagemushaEnrollmentResponseV1 {
+        let startedAt = currentMonotonicMs()
+        let timeout = try kagemushaEnrollmentTimeoutV1()
+        try Task.checkCancellation()
+        try await requireCurrentOwner()
+        _ = try remainingKagemushaEnrollmentTimeV1(startedAt: startedAt, timeout: timeout)
+        var request = try makeKagemushaEnrollmentRequestV1(original, canonicalAuth: canonicalAuth)
+        try await requireCurrentOwner()
+        request.timeoutInterval = try remainingKagemushaEnrollmentTimeV1(startedAt: startedAt, timeout: timeout)
+        try Task.checkCancellation()
+        let (bytes, response) = try await sendBoundedResponse(request,
+            context: "KAGEMUSHA enrollment", maximumBytes: ToriiKagemushaEnrollmentResponseV1.maximumBytes)
+        try Task.checkCancellation()
+        _ = try remainingKagemushaEnrollmentTimeV1(startedAt: startedAt, timeout: timeout)
+        let canonical = try validateKagemushaLedgerOriginal(request, response: response,
+            bytes: bytes, maximum: ToriiKagemushaEnrollmentResponseV1.maximumBytes)
+        let result = try ToriiKagemushaEnrollmentResponseV1(canonicalOriginal: canonical)
+        try result.requireAction(original.action)
+        try await requireCurrentOwner()
+        _ = try remainingKagemushaEnrollmentTimeV1(startedAt: startedAt, timeout: timeout)
+        try Task.checkCancellation()
+        return result
+    }
+
+    private func kagemushaEnrollmentTimeoutV1() throws -> TimeInterval {
+        let configuration = session.configuration
+        let request = configuration.timeoutIntervalForRequest
+        let resource = configuration.timeoutIntervalForResource
+        guard request.isFinite, request > 0, resource.isFinite, resource > 0 else {
+            throw ToriiClientError.invalidPayload("enrollment requires positive finite request and resource timeouts")
+        }
+        return min(request, resource)
+    }
+
+    private func remainingKagemushaEnrollmentTimeV1(startedAt: UInt64, timeout: TimeInterval) throws -> TimeInterval {
+        let now = currentMonotonicMs()
+        guard now >= startedAt else { throw ToriiClientError.transport(URLError(.timedOut)) }
+        let remaining = timeout - Double(now - startedAt) / 1_000
+        guard remaining > 0 else { throw ToriiClientError.transport(URLError(.timedOut)) }
+        return remaining
+    }
+
+    /// Build one account-signed envelope; callers cannot supply witness or stale auth headers.
+    func makeKagemushaEnrollmentRequestV1(_ original: ToriiKagemushaEnrollmentRequestV1,
+        canonicalAuth: ToriiCanonicalRequestAuth) throws -> URLRequest {
+        guard baseURL.scheme?.lowercased() == "https", baseURL.host?.isEmpty == false,
+              baseURL.user == nil, baseURL.password == nil, baseURL.query == nil, baseURL.fragment == nil else {
+            throw ToriiClientError.invalidPayload("enrollment requires HTTPS without URL credentials, query or fragment")
+        }
+        let forbiddenHeaders = ["X-Iroha-Witness", "Content-Encoding", "X-Iroha-Operator-Public-Key",
+                                "X-Iroha-Operator-Signature", "X-Iroha-Operator-Timestamp-Ms", "X-Iroha-Operator-Nonce"]
+        guard !defaultHeaders.keys.contains(where: { candidate in
+            forbiddenHeaders.contains { $0.caseInsensitiveCompare(candidate) == .orderedSame }
+        }) else {
+            throw ToriiClientError.invalidPayload("enrollment owns direct account authentication and body encoding")
+        }
+        let address = try exactCanonicalToriiAccountAddress(canonicalAuth.accountId).address
+        let signer = try SigningKey.ed25519(privateKey: canonicalAuth.privateKey)
+        guard let controller = address.singleControllerInfo(), controller.algorithm == .ed25519,
+              controller.publicKey == (try signer.publicKey()) else {
+            throw ToriiClientError.invalidPayload("enrollment requires the direct account signer")
+        }
+        var request = try makeCanonicalAccountRequest(path: "/v1/kagemusha/enrollment", method: .post,
+            body: original.canonicalOriginal,
+            headers: ["Accept": "application/x-norito", "Content-Type": "application/x-norito",
+                      "Accept-Encoding": "identity", "Cache-Control": "no-cache, no-store"],
+            canonicalAuth: canonicalAuth)
+        guard request.url?.query == nil, request.url?.fragment == nil else {
+            throw ToriiClientError.invalidPayload("enrollment requires an exact query-free target")
+        }
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.httpShouldUsePipelining = false
+        return request
+    }
+
     /// Read the payer's original unsigned Load receipt from committed ledger state.
     ///
     /// The returned bytes remain unverified. Before wallet admission, the consumer must bind

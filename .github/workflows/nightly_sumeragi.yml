@@ -250,3 +250,33 @@ jobs:
             target/sumeragi-torii-mutants/logs
           if-no-files-found: warn
           retention-days: 14
+
+  norito_mutation_gate:
+    name: Norito canonical decode-origin mutations (§13.4)
+    runs-on: [self-hosted, Linux, iroha2]
+    container:
+      image: hyperledger/iroha2-ci:nightly-2025-05-08
+    timeout-minutes: 480
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659
+        with:
+          cache: "false"
+          toolchain: 1.93.1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32
+        with:
+          cache-on-failure: "true"
+      - name: Kill every registered Norito canonical decode-origin rule with its named test
+        env:
+          CARGO_BUILD_JOBS: "2"
+        run: python3 scripts/sumeragi_mutation_gate.py --norito --jobs 1 --strict
+      - name: Upload the Norito canonical decode-origin gate report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sumeragi-norito-mutation-gate-${{ github.run_id }}
+          path: |
+            target/sumeragi-norito-mutants/report.json
+            target/sumeragi-norito-mutants/logs
+          if-no-files-found: warn
+          retention-days: 14

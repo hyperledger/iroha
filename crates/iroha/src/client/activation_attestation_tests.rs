@@ -1811,3 +1811,117 @@ fn independent_custody_state_refuses_foreign_private_or_expired_selection_before
         },
     );
 }
+
+fn current_finality_interval_fixture() -> (
+    Client,
+    Vec<iroha_data_model::sumeragi_finality::SumeragiFinalityProof>,
+) {
+    use iroha_data_model::testing::native_finality::NativeFinalityFixture;
+    let mut native = NativeFinalityFixture::start("sdk-original-interval");
+    let mut proofs = vec![native.genesis_proof().clone()];
+    while proofs.len() < 4 {
+        let block = native.block_with_submitted_work(native.next_header());
+        proofs.push(native.certify(block));
+    }
+    let mut client = client_with_base_url(base_url());
+    client.network_id = native.network_id();
+    (client, proofs)
+}
+#[test]
+fn finality_interval_reader_uses_one_exact_bounded_request_and_original_deadline() {
+    let (client, expected) = current_finality_interval_fixture();
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let (result, request) =
+        capture_request(norito_response(StatusCode::OK, &expected), |transport| {
+            let client = client
+                .with_test_http_transport(transport)
+                .with_request_deadline(deadline);
+            mark_data_model_compatible(&client);
+            client.get_sumeragi_finality_interval(
+                NonZeroU64::new(1).unwrap(),
+                NonZeroU64::new(4).unwrap(),
+            )
+        });
+    assert_eq!(result.unwrap(), expected);
+    assert_eq!(request.method, HttpMethod::GET);
+    assert_eq!(request.url.path(), "/v1/bridge/finality/interval/1/4");
+    assert_eq!(
+        request.max_response_bytes,
+        SUMERAGI_FINALITY_RESPONSE_MAX_BYTES
+    );
+    assert!(request.timeout.unwrap() <= Duration::from_secs(10));
+    assert_eq!(
+        request
+            .headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("accept"))
+            .map(|(_, value)| value.as_str()),
+        Some(APPLICATION_NORITO)
+    );
+}
+#[test]
+fn finality_interval_reader_refuses_missing_reordered_and_noncanonical_rows_without_fallback() {
+    let (client, expected) = current_finality_interval_fixture();
+    let mut reordered = expected.clone();
+    reordered.swap(1, 2);
+    let mut duplicated = expected.clone();
+    duplicated[2] = duplicated[1].clone();
+    let mut trailing = norito::to_bytes(&expected).unwrap();
+    trailing.push(0);
+    for response in [
+        norito_response(StatusCode::OK, &expected[..3].to_vec()),
+        norito_response(StatusCode::OK, &reordered),
+        norito_response(StatusCode::OK, &duplicated),
+        mk_response(StatusCode::OK, trailing, Some(APPLICATION_NORITO)),
+    ] {
+        let (result, request) = capture_request(response, |transport| {
+            let client = client.clone().with_test_http_transport(transport);
+            mark_data_model_compatible(&client);
+            client.get_sumeragi_finality_interval(
+                NonZeroU64::new(1).unwrap(),
+                NonZeroU64::new(4).unwrap(),
+            )
+        });
+        assert!(
+            result.is_err(),
+            "interval shape/framing failure cannot select a per-height fallback"
+        );
+        assert_eq!(request.url.path(), "/v1/bridge/finality/interval/1/4");
+    }
+}
+#[test]
+fn finality_interval_reader_rejects_invalid_range_and_expired_original_deadline_before_dispatch() {
+    let (client, _) = current_finality_interval_fixture();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let observations = Arc::clone(&calls);
+    with_mock_http(
+        move |request| {
+            observations.lock().unwrap().push(request);
+            Ok(empty_response(StatusCode::OK))
+        },
+        |transport| {
+            let client = client.with_test_http_transport(transport);
+            mark_data_model_compatible(&client);
+            for (from, to) in [(4, 3), (1, 65)] {
+                assert!(
+                    client
+                        .get_sumeragi_finality_interval(
+                            NonZeroU64::new(from).unwrap(),
+                            NonZeroU64::new(to).unwrap()
+                        )
+                        .is_err()
+                );
+            }
+            assert!(
+                client
+                    .with_request_deadline(std::time::Instant::now())
+                    .get_sumeragi_finality_interval(
+                        NonZeroU64::new(1).unwrap(),
+                        NonZeroU64::new(4).unwrap()
+                    )
+                    .is_err()
+            );
+        },
+    );
+    assert!(calls.lock().unwrap().is_empty());
+}

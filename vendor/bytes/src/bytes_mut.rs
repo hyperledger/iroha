@@ -504,6 +504,11 @@ impl BytesMut {
     /// modifying the data, so it is up to the caller to ensure that the data
     /// has been initialized.
     ///
+    /// # Safety
+    ///
+    /// `len` must not exceed this buffer's capacity, and every byte in the new
+    /// length must be initialized before this call.
+    ///
     /// # Examples
     ///
     /// ```
@@ -1207,9 +1212,10 @@ unsafe impl BufMut for BytesMut {
         Self: Sized,
     {
         if !src.has_remaining() {
-            // prevent calling `copy_to_bytes`->`put`->`copy_to_bytes` infintely when src is empty
+            // Avoid recursively copying an empty source into an empty buffer.
             return;
-        } else if self.capacity() == 0 {
+        }
+        if self.capacity() == 0 {
             // When capacity is zero, try reusing allocation of `src`.
             let src_copy = src.copy_to_bytes(src.remaining());
             drop(src);

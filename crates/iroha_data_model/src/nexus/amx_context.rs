@@ -752,11 +752,13 @@ mod tests {
         }
     }
 
+    type TestRoutingRule<'a> = (u32, Option<u64>, Option<&'a str>, Option<&'a str>);
+
     /// A miniature writer-produced preimage with the complete grammar.
     fn preimage_with(
         lanes: &[LaneConfig],
         dataspaces: &[(u64, &str)],
-        rules: &[(u32, Option<u64>, Option<&str>, Option<&str>)],
+        rules: &[TestRoutingRule<'_>],
         autoscale: (bool, u32, u32),
     ) -> Vec<u8> {
         use tag::*;

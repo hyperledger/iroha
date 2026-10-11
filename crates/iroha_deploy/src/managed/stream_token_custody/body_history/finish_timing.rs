@@ -7,7 +7,10 @@
 //! exclude their caller's directory/tree entry and exit. Inventory subphases surround only
 //! the original `entries` calls: ordinary calls include full ancestry checks, scoped calls
 //! include native census work under the caller's separate entry/exit fences. No interval
-//! measures wallet decoding or body snapshots, and overlapping totals are not additive.
+//! measures wallet decoding. GraphValidate covers every full retained-graph call during the
+//! capture, including calls outside prepare/finish closures. SnapshotRevalidate brackets only
+//! the full snapshot entry, including its recursive walk and native entry/exit checks, without
+//! recursively sampling each node. These intervals overlap and must not be added together.
 
 use std::{cell::Cell, fmt, time::Instant};
 
@@ -38,8 +41,10 @@ pub(in crate::managed) enum Phase {
     AttemptScopedRecordDecode,
     AttemptInventory,
     AttemptScopedInventory,
+    GraphValidate,
+    SnapshotRevalidate,
 }
-const PHASES: [Phase; 24] = [
+const PHASES: [Phase; 26] = [
     Phase::Finish,
     Phase::Reopen,
     Phase::ReadRecords,
@@ -64,6 +69,8 @@ const PHASES: [Phase; 24] = [
     Phase::AttemptScopedRecordDecode,
     Phase::AttemptInventory,
     Phase::AttemptScopedInventory,
+    Phase::GraphValidate,
+    Phase::SnapshotRevalidate,
 ];
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -182,11 +189,21 @@ mod tests {
         assert!(!CLOSURE_ACTIVE.get());
         assert!(phase_in_closure(Phase::ClosureFullGraph).started.is_none());
         drop(disabled);
+        for measured in [Phase::GraphValidate, Phase::SnapshotRevalidate] {
+            assert!(phase(measured).started.is_none());
+        }
 
         let capture = Capture::start();
         assert!(phase_in_closure(Phase::ClosureFullGraph).started.is_none());
         {
+            let _graph = phase(Phase::GraphValidate);
+            drop(phase(Phase::SnapshotRevalidate));
+            assert!(!CLOSURE_ACTIVE.get());
+        }
+        {
             let _prepare = phase(Phase::ClosurePrepare);
+            let _graph = phase(Phase::GraphValidate);
+            drop(phase(Phase::SnapshotRevalidate));
             drop(phase_in_closure(Phase::ClosureFullGraph));
             {
                 let _finish = phase(Phase::ClosureFinish);
@@ -202,6 +219,8 @@ mod tests {
         assert_eq!(stats.0[Phase::ClosureFinish as usize].calls, 1);
         assert_eq!(stats.0[Phase::ClosureFullGraph as usize].calls, 2);
         assert_eq!(stats.0[Phase::ClosureRetainedRead as usize].calls, 1);
+        assert_eq!(stats.sample(Phase::GraphValidate).0, 2);
+        assert_eq!(stats.sample(Phase::SnapshotRevalidate).0, 2);
         assert!(snapshot().is_none());
         assert!(!CLOSURE_ACTIVE.get());
     }
@@ -209,6 +228,8 @@ mod tests {
     #[test]
     fn error_and_unwind_close_timers_and_clear_the_original_capture() {
         fn ordinary_error() -> Result<(), ()> {
+            let _full_graph = phase(Phase::GraphValidate);
+            let _snapshot = phase(Phase::SnapshotRevalidate);
             let _closure = phase(Phase::ClosurePrepare);
             let _graph = phase_in_closure(Phase::ClosureFullGraph);
             Err(())
@@ -218,6 +239,8 @@ mod tests {
         assert!(!CLOSURE_ACTIVE.get());
         assert!(
             std::panic::catch_unwind(|| {
+                let _full_graph = phase(Phase::GraphValidate);
+                let _snapshot = phase(Phase::SnapshotRevalidate);
                 let _closure = phase(Phase::ClosureFinish);
                 let _check = phase_in_closure(Phase::ClosureLiveCheck);
                 panic!("test-only original closure unwind");
@@ -230,10 +253,14 @@ mod tests {
         assert_eq!(stats.0[Phase::ClosureFinish as usize].calls, 1);
         assert_eq!(stats.0[Phase::ClosureFullGraph as usize].calls, 1);
         assert_eq!(stats.0[Phase::ClosureLiveCheck as usize].calls, 1);
+        assert_eq!(stats.sample(Phase::GraphValidate).0, 2);
+        assert_eq!(stats.sample(Phase::SnapshotRevalidate).0, 2);
 
         assert!(
             std::panic::catch_unwind(|| {
                 let _capture = Capture::start();
+                let _full_graph = phase(Phase::GraphValidate);
+                let _snapshot = phase(Phase::SnapshotRevalidate);
                 let _closure = phase(Phase::ClosurePrepare);
                 let _claim = phase_in_closure(Phase::ClosureLiveClaim);
                 panic!("test-only original capture unwind");

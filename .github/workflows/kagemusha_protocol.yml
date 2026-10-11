@@ -1,0 +1,67 @@
+name: KAGEMUSHA protocol model controls
+
+# Abstract provider/accounting models; no native, monetary-network or phone qualification.
+on:
+  pull_request:
+    paths:
+      - "formal/kagemusha_protocol/**"
+      - "crates/iroha_core_zk/src/kagemusha_wallet_advance_v1/**"
+      - "crates/iroha_core_zk/src/kagemusha_wallet_state_v1.rs"
+      - "crates/iroha_core_zk/src/kagemusha_wallet_state_v1/**"
+      - "crates/iroha_core/src/kagemusha_wallet_v1/**"
+      - "crates/iroha_kagemusha_proof/src/operation_relation/**"
+      - "crates/iroha_kagemusha_proof/src/admin_sigma/**"
+      - "specs/kagemusha_single_design_proposal.md"
+      - ".github/workflows/kagemusha_protocol.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kagemusha-protocol-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  provider:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+      - name: Exhaust provider graph and retain mutation counterexamples
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p target/qualification
+          python3 -B -S formal/kagemusha_protocol/provider.py 2>&1 | tee target/qualification/provider-model-ci.log
+      - name: Exercise provider and accounting schedules and assertion guards
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -B -S -m unittest discover -s formal/kagemusha_protocol -p 'test_*.py' -v 2>&1 | tee target/qualification/provider-controls-ci.log
+      - name: Exhaust the four declared monetary vocabularies
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -B -S formal/kagemusha_protocol/schedules.py 2> >(tee target/qualification/accounting-graph-ci.stderr.log >&2) | tee target/qualification/accounting-graph-ci.json
+      - name: Exhaust the bounded Send publication and accounting composition
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -B -S formal/kagemusha_protocol/publication_accounting.py 2>&1 | tee target/qualification/publication-accounting-ci.log
+      - name: Retain results and partial failure logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: kagemusha-protocol-model
+          path: |
+            target/qualification/provider-model-ci.log
+            target/qualification/provider-controls-ci.log
+            target/qualification/accounting-graph-ci.json
+            target/qualification/accounting-graph-ci.stderr.log
+            target/qualification/publication-accounting-ci.log
+          if-no-files-found: warn
+          retention-days: 7

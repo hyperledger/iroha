@@ -32,8 +32,9 @@ pub use beacon::{
 mod genesis;
 pub use genesis::{
     AuthenticatedGenesis, AuthenticatedSignedGenesisV1, GenesisReadError,
-    MAX_SIGNED_GENESIS_BYTES_V1, SignedGenesisPinsV1, authenticate_signed_genesis_v1,
-    authenticated_genesis, signed_genesis_consensus_metadata,
+    MAX_SIGNED_GENESIS_BYTES_V1, OriginalGenesisRead, OriginalGenesisReadError,
+    SignedGenesisPinsV1, authenticate_signed_genesis_v1, authenticated_genesis,
+    signed_genesis_consensus_metadata,
 };
 mod genesis_dataspace;
 pub use genesis_dataspace::{
@@ -514,8 +515,8 @@ impl SumeragiFinalityProof {
         self.decode_parts_with_validation(None)
     }
 
-    // Only the checkpoint importer supplies a workspace. Independent proof readers preserve
-    // the original separate epoch scopes at each gate, including their allocation charges.
+    // Enclosing checkpoint and attestation operations may supply a pure epoch workspace.
+    // Independent proof readers preserve the original separate scopes and allocation charges.
     fn decode_parts_with_validation(
         &self,
         mut validation: Option<&mut EpochValidationScope>,
@@ -1304,8 +1305,25 @@ impl SumeragiFinalityAttestationBody {
                 && self.status.applied_height == self.status.committed_height,
             "attestation challenge, identity or durable-tip binding differs",
         )?;
-        let genesis = self.genesis_finality_proof.decode_checked()?;
-        let tip = self.finality_proof.decode_checked()?;
+        let (genesis, tip) = if norito::core::decode_limits_active() {
+            // Preserve both independent decodes and every original cumulative admission.
+            let genesis = self.genesis_finality_proof.decode_checked()?;
+            let tip = self.finality_proof.decode_checked()?;
+            (genesis, tip)
+        } else {
+            // Share only exact immutable epoch validation inside this one statement. Each
+            // proof still decodes its full frame and checks its own roster and certificate.
+            let mut validation = EpochValidationScope::new();
+            let genesis = self
+                .genesis_finality_proof
+                .decode_parts_with_validation(Some(&mut validation))
+                .map(|(decoded, _, _)| decoded)?;
+            let tip = self
+                .finality_proof
+                .decode_parts_with_validation(Some(&mut validation))
+                .map(|(decoded, _, _)| decoded)?;
+            (genesis, tip)
+        };
         if let Some(header) = tip.header.as_ref() {
             need(
                 header.instance.0 == self.status.instance,
@@ -1457,6 +1475,9 @@ impl Crypto for ProofCrypto {
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod attestation_validation_tests;
 
 #[cfg(test)]
 mod immediate_successor_tests;

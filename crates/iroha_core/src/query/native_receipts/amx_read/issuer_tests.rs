@@ -771,7 +771,9 @@ fn public_amx_signed_policy_retains_completed_npos_stage_on_metadata_refusal() {
     });
     assert!(matches!(
         policy_refusal,
-        Err(norito::json::Error::DecodeResourceLimit)
+        Err(norito::json::Error::DecodeResource(
+            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+        ))
     ));
     let failed_policy = reference.consumed_allocated_bytes() - before;
     let before = reference.consumed_allocated_bytes();
@@ -779,9 +781,9 @@ fn public_amx_signed_policy_retains_completed_npos_stage_on_metadata_refusal() {
         .with(|| with_decode_limits_scope(bounded(0), || signed_genesis_consensus_metadata(&body)));
     assert!(matches!(
         metadata_refusal,
-        Err(GenesisReadError::Json(
-            norito::json::Error::DecodeResourceLimit
-        ))
+        Err(GenesisReadError::Json(norito::json::Error::DecodeResource(
+            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+        )))
     ));
     let failed_metadata = reference.consumed_allocated_bytes() - before;
     assert_ne!(
@@ -876,7 +878,11 @@ fn public_amx_signed_policy_retains_completed_npos_stage_on_metadata_refusal() {
         chain.kura().canonical_query_reads_for_test(),
         original_reads
     );
-    assert_eq!(budget.reserved_bytes(), retained);
+    assert_eq!(
+        budget.reserved_bytes(),
+        retained,
+        "public AMX retry must retain the completed original signed NPoS policy before metadata refusal: original funded policy backing was lost"
+    );
     let repeated_debit = decoder.consumed_allocated_bytes() - before;
     assert_eq!(
         repeated_debit,

@@ -804,6 +804,165 @@ mod tests {
         assert!(record.participants.is_empty());
     }
     #[test]
+    fn kaigi_participant_metadata_preserves_original_account_refusal_and_canonical_map() {
+        use norito::core::{
+            DecodeAttemptErrorKind, DecodeBudgetContext, DecodeResourceError,
+            classify_decode_attempt,
+        };
+        let host = AccountId::new(
+            KeyPair::from_seed(vec![42; 32], iroha_crypto::Algorithm::Ed25519)
+                .public_key()
+                .clone(),
+        );
+        let participant = AccountId::new(
+            KeyPair::from_seed(vec![43; 32], iroha_crypto::Algorithm::Ed25519)
+                .public_key()
+                .clone(),
+        );
+        let id = KaigiId::new(
+            DomainId::try_new("nexus", "universal").unwrap(),
+            "account_metadata_refusal".parse().unwrap(),
+        );
+        let mut expected = KaigiRecord::from_new(&NewKaigi::with_defaults(id, host), 1234);
+        expected.push_participant(participant.clone());
+        expected
+            .participant_metadata
+            .insert(participant.clone(), Metadata::default());
+        let wire = norito::json::to_json(&expected).unwrap();
+        let map_wire = norito::json::to_json(&expected.participant_metadata).unwrap();
+        let source_pointer = wire.as_ptr();
+        let decode = |mode| -> Result<(), norito::json::Error> {
+            if mode == 0 {
+                let mut parser = norito::json::Parser::new(&map_wire);
+                let decoded = crate::json_helpers::account_metadata_map::deserialize(&mut parser)?;
+                assert_eq!(decoded, expected.participant_metadata);
+            } else {
+                let decoded: KaigiRecord = norito::json::from_json(&wire)?;
+                assert_eq!(decoded, expected);
+            }
+            Ok(())
+        };
+        let limits = |bytes| {
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
+        };
+        let demands = [0, 1].map(|mode| {
+            let (decoded, usage) =
+                norito::core::with_decode_limits_measured(limits(usize::MAX), || decode(mode));
+            decoded.expect("actual reader accepts the original canonical input");
+            let demand = usage.total_allocated_bytes();
+            assert!(demand > 0);
+            demand
+        });
+        let context_limit = demands
+            .iter()
+            .try_fold(0_usize, |sum, demand| {
+                demand
+                    .checked_mul(*demand)?
+                    .checked_mul(2)?
+                    .checked_add(sum)
+            })
+            .unwrap();
+        let pool = iroha_allocation::AllocationBudget::new(
+            DecodeBudgetContext::allocation_layout().size(),
+        );
+        let original = DecodeBudgetContext::try_new_owned(limits(context_limit), &pool).unwrap();
+        let baseline = pool.reserved_bytes();
+        // The original pool owns decoder counters, not the ordinary DTO graph.
+        // Exercise every real quota cut: the retired reader performed another
+        // Metadata decode after its account parse, so a final-charge-only cut
+        // would not establish propagation at the actual account-key boundary.
+        for (mode, demand) in demands.into_iter().enumerate() {
+            for limit in 0..demand {
+                let before = original.consumed_allocated_bytes();
+                let mut observed = None;
+                let refusal = original.with(|| norito::with_decode_limits_scope(
+                    limits(limit), || classify_decode_attempt(|| {
+                        let error = decode(mode).expect_err("actual below-demand reader must refuse");
+                        let norito::json::Error::ScopedDecodeResource(origin) = &error else {
+                            panic!("Kaigi participant metadata must retain its original account scoped refusal at mode {mode}, quota {limit}: {error:?}");
+                        };
+                        observed = Some(origin.clone());
+                        Err::<(), _>(error.into_core_error())
+                    }))).unwrap_err();
+                assert_eq!(refusal.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+                let refusal = refusal.into_error();
+                let Some(DecodeResourceError::TotalAllocationExceeded {
+                    attempted,
+                    limit: reported_limit,
+                }) = refusal.decode_resource_error()
+                else {
+                    panic!("actual quota refusal must retain its original resource fields");
+                };
+                assert_eq!(reported_limit, u64::try_from(limit).unwrap());
+                assert!(attempted > reported_limit);
+                assert!(attempted <= u64::try_from(demand).unwrap());
+                let norito::Error::ScopedDecodeResource(returned) = refusal else {
+                    panic!("reader must return its exact original observer");
+                };
+                assert_eq!(returned, observed.unwrap());
+                drop(returned);
+                assert_eq!(pool.reserved_bytes(), baseline);
+                let after_refusal = original.consumed_allocated_bytes();
+                // The outer owner is debited before the inner quota refuses.
+                assert_eq!(after_refusal - before, attempted);
+                original
+                    .with(|| decode(mode))
+                    .expect("same input and original context retry");
+                assert_eq!(
+                    original.consumed_allocated_bytes() - after_refusal,
+                    u64::try_from(demand).unwrap()
+                );
+                assert_eq!(pool.reserved_bytes(), baseline);
+                let (refusal, usage) =
+                    norito::core::with_decode_limits_measured(limits(limit), || decode(mode));
+                let error = refusal
+                    .expect_err("same input unscoped refusal")
+                    .into_core_error();
+                assert_eq!(
+                    error.decode_resource_error(),
+                    Some(DecodeResourceError::TotalAllocationExceeded {
+                        attempted,
+                        limit: reported_limit,
+                    })
+                );
+                assert!(!matches!(error, norito::Error::ScopedDecodeResource(_)));
+                assert!(u64::try_from(usage.total_allocated_bytes()).unwrap() < attempted);
+            }
+        }
+        drop(original);
+        assert_eq!(pool.reserved_bytes(), 0);
+        assert_eq!(
+            norito::json::to_json_bounded(&expected, wire.len()).unwrap(),
+            wire
+        );
+        assert_eq!(
+            norito::json::to_json_bounded(&expected, wire.len() - 1),
+            Err(norito::json::BoundedJsonError::BodyTooLarge)
+        );
+        let binary = encode_adaptive(&expected);
+        assert_eq!(decode_adaptive::<KaigiRecord>(&binary).unwrap(), expected);
+        let key = participant.canonical_i105().unwrap();
+        let key_json = norito::json::to_json(&key).unwrap();
+        let duplicate_map = format!("{{{key_json}:{{}},{key_json}:{{}}}}");
+        let duplicate_wire = wire.replace(
+            &format!("\"participant_metadata\":{map_wire}"),
+            &format!("\"participant_metadata\":{duplicate_map}"),
+        );
+        assert_ne!(duplicate_wire, wire);
+        let error = norito::json::from_json::<KaigiRecord>(&duplicate_wire).unwrap_err();
+        assert!(matches!(error, norito::json::Error::DuplicateField { .. }));
+        let malformed_wire = wire.replace(
+            &format!("\"participant_metadata\":{map_wire}"),
+            "\"participant_metadata\":{\"alice@banka.dataspace\":{}}",
+        );
+        assert_ne!(malformed_wire, wire);
+        let error = norito::json::from_json::<KaigiRecord>(&malformed_wire).unwrap_err();
+        assert!(error.into_core_error().decode_resource_error().is_none());
+        assert_eq!(wire.as_ptr(), source_pointer);
+        assert_eq!(expected.participant_metadata.len(), 1);
+    }
+
+    #[test]
     fn call_record_preserves_creation_timestamp_and_schedule() {
         let domain_id = DomainId::try_new("nexus", "universal").expect("domain id");
         let host = checked_account_id();

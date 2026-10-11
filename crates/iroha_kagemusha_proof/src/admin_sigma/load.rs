@@ -1,4 +1,5 @@
-//! Load's private state transition, with ordinary receipt finality and map authentication in A.
+//! Load's private state transition, with native receipt finality before Advance.
+//! A binds the authorized receipt terms and authenticates the recovery-map insertion.
 
 use iroha_plonk_gadgets::Word;
 
@@ -43,8 +44,9 @@ pub struct LoadWitness {
 
 /// Load arithmetic, continuity and unchanged fields on the fixed k12 sigma class.
 ///
-/// A authenticates ordinary consensus finality for the receipt, binds its exact amount,
-/// ordinal and online charge, and proves the recovery-map insertion. The sigma
+/// Native BLS verification authenticates receipt finality before the wallet signs Advance.
+/// A binds that authorized receipt's exact amount, ordinal and online charge and proves
+/// the recovery-map insertion; it does not independently verify BLS finality. The sigma
 /// opens both heads and binds the carried recovery root; it does not replace A.
 #[derive(Clone, Copy, Debug)]
 pub struct LoadCircuit {

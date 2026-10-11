@@ -516,6 +516,14 @@ mod model {
     impl SumeragiNposParameters {
         /// Identifier used for the custom parameter storing `NPoS` tunables.
         pub const PARAMETER_ID_STR: &'static str = "sumeragi_npos_parameters";
+        /// Exact UUID of the rejected `xor#nexus.universal` fixture.
+        ///
+        /// Validation compares these canonical bytes without constructing temporary
+        /// domain, name or formatted seed allocations inside an admitted decode.
+        pub(crate) const REJECTED_SYNTHETIC_XOR_ASSET_BYTES: [u8; 16] = [
+            0x5e, 0xcd, 0x1e, 0x80, 0xac, 0x7d, 0x4d, 0x18, 0xb2, 0x27, 0x72, 0x09, 0x1a, 0x73,
+            0xfc, 0x13,
+        ];
         /// Construct the [`CustomParameterId`] associated with this payload.
         #[must_use]
         pub fn parameter_id() -> CustomParameterId {
@@ -612,14 +620,17 @@ mod model {
         /// Returns a stable diagnostic when a seed, bond,
         /// or reconfiguration bound is invalid.
         pub fn validate(&self) -> Result<(), &'static str> {
-            let synthetic_stake = crate::asset::AssetDefinitionId::derive_from_components(
+            // DM17 restores only fixed synthetic-identity reconstruction.
+            #[cfg(not(all(test, sumeragi_model_mutation = "DM17")))]
+            let synthetic_bytes = Self::REJECTED_SYNTHETIC_XOR_ASSET_BYTES;
+            #[cfg(all(test, sumeragi_model_mutation = "DM17"))]
+            let synthetic_bytes = crate::asset::AssetDefinitionId::derive_from_components(
                 iroha_model_base::domain::DomainId::parse_fully_qualified("nexus.universal")
-                    .expect("fixed rejected synthetic staking domain"),
-                "xor"
-                    .parse()
-                    .expect("fixed rejected synthetic staking name"),
-            );
-            if self.xor_asset_definition_id == synthetic_stake {
+                    .expect("fixed synthetic domain"),
+                "xor".parse().expect("fixed synthetic asset name"),
+            )
+            .aid_bytes();
+            if self.xor_asset_definition_id.aid_bytes() == synthetic_bytes {
                 return Err(
                     "NPoS must use the network's canonical XOR asset, not synthetic nexus.universal/xor",
                 );
@@ -3207,7 +3218,12 @@ mod tests {
             SumeragiNposParameters::from_custom_parameter(&custom)
         })
         .unwrap_err();
-        assert!(matches!(error, norito::json::Error::DecodeResourceLimit));
+        assert!(matches!(
+            error,
+            norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { limit: 0, .. }
+            )
+        ));
         assert_eq!(custom.payload().get(), &original);
         assert_eq!(
             SumeragiNposParameters::from_custom_parameter(&custom).unwrap(),
@@ -3226,7 +3242,7 @@ mod tests {
             CustomParameter::new(SumeragiNposParameters::parameter_id(), Json::new(false));
         assert!(
             matches!(SumeragiNposParameters::from_custom_parameter(&malformed), Err(error)
-            if !matches!(error, norito::json::Error::DecodeResourceLimit | norito::json::Error::AllocationFailed))
+            if !error.is_decode_resource_limit())
         );
         let invalid = SumeragiNposParameters {
             max_validators: 5,
@@ -3236,6 +3252,51 @@ mod tests {
             SumeragiNposParameters::from_custom_parameter(&invalid.into_custom_parameter()),
             Err(norito::json::Error::InvalidField { .. })
         ));
+    }
+
+    #[test]
+    fn sumeragi_npos_synthetic_identity_is_exact_and_validation_never_allocates() {
+        use crate::{
+            amx_prepare_streaming_allocations::PhysicalObservation, asset::AssetDefinitionId,
+        };
+
+        let synthetic = AssetDefinitionId::derive_from_components(
+            iroha_model_base::domain::DomainId::parse_fully_qualified("nexus.universal").unwrap(),
+            "xor".parse().unwrap(),
+        );
+        assert_eq!(
+            AssetDefinitionId::from_uuid_bytes(
+                SumeragiNposParameters::REJECTED_SYNTHETIC_XOR_ASSET_BYTES,
+            )
+            .unwrap(),
+            synthetic
+        );
+        let valid = SumeragiNposParameters::default();
+        let zero_seed = SumeragiNposParameters {
+            epoch_seed: [0; 32],
+            ..valid.clone()
+        };
+        let synthetic_and_zero_seed = SumeragiNposParameters {
+            xor_asset_definition_id: synthetic,
+            ..zero_seed.clone()
+        };
+        for (parameters, expected) in [
+            (&valid, Ok(())),
+            (&zero_seed, Err("epoch_seed must not be all zero")),
+            (
+                &synthetic_and_zero_seed,
+                Err(
+                    "NPoS must use the network's canonical XOR asset, not synthetic nexus.universal/xor",
+                ),
+            ),
+        ] {
+            let observation = PhysicalObservation::start();
+            let result = parameters.validate();
+            let requests = observation.snapshot().requests();
+            drop(observation);
+            assert_eq!(requests, [0; 3]);
+            assert_eq!(result, expected);
+        }
     }
 
     #[test]

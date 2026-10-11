@@ -59,9 +59,15 @@ fn accepted_quote(fee: &FeePaymentIntent, transaction: &SignedTransaction) -> Fe
 }
 
 pub fn fixture() -> Result<(Config, PlanRecord)> {
+    fixture_with_source(
+        "seiyaku Coffee { view fn points(int cups) authorize(anyone) -> int { return cups * 10; } }",
+    )
+}
+
+fn fixture_with_source(source: &str) -> Result<(Config, PlanRecord)> {
     let config = fixture_config()?;
     let artifact = kotodama_lang::compiler::Compiler::new()
-        .compile_source("seiyaku Coffee { view fn points(int cups) authorize(anyone) -> int { return cups * 10; } }")
+        .compile_source(source)
         .map_err(|error| eyre!(error))?;
     let verified = ivm_artifact_admission::verify_contract_artifact(&artifact)?;
     let fee = FeePaymentIntent::authority(Vec::new(), Some(NonZeroU64::new(1_000_000).unwrap()));
@@ -336,7 +342,11 @@ fn prepared_persistence_and_completion_require_authenticated_plan_and_receipt() 
     };
     assert_eq!(prepared.preflight().code_hash, record.preflight.code_hash);
     service.persist(&prepared, &path)?;
-    assert!(service.completed_receipt(&path)?.is_none());
+    assert!(
+        service
+            .completed_receipt(&path, &prepared.record.preflight)?
+            .is_none()
+    );
     assert_eq!(receipt_path(&path), path.join(RECEIPT_FILE_NAME));
     let mut wrong_config = config;
     wrong_config.account_chain_discriminant ^= 1;
@@ -404,6 +414,7 @@ fn prepared_persistence_and_completion_require_authenticated_plan_and_receipt() 
 #[test]
 fn retained_preflight_and_current_completion_require_original_authenticated_plan() -> Result<()> {
     let (config, record) = fixture()?;
+    let expected_code_hash = record.preflight.code_hash;
     let service = DeploymentService::new(config.clone())?;
     let temporary = tempfile::tempdir()?;
     let path = temporary.path().join("journal");
@@ -420,20 +431,95 @@ fn retained_preflight_and_current_completion_require_original_authenticated_plan
         retained.transaction_hashes,
         record.preflight.transaction_hashes
     );
-    assert!(service.current_completed_receipt(&path)?.is_none());
+    assert!(
+        service
+            .current_completed_receipt(&path, &retained)?
+            .is_none()
+    );
+    assert!(
+        service
+            .retained_lifecycle_hook(&path, expected_code_hash)?
+            .is_none()
+    );
 
     let mut other = config;
     other.key_pair = KeyPair::try_from_seed(vec![0x78; 32], iroha_crypto::Algorithm::Ed25519)?;
     other.account = AccountId::of(other.key_pair.public_key().clone());
     let other = DeploymentService::new(other)?;
     assert!(other.retained_preflight(&path).is_err());
-    assert!(other.current_completed_receipt(&path).is_err());
+    assert!(
+        other
+            .retained_lifecycle_hook(&path, expected_code_hash)
+            .is_err()
+    );
+    assert!(other.current_completed_receipt(&path, &retained).is_err());
 
     let mut substituted = record;
     substituted.preflight.code_hash = Hash::new(b"substituted artifact");
     std::fs::write(path.join("plan.json"), norito::json::to_vec(&substituted)?)?;
     assert!(service.retained_preflight(&path).is_err());
-    assert!(service.current_completed_receipt(&path).is_err());
+    assert!(
+        service
+            .retained_lifecycle_hook(&path, expected_code_hash)
+            .is_err()
+    );
+    assert!(service.current_completed_receipt(&path, &retained).is_err());
+    Ok(())
+}
+
+#[test]
+fn retained_lifecycle_guidance_rejects_a_valid_alternate_plan_for_the_same_authority() -> Result<()>
+{
+    let (config, original) = fixture()?;
+    let (_, alternate) = fixture_with_source(
+        "seiyaku Coffee { state int value; hajimari(int start) { value = start; } view fn points(int cups) authorize(anyone) -> int { return cups + value; } }",
+    )?;
+    validate_plan(&original, &config)?;
+    validate_plan(&alternate, &config)?;
+    assert_eq!(original.preflight.authority, alternate.preflight.authority);
+    assert_ne!(original.preflight.code_hash, alternate.preflight.code_hash);
+    let expected_code_hash = original.preflight.code_hash;
+    let alternate_code_hash = alternate.preflight.code_hash;
+    let service = DeploymentService::new(config)?;
+    let temporary = tempfile::tempdir()?;
+    let path = temporary.path().join("original");
+    let other = temporary.path().join("alternate");
+    service.persist(&PreparedDeployment { record: original }, &path)?;
+    service.persist(&PreparedDeployment { record: alternate }, &other)?;
+    assert!(
+        service
+            .retained_lifecycle_hook(&path, expected_code_hash)?
+            .is_none()
+    );
+    std::fs::write(
+        path.join("plan.json"),
+        std::fs::read(other.join("plan.json"))?,
+    )?;
+    assert_eq!(
+        service.retained_preflight(&path)?.code_hash,
+        alternate_code_hash,
+        "the replacement is independently authenticated, not malformed fixture data"
+    );
+    let advisory = service.retained_lifecycle_hook(&path, expected_code_hash);
+    assert!(
+        matches!(&advisory, Err(DeploymentError::InvalidRequest(reason))
+        if reason == "retained initialization artifact differs from completed deployment")
+    );
+    assert!(
+        advisory.ok().flatten().is_none(),
+        "optional presentation omits the mismatch"
+    );
+    let hook = service
+        .retained_lifecycle_hook(&path, alternate_code_hash)?
+        .unwrap();
+    assert_eq!(hook.name, "hajimari");
+    assert_eq!(
+        hook.params,
+        [LifecycleParameter {
+            name: "start".into(),
+            type_name: "int".into()
+        }]
+    );
     Ok(())
 }
 
@@ -580,8 +666,9 @@ fn service_journal_and_review_use_configured_discriminant_without_ambient_state(
             .and_then(norito::json::Value::as_str),
         Some(expected_authority.as_str())
     );
+    let expected = record.preflight.clone();
     service.persist(&PreparedDeployment { record }, &path)?;
-    assert!(service.completed_receipt(&path)?.is_none());
+    assert!(service.completed_receipt(&path, &expected)?.is_none());
     assert_eq!(
         iroha::data_model::account::address::chain_discriminant(),
         73
@@ -702,12 +789,12 @@ fn only_unattempted_plans_can_be_cancelled_and_cancelled_plans_cannot_resume() -
         record: record.clone(),
     };
     service.persist(&prepared, &path)?;
-    let cancelled = service.cancel(&path)?;
+    let cancelled = service.cancel(&path, &record.preflight)?;
     assert_eq!(
         cancelled.transaction_hashes,
         record.preflight.transaction_hashes
     );
-    assert_eq!(service.cancel(&path)?, cancelled);
+    assert_eq!(service.cancel(&path, &record.preflight)?, cancelled);
     assert!(
         service
             .resume(&path, &mut |_| panic!(
@@ -746,7 +833,7 @@ fn only_unattempted_plans_can_be_cancelled_and_cancelled_plans_cannot_resume() -
         journal.put_exact(marker, &norito::json!({ "unexpected": true }))?;
         drop(journal);
         assert!(
-            service.cancel(&path).is_err(),
+            service.cancel(&path, &record.preflight).is_err(),
             "execution evidence must prevent cancellation: {marker}"
         );
         assert!(!Journal::open(&path, false)?.exists("cancelled.json")?);
@@ -1125,5 +1212,100 @@ fn applied_evidence_reconciles_by_finality_and_keeps_the_first_charge() -> Resul
     );
     assert_eq!(retained_applied_evidence(&journal, 0, unreported)?, charged);
     assert!(retain_applied_evidence(&journal, 0, later_height).is_err());
+    Ok(())
+}
+
+#[test]
+fn original_review_equality_preserves_quotes_context_and_ordered_signed_hashes() -> Result<()> {
+    let (config, original) = fixture()?;
+    let (_, alternate) = fixture_with_source(
+        "seiyaku Coffee { view fn points(int cups) authorize(anyone) -> int { return cups + 1; } }",
+    )?;
+    validate_plan(&original, &config)?;
+    validate_plan(&alternate, &config)?;
+    original
+        .preflight
+        .require_same_plan(&original.preflight.clone())?;
+    assert!(
+        alternate
+            .preflight
+            .require_same_plan(&original.preflight)
+            .is_err()
+    );
+    for field in 0..4 {
+        let mut changed = original.preflight.clone();
+        match field {
+            0 => changed.transaction_hashes.swap(0, 1),
+            1 => changed.observed_block_height += 1,
+            2 => changed.fee_quotes[0].observation.ledger_time_ms += 1,
+            3 => changed.authorization.account_exists = false,
+            _ => unreachable!(),
+        }
+        assert!(matches!(changed.require_same_plan(&original.preflight),
+            Err(DeploymentError::InvalidRequest(reason))
+            if reason == "retained deployment differs from the original reviewed plan"));
+    }
+    Ok(())
+}
+
+#[test]
+fn cancellation_refuses_a_valid_replacement_before_publishing_another_plans_hashes() -> Result<()> {
+    let (config, original) = fixture()?;
+    let (_, alternate) = fixture_with_source(
+        "seiyaku Coffee { view fn points(int cups) authorize(anyone) -> int { return cups + 1; } }",
+    )?;
+    validate_plan(&original, &config)?;
+    validate_plan(&alternate, &config)?;
+    assert_eq!(original.preflight.authority, alternate.preflight.authority);
+    assert_eq!(
+        original.preflight.contract_alias,
+        alternate.preflight.contract_alias
+    );
+    assert_ne!(
+        original.preflight.transaction_hashes,
+        alternate.preflight.transaction_hashes
+    );
+    let service = DeploymentService::new(config)?;
+    let temporary = tempfile::tempdir()?;
+    let path = temporary.path().join("original");
+    let other = temporary.path().join("alternate");
+    service.persist(
+        &PreparedDeployment {
+            record: original.clone(),
+        },
+        &path,
+    )?;
+    service.persist(
+        &PreparedDeployment {
+            record: alternate.clone(),
+        },
+        &other,
+    )?;
+    let expected = service.retained_preflight(&path)?;
+    let replacement = std::fs::read(other.join("plan.json"))?;
+    std::fs::write(path.join("plan.json"), &replacement)?;
+    assert_eq!(
+        service.retained_preflight(&path)?.to_json()?,
+        alternate.preflight.to_json()?,
+        "the substituted plan remains independently authenticated for the same authority"
+    );
+    assert!(
+        matches!(service.cancel(&path, &expected), Err(DeploymentError::InvalidRequest(reason))
+        if reason == "retained deployment differs from the original reviewed plan")
+    );
+    assert!(!path.join("cancelled.json").exists());
+    assert_eq!(std::fs::read(path.join("plan.json"))?, replacement);
+    assert_eq!(
+        std::fs::read_dir(&path)?.count(),
+        2,
+        "only original lock and replaced plan remain"
+    );
+    let cancelled = service.cancel(&other, &alternate.preflight)?;
+    assert_eq!(
+        cancelled.transaction_hashes,
+        alternate.preflight.transaction_hashes
+    );
+    assert_eq!(service.cancel(&other, &alternate.preflight)?, cancelled);
+    assert!(!other.join("attempt-0000.json").exists());
     Ok(())
 }

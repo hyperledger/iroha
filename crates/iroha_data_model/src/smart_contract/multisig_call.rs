@@ -234,8 +234,14 @@ fn read_recognition_json<T: norito::json::JsonDeserialize>(
 ) -> Result<Option<T>, MultisigContractCallRecognitionError> {
     match norito::json::from_str(value.get()) {
         Ok(value) => Ok(Some(value)),
+        Err(error @ norito::json::Error::ScopedDecodeResource(_))
+            if !cfg!(all(test, sumeragi_model_mutation = "DM20")) =>
+        {
+            Err(MultisigContractCallRecognitionError::Json(error))
+        }
         Err(
             error @ (norito::json::Error::DecodeResourceLimit
+            | norito::json::Error::DecodeResource(_)
             | norito::json::Error::AllocationFailed),
         ) => Err(MultisigContractCallRecognitionError::Json(error)),
         Err(_) => Ok(None),
@@ -711,6 +717,101 @@ mod tests {
     }
 
     #[test]
+    fn canonical_recognition_preserves_original_scoped_refusal_and_same_envelope_retry() {
+        use norito::core::{DecodeAttemptErrorKind, classify_decode_attempt};
+
+        let (owner, call) = recognition_fixture();
+        let original_wire = norito::encode_canonical(&call.instructions).unwrap();
+        let original_pointer = call.instructions.as_ptr();
+        let mut malformed = call.instructions.clone();
+        replace_recognition_action(&mut malformed, |trigger| {
+            let mut metadata = trigger.action().metadata().clone();
+            metadata.insert("contract_alias".parse().unwrap(), Json::new(4));
+            trigger.action().clone().with_metadata(metadata)
+        });
+        let pool = iroha_allocation::AllocationBudget::new(65_536);
+        let original = norito::core::DecodeBudgetContext::try_new_owned(
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, usize::MAX, usize::MAX),
+            &pool,
+        )
+        .unwrap();
+        let baseline = pool.reserved_bytes();
+        let mut observed = None;
+        let refusal = original.with(|| {
+            norito::with_decode_limits_scope(
+                norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, 0, usize::MAX),
+                || {
+                    classify_decode_attempt(|| {
+                        match recognize_multisig_contract_call(&owner, &call.instructions) {
+                            Err(MultisigContractCallRecognitionError::Json(error)) => {
+                                let norito::json::Error::ScopedDecodeResource(origin) = &error else {
+                                    panic!("the original observed JSON refusal must retain its scope");
+                                };
+                                observed = Some(origin.clone());
+                                Err::<(), _>(error.into_core_error())
+                            }
+                            Err(MultisigContractCallRecognitionError::Encoding(error)) => {
+                                panic!("the original refusal must remain JSON: {error}");
+                            }
+                            Ok(_) => panic!(
+                                "a genuine scoped refusal must not become a nonmatching multisig envelope"
+                            ),
+                        }
+                    })
+                },
+            )
+        })
+        .unwrap_err();
+        assert_eq!(refusal.kind(), DecodeAttemptErrorKind::EnclosingLimit);
+        let norito::Error::ScopedDecodeResource(returned) = refusal.into_error() else {
+            panic!("recognition must return the original JSON observer identity");
+        };
+        let observed = observed.unwrap();
+        assert_eq!(returned, observed);
+        assert!(matches!(
+            norito::Error::ScopedDecodeResource(returned.clone()).decode_resource_error(),
+            Some(norito::core::DecodeResourceError::TotalAllocationExceeded {
+                attempted,
+                limit: 0,
+            }) if attempted > 0
+        ));
+        drop(returned);
+        drop(observed);
+        assert_eq!(pool.reserved_bytes(), baseline);
+        let recognized = original
+            .with(|| recognize_multisig_contract_call(&owner, &call.instructions))
+            .unwrap()
+            .unwrap();
+        let (_, address, alias, code) = fixture();
+        assert_eq!(recognized.alias, alias);
+        assert_eq!(recognized.invocation.contract_address, address);
+        assert_eq!(recognized.invocation.expected_code_hash, code);
+        assert_eq!(recognized.invocation.entrypoint, "issue_dpn");
+        assert_eq!(recognized.attempt_created_at_ms.get(), 1_700_000_000_001);
+        drop(recognized);
+        assert_eq!(pool.reserved_bytes(), baseline);
+        assert!(
+            original
+                .with(|| recognize_multisig_contract_call(&owner, &malformed))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            original
+                .with(|| recognize_multisig_contract_call(&owner, &call.instructions[..1]))
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(call.instructions.as_ptr(), original_pointer);
+        assert_eq!(
+            norito::encode_canonical(&call.instructions).unwrap(),
+            original_wire
+        );
+        drop(original);
+        assert_eq!(pool.reserved_bytes(), 0);
+    }
+
+    #[test]
     fn canonical_recognition_preserves_local_json_refusal() {
         let (owner, call) = recognition_fixture();
         let result = norito::with_decode_limits_scope(
@@ -720,7 +821,9 @@ mod tests {
         assert!(matches!(
             result,
             Err(MultisigContractCallRecognitionError::Json(
-                norito::json::Error::DecodeResourceLimit
+                norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                )
             ))
         ));
         assert!(

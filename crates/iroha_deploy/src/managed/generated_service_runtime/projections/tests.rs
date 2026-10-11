@@ -617,3 +617,193 @@ fn original_bootstrap_reopen_keeps_active_and_owned_full_admission() {
     assert_eq!(captures, 1);
     no_http(&peers);
 }
+
+#[test]
+fn gateway_pair_keeps_callback_error_and_replaced_lock_boundaries() {
+    use crate::localnet::service_authorities::count_profile_images;
+    use crate::managed::service_authority::profile_validation_test_support::operation_paths;
+    use std::cell::Cell;
+    let _resources = crate::managed::native_test_guard();
+    let (_temporary, owner, peers) = fixture();
+    let prepared = &owner.authority.prepared;
+    let provider = owner.original_provider_plans(prepared).unwrap().unwrap()[0].provider_id();
+    for full in [true, false] {
+        let calls = Cell::new(0);
+        let run = || {
+            owner.validate_gateway_compliance_pair(prepared, provider, || {
+                calls.set(calls.get() + 1);
+                Err(invalid("ordinary child observation refusal"))
+            })
+        };
+        let ((result, images), locks) = operation_paths(|| {
+            count_profile_images(|| {
+                if full {
+                    GeneratedServiceRuntime::test_full_gateway_pair(run)
+                } else {
+                    run()
+                }
+            })
+        });
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "ordinary child observation refusal"
+        );
+        assert_eq!(calls.get(), 1);
+        assert_eq!(images, 2);
+        assert_eq!(
+            locks.len(),
+            4,
+            "child error never enters the second projection"
+        );
+    }
+    let lock = owner.authority.directory.path().join("operation.lock");
+    let saved = owner.authority.directory.path().join("saved-pair.lock");
+    let original_id = iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap();
+    for full in [true, false] {
+        let run = || {
+            owner.validate_gateway_compliance_pair(prepared, provider, || {
+                #[cfg(unix)]
+                {
+                    std::fs::rename(&lock, &saved).unwrap();
+                    owner
+                        .authority
+                        .directory
+                        .write_atomic("operation.lock", b"", PublishMode::CreateNew)
+                        .unwrap();
+                }
+                #[cfg(windows)]
+                assert!(std::fs::rename(&lock, &saved).is_err());
+                Ok(())
+            })
+        };
+        let result = if full {
+            GeneratedServiceRuntime::test_full_gateway_pair(run)
+        } else {
+            run()
+        };
+        #[cfg(unix)]
+        {
+            assert_eq!(
+                result.unwrap_err().to_string(),
+                "managed native operation lock was replaced"
+            );
+            owner
+                .authority
+                .directory
+                .remove_private("operation.lock")
+                .unwrap();
+            std::fs::rename(&saved, &lock).unwrap();
+        }
+        #[cfg(windows)]
+        result.unwrap();
+        assert_eq!(
+            iroha_fs::FileIdentity::of(&owner.authority._lock).unwrap(),
+            original_id
+        );
+        owner
+            .validate_gateway_compliance_pair(prepared, provider, || Ok(()))
+            .unwrap();
+    }
+    no_http(&peers);
+}
+
+#[test]
+fn gateway_pair_preserves_active_decode_and_owned_producers() {
+    use crate::managed::service_authority::profile_validation_test_support::operation_paths;
+    use std::cell::Cell;
+    fn limits(allocated: usize) -> norito::DecodeLimits {
+        let finite = 64 * 1024 * 1024;
+        norito::DecodeLimits::new(finite, finite, finite, allocated, 64)
+    }
+    let _resources = crate::managed::native_test_guard();
+    let (_temporary, owner, peers) = fixture();
+    let provider = owner
+        .original_provider_plans(&owner.authority.prepared)
+        .unwrap()
+        .unwrap()[0]
+        .provider_id();
+    for allocated in [0, 1, 64 * 1024 * 1024] {
+        let run = |full| {
+            let context = DecodeBudgetContext::new(limits(allocated));
+            let calls = Cell::new(0);
+            let ((result, captures), locks) = operation_paths(|| {
+                count_profile_validations(|| {
+                    context.with(|| {
+                        let run = || {
+                            owner.validate_gateway_compliance_pair(
+                                &owner.authority.prepared,
+                                provider,
+                                || {
+                                    calls.set(calls.get() + 1);
+                                    Ok(())
+                                },
+                            )
+                        };
+                        if full {
+                            GeneratedServiceRuntime::test_full_gateway_pair(run)
+                        } else {
+                            run()
+                        }
+                    })
+                })
+            });
+            (
+                result.map_err(|error| error.to_string()),
+                captures,
+                locks,
+                calls.get(),
+                context.consumed_allocated_bytes(),
+            )
+        };
+        let expected = run(true);
+        let actual = run(false);
+        assert_eq!(actual.0, expected.0);
+        assert_eq!(actual.1, expected.1);
+        assert_eq!(actual.2, expected.2);
+        assert_eq!(actual.3, expected.3);
+        if allocated <= 1 {
+            assert!(actual.0.is_err());
+            assert_eq!(actual.3, 0);
+            assert_eq!(actual.4, expected.4);
+        } else {
+            assert_eq!(actual.0, Ok(()));
+            assert_eq!(actual.1, 2);
+            assert_eq!(actual.3, 1);
+            assert!(actual.4 > 0 && actual.4 <= allocated as u64);
+            assert!(expected.4 > 0 && expected.4 <= allocated as u64);
+        }
+    }
+    let prepared = owner.authority.prepared.clone();
+    drop(owner);
+    let construction = DecodeBudgetContext::new(limits(64 * 1024 * 1024));
+    let owned = construction
+        .with(|| GeneratedServiceRuntime::open(&prepared))
+        .unwrap();
+    assert!(
+        owned
+            .authority
+            .original_intent_if_shared()
+            .unwrap()
+            .is_none()
+    );
+    for full in [true, false] {
+        let calls = Cell::new(0);
+        let (result, captures) = count_profile_validations(|| {
+            let run = || {
+                owned.validate_gateway_compliance_pair(&prepared, provider, || {
+                    calls.set(calls.get() + 1);
+                    Ok(())
+                })
+            };
+            if full {
+                GeneratedServiceRuntime::test_full_gateway_pair(run)
+            } else {
+                run()
+            }
+        });
+        result.unwrap();
+        assert_eq!(captures, 2);
+        assert_eq!(calls.get(), 1);
+    }
+    no_http(&peers);
+}

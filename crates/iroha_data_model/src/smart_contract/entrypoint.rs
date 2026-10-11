@@ -949,17 +949,28 @@ impl EntrypointArgumentSchemaV1 {
         if self.fields.is_empty() || self.fields.len() > MAX_ENTRYPOINT_ARGUMENTS {
             return false;
         }
-        let mut names = [""; MAX_ENTRYPOINT_ARGUMENTS];
+        // Sort compact indices into the borrowed names: the full ABI bound needs
+        // 16 KiB instead of 128 KiB of string references on a 64-bit host. This
+        // keeps validation allocation-free and leaves declaration order intact.
+        let mut indices = [0_u16; MAX_ENTRYPOINT_ARGUMENTS];
         for (index, field) in self.fields.iter().enumerate() {
             if !is_canonical_kotodama_identifier(&field.name) || !field.ty.validate() {
                 return false;
             }
-            names[index] = field.name.as_str();
+            let Ok(compact_index) = u16::try_from(index) else {
+                return false;
+            };
+            indices[index] = compact_index;
         }
-        let names = &mut names[..self.fields.len()];
-        names.sort_unstable();
-        !names.windows(2).any(|pair| pair[0] == pair[1])
-            && self.word_count_unchecked() <= MAX_ENTRYPOINT_ARGUMENT_WORDS
+        let indices = &mut indices[..self.fields.len()];
+        indices.sort_unstable_by(|left, right| {
+            self.fields[usize::from(*left)]
+                .name
+                .cmp(&self.fields[usize::from(*right)].name)
+        });
+        !indices.windows(2).any(|pair| {
+            self.fields[usize::from(pair[0])].name == self.fields[usize::from(pair[1])].name
+        }) && self.word_count_unchecked() <= MAX_ENTRYPOINT_ARGUMENT_WORDS
     }
     /// Return the total fixed-width table word count for this schema.
     #[must_use]
@@ -2108,6 +2119,54 @@ mod tests {
             norito::to_bytes(&decoded).expect("re-encode flat atom tape at depth limit"),
             encoded
         );
+    }
+    #[test]
+    fn argument_schema_preserves_order_at_full_abi_bound_and_rejects_distant_duplicates() {
+        let mut schema = EntrypointArgumentSchemaV1 {
+            fields: (0..MAX_ENTRYPOINT_ARGUMENTS)
+                .rev()
+                .map(|index| EntrypointArgumentFieldV1 {
+                    name: format!("arg{index:04}"),
+                    ty: EntrypointValueTypeV1 {
+                        nodes: vec![EntrypointValueTypeNodeV1::Leaf(EntrypointValueKindV1::Int)],
+                    },
+                })
+                .collect(),
+        };
+        let names: Vec<_> = schema
+            .fields
+            .iter()
+            .map(|field| field.name.clone())
+            .collect();
+        assert!(schema.validate());
+        assert_eq!(schema.word_count(), Some(MAX_ENTRYPOINT_ARGUMENT_WORDS));
+        assert!(schema.fields.iter().map(|field| &field.name).eq(&names));
+        for duplicate in [
+            1,
+            MAX_ENTRYPOINT_ARGUMENTS / 2,
+            MAX_ENTRYPOINT_ARGUMENTS - 1,
+        ] {
+            let original = core::mem::replace(&mut schema.fields[duplicate].name, names[0].clone());
+            assert!(!schema.validate(), "duplicate argument index {duplicate}");
+            schema.fields[duplicate].name = original;
+            assert!(schema.validate());
+        }
+        schema.fields.push(EntrypointArgumentFieldV1 {
+            name: "one_too_many".into(),
+            ty: EntrypointValueTypeV1 {
+                nodes: vec![EntrypointValueTypeNodeV1::Unit],
+            },
+        });
+        assert!(
+            !schema.validate(),
+            "argument count bound applies even to a unit field"
+        );
+        schema.fields.pop();
+        schema.fields[0].name = "invalid-name".into();
+        assert!(!schema.validate());
+        schema.fields[0].name = names[0].clone();
+        schema.fields[0].ty.nodes.clear();
+        assert!(!schema.validate());
     }
     #[test]
     fn fixed_stack_schema_analysis_requires_unique_fields_and_exact_children() {

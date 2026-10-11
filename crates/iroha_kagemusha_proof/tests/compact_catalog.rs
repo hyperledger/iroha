@@ -38,7 +38,7 @@ fn forged_succinct_fold_requires_a_distinct_same_challenges_correction() {
 
 /// Genuine controls-off Send lineage under the common three-terminal compact key.
 /// Its exact sources remain available for retained-Payment and Archive tests.
-/// Load ancestry requires caller-supplied genuine ordinary-finality originals.
+/// Load ancestry requires caller-supplied genuine native-BLS-authorized originals.
 /// This component catalog does not establish complete payment qualification.
 #[allow(dead_code)] // Archive consumes the full retained source and outer artifact.
 pub(crate) struct CompactSendOmega {
@@ -62,7 +62,7 @@ pub(crate) struct CompactSendOmega {
 
 /// Rebuild the genuine Send predecessor from the existing three-terminal closure.
 /// Every signed source is created after the common outer key is fixed. This
-/// helper requires the ordinary-finality Load fixture and never admits Archive.
+/// helper requires the native-BLS Load fixture and never admits Archive.
 #[allow(dead_code)] // Used by genuine Archive integration fixtures.
 pub(crate) fn compact_payer_send(fixture: &LoadFixture) -> CompactSendOmega {
     catalog_roundtrip(true, fixture).expect("three-terminal catalog produces Send")
@@ -130,13 +130,13 @@ fn catalog_roundtrip(include_send: bool, fixture: &LoadFixture) -> Option<Compac
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
+#[allow(dead_code)] // Registered by receive_omega; other consumers select shared helpers only.
 pub fn compact_bootstrap_load_catalog_rebinds_every_proof_and_key(fixture: &LoadFixture) {
     assert!(catalog_roundtrip(false, fixture).is_none());
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
+#[allow(dead_code)] // Registered by receive_omega; other consumers select shared helpers only.
 pub fn compact_bootstrap_load_send_catalog_rebinds_every_proof_and_key(fixture: &LoadFixture) {
     let send = compact_payer_send(fixture);
     assert_eq!(send.proof.len(), 3712);
@@ -152,7 +152,7 @@ pub fn compact_bootstrap_load_send_catalog_rebinds_every_proof_and_key(fixture: 
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
+#[allow(dead_code)] // Registered by receive_omega; other consumers select shared helpers only.
 pub fn compact_predecessor_native_send_preserves_every_installed_stage_and_original(
     fixture: &LoadFixture,
 ) {

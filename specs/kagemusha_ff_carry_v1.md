@@ -274,7 +274,8 @@ deployment authorization; those gates remain separate.
 
 ### Current fused-leaf review (2026-10-09)
 
-Two source reviews found no carry/range-binding defect in the actual M3
+The two 2026-10-09 source reviews and an independent 2026-10-10 source/integer
+re-review found no carry/range-binding defect in the actual M3
 `G3.6/q_leaf_chips` path, descriptor
 `0ffa6d0a7a3a2449e092b21dcb9201c75f2c6fdf3305717b955b67a72e724070`.
 Its Q-leaf source still matches `ac22585f…ab2d5`; the current FF source is
@@ -282,6 +283,17 @@ Its Q-leaf source still matches `ac22585f…ab2d5`; the current FF source is
 Eighteen arithmetic, range, configuration and copy functions match the earlier
 reviewed FF source. Inspection of the changed wrappers confirms that this leaf
 selects `serialized=None`, retaining the fused bounds and gates.
+
+The current independent acceptance is confined to this fused arithmetic,
+two-membership range binding, canonical comparison and shared-table construction.
+Its self-contained exact-integer rederivation matches all four modulus padding
+multipliers and carry intervals against both native orders: the largest local
+residual bound has approximate log2 `191.459441`, far below either native order,
+and the global residual remains below `2^537`.
+The script checks these inequalities with integers; it does not establish the
+source-to-equation correspondence, which was separately reviewed. No Rust tests,
+proofs or builds were rerun. Serialized, shortened-carry, rotated and independent
+range-bus implementations do not inherit this fused-path acceptance.
 
 These are fresh clarity findings, not a reconstruction of the missing four:
 
@@ -311,8 +323,14 @@ These are fresh clarity findings, not a reconstruction of the missing four:
    constraint or authority for arbitrary shared-table callers.
 8. The retained raw output establishes 22 FF and four Q-layout passes for the
    reviewed sources, with three expensive FF cases ignored. The whole historical
-   gadget run failed (284 passed, one failed, eight ignored). Positive M3 proofs
-   do not replace adversarial coverage or qualify other FF backends, recursive Q,
+   gadget run failed (284 passed, one failed, eight ignored). The malformed-layout
+   audit circuit uses `Fq` only and exercises SHA/window overlap and `q_dyn` on a
+   fixed row; explicit `ValueRange`, `Namespace` and nonboolean dynamic-row
+   rejection cases remain uncovered there. Final-row tests exercise four
+   representative modulus/field/table combinations, not the full Cartesian
+   matrix. Both fused every-cell mutation sweeps remain ignored. These are
+   coverage limits, not demonstrated carry forgeries. Positive M3 proofs do not
+   replace adversarial coverage or qualify other FF backends, recursive Q,
    complete P-256, privacy, devices or the whole candidate.
 
 The retained source correspondence packet is
@@ -321,6 +339,11 @@ The retained source correspondence packet is
 Its independent second review is `integration-independent-review.json`, SHA-256
 `d64cf598ca775e96ccf818c2583f8385fd48add9a5a8a59bccfa85b0355294c6`.
 Both bind the pre-edit memo and exact reviewed sources; neither ran new tests.
+The current independent packet is
+`target/qualification/m3-fused-carry-independent-review-1/manifest.json`; it
+retains reviewed source snapshots and hashes, the exact-integer script/output,
+accepted premises and the remaining proof/test obligations. It does not recover
+the historical four-item wording checklist or qualify a measured binary.
 
 ## 12. Recursive scalar adapter and canonical S6 certificates
 

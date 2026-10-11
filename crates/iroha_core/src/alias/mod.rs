@@ -179,10 +179,20 @@ fn permission_target<T: iroha_executor_data_model::permission::Permission>(
     permission: T,
 ) -> Result<Permission, crate::sns::SnsError> {
     let value = norito::json::to_value(&permission).map_err(|error| match error {
-        norito::json::Error::DecodeResourceLimit => crate::sns::SnsError::Deferred(
+        norito::json::Error::DecodeResourceLimit
+        | norito::json::Error::DecodeResource(
+            norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+            | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+            | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+            | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+            | norito::core::DecodeResourceError::TotalAllocationExceeded { .. },
+        ) => crate::sns::SnsError::Deferred(
             ivm::error::ExecutionDeferral::ActiveMemoryCapacity.into(),
         ),
-        norito::json::Error::AllocationFailed => crate::sns::SnsError::Deferred(
+        norito::json::Error::AllocationFailed
+        | norito::json::Error::DecodeResource(
+            norito::core::DecodeResourceError::AllocationFailed { .. },
+        ) => crate::sns::SnsError::Deferred(
             ivm::error::ExecutionDeferral::AllocationUnavailable.into(),
         ),
         error => crate::sns::SnsError::Internal(format!(

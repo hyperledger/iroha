@@ -62,6 +62,7 @@ mod app_api;
 mod authority_originals;
 mod bridge_attestation;
 mod canonical_history;
+mod finality_interval;
 mod game;
 mod history_producer;
 #[cfg(feature = "app_api")]
@@ -6229,10 +6230,15 @@ fn route_timeout_error_response(format: ResponseFormat) -> Response {
     )
 }
 async fn enforce_route_timeout(
-    req: axum::http::Request<Body>,
+    mut req: axum::http::Request<Body>,
     next: Next,
 ) -> Result<axum::response::Response, Infallible> {
-    match tokio::time::timeout(route_timeout_for_path(req.uri().path()), next.run(req)).await {
+    // Keep the original outer window. Physical interval work borrows this exact
+    // deadline instead of restarting a duration after queue/rate admission.
+    let deadline = Instant::now() + route_timeout_for_path(req.uri().path());
+    req.extensions_mut()
+        .insert(finality_interval::RouteExecutionDeadline(deadline));
+    match tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), next.run(req)).await {
         Ok(response) => Ok(response),
         Err(_) => Ok(route_timeout_error_response(
             utils::current_response_format(),
@@ -6590,11 +6596,12 @@ async fn check_access_enforced_with_cost(
 }
 /// Owned general, optional heavy-query, and optional body permits retained through physical work.
 pub(crate) struct QueryAdmissionPermit {
-    _query: tokio::sync::OwnedSemaphorePermit,
-    _heavy: Option<tokio::sync::OwnedSemaphorePermit>,
-    _body: Option<tokio::sync::OwnedSemaphorePermit>,
-    // Detached blocking work retains the same complete query owner through completion.
+    // Retire this worker's native memory and specialized permits before waking
+    // the next general-query worker. Rust drops fields in declaration order.
     _fanout_memory: Option<QueryFanoutMemoryReservation>,
+    _body: Option<tokio::sync::OwnedSemaphorePermit>,
+    _heavy: Option<tokio::sync::OwnedSemaphorePermit>,
+    _query: tokio::sync::OwnedSemaphorePermit,
 }
 impl QueryAdmissionPermit {
     /// Use the response phase granted by this worker's retained query owner.
@@ -15469,7 +15476,9 @@ fn torii_permission_target<T: iroha_executor_data_model::permission::Permission>
             ))),
         })?;
     let value = norito::json::parse_value(&encoded).map_err(|error| match error {
-        norito::json::Error::DecodeResourceLimit | norito::json::Error::AllocationFailed => {
+        norito::json::Error::DecodeResourceLimit
+        | norito::json::Error::DecodeResource(_)
+        | norito::json::Error::AllocationFailed => {
             Error::Query(iroha_data_model::ValidationFail::QueryFailed(
                 iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded,
             ))
@@ -15633,7 +15642,9 @@ fn torii_exact_alias_permission_matches_route(
         match norito::json::from_str::<CanResolveAccountAlias>(permission.payload().as_ref()) {
             Ok(value) => value,
             Err(
-                norito::json::Error::DecodeResourceLimit | norito::json::Error::AllocationFailed,
+                norito::json::Error::DecodeResourceLimit
+                | norito::json::Error::DecodeResource(_)
+                | norito::json::Error::AllocationFailed,
             ) => {
                 return Err(Error::Query(iroha_data_model::ValidationFail::QueryFailed(
                     iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded,
@@ -24280,7 +24291,7 @@ async fn handler_kaigi_relays_sse(
             Error::Query(iroha_data_model::ValidationFail::QueryFailed(
                 iroha_data_model::query::error::QueryExecutionFail::Conversion(format!(
                     "invalid relay literal `{relay_literal}`: {}",
-                    err.reason()
+                    err.code_str()
                 )),
             ))
         })?;
@@ -25719,41 +25730,95 @@ async fn handler_sumeragi_status_sse(
 async fn handler_bridge_finality_proof(
     State(app): State<SharedAppState>,
     axum::extract::Path(height): axum::extract::Path<u64>,
+    Extension(finality_interval::RouteExecutionDeadline(deadline)): Extension<
+        finality_interval::RouteExecutionDeadline,
+    >,
     headers: axum::http::HeaderMap,
     axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
 ) -> Result<AxResponse, Error> {
-    let remote_ip = remote.ip();
-    let _api_token_principal =
-        validate_api_token(app.as_ref(), &headers)?.authenticated_principal();
+    finite_finality_response(
+        app,
+        finality_interval::Selection::Single(height),
+        deadline,
+        headers,
+        remote,
+    )
+    .await
+}
+async fn handler_bridge_finality_interval(
+    State(app): State<SharedAppState>,
+    axum::extract::Path((from, to)): axum::extract::Path<(u64, u64)>,
+    Extension(finality_interval::RouteExecutionDeadline(deadline)): Extension<
+        finality_interval::RouteExecutionDeadline,
+    >,
+    headers: axum::http::HeaderMap,
+    axum::extract::ConnectInfo(remote): axum::extract::ConnectInfo<std::net::SocketAddr>,
+) -> Result<AxResponse, Error> {
+    finite_finality_response(
+        app,
+        finality_interval::Selection::Interval { from, to },
+        deadline,
+        headers,
+        remote,
+    )
+    .await
+}
+async fn finite_finality_response(
+    app: SharedAppState,
+    selection: finality_interval::Selection,
+    deadline: Instant,
+    headers: axum::http::HeaderMap,
+    remote: std::net::SocketAddr,
+) -> Result<AxResponse, Error> {
+    let principal = validate_api_token(app.as_ref(), &headers)?.authenticated_principal();
     let format = match negotiate_heavy_query_response_format(&headers) {
         Ok(format) => format,
         Err(response) => return Ok(response),
     };
     let key = rate_limit_key(
         &headers,
-        Some(remote_ip),
-        "/v1/bridge/finality/{height}",
+        Some(remote.ip()),
+        selection.rate_hint(),
         app.authenticated_api_token_principal(&headers),
     );
     rate_limit_requests_with_cost(&app, &key, FINALITY_HEAVY_QUERY_RATE_COST).await?;
-    let query_permit = acquire_query_admission(app.as_ref(), true).await?;
-    #[cfg(feature = "telemetry")]
-    if _api_token_principal.is_some() {
-        crate::telemetry::report_torii_api_hit(&app.telemetry, "v1/bridge/finality");
+    let mut admission = acquire_query_admission(app.as_ref(), true).await?;
+    // Both bodyless local routes acquire the existing complete query owner when
+    // no admitted outer collection supplies it. Response custody alone cannot
+    // grant producer authority, and a present invalid owner is never replaced.
+    if admission._fanout_memory.is_none() {
+        admission._fanout_memory = Some(match try_acquire_new_query_fanout_memory(&app) {
+            Ok(reservation) => reservation,
+            Err(response) => return Ok(response),
+        });
     }
-    let response =
-        routing::handle_v1_bridge_finality(app.state.clone(), height, format, query_permit)
-            .await?
-            .into_response();
-    proof_response_with_exact_egress(
+    #[cfg(feature = "telemetry")]
+    if principal.is_some() {
+        crate::telemetry::report_torii_api_hit(&app.telemetry, selection.egress_hint());
+    }
+    #[cfg(not(feature = "telemetry"))]
+    let _ = principal;
+    let prepared = finality_interval::prepare(
+        Arc::clone(&app.state),
+        selection,
+        format,
+        admission,
+        app.torii_proxy_max_response_bytes,
+        deadline,
+    )
+    .await?;
+    enforce_proof_egress(
         app.as_ref(),
         &headers,
-        Some(remote_ip),
-        "v1/bridge/finality",
-        response,
+        Some(remote.ip()),
+        selection.egress_hint(),
+        u64::try_from(prepared.bytes).map_err(|_| native_projection_response::capacity())?,
         true,
     )
-    .await
+    .await?;
+    // Keep the prepaid exact body through egress admission. No collection/rebox
+    // can allocate a second unowned response after the physical worker retires.
+    Ok(prepared.response)
 }
 async fn handler_bridge_finality_attestation(
     State(app): State<SharedAppState>,
@@ -33821,7 +33886,7 @@ struct AuthenticatedOnboardingDomain(AuthenticatedOnboardingScope);
 /// Build a diagnostic account literal without turning local address admission into a panic.
 fn onboarding_account_literal(account: &AccountId) -> Result<String, Error> {
     account.canonical_i105().map_err(|error| match error {
-        iroha_data_model::account::address::AccountAddressError::DecodeResourceLimit => {
+        error if error.is_decode_resource_limit() => {
             Error::Query(iroha_data_model::ValidationFail::QueryFailed(
                 iroha_data_model::query::error::QueryExecutionFail::GasBudgetExceeded,
             ))
@@ -37245,6 +37310,7 @@ impl Torii {
             EVIDENCE_COUNT => operator_get(handler_sumeragi_evidence_count, app_state);
             EVIDENCE_LIST => operator_get(handler_sumeragi_evidence, app_state);
             BRIDGE_FINALITY => public_get(handler_bridge_finality_proof);
+            BRIDGE_FINALITY_INTERVAL => public_get(handler_bridge_finality_interval);
             PRIVATE_DATASPACE_RECORD_PROOF => public_get(private_dataspaces::record_proof);
             SNS_DATASPACE_LEASE => public_get(sns_lease::handler);
             PRIVATE_ROOT_REGISTRATION => private_root_owner_get(private_root_export::registration);

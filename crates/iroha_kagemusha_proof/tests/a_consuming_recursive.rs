@@ -14,6 +14,8 @@ mod common;
 #[path = "common/load_objects.rs"]
 #[allow(dead_code)]
 mod load_objects;
+#[path = "a_consuming_recursive/native_load_tests.rs"]
+mod native_load_tests;
 #[path = "common/native_source_factory_checks.rs"]
 mod native_source_factory_checks;
 use catalog::{LoadFixture, send_chain::load_outer};
@@ -1522,7 +1524,6 @@ fn first_public(first: &First) -> Vec<Vec<Fp>> {
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
 pub fn compact_loaded_wallet_proves_unload_and_retiring_with_all_owners(fixture: &LoadFixture) {
     let rooted = catalog::compact_payer_load(fixture);
     for retiring in [false, true] {
@@ -1656,7 +1657,6 @@ fn run_consuming_from_head(
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
 pub fn installed_native_consuming_proves_and_restores_every_stage(fixture: &LoadFixture) {
     let rooted = catalog::compact_payer_load(fixture);
     for retiring in [false, true] {
@@ -2159,6 +2159,16 @@ fn native_installed_consuming_differential(
             )
             .is_err()
     );
+    for object in 0..3 {
+        for offset in [0, input.objects[object].len() - 1] {
+            let mut bad = input.clone();
+            bad.objects[object][offset] ^= 1;
+            assert!(
+                installed.prepare(bad, budget).is_err(),
+                "own tape {object}/{offset}"
+            );
+        }
+    }
     for mutation in 0..11 {
         let mut bad = input.clone();
         match mutation {

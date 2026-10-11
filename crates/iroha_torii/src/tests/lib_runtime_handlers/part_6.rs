@@ -8,6 +8,9 @@ async fn finality_proof_routes_require_heavy_query_admission() {
         handler_bridge_finality_proof(
             State(app.clone()),
             axum::extract::Path(1),
+            Extension(finality_interval::RouteExecutionDeadline(
+                Instant::now() + route_timeout_for_path("/v1/bridge/finality/1"),
+            )),
             HeaderMap::new(),
             crate::loopback_connect_info(),
         )
@@ -208,6 +211,9 @@ async fn heavy_route_auth_errors_for_test(app: SharedAppState, headers: HeaderMa
         handler_bridge_finality_proof(
             State(app.clone()),
             axum::extract::Path(1),
+            Extension(finality_interval::RouteExecutionDeadline(
+                Instant::now() + route_timeout_for_path("/v1/bridge/finality/1"),
+            )),
             headers.clone(),
             crate::loopback_connect_info(),
         )
@@ -276,6 +282,9 @@ async fn heavy_finality_routes_reject_unsupported_accept_before_rate_and_admissi
         handler_bridge_finality_proof(
             State(app.clone()),
             axum::extract::Path(1),
+            Extension(finality_interval::RouteExecutionDeadline(
+                Instant::now() + route_timeout_for_path("/v1/bridge/finality/1"),
+            )),
             headers.clone(),
             crate::loopback_connect_info(),
         )
@@ -691,6 +700,26 @@ fn explorer_heavy_history_routes_are_bound_to_cancellation_safe_worker() {
         ),
     ];
 
+    let details = [
+        (
+            "EXPLORER_BLOCKS_BY_IDENTIFIER_GET",
+            "handler_explorer_block_detail",
+            "handle_v1_explorer_block_detail_admitted",
+            "handle_v1_explorer_block_detail_sync",
+        ),
+        (
+            "EXPLORER_TRANSACTIONS_BY_HASH_GET",
+            "handler_explorer_transaction_detail",
+            "handle_v1_explorer_transaction_detail_admitted",
+            "handle_v1_explorer_transaction_detail_sync",
+        ),
+        (
+            "EXPLORER_INSTRUCTIONS_BY_HASH_BY_INDEX_GET",
+            "handler_explorer_instruction_detail",
+            "handle_v1_explorer_instruction_detail_admitted",
+            "handle_v1_explorer_instruction_detail_sync",
+        ),
+    ];
     let admitted_definition_count = routing_source
         .lines()
         .filter(|line| {
@@ -701,7 +730,7 @@ fn explorer_heavy_history_routes_are_bound_to_cancellation_safe_worker() {
         .count();
     assert_eq!(
         admitted_definition_count,
-        routes.len(),
+        routes.len() + details.len(),
         "every Explorer admitted collection or history wrapper must be inventoried here"
     );
 
@@ -733,6 +762,33 @@ fn explorer_heavy_history_routes_are_bound_to_cancellation_safe_worker() {
             admitted.contains("run_admitted_blocking(admission,")
                 && admitted.contains(&format!("{sync_handler}(")),
             "Explorer wrapper `{admitted_handler}` must retain admission in the blocking worker around `{sync_handler}`"
+        );
+    }
+    for (route, http_handler, admitted_handler, sync_handler) in details {
+        let http = compact(exact_function_source(
+            lib_source,
+            &format!("async fn {http_handler}("),
+        ));
+        assert!(compact(lib_source).contains(&format!(
+            "{route}=>optional_canonical_signature_get({http_handler})"
+        )));
+        assert!(
+            http.contains("acquire_query_admission(&app,true).await?"),
+            "detail `{http_handler}` must acquire heavy admission"
+        );
+        assert!(
+            http.contains(&format!("{admitted_handler}(")),
+            "detail `{http_handler}` must use its admitted worker"
+        );
+        let admitted = compact(exact_function_source(
+            routing_source,
+            &format!("async fn {admitted_handler}("),
+        ));
+        assert!(admitted.contains("admission:crate::QueryAdmissionPermit"));
+        assert!(
+            admitted.contains("run_admitted_blocking(admission,")
+                && admitted.contains(&format!("{sync_handler}(")),
+            "detail `{admitted_handler}` must retain admission in its physical worker"
         );
     }
 }

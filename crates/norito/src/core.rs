@@ -60,9 +60,9 @@ pub use field_destination::{
 };
 pub use prepared_scope::{PreparedDecodeError, PreparedDecodeScopeError, PreparedDecodeWorkspace};
 pub use prepared_sequence::{
-    ChargedElementSequence, PreparedElementSequence, SequenceAdmissionError,
-    SequenceDestinationError, decode_raw_byte_sequence_into, inspect_element_sequence,
-    prepare_element_sequence,
+    ChargedElementSequence, PreparedElementSequence, RetainedElementSequence,
+    RetainedSequenceError, SequenceAdmissionError, SequenceDestinationError,
+    decode_raw_byte_sequence_into, inspect_element_sequence, prepare_element_sequence,
 };
 pub use prepared_string::{StringDestinationError, borrow_canonical_string, decode_string_into};
 mod decode_attempt;
@@ -70,7 +70,7 @@ pub use decode_attempt::classify_decode_attempt;
 pub use decode_attempt::{DecodeAttemptError, DecodeAttemptErrorKind, ScopedDecodeResourceError};
 mod byte_sequence;
 #[doc(hidden)]
-pub use byte_sequence::decode_byte_element_sequence_into;
+pub use byte_sequence::{decode_byte_element_sequence_into, visit_binary_sequence_with_count};
 mod sequence_length;
 pub use sequence_length::SequencePayloadLength;
 mod payload_ref;
@@ -683,6 +683,7 @@ impl DecodeDepthGuard {
                 if relative_depth > layer.budget.limits.max_nesting_depth() {
                     return Err(decode_attempt::budget_error(
                         index,
+                        &layer.budget.counters,
                         Error::NestingDepthExceeded {
                             depth: relative_depth,
                             limit: layer.budget.limits.max_nesting_depth(),
@@ -772,6 +773,7 @@ pub(crate) fn enforce_decode_sequence_length(length: u64) -> Result<(), Error> {
             if length > limit {
                 return Err(decode_attempt::budget_error(
                     index,
+                    &layer.budget.counters,
                     Error::SequenceLengthExceeded { length, limit },
                 ));
             }
@@ -783,6 +785,7 @@ pub(crate) fn enforce_decode_sequence_length(length: u64) -> Result<(), Error> {
             {
                 return Err(decode_attempt::budget_error(
                     index,
+                    &layer.budget.counters,
                     Error::TotalElementsExceeded { attempted, limit },
                 ));
             }
@@ -802,6 +805,7 @@ pub(crate) fn check_decode_sequence_length(length: u64) -> Result<(), Error> {
             if length > limit {
                 return Err(decode_attempt::budget_error(
                     index,
+                    &layer.budget.counters,
                     Error::SequenceLengthExceeded { length, limit },
                 ));
             }
@@ -822,6 +826,7 @@ fn check_decode_field_length(length: u64) -> Result<(), Error> {
             if length > limit {
                 return Err(decode_attempt::budget_error(
                     index,
+                    &layer.budget.counters,
                     Error::FieldLengthExceeded { length, limit },
                 ));
             }
@@ -843,6 +848,7 @@ fn reserve_decode_allocation_u64(length: u64) -> Result<(), Error> {
             {
                 return Err(decode_attempt::budget_error(
                     index,
+                    &layer.budget.counters,
                     Error::TotalAllocationExceeded { attempted, limit },
                 ));
             }

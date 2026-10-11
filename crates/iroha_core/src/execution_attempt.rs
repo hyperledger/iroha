@@ -320,6 +320,17 @@ pub(crate) fn canonical_decode_attempt_error<E>(
     error: norito::core::DecodeAttemptError,
     rejected: impl FnOnce(norito::core::DecodeAttemptError) -> E,
 ) -> ExecutionAttemptError<E> {
+    if let Some(original) = canonical_decode_deferral(&error) {
+        return ExecutionAttemptError::Deferred(original);
+    }
+    ExecutionAttemptError::Rejected(rejected(error))
+}
+
+/// Borrow the decoder's captured origin while its actual error owner stays retained for retry.
+/// This shares the consuming boundary's classification and invents no pool release source.
+pub(crate) fn canonical_decode_deferral(
+    error: &norito::core::DecodeAttemptError,
+) -> Option<ExecutionDeferred> {
     let reason = match error.kind() {
         norito::core::DecodeAttemptErrorKind::Allocator => {
             Some(ExecutionDeferral::AllocationUnavailable)
@@ -329,12 +340,10 @@ pub(crate) fn canonical_decode_attempt_error<E>(
         }
         norito::core::DecodeAttemptErrorKind::Invalid => None,
     };
-    if !cfg!(all(test, sumeragi_core_mutation = "HC32"))
-        && let Some(reason) = reason
-    {
-        return ExecutionAttemptError::Deferred(reason.into());
+    if cfg!(all(test, sumeragi_core_mutation = "HC32")) {
+        return None;
     }
-    ExecutionAttemptError::Rejected(rejected(error))
+    reason.map(Into::into)
 }
 
 /// Preserve an original native storage/decode refusal before its caller formats a rejection.
@@ -374,19 +383,39 @@ pub(crate) fn kura_read_attempt_error<E>(
 
 /// Classify original JSON decoding before a diagnostic can discard local retry identity.
 ///
-/// JSON's resource-limit error is emitted by the active decoder budget. Malformed input,
-/// intrinsic parser bounds and recursive depth remain completed errors.
+/// Scoped JSON errors delegate to the existing exact active-observer classifier. Rejected
+/// scope tags remain unchanged; a saved sibling error cannot gain retry authority from a fresh
+/// refusal. Malformed input, intrinsic parser bounds and recursive depth remain completed errors.
 pub(crate) fn json_decode_attempt_error<E>(
     error: norito::json::Error,
     rejected: impl FnOnce(norito::json::Error) -> E,
 ) -> ExecutionAttemptError<E> {
     match error {
-        norito::json::Error::DecodeResourceLimit => {
-            ExecutionAttemptError::Deferred(ExecutionDeferral::ActiveMemoryCapacity.into())
+        norito::json::Error::ScopedDecodeResource(original) => {
+            match norito_decode_attempt_error(
+                norito::Error::ScopedDecodeResource(original),
+                std::convert::identity,
+            ) {
+                ExecutionAttemptError::Deferred(original) => {
+                    ExecutionAttemptError::Deferred(original)
+                }
+                ExecutionAttemptError::Rejected(original) => ExecutionAttemptError::Rejected(
+                    rejected(norito::json::Error::from_decode_resource(original)),
+                ),
+            }
         }
-        norito::json::Error::AllocationFailed => {
-            ExecutionAttemptError::Deferred(ExecutionDeferral::AllocationUnavailable.into())
-        }
+        norito::json::Error::DecodeResourceLimit
+        | norito::json::Error::DecodeResource(
+            norito::core::DecodeResourceError::ArchiveLengthExceeded { .. }
+            | norito::core::DecodeResourceError::SequenceLengthExceeded { .. }
+            | norito::core::DecodeResourceError::FieldLengthExceeded { .. }
+            | norito::core::DecodeResourceError::TotalElementsExceeded { .. }
+            | norito::core::DecodeResourceError::TotalAllocationExceeded { .. },
+        ) => ExecutionAttemptError::Deferred(ExecutionDeferral::ActiveMemoryCapacity.into()),
+        norito::json::Error::AllocationFailed
+        | norito::json::Error::DecodeResource(
+            norito::core::DecodeResourceError::AllocationFailed { .. },
+        ) => ExecutionAttemptError::Deferred(ExecutionDeferral::AllocationUnavailable.into()),
         error => ExecutionAttemptError::Rejected(rejected(error)),
     }
 }
@@ -420,10 +449,15 @@ impl crate::state::WorldTransaction<'_, '_> {
     /// Retain the first original local retry owner at the common mutation boundary.
     /// This journal field has no serialization or monetary authority.
     pub(crate) fn defer_execution(&self, reason: impl Into<ExecutionDeferred>) -> ValidationFail {
+        self.record_execution_deferral(reason);
+        ValidationFail::InternalError("local execution attempt did not complete".into())
+    }
+
+    /// Keep the first retry owner without constructing a diagnostic that a caller discards.
+    fn record_execution_deferral(&self, reason: impl Into<ExecutionDeferred>) {
         self.execution_deferral
             .borrow_mut()
             .get_or_insert_with(|| reason.into());
-        ValidationFail::InternalError("local execution attempt did not complete".into())
     }
 
     /// Bridge an ISI-owned signature while keeping its original local refusal.
@@ -434,7 +468,7 @@ impl crate::state::WorldTransaction<'_, '_> {
         match error {
             ExecutionAttemptError::Rejected(error) => error,
             ExecutionAttemptError::Deferred(reason) => {
-                let _ = self.defer_execution(reason);
+                self.record_execution_deferral(reason);
                 iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(
                     "local execution attempt did not complete".into(),
                 )
@@ -477,7 +511,7 @@ impl crate::state::StateTransaction<'_, '_> {
         match error {
             ExecutionAttemptError::Rejected(error) => error,
             ExecutionAttemptError::Deferred(reason) => {
-                let _ = self.defer_execution(reason);
+                self.world.record_execution_deferral(reason);
                 iroha_data_model::isi::error::InstructionExecutionError::InvariantViolation(
                     "local instruction read did not complete".into(),
                 )
@@ -511,6 +545,7 @@ impl crate::state::StateTransaction<'_, '_> {
 
 #[cfg(test)]
 mod tests {
+    include!("execution_attempt/json_scoped_tests.rs");
     #[test]
     fn kura_storage_attempt_keeps_original_refusal_and_deterministic_source_error() {
         let pool = iroha_allocation::AllocationBudget::new(8);

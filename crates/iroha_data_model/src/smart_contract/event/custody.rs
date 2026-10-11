@@ -25,9 +25,28 @@ enum Storage {
     Admitted(ChargedShared<Payload>),
 }
 
+/// Move-only original event graph and shell charge retained across admission retries.
+///
+/// This staging owner grants no execution authority. Admission checks both original
+/// pools, and only a successful transition transfers the graph into the shared carrier.
+pub struct PreparedContractEmissionsV1 {
+    original: Option<(Payload, AllocationCharge)>,
+}
+
+impl fmt::Debug for PreparedContractEmissionsV1 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("PreparedContractEmissionsV1")
+            .field("pending", &self.original.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 /// Refusal before the original event graph enters a shared carrier owner.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContractEmissionAdmissionErrorV1 {
+    /// A successful admission has already transferred the original graph.
+    Consumed,
     /// The original payload or control charge belongs to a different finite pool.
     ForeignPool,
     /// The exact original control charge cannot initialize this shared shell.
@@ -37,6 +56,7 @@ pub enum ContractEmissionAdmissionErrorV1 {
 impl fmt::Display for ContractEmissionAdmissionErrorV1 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Consumed => formatter.write_str("event graph has already been admitted"),
             Self::ForeignPool => {
                 formatter.write_str("event payload and control must retain the original pool")
             }
@@ -44,7 +64,55 @@ impl fmt::Display for ContractEmissionAdmissionErrorV1 {
         }
     }
 }
-impl std::error::Error for ContractEmissionAdmissionErrorV1 {}
+impl std::error::Error for ContractEmissionAdmissionErrorV1 {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Shared(error) => Some(error),
+            Self::Consumed | Self::ForeignPool => None,
+        }
+    }
+}
+
+impl PreparedContractEmissionsV1 {
+    /// Retain the original funded journal and its existing control charge without allocation.
+    #[must_use]
+    pub fn new(payload: Payload, control_charge: AllocationCharge) -> Self {
+        Self {
+            original: Some((payload, control_charge)),
+        }
+    }
+
+    /// Transfer the original graph into its shared carrier without copying any payload.
+    ///
+    /// No capacity is acquired, refunded or replaced by this transition. Every refusal
+    /// keeps both inputs in this owner so the caller can retry without reconstructing custody.
+    ///
+    /// # Errors
+    /// Rejects a consumed owner, foreign pool, wrong shell layout or allocator refusal.
+    pub fn try_admit(
+        &mut self,
+        budget: &AllocationBudget,
+    ) -> Result<ContractEmissionsV1, ContractEmissionAdmissionErrorV1> {
+        let (payload, control_charge) = self
+            .original
+            .as_ref()
+            .ok_or(ContractEmissionAdmissionErrorV1::Consumed)?;
+        if !payload.belongs_to(budget) || !control_charge.belongs_to(budget) {
+            return Err(ContractEmissionAdmissionErrorV1::ForeignPool);
+        }
+        let (payload, control_charge) = self.original.take().expect("original checked above");
+        let shell = match ChargedShared::<Payload>::reserve_from_charge(control_charge) {
+            Ok(shell) => shell,
+            Err((charge, error)) => {
+                self.original = Some((payload, charge));
+                return Err(ContractEmissionAdmissionErrorV1::Shared(error));
+            }
+        };
+        Ok(ContractEmissionsV1 {
+            storage: Storage::Admitted(shell.initialize(payload)),
+        })
+    }
+}
 
 impl ContractEmissionsV1 {
     /// Construct untrusted transport without granting execution or allocation authority.
@@ -59,40 +127,6 @@ impl ContractEmissionsV1 {
     #[must_use]
     pub fn allocation_layout() -> Layout {
         ChargedShared::<Payload>::allocation_layout()
-    }
-
-    /// Move the original funded journal into the carrier without copying any payload.
-    ///
-    /// The caller has already retained every actual payload allocation in `payload`.
-    /// No capacity is acquired, refunded or replaced by this transition.
-    ///
-    /// # Errors
-    /// Returns both original inputs unchanged on foreign pool, wrong layout or allocator refusal.
-    pub fn try_admit(
-        payload: Payload,
-        control_charge: AllocationCharge,
-        budget: &AllocationBudget,
-    ) -> Result<Self, (Payload, AllocationCharge, ContractEmissionAdmissionErrorV1)> {
-        if !payload.belongs_to(budget) || !control_charge.belongs_to(budget) {
-            return Err((
-                payload,
-                control_charge,
-                ContractEmissionAdmissionErrorV1::ForeignPool,
-            ));
-        }
-        let shell = match ChargedShared::<Payload>::reserve_from_charge(control_charge) {
-            Ok(shell) => shell,
-            Err((charge, error)) => {
-                return Err((
-                    payload,
-                    charge,
-                    ContractEmissionAdmissionErrorV1::Shared(error),
-                ));
-            }
-        };
-        Ok(Self {
-            storage: Storage::Admitted(shell.initialize(payload)),
-        })
     }
 
     /// Borrow the original ordered emissions without mutable or owned extraction.
@@ -139,6 +173,14 @@ impl ContractEmissionsV1 {
             }
             _ => false,
         }
+    }
+}
+impl<'a> IntoIterator for &'a ContractEmissionsV1 {
+    type Item = &'a ContractEmissionV1;
+    type IntoIter = std::slice::Iter<'a, ContractEmissionV1>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 impl Default for ContractEmissionsV1 {
@@ -280,10 +322,9 @@ mod tests {
         // Its sole charge follows that same allocation into the retained payload.
         let (values, charge) = unsafe { values.into_allocation_parts() };
         ledger.push_reserved(charge);
-        match unsafe { RetainedPayload::try_new(values, ledger, budget) } {
-            Ok(payload) => payload,
-            Err(_) => panic!("original funded payload belongs to its pool"),
-        }
+        unsafe { RetainedPayload::try_new(values, ledger, budget) }.unwrap_or_else(
+            |_original_owners| panic!("original funded payload belongs to its pool"),
+        )
     }
     fn control(budget: &AllocationBudget, layout: Layout) -> AllocationCharge {
         let mut reservation = budget.try_reserve(layout).unwrap();
@@ -340,10 +381,11 @@ mod tests {
         let pointer = payload.get().as_ptr();
         let charge = control(&budget, ContractEmissionsV1::allocation_layout());
         let before = budget.reserved_bytes();
-        let admitted = match ContractEmissionsV1::try_admit(payload, charge, &budget) {
-            Ok(value) => value,
-            Err(_) => panic!("original event source must admit"),
-        };
+        let mut prepared = PreparedContractEmissionsV1::new(payload, charge);
+        assert!(format!("{prepared:?}").contains("pending: true"));
+        let admitted = prepared
+            .try_admit(&budget)
+            .expect("original event source must admit");
         assert!(admitted.admitted_to(&budget));
         let reader = admitted.clone();
         assert!(ContractEmissionsV1::ptr_eq(&admitted, &reader));
@@ -352,6 +394,13 @@ mod tests {
         assert!(reader.is_empty());
         assert_eq!(reader.len(), 0);
         assert_eq!(reader.iter().count(), 0);
+        assert_eq!(
+            prepared.try_admit(&budget).unwrap_err(),
+            ContractEmissionAdmissionErrorV1::Consumed
+        );
+        assert!(format!("{prepared:?}").contains("pending: false"));
+        drop(prepared);
+        assert_eq!(budget.reserved_bytes(), before);
         drop(admitted);
         assert_eq!(budget.reserved_bytes(), before);
         drop(reader);
@@ -359,25 +408,25 @@ mod tests {
     }
 
     #[test]
-    fn rejected_admission_returns_unchanged_original_owners_without_refund() {
+    fn rejected_admission_retains_unchanged_original_owners_without_refund() {
         let original = AllocationBudget::new(64 * 1024);
         let foreign = AllocationBudget::new(64 * 1024);
         let payload = funded_empty_with_backing(&original);
         let pointer = payload.get().as_ptr();
         let charge = control(&original, ContractEmissionsV1::allocation_layout());
         let before = original.reserved_bytes();
-        let (payload, charge, error) =
-            match ContractEmissionsV1::try_admit(payload, charge, &foreign) {
-                Err(inputs) => inputs,
-                Ok(_) => panic!("foreign pool must reject"),
-            };
+        let mut prepared = PreparedContractEmissionsV1::new(payload, charge);
+        let error = prepared.try_admit(&foreign).unwrap_err();
         assert_eq!(error, ContractEmissionAdmissionErrorV1::ForeignPool);
+        let (payload, charge) = prepared.original.as_ref().unwrap();
         assert_eq!(payload.get().as_ptr(), pointer);
+        assert!(payload.belongs_to(&original));
+        assert!(charge.belongs_to(&original));
         assert_eq!(original.reserved_bytes(), before);
-        let admitted = match ContractEmissionsV1::try_admit(payload, charge, &original) {
-            Ok(value) => value,
-            Err(_) => panic!("retry preserves original source"),
-        };
+        assert_eq!(foreign.reserved_bytes(), 0);
+        let admitted = prepared
+            .try_admit(&original)
+            .expect("retry preserves original source");
         drop(admitted);
         assert_eq!(original.reserved_bytes(), 0);
 
@@ -385,20 +434,62 @@ mod tests {
         let pointer = payload.get().as_ptr();
         let charge = control(&original, Layout::new::<u8>());
         let before = original.reserved_bytes();
-        let (payload, charge, error) =
-            match ContractEmissionsV1::try_admit(payload, charge, &original) {
-                Err(inputs) => inputs,
-                Ok(_) => panic!("wrong control layout must reject"),
+        let mut prepared = PreparedContractEmissionsV1::new(payload, charge);
+        for _ in 0..2 {
+            let error = prepared.try_admit(&original).unwrap_err();
+            assert_eq!(
+                error,
+                ContractEmissionAdmissionErrorV1::Shared(SharedFromChargeError::LayoutMismatch {
+                    expected: ContractEmissionsV1::allocation_layout(),
+                    actual: Layout::new::<u8>(),
+                })
+            );
+            let ContractEmissionAdmissionErrorV1::Shared(cause) = &error else {
+                unreachable!()
             };
-        assert!(matches!(
-            error,
-            ContractEmissionAdmissionErrorV1::Shared(SharedFromChargeError::LayoutMismatch { .. })
-        ));
-        assert_eq!(payload.get().as_ptr(), pointer);
+            let source = std::error::Error::source(&error)
+                .unwrap()
+                .downcast_ref::<SharedFromChargeError>()
+                .unwrap();
+            assert!(std::ptr::eq(cause, source));
+            let (payload, charge) = prepared.original.as_ref().unwrap();
+            assert_eq!(payload.get().as_ptr(), pointer);
+            assert!(payload.belongs_to(&original));
+            assert!(charge.belongs_to(&original));
+            assert_eq!(original.reserved_bytes(), before);
+        }
         assert_eq!(original.reserved_bytes(), before);
-        drop(payload);
-        drop(charge);
+        drop(prepared);
         assert_eq!(original.reserved_bytes(), 0);
+    }
+
+    #[test]
+    fn prepared_admission_rejects_foreign_control_without_changing_either_pool() {
+        let original = AllocationBudget::new(64 * 1024);
+        let foreign = AllocationBudget::new(64 * 1024);
+        let payload = funded_empty_with_backing(&original);
+        let pointer = payload.get().as_ptr();
+        let charge = control(&foreign, ContractEmissionsV1::allocation_layout());
+        let before = (original.reserved_bytes(), foreign.reserved_bytes());
+        let mut prepared = PreparedContractEmissionsV1::new(payload, charge);
+        for pool in [&original, &foreign] {
+            let error = prepared.try_admit(pool).unwrap_err();
+            assert_eq!(error, ContractEmissionAdmissionErrorV1::ForeignPool);
+            assert!(std::error::Error::source(&error).is_none());
+            assert_eq!(
+                prepared.original.as_ref().unwrap().0.get().as_ptr(),
+                pointer
+            );
+            assert_eq!(
+                (original.reserved_bytes(), foreign.reserved_bytes()),
+                before
+            );
+        }
+        drop(prepared);
+        assert_eq!(
+            (original.reserved_bytes(), foreign.reserved_bytes()),
+            (0, 0)
+        );
     }
 
     #[test]
@@ -407,6 +498,9 @@ mod tests {
         let collection = ContractEmissionsV1::from_untrusted(values.clone());
         assert_eq!(collection.len(), 1);
         assert_eq!(collection.iter().next(), values.first());
+        let borrowed = (&collection).into_iter().next().unwrap();
+        assert!(std::ptr::eq(borrowed, &raw const collection.as_slice()[0]));
+        assert_eq!((&collection).into_iter().count(), collection.len());
         let bytes = norito::encode_canonical(&values).unwrap();
         assert_eq!(norito::encode_canonical(&collection).unwrap(), bytes);
         let decoded = norito::decode_canonical::<ContractEmissionsV1>(&bytes).unwrap();

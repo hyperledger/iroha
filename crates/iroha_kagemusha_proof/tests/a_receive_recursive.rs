@@ -1897,7 +1897,7 @@ fn canonical_envelope_receive_renewed_burn_owner_chain() {
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
+#[allow(dead_code)] // Registered by receive_omega; other consumers select shared helpers only.
 pub fn canonical_envelope_receive_accepts_exact_payer_and_receiver_heads(
     fixture: &compact_catalog::LoadFixture,
 ) {
@@ -1913,7 +1913,7 @@ pub fn canonical_envelope_receive_accepts_exact_payer_and_receiver_heads(
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
+#[allow(dead_code)] // Shared builder; some component harnesses select other branches.
 pub fn canonical_envelope_receive_renewed_accepts_exact_payer_and_receiver_heads(
     fixture: &compact_catalog::LoadFixture,
 ) {
@@ -1971,7 +1971,7 @@ fn assert_exact_payer_source(source: &Source) {
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
+#[allow(dead_code)] // Registered by receive_omega; other consumers select shared helpers only.
 pub fn genuine_omega_can_carry_a_succinct_but_nondeciding_vesta_claim(
     fixture: &compact_catalog::LoadFixture,
 ) {
@@ -1992,14 +1992,14 @@ pub fn genuine_omega_can_carry_a_succinct_but_nondeciding_vesta_claim(
 }
 
 /// Run the corrected-claim assertions using explicit genuine native Load originals.
-#[allow(dead_code)] // Not registered as a test until the complete finality fixture is supplied.
+#[allow(dead_code)] // Registered by receive_omega; other consumers select shared helpers only.
 pub fn canonical_envelope_receive_corrected_vesta_burn_inserts_credit(
     fixture: &compact_catalog::LoadFixture,
 ) {
     receive_corrected_vesta_chain(true, fixture);
 }
 /// Run the corrected-claim assertions using explicit genuine native Load originals.
-#[allow(dead_code)] // Not registered as a test until the complete finality fixture is supplied.
+#[allow(dead_code)] // Shared builder; some component harnesses select other branches.
 pub fn canonical_envelope_receive_corrected_vesta_burn_without_consumed_insert(
     fixture: &compact_catalog::LoadFixture,
 ) {
@@ -2344,6 +2344,22 @@ impl NativeCheckpoints {
             |stage, binding, key| plan.wrapper_source(stage, binding, key),
         );
         let prover = native::Prover::from_artifacts(plan.clone(), a, w).unwrap();
+        for object in 6..9 {
+            for offset in [0, inputs.objects[object].len() - 1] {
+                let mut bad = inputs.clone();
+                bad.objects[object][offset] ^= 1;
+                assert!(
+                    plan.prepare(bad, MemoryBudget::DEFAULT).is_err(),
+                    "own tape {object}/{offset}"
+                );
+            }
+        }
+        let mut bad = inputs.clone();
+        bad.sigma[0] ^= 1;
+        assert!(
+            plan.prepare(bad, MemoryBudget::DEFAULT).is_err(),
+            "own sigma differs from Q0"
+        );
         let prepared = plan.prepare(inputs.clone(), MemoryBudget::DEFAULT).unwrap();
         let (first_circuit, _) = prepared
             .first_circuit(Fp::from(247), &FoldConfig::default())

@@ -84,6 +84,8 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 
+use sha2::{Digest, Sha256};
+
 use crate::{
     crypto::{Crypto, Signer},
     message::{BlockHeader, Proposal, Qc, TcEntry, TimeoutCert, TimeoutVote, Vote, VoteKind},
@@ -94,160 +96,18 @@ use crate::{
     },
 };
 
-const K: [u32; 64] = [
-    0x428a_2f98,
-    0x7137_4491,
-    0xb5c0_fbcf,
-    0xe9b5_dba5,
-    0x3956_c25b,
-    0x59f1_11f1,
-    0x923f_82a4,
-    0xab1c_5ed5,
-    0xd807_aa98,
-    0x1283_5b01,
-    0x2431_85be,
-    0x550c_7dc3,
-    0x72be_5d74,
-    0x80de_b1fe,
-    0x9bdc_06a7,
-    0xc19b_f174,
-    0xe49b_69c1,
-    0xefbe_4786,
-    0x0fc1_9dc6,
-    0x240c_a1cc,
-    0x2de9_2c6f,
-    0x4a74_84aa,
-    0x5cb0_a9dc,
-    0x76f9_88da,
-    0x983e_5152,
-    0xa831_c66d,
-    0xb003_27c8,
-    0xbf59_7fc7,
-    0xc6e0_0bf3,
-    0xd5a7_9147,
-    0x06ca_6351,
-    0x1429_2967,
-    0x27b7_0a85,
-    0x2e1b_2138,
-    0x4d2c_6dfc,
-    0x5338_0d13,
-    0x650a_7354,
-    0x766a_0abb,
-    0x81c2_c92e,
-    0x9272_2c85,
-    0xa2bf_e8a1,
-    0xa81a_664b,
-    0xc24b_8b70,
-    0xc76c_51a3,
-    0xd192_e819,
-    0xd699_0624,
-    0xf40e_3585,
-    0x106a_a070,
-    0x19a4_c116,
-    0x1e37_6c08,
-    0x2748_774c,
-    0x34b0_bcb5,
-    0x391c_0cb3,
-    0x4ed8_aa4a,
-    0x5b9c_ca4f,
-    0x682e_6ff3,
-    0x748f_82ee,
-    0x78a5_636f,
-    0x84c8_7814,
-    0x8cc7_0208,
-    0x90be_fffa,
-    0xa450_6ceb,
-    0xbef9_a3f7,
-    0xc671_78f2,
-];
-
 /// SHA-256 (FIPS 180-4), the fake scheme's `H`.
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     sha256_chunks(&[data])
 }
 
-/// Hash test inputs without allocating a concatenated message or padding buffer.
+/// Hash the same canonical stream using the shared SHA-256 backend without concatenation.
 fn sha256_chunks(chunks: &[&[u8]]) -> [u8; 32] {
-    let mut state: [u32; 8] = [
-        0x6a09_e667,
-        0xbb67_ae85,
-        0x3c6e_f372,
-        0xa54f_f53a,
-        0x510e_527f,
-        0x9b05_688c,
-        0x1f83_d9ab,
-        0x5be0_cd19,
-    ];
-    let mut block = [0_u8; 64];
-    let mut filled = 0;
-    let mut bit_len = 0_u64;
+    let mut hasher = Sha256::new();
     for chunk in chunks {
-        bit_len = bit_len.wrapping_add((chunk.len() as u64).wrapping_mul(8));
-        let mut rest = *chunk;
-        while !rest.is_empty() {
-            let take = (64 - filled).min(rest.len());
-            block[filled..filled + take].copy_from_slice(&rest[..take]);
-            filled += take;
-            rest = &rest[take..];
-            if filled == 64 {
-                sha256_compress(&mut state, &block);
-                filled = 0;
-            }
-        }
+        hasher.update(*chunk);
     }
-    block[filled] = 0x80;
-    block[filled + 1..].fill(0);
-    if filled >= 56 {
-        sha256_compress(&mut state, &block);
-        block.fill(0);
-    }
-    block[56..].copy_from_slice(&bit_len.to_be_bytes());
-    sha256_compress(&mut state, &block);
-    let mut out = [0_u8; 32];
-    for (chunk, word) in out.chunks_exact_mut(4).zip(state) {
-        chunk.copy_from_slice(&word.to_be_bytes());
-    }
-    out
-}
-
-#[allow(clippy::many_single_char_names)] // FIPS 180-4 names
-fn sha256_compress(state: &mut [u32; 8], block: &[u8; 64]) {
-    let mut w = [0u32; 64];
-    for (word, bytes) in w.iter_mut().zip(block.chunks_exact(4)) {
-        *word = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-    }
-    for i in 16..64 {
-        let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
-        let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-        w[i] = w[i - 16]
-            .wrapping_add(s0)
-            .wrapping_add(w[i - 7])
-            .wrapping_add(s1);
-    }
-    let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *state;
-    for (k, word) in K.iter().zip(w.iter()) {
-        let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
-        let ch = (e & f) ^ (!e & g);
-        let t1 = h
-            .wrapping_add(s1)
-            .wrapping_add(ch)
-            .wrapping_add(*k)
-            .wrapping_add(*word);
-        let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
-        let maj = (a & b) ^ (a & c) ^ (b & c);
-        let t2 = s0.wrapping_add(maj);
-        h = g;
-        g = f;
-        f = e;
-        e = d.wrapping_add(t1);
-        d = c;
-        c = b;
-        b = a;
-        a = t1.wrapping_add(t2);
-    }
-    for (slot, value) in state.iter_mut().zip([a, b, c, d, e, f, g, h]) {
-        *slot = slot.wrapping_add(value);
-    }
+    hasher.finalize().into()
 }
 
 const TAG_FAKE_SIG: &[u8] = b"sumeragi/fake-sig";
@@ -261,12 +121,9 @@ pub fn fake_sig(key: &PublicKey, msg: &[u8]) -> Signature {
     let mut kb = Vec::new();
     preimage::put_kb(&mut kb, key);
     for (limb, chunk) in out.chunks_exact_mut(32).enumerate() {
-        let mut input = Vec::with_capacity(TAG_FAKE_SIG.len() + 1 + kb.len() + msg.len());
-        input.extend_from_slice(TAG_FAKE_SIG);
-        input.push(u8::try_from(limb).unwrap_or(u8::MAX));
-        input.extend_from_slice(&kb);
-        input.extend_from_slice(msg);
-        chunk.copy_from_slice(&sha256(&input));
+        let limb = [u8::try_from(limb).unwrap_or(u8::MAX)];
+        // Keep the canonical key encoding and hash the same stream without a limb buffer.
+        chunk.copy_from_slice(&sha256_chunks(&[TAG_FAKE_SIG, &limb, &kb, msg]));
     }
     Signature(out)
 }
@@ -795,6 +652,169 @@ mod tests {
             }
             let singles: Vec<_> = bytes.chunks(1).collect();
             assert_eq!(crypto.hash_chunks(&singles), expected);
+        }
+    }
+
+    #[test]
+    fn fake_signature_chunks_match_canonical_bytes_at_padding_boundaries() {
+        for key_len in [0, 1, 32, 128, 129] {
+            // Include malformed keys: fake cryptography must retain its original byte relation.
+            let key = PublicKey::unchecked(vec![0xA5; key_len]);
+            let mut kb = Vec::new();
+            preimage::put_kb(&mut kb, &key);
+            let prefix_len = b"sumeragi/fake-sig".len() + 1 + kb.len();
+            let mut message_lengths = vec![0];
+            for remainder in [0, 1, 55, 56, 63] {
+                let len = (remainder + 64 - prefix_len % 64) % 64;
+                message_lengths.extend([len, len + 64]);
+            }
+            for message_len in message_lengths {
+                let message: Vec<_> = (0..message_len)
+                    .map(|i| u8::try_from((i * 37) % 256).unwrap())
+                    .collect();
+                let mut expected = [0_u8; SIGNATURE_LEN];
+                for (limb, chunk) in expected.chunks_exact_mut(32).enumerate() {
+                    // The original concatenated stream is the byte oracle, not a second verifier.
+                    let mut input = b"sumeragi/fake-sig".to_vec();
+                    input.push(u8::try_from(limb).unwrap());
+                    input.extend_from_slice(&kb);
+                    input.extend_from_slice(&message);
+                    chunk.copy_from_slice(&sha256(&input));
+                }
+                assert_eq!(
+                    fake_sig(&key, &message),
+                    Signature(expected),
+                    "canonical fake-signature bytes changed for key length {key_len}, message length {message_len}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn sha256_known_answers_preserve_segmented_padding_boundaries() {
+        // Independent fixed SHA-256 answers for the deterministic byte pattern below.
+        // The digest table is not produced by the backend under test.
+        for (len, expected) in [
+            (
+                0,
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ),
+            (
+                1,
+                "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+            ),
+            (
+                15,
+                "289e69682ffe652c2ebd30cd40a24fbafd95559c44c3fa33ff5118ca28e72c3b",
+            ),
+            (
+                55,
+                "3b453d648ef01a1ddbc30ef4cee00724bb53fe40b38a08c04cfd6009235c09bf",
+            ),
+            (
+                56,
+                "a5f1426b20451b15d1c92aef1b27b36b038d13a77874409d73889c02fa1ca778",
+            ),
+            (
+                63,
+                "b728e1a944ecf6d47629afefa1656cbe11fd7bf23145fcba144af99ea5ec14f5",
+            ),
+            (
+                64,
+                "17ff3615c8f2285b470ee569e15b37503eae49e36882b63ccc1aceb055d7f082",
+            ),
+            (
+                65,
+                "f747a3be9b4a85941804d77e333783b22f194e6252b37570fd51bc2bc7886a57",
+            ),
+            (
+                119,
+                "82de88568c056a67ab49f9f8408249a8ff036b4294485b27d1f5d5de43d90759",
+            ),
+            (
+                120,
+                "e207dc7fa98501df87f645ccd4d9864be6d3f8f96417ff84e54eb1fa40452b98",
+            ),
+            (
+                127,
+                "1b6e94ae18eff1dbc2ee77615845eaf55a88b19cb3a867179a0cfe90789943cf",
+            ),
+            (
+                128,
+                "44d942056dd7041cfe6a1bbcb1a1f3afc385bb951b5efd787e71f514f29e1ddc",
+            ),
+            (
+                129,
+                "a14a45b30d8e4eca06366744bea6597da4da3404e76a29019874cfec816bc586",
+            ),
+            (
+                257,
+                "73ea4e762e2440c42864b5db632d756001f14f43641692c8b142d912b6e6dc95",
+            ),
+        ] {
+            let bytes: Vec<_> = (0..len)
+                .map(|i| u8::try_from((i * 37) % 256).unwrap())
+                .collect();
+            assert_eq!(hex(&sha256(&bytes)), expected, "length {len}");
+            for split in 0..=len {
+                assert_eq!(
+                    hex(&sha256_chunks(&[
+                        &[],
+                        &bytes[..split],
+                        &[],
+                        &bytes[split..],
+                        &[]
+                    ])),
+                    expected,
+                    "length {len}, split {split}"
+                );
+            }
+            let singles: Vec<_> = bytes.chunks(1).collect();
+            assert_eq!(hex(&sha256_chunks(&singles)), expected);
+        }
+    }
+
+    #[test]
+    fn fake_signatures_preserve_fixed_key_and_message_known_answers() {
+        // Independent answers bind the original tag, limb, be16 key length and raw key.
+        // Total preimage residues cover 55, 56, 63, 0 and 1 modulo the SHA block size.
+        for (key_len, message_len, expected) in [
+            (
+                0,
+                35,
+                "cb8b9f5afe9ba52f3fb602edd6d5beb3f6956a121e061fc14b0dfd9289cf6157308a5239fc64715477fff9b92128935b8af878e2e832e5519ab8c07d6bd8967ccfd8005d812c4bc6f0e820c1213b11041490e667df1e057be8d00d0c813b311f",
+            ),
+            (
+                1,
+                35,
+                "28f3aa8d3af40bb64a23c5d5b455a8152c5171fb44b16664079196e6e008c5456d86395ea6c4edcdcd749c53e27f4b389834954278ff09b53e94bcc13a8f739151fbe9075f106610abf2f6c3d7d31c61e891c1bb94ea0ed85caf9350362a1358",
+            ),
+            (
+                32,
+                11,
+                "18202a85e8347ada731eda51e11fbe2dc61898469f33cb32ad897740a3bcd9a4db04907842fe5c3146f549a2b0e92f3677247544e1187f484f525bf5a8a7f0042a2ac544f0705127760e1fbb652f9b7b2dd0a939658100c6cc6117189bcf21f3",
+            ),
+            (
+                128,
+                44,
+                "a251d9cd10f259767a3b99d9d87e0adcc2f7e25c3240fc635ecc2db38384e306b95c52e886ba94b371799cbf5caef47a6163679119bfd0f38605cd6c3d8688491dc110f52d3dc0f44f7ee1cf40f2830c15d35b8a574d76d502cf95e147859849",
+            ),
+            (
+                129,
+                44,
+                "94bb1dce339f5cb50825bd34e4b3c145e07b32c23051eb8e92895f57dd82c2b2a3b9f778d24204bdf534f6ad666fbe6ffb625bd39534f3b00a9e47301a645ef5ac0d74be8cfd08481ac9dfe62ccf799a41c96c477d80f312118fd4a1f9683067",
+            ),
+        ] {
+            // Malformed fixture keys still have the same canonical fake-signature bytes.
+            let key = PublicKey::unchecked(vec![0xA5; key_len]);
+            let message: Vec<_> = (0..message_len)
+                .map(|i| u8::try_from((i * 37) % 256).unwrap())
+                .collect();
+            assert_eq!(
+                hex(&fake_sig(&key, &message).0),
+                expected,
+                "key length {key_len}, message length {message_len}"
+            );
         }
     }
 

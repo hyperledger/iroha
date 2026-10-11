@@ -2914,9 +2914,17 @@ async fn debug_witness_operator_and_telemetry_profile_matrix() {
             .expect("untrusted debug witness response");
         assert_eq!(
             untrusted.status(),
-            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
             "untrusted profile {profile:?}"
         );
+
+        let refusal = decode_torii_json(
+            untrusted,
+            "untrusted debug witness refusal",
+            "operator refusal JSON",
+        )
+        .await;
+        assert_eq!(refusal["code"].as_str(), Some("operator_key_not_allowed"));
 
         let operator_headers = operator_signatures::signed_request_headers(
             &app.da_receipt_signer,

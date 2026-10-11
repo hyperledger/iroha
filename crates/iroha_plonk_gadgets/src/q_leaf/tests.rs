@@ -5,7 +5,8 @@
 //! this layout (`p256::tests`, `ShaLayout::Leaf`), and the foreign-field
 //! adversarial suite runs on its table (`ff::tests`).
 
-use ::ff::Field as _;
+use core::marker::PhantomData;
+
 use iroha_pasta::{Fp, Fq};
 use iroha_plonk::{
     check::{CheckMode, check_circuit},
@@ -37,16 +38,34 @@ enum Layout {
     /// A dynamic-entry enable on the first fixed-base row (its glue advice
     /// would be added to that fixed entry).
     DynamicOnFixedRow,
+    /// A valid dynamic namespace tuple in the previously empty table tail.
+    DynamicRow,
+    /// A tail value at the excluded 15-bit range endpoint.
+    TableValueOverflow,
+    /// A fixed-window tag in an inactive dynamic tail row.
+    TableNamespace,
+    /// A nonboolean dynamic enable beside otherwise valid dynamic metadata.
+    DynamicNonboolean,
 }
 
 /// One SHA-256 block of a digest, then a scalar witness (squared once)
 /// decomposed into fixed-base windows of the generator.
 #[derive(Clone, Debug)]
-struct AuditCircuit {
+struct AuditCircuit<F: PastaField> {
     layout: Layout,
+    marker: PhantomData<F>,
 }
 
-impl Circuit<Fq> for AuditCircuit {
+impl<F: PastaField> AuditCircuit<F> {
+    fn new(layout: Layout) -> Self {
+        Self {
+            layout,
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<F: PastaField> Circuit<F> for AuditCircuit<F> {
     type Config = (QLeafConfig, Column<Instance>);
     type FloorPlanner = SimpleFloorPlanner;
     type Params = ();
@@ -55,7 +74,7 @@ impl Circuit<Fq> for AuditCircuit {
         self.clone()
     }
 
-    fn configure(meta: &mut ConstraintSystem<Fq>) -> Self::Config {
+    fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
         let advice = core::array::from_fn(|_| meta.advice_column());
         let constants = meta.fixed_column();
         let leaf = QLeafConfig::configure(meta, advice, constants, &[]);
@@ -67,7 +86,7 @@ impl Circuit<Fq> for AuditCircuit {
     fn synthesize(
         &self,
         (leaf, instance): Self::Config,
-        mut layouter: impl Layouter<Fq>,
+        mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
         leaf.load_tables(&mut layouter)?;
         let split = sha_rows(1);
@@ -76,7 +95,7 @@ impl Circuit<Fq> for AuditCircuit {
             ff,
             mut glue,
             ..
-        } = leaf.chips::<Fq>(split)?;
+        } = leaf.chips::<F>(split)?;
         let mut ff = match self.layout {
             Layout::FfInsideSha => FfChip::starting_at(leaf.ff().clone(), split - 7),
             _ => ff,
@@ -92,11 +111,37 @@ impl Circuit<Fq> for AuditCircuit {
         let output = layouter.assign_region(
             || "audit",
             |mut region| {
-                if self.layout == Layout::DynamicOnFixedRow {
-                    let q_dyn = leaf.p256().window().dynamic_column();
-                    region.assign_fixed(q_dyn, WINDOW_TABLE_START, Fq::ONE)?;
+                let q_dyn = leaf.p256().window().dynamic_column();
+                let tail = leaf.p256().tables_end() + 1;
+                match self.layout {
+                    Layout::DynamicOnFixedRow => {
+                        region.assign_fixed(q_dyn, WINDOW_TABLE_START, F::ONE)?;
+                    }
+                    Layout::TableValueOverflow => {
+                        region.assign_fixed(
+                            leaf.table().value(),
+                            tail,
+                            F::from(1_u64 << VALUE_BITS),
+                        )?;
+                    }
+                    Layout::TableNamespace => {
+                        region.assign_fixed(leaf.table().tag(), tail, F::ONE)?;
+                    }
+                    Layout::DynamicRow | Layout::DynamicNonboolean => {
+                        let tag =
+                            DYNAMIC_TAG_BASE + u64::try_from(tail).map_err(|_| Error::Synthesis)?;
+                        region.assign_fixed(leaf.table().tag(), tail, F::from(tag))?;
+                        region.assign_fixed(leaf.table().value(), tail, F::ONE)?;
+                        let enable = if self.layout == Layout::DynamicRow {
+                            F::ONE
+                        } else {
+                            F::from(2_u64)
+                        };
+                        region.assign_fixed(q_dyn, tail, enable)?;
+                    }
+                    _ => {}
                 }
-                let digest = glue.witness(&mut region, Value::known(Fq::from(5_u64)))?;
+                let digest = glue.witness(&mut region, Value::known(F::from(5_u64)))?;
                 sha.hash_digest::<Fp>(&mut region, &digest)?;
                 let k = ff.witness(
                     &mut region,
@@ -124,8 +169,8 @@ impl Circuit<Fq> for AuditCircuit {
 
 /// The audit verdict of a layout (on the key-generation tables: the
 /// patterns are witness independent).
-fn audit(layout: Layout) -> Result<(), LeafViolation> {
-    let circuit = AuditCircuit { layout };
+fn audit<F: PastaField>(layout: Layout) -> Result<(), LeafViolation> {
+    let circuit = AuditCircuit::<F>::new(layout);
     let (_, (leaf, _)) = configure(&circuit).expect("configure");
     let synthesized = synthesize(&circuit, K, None).expect("synthesis");
     leaf.audit(&synthesized.tables)
@@ -133,9 +178,7 @@ fn audit(layout: Layout) -> Result<(), LeafViolation> {
 
 #[test]
 fn q_leaf_shape_matches_the_plan() {
-    let circuit = AuditCircuit {
-        layout: Layout::Honest,
-    };
+    let circuit = AuditCircuit::<Fq>::new(Layout::Honest);
     let (cs, (leaf, _)) = configure(&circuit).expect("configure");
     assert_eq!(cs.num_advice_columns(), Q_LEAF_ADVICE_COLUMNS);
     assert_eq!(Q_LEAF_ADVICE_COLUMNS, 17);
@@ -222,9 +265,7 @@ fn q_leaf_rows_and_capacity() {
 
 #[test]
 fn q_leaf_chips_take_disjoint_row_ranges() {
-    let circuit = AuditCircuit {
-        layout: Layout::Honest,
-    };
+    let circuit = AuditCircuit::<Fq>::new(Layout::Honest);
     let (_, (leaf, _)) = configure(&circuit).expect("configure");
     let tables_end = leaf.p256().tables_end();
     assert_eq!(tables_end, WINDOW_TABLE_START + 7_940);
@@ -254,37 +295,70 @@ fn q_leaf_chips_take_disjoint_row_ranges() {
 /// one argument), and so is a dynamic-entry enable on a fixed-base row
 /// (its advice would be added to the fixed entry, letting a lookup select
 /// another point).
-#[test]
-fn q_leaf_audit_rejects_overlapping_layouts() {
-    assert_eq!(audit(Layout::Honest), Ok(()));
-    let circuit = AuditCircuit {
-        layout: Layout::Honest,
-    };
+fn overlapping_layouts_case<F: PastaField>() {
+    assert_eq!(audit::<F>(Layout::Honest), Ok(()));
+    let circuit = AuditCircuit::<F>::new(Layout::Honest);
     // The decomposed scalar is 7: its first window's point (`x_0` on the
     // first glue row) is the public output.
-    let synthesized = synthesize(&circuit, K, Some(&[vec![Fq::ZERO]][..])).expect("synthesis");
+    let synthesized = synthesize(&circuit, K, Some(&[vec![F::ZERO]][..])).expect("synthesis");
     let advice = synthesized.tables.advice().expect("advice");
     let glue_a = FF_ADVICE_COLUMNS + 1;
     let x0 = advice[glue_a][0];
     let report = check_circuit(&circuit, K, &[vec![x0]], CheckMode::Strict).expect("check");
     assert!(report.is_satisfied(), "{report}");
     assert!(
-        !check_circuit(&circuit, K, &[vec![x0 + Fq::ONE]], CheckMode::Strict)
+        !check_circuit(&circuit, K, &[vec![x0 + F::ONE]], CheckMode::Strict)
             .expect("check")
             .is_satisfied()
     );
     assert!(matches!(
-        audit(Layout::FfInsideSha),
+        audit::<F>(Layout::FfInsideSha),
         Err(LeafViolation::ShaOverlap { .. })
     ));
     assert!(matches!(
-        audit(Layout::WindowOnFfRows),
+        audit::<F>(Layout::WindowOnFfRows),
         Err(LeafViolation::WindowOverlap { .. })
     ));
     assert_eq!(
-        audit(Layout::DynamicOnFixedRow),
+        audit::<F>(Layout::DynamicOnFixedRow),
         Err(LeafViolation::DynamicEnable {
             row: WINDOW_TABLE_START
         })
     );
+}
+
+#[test]
+fn q_leaf_audit_rejects_overlapping_layouts() {
+    overlapping_layouts_case::<Fp>();
+    overlapping_layouts_case::<Fq>();
+}
+
+/// The audit checks fixed construction metadata, not the dynamic advice copies
+/// or proof soundness. These tail assignments deliberately bypass the chip's
+/// table producer so each missing audit rejection branch can be isolated.
+fn malformed_table_tail_case<F: PastaField>() {
+    let circuit = AuditCircuit::<F>::new(Layout::Honest);
+    let (cs, (leaf, _)) = configure(&circuit).expect("configure");
+    let row = leaf.p256().tables_end() + 1;
+    assert!(row < cs.usable_rows(K).expect("usable rows"));
+    assert_eq!(audit::<F>(Layout::Honest), Ok(()));
+    assert_eq!(audit::<F>(Layout::DynamicRow), Ok(()));
+    assert_eq!(
+        audit::<F>(Layout::TableValueOverflow),
+        Err(LeafViolation::ValueRange { row })
+    );
+    assert_eq!(
+        audit::<F>(Layout::TableNamespace),
+        Err(LeafViolation::Namespace { row })
+    );
+    assert_eq!(
+        audit::<F>(Layout::DynamicNonboolean),
+        Err(LeafViolation::DynamicEnable { row })
+    );
+}
+
+#[test]
+fn q_leaf_audit_rejects_malformed_table_tail_both_fields() {
+    malformed_table_tail_case::<Fp>();
+    malformed_table_tail_case::<Fq>();
 }

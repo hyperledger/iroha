@@ -409,14 +409,16 @@ fn decode<T: JsonDeserialize>(bytes: &[u8]) -> Result<T> {
 }
 
 fn validate_name(name: &str) -> Result<()> {
+    // A canonical private DNS label can occupy all 63 bytes. Keep the exact alias usable as
+    // the default context name; IPC bounds the complete path independently of this component.
     if name.is_empty()
-        || name.len() > 48
+        || name.len() > 63
         || !name.as_bytes()[0].is_ascii_alphanumeric()
         || !name
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
     {
-        return Err(Error::Invalid("managed names must contain 1..48 ASCII letters, digits, `-` or `_`, starting with a letter or digit".into()));
+        return Err(Error::Invalid("managed names must contain 1..63 ASCII letters, digits, `-` or `_`, starting with a letter or digit".into()));
     }
     Ok(())
 }

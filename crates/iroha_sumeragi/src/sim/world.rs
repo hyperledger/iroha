@@ -77,8 +77,11 @@ impl Inst {
         out.unwrap_or_else(|| unreachable!("a schedule has at least one committee"))
     }
 
-    /// The height configuration of `height`.
-    pub fn config(&self, height: u64) -> HeightConfig {
+    /// The scheduled epoch of `height`, without constructing an owned committee.
+    ///
+    /// # Panics
+    /// Panics if the instance's committee schedule is empty.
+    pub fn epoch(&self, height: u64) -> crate::types::EpochConfig {
         let index = self
             .schedule
             .iter()
@@ -89,8 +92,13 @@ impl Inst {
             .schedule
             .get(index + 1)
             .map_or(u64::MAX, |(from, _)| from - 1);
+        crate::testing::scheduled_epoch(index as u64, first, last)
+    }
+
+    /// The height configuration of `height`.
+    pub fn config(&self, height: u64) -> HeightConfig {
         HeightConfig {
-            epoch: Box::new(crate::testing::scheduled_epoch(index as u64, first, last)),
+            epoch: Box::new(self.epoch(height)),
             committee: self.committee(height).clone(),
             params: self.params,
         }
@@ -1292,9 +1300,8 @@ impl World {
         body: &AvailableBody,
         at: Millis,
     ) {
-        let config = self.instances[self.replicas[r].inst].config(body.header().height);
-        let shape = config
-            .epoch
+        let epoch = self.instances[self.replicas[r].inst].epoch(body.header().height);
+        let shape = epoch
             .da_layout
             .shape(body.payload().as_slice().len() as u64)
             .unwrap();
@@ -2402,7 +2409,7 @@ impl World {
                 if keystore.install_instance(&mut store_id, &instance, &key, exists, false, id) {
                     let record = SafetyRecord::fresh(
                         instance,
-                        self.instances[inst].config(0).epoch.id,
+                        self.instances[inst].epoch(0).id,
                         key.clone(),
                         0,
                         None,
@@ -2660,7 +2667,7 @@ impl World {
         crate::topology::Topology::compute(
             &self.hasher,
             &instance.id,
-            &instance.config(h).epoch,
+            &instance.epoch(h),
             instance.committee(h),
             h,
             0,
@@ -2867,4 +2874,63 @@ pub fn seeds(default: u64) -> Vec<u64> {
 /// Rejects malformed selected settings, a zero count or a range exceeding `u64`.
 pub(super) fn seed_iter(default: u64) -> impl Iterator<Item = u64> {
     seed_config::from_env(default)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Captured original owned constructor: the epoch-only projection must preserve every field.
+    fn original_config(instance: &Inst, height: u64) -> HeightConfig {
+        let index = instance
+            .schedule
+            .iter()
+            .rposition(|(from, _)| *from <= height)
+            .unwrap_or(0);
+        let first = instance.schedule[index].0;
+        let last = instance
+            .schedule
+            .get(index + 1)
+            .map_or(u64::MAX, |(from, _)| from - 1);
+        HeightConfig {
+            epoch: Box::new(crate::testing::scheduled_epoch(index as u64, first, last)),
+            committee: instance.committee(height).clone(),
+            params: instance.params,
+        }
+    }
+
+    #[test]
+    fn epoch_only_lookup_preserves_complete_configuration_at_rotation_boundaries() {
+        let first = crate::testing::FakeValidators::new(4, 1, None).committee;
+        let second = crate::testing::FakeValidators::new(7, 2, None).committee;
+        let third = crate::testing::FakeValidators::new(4, 3, None).committee;
+        for schedule in [
+            vec![(0, first.clone())],
+            vec![(0, first), (8, second), (19, third)],
+        ] {
+            let instance = Inst {
+                id: Hash32([1; 32]),
+                genesis_hash: Hash32([2; 32]),
+                genesis_result: Hash32([3; 32]),
+                schedule,
+                params: ChainParams::default(),
+                window: 5,
+                local: LocalParams::default(),
+            };
+            for height in [0, 1, 6, 7, 8, 9, 17, 18, 19, 20, u64::MAX - 1, u64::MAX] {
+                let original = original_config(&instance, height);
+                // EpochConfig equality covers layout, full id, generation, both bounds and seed.
+                assert_eq!(instance.epoch(height), *original.epoch, "height {height}");
+                assert_eq!(instance.config(height), original, "height {height}");
+            }
+            for &(boundary, _) in instance.schedule.iter().skip(1) {
+                let previous = instance.epoch(boundary - 1);
+                let successor = instance.epoch(boundary);
+                assert!(previous.contains(boundary - 1));
+                assert!(!previous.contains(boundary));
+                assert!(successor.contains(boundary));
+                assert!(successor.follows(&previous));
+            }
+        }
+    }
 }

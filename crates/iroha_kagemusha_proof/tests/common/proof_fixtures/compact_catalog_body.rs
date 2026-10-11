@@ -787,7 +787,7 @@ impl Program {
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
+#[allow(dead_code)] // Registered by receive_omega; other consumers select shared helpers only.
 pub fn compact_distinct_wallets_share_the_exact_predecessor_catalog(fixture: &LoadFixture) {
     let wallets = compact_payer_load_and_receiver(fixture);
     assert_eq!(wallets.payer.binding, wallets.receiver.binding);
@@ -804,7 +804,7 @@ pub fn compact_distinct_wallets_share_the_exact_predecessor_catalog(fixture: &Lo
 }
 
 /// Run the retained composition assertions with genuine native Load originals.
-#[allow(dead_code)] // Called by the full-finality qualification fixture once installed.
+#[allow(dead_code)] // Registered by receive_omega; other consumers select shared helpers only.
 pub fn compact_payer_load_retains_the_exact_predecessor_catalog(fixture: &LoadFixture) {
     let payer = compact_payer_load(fixture);
     assert_eq!(payer.proof.len(), 3712);

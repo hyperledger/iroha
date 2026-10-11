@@ -835,8 +835,64 @@ fn read_contiguous_finality_chain_until(
         signed_genesis_hash,
         end,
         deadline,
-        |height| source.get_sumeragi_finality_proof(height),
+        interval_finality_fetch(&source, end),
     )
+}
+
+// Each request retains at most 64 actual full-proof DTOs. Consumed rows move into
+// the existing native journal; they are never copied to a second authority graph.
+// TODO: close the fixture's existing SDK DTO/journal metadata funding obligation.
+fn interval_finality_fetch<'a>(
+    client: &'a iroha::client::Client,
+    end: u64,
+) -> impl FnMut(NonZeroU64) -> Result<iroha::data_model::sumeragi_finality::SumeragiFinalityProof> + 'a
+{
+    interval_finality_fetch_with(end, move |from, to| {
+        client.get_sumeragi_finality_interval(from, to)
+    })
+}
+fn interval_finality_fetch_with<'a>(
+    end: u64,
+    mut fetch: impl FnMut(
+        NonZeroU64,
+        NonZeroU64,
+    )
+        -> Result<Vec<iroha::data_model::sumeragi_finality::SumeragiFinalityProof>>
+    + 'a,
+) -> impl FnMut(NonZeroU64) -> Result<iroha::data_model::sumeragi_finality::SumeragiFinalityProof> + 'a
+{
+    let mut rows = Vec::new().into_iter();
+    let mut next = None;
+    move |height| {
+        ensure!(
+            height.get() <= end,
+            "interval source exceeds original final target"
+        );
+        if let Some(expected) = next {
+            ensure!(
+                height.get() == expected,
+                "interval source requires its exact next original row"
+            );
+        }
+        if rows.len() == 0 {
+            let to = height.get().saturating_add(63).min(end);
+            let batch = fetch(height, NonZeroU64::new(to).expect("positive final target"))?;
+            ensure!(
+                batch.len() as u64 == to - height.get() + 1,
+                "interval source must retain every exact original row"
+            );
+            rows = batch.into_iter();
+        }
+        let proof = rows
+            .next()
+            .ok_or_else(|| eyre!("interval source has no original next row"))?;
+        ensure!(
+            proof.height() == height.get(),
+            "interval source substituted its original row"
+        );
+        next = height.get().checked_add(1);
+        Ok(proof)
+    }
 }
 
 fn finality_chain_from_proofs(
@@ -860,7 +916,7 @@ fn finality_chain_from_proofs(
     let limits = finality_limits();
     let mut journal = NativeFinalityJournal { blocks: Vec::new() };
     let mut source_bytes = 0_usize;
-    // Fetch each exact canonical carrier through the bounded public proof endpoint.
+    // Move each exact canonical carrier from the bounded public interval endpoint.
     // Candidate proof metadata never chooses the committee or substitutes for the
     // complete, independently genesis-anchored journal verification below.
     for height in 1..=end {
@@ -953,7 +1009,7 @@ fn append_contiguous_finality_chain_until(
         journal,
         end,
         deadline,
-        |height| source.get_sumeragi_finality_proof(height),
+        interval_finality_fetch(&source, end),
     )
 }
 
@@ -1018,7 +1074,7 @@ fn extend_finality_chain_from_proofs(
         "retained observation must preserve or extend its original H2+ journal"
     );
     eprintln!(
-        "rotation finality prefix acquisition: base={base} target={end} planned_new_requests={}",
+        "rotation finality prefix acquisition: base={base} target={end} planned_new_rows={}",
         end - base
     );
     let mut source_bytes = journal.blocks.iter().try_fold(0_usize, |count, artifact| {

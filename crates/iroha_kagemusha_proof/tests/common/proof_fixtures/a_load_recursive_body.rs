@@ -110,13 +110,13 @@ impl Original {
 /// Required independently installed source plan and finalized originals.
 /// The native producer verifies every original proof and both carried claims.
 pub struct InstalledLoad {
-    /// Installed source plan with fixed genesis anchor and finality source catalog.
+    /// Installed monetary source plan binding the native-authorized receipt and Advance.
     pub plan: Plan,
     /// All four actual A source artifacts.
     pub a: [Original; A_STAGE_COUNT],
     /// All three mandatory W source artifacts.
     pub w: [Original; A_STAGE_COUNT - 1],
-    /// Exact receipt, genuine finality source and predecessor/Q originals.
+    /// Exact native-authorized receipt and predecessor/Q originals.
     pub inputs: Inputs,
     /// Finite original-artifact reader bounds.
     pub read: ReadConfig,
@@ -201,7 +201,7 @@ pub fn authenticated_load(
     let key = VerifyingKey::read(&source.a[A_STAGE_COUNT - 1].verifying_key, &binding).unwrap();
     let session = prover
         .prepare(source.inputs, MemoryBudget::DEFAULT)
-        .expect("genuine finality, predecessor and Q originals are mandatory");
+        .expect("native-authorized receipt, predecessor and Q originals are mandatory");
     let fold = FoldConfig::default();
     let config = ProverConfig::default();
     let active_seal = prover

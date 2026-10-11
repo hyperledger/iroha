@@ -149,6 +149,8 @@ required-features = ["dev-tools"]
 [features]
 default = ["node-codec"]
 dev-tools = []
+# Test-only §13.4 selector; never forwarded to dependencies.
+mutation-testing = []
 # Minimum currently compilable codec surface. `json` remains here until the
 # existing unconditional JSON helpers are made feature-independent. Panic
 # containment is part of every decoder and is not feature-selectable.

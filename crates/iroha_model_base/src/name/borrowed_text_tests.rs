@@ -138,7 +138,9 @@ fn binary_name_and_long_path_charge_nfc_scratch_before_owned_validation() {
     });
     assert!(matches!(
         refused,
-        Err(norito::json::Error::DecodeResourceLimit)
+        Err(norito::json::Error::DecodeResource(
+            norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+        ))
     ));
     assert_eq!(usage.total_allocated_bytes(), 0);
     let (retried, usage) = with_decode_limits_measured(limits(scratch + path.len()), || {
@@ -163,7 +165,9 @@ where
             let (refused, usage) = with_decode_limits_measured(limits(capacity), || decode(raw));
             assert!(matches!(
                 refused,
-                Err(norito::json::Error::DecodeResourceLimit)
+                Err(norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                ))
             ));
             assert_eq!(usage.total_allocated_bytes(), charged);
         }

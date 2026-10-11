@@ -890,10 +890,10 @@ fn certified_automatic_rewards_reject_reassigned_missing_or_replayed_sources() {
     reject(replay, "immutable fee record is replayed or changed");
     let mut recovery = original.clone();
     for record in &mut recovery[3] {
-        if let FeeEvidencePayloadV1::RewardBeneficiaryRevision(revision) = &mut record.payload {
-            if revision.revision == 1 {
-                revision.previous_account_id = Some(account(3));
-            }
+        if let FeeEvidencePayloadV1::RewardBeneficiaryRevision(revision) = &mut record.payload
+            && revision.revision == 1
+        {
+            revision.previous_account_id = Some(account(3));
         }
     }
     reject(recovery, "changes the original owner lineage");

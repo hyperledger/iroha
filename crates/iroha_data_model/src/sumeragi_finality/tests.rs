@@ -64,7 +64,9 @@ fn signed_genesis_policy_reads_preserve_original_json_refusal_and_retry() {
         assert!(
             matches!(
                 error,
-                GenesisReadError::Json(norito::json::Error::DecodeResourceLimit)
+                GenesisReadError::Json(norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                ))
             ),
             "{error:?}"
         );
@@ -194,7 +196,9 @@ fn consensus_fingerprint_reuses_original_authenticated_metadata_under_one_pass_b
     assert!(
         matches!(
             refused,
-            GenesisReadError::Json(norito::json::Error::DecodeResourceLimit)
+            GenesisReadError::Json(norito::json::Error::DecodeResource(
+                norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+            ))
         ),
         "original signed-policy refusal must remain typed: {refused:?}"
     );
@@ -204,7 +208,9 @@ fn consensus_fingerprint_reuses_original_authenticated_metadata_under_one_pass_b
         assert!(
             matches!(
                 error,
-                GenesisReadError::Json(norito::json::Error::DecodeResourceLimit)
+                GenesisReadError::Json(norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                ))
             ),
             "unrelated fingerprint failure: {error:?}"
         );
@@ -252,7 +258,9 @@ fn initial_chain_parameters_reuses_constructor_authenticated_metadata_under_one_
         assert!(
             matches!(
                 error,
-                GenesisReadError::Json(norito::json::Error::DecodeResourceLimit)
+                GenesisReadError::Json(norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                ))
             ),
             "unrelated retained parameter failure: {error:?}"
         );

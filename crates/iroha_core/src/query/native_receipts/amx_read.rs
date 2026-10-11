@@ -442,6 +442,48 @@ impl<'v, V: StateReadOnly> NativeAmxRecordProofReadV1<'v, V> {
         Ok(())
     }
 
+    // Borrow the same authenticated complete write graph; no count supplied by .ami
+    // can substitute for the original certified witness.
+    #[cfg(not(all(test, sumeragi_core_mutation = "HC218")))]
+    pub(super) fn authenticated_prepared_count(
+        &self,
+    ) -> Result<usize, NativeAmxRecordProofErrorV1> {
+        let source = self
+            .source
+            .as_ref()
+            .filter(|source| source.completed && source.authenticated)
+            .ok_or(NativeAmxRecordProofErrorV1::Source(
+                "Prepared count needs completed original verification",
+            ))?;
+        let projection = source
+            .projection
+            .as_ref()
+            .ok_or(NativeAmxRecordProofErrorV1::Source(
+                "original complete writes missing",
+            ))?;
+        crate::query::native_context_archive::prepared_intents::count(
+            &projection.witness.get().writes,
+        )
+        .map_err(NativeAmxRecordProofErrorV1::Archive)
+    }
+
+    // Only this sibling reader can join an intent to the actual completed verification
+    // engine. No caller-supplied hash/root receipt can assert certification.
+    pub(super) fn matches_completed_execution(
+        &self,
+        carrier: iroha_crypto::HashOf<iroha_data_model::block::BlockHeader>,
+        root: iroha_crypto::Hash,
+    ) -> bool {
+        self.source.as_ref().is_some_and(|source| {
+            source.completed
+                && source.authenticated
+                && source.certified.as_ref().is_some_and(|certified| {
+                    certified.block_hash() == carrier
+                        && certified.commitment().execution.ordinary_writes_root == root
+                })
+        })
+    }
+
     #[cfg(test)]
     pub(crate) fn acquired_frame(&self) -> Option<&[u8]> {
         self.source.as_ref()?.acquired_frame()

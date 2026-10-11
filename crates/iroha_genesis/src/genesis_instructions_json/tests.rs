@@ -1173,3 +1173,54 @@ fn unsigned_taira_fixture_declares_complete_finite_block_parameters() {
         .validate(block.execution_output())
         .unwrap();
 }
+
+#[test]
+fn canonical_genesis_account_reader_preserves_original_resource_fields_and_retry() {
+    let literal = ALICE_ID.canonical_i105().unwrap();
+    let source_pointer = literal.as_ptr();
+    let limits =
+        |bytes| norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX);
+    let (baseline, usage) = norito::core::with_decode_limits_measured(limits(usize::MAX), || {
+        parse_account_id(&literal, "register account")
+    });
+    assert_eq!(baseline.unwrap(), *ALICE_ID);
+    let demand = usage.total_allocated_bytes();
+    assert!(demand > 1);
+    for limit in [0, 1, demand - 1] {
+        let context =
+            norito::core::DecodeBudgetContext::new(limits(demand.checked_mul(4).unwrap()));
+        let error = context
+            .with(|| {
+                norito::core::with_decode_limits_measured(limits(limit), || {
+                    parse_account_id(&literal, "register account")
+                })
+            })
+            .0
+            .expect_err("original genesis account decode must refuse its inner allocation limit");
+        let original = error.into_core_error();
+        let Some(norito::core::DecodeResourceError::TotalAllocationExceeded {
+            attempted,
+            limit: actual_limit,
+        }) = original.decode_resource_error()
+        else {
+            panic!("genesis account reader erased original resource fields: {original:?}");
+        };
+        assert_eq!(actual_limit, u64::try_from(limit).unwrap());
+        assert!(attempted > actual_limit);
+        let before_retry = context.consumed_allocated_bytes();
+        assert_eq!(
+            context
+                .with(|| parse_account_id(&literal, "register account"))
+                .unwrap(),
+            *ALICE_ID
+        );
+        assert_eq!(
+            context.consumed_allocated_bytes() - before_retry,
+            u64::try_from(demand).unwrap()
+        );
+        assert_eq!(literal.as_ptr(), source_pointer);
+    }
+    let error = parse_account_id("invalid-account", "register account").unwrap_err();
+    assert!(!error.is_decode_resource_limit());
+    assert!(error.to_string().contains("invalid register account:"));
+}

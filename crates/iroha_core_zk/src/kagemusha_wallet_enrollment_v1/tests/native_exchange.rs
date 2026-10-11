@@ -35,6 +35,8 @@ use std::{
     sync::Arc,
 };
 
+#[path = "native_exchange/archive.rs"]
+mod archive;
 #[path = "native_exchange/load.rs"]
 mod load;
 #[path = "native_exchange/load_seam.rs"]
@@ -830,8 +832,38 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
         (0, 0, 0)
     );
 
-    complete(a.accept_credited(&credited(&received_ab)).unwrap());
-    complete(b.accept_credited(&credited(&received_bc)).unwrap());
+    // Exercise both installed Archive sources. A receives the original Receive
+    // acknowledgement; B receives C's actual folded CreditStatus. Neither form
+    // is considered covered merely because the local Archive sigma completed.
+    let credited_ab = credited(&received_ab);
+    let bc: KagemushaWalletPaymentV1 = decode(&payment_bc);
+    let status_bc = c
+        .credit_status(&bc.request.credit_id(), &bc.payment_digest().unwrap())
+        .unwrap();
+    assert_eq!(
+        status_bc.lineage.public.wallet_id,
+        c.snapshot().unwrap().wallet_id
+    );
+    let credited_bc =
+        norito::encode_canonical(&KagemushaWalletCreditedV1::from_status(status_bc).unwrap())
+            .unwrap();
+    let (reopened_a, archived_ab) =
+        archive::exercise(a, &device_a, &sources, &f, &frames_a, &credited_ab);
+    a = reopened_a;
+    let (reopened_b, archived_bc) =
+        archive::exercise(b, &device_b, &sources, &f_b, &frames_b, &credited_bc);
+    b = reopened_b;
+    // B has an incoming credit, so its public status also exposes the final
+    // pending-outgoing root after folding the independently verified C evidence.
+    let ab: KagemushaWalletPaymentV1 = decode(&payment_ab);
+    let b_status = b
+        .credit_status(&ab.request.credit_id(), &ab.payment_digest().unwrap())
+        .unwrap();
+    assert_eq!(
+        b_status.lineage.public.pending_outgoing_root,
+        kagemusha_wallet_empty_map_root_v1(),
+        "ArchiveStatus removes B's only pending outgoing credit"
+    );
     let unload = action(
         230,
         OperationActionV1::Unload {
@@ -909,6 +941,19 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
         &output.join("c-unload-bad-sigma-claim.norito"),
         &bad_sigma_claim,
     );
+    let archive_originals = [
+        ("a-credited-receive.norito", credited_ab),
+        ("b-credited-status.norito", credited_bc),
+        ("a-archive-receive.norito", archived_ab),
+        ("b-archive-status.norito", archived_bc),
+    ]
+    .into_iter()
+    .map(|(name, bytes)| {
+        assert!(bytes.len() <= KAGEMUSHA_WALLET_MESSAGE_MAX_BYTES_V1);
+        publish(&output.join(name), &bytes);
+        norito::json!({"name": name, "bytes": (bytes.len()), "sha256": (sha(&bytes))})
+    })
+    .collect::<Vec<_>>();
     for (name, bytes) in [
         ("a-b-payment.norito", payment_ab),
         ("b-c-payment.norito", payment_bc),
@@ -941,6 +986,8 @@ fn actual_native_a_to_b_to_c_then_unload_with_restart_and_replay() {
         "c_unload_request_id": (hex::encode(unload_id)),
         "c_unload_claim_sha256": (sha(&claim_original)),
         "c_unload_bad_sigma_claim": bad_sigma_original,
+        "archive_receive_folded": true, "archive_status_folded": true,
+        "archive_exact_replay_after_restart": true, "archive_originals": archive_originals,
         "ledger_settlement_executed": false, "physical_device_qualified": false,
         "scope": "Real installed proof source, finalized receipt proof, native host custody, exact replay and local folds; simulated hardware. Exported Unload claim still requires actual ledger execution and replay qualification." });
     publish(

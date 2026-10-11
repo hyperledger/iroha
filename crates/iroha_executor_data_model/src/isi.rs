@@ -5,12 +5,7 @@ use iroha_data_model::{
     prelude::{Json, *},
 };
 use iroha_schema::IntoSchema;
-use std::{
-    collections::BTreeMap,
-    format,
-    string::{String, ToString},
-    vec::Vec,
-};
+use std::{collections::BTreeMap, format, string::String, vec::Vec};
 macro_rules! impl_custom_instruction {
     ($box:ty, $($instruction:ty)|+) => {
         impl From<$box> for CustomInstruction {
@@ -50,7 +45,7 @@ pub mod multisig {
     use core::num::{NonZeroU16, NonZeroU64};
     use iroha_crypto::{HashOf, KeyPair};
     use iroha_model_base::domain::DomainId;
-    use norito::json::{self, JsonDeserialize, JsonSerialize, Value};
+    use norito::json::{self, JsonDeserialize, JsonSerialize};
     use std::{borrow::ToOwned, collections::BTreeSet};
     /// Multisig-related instructions
     #[derive(
@@ -589,9 +584,8 @@ pub mod multisig {
     }
     /// Immutable transaction-bound evidence that a multisig proposal became terminal.
     ///
-    /// This is intentionally a distinct versioned value instead of extending
-    /// [`MultisigProposalTerminalState`], whose persisted Norito schema must remain decodable for
-    /// existing ledgers.
+    /// This evidence binds the terminal proposal to the exact transaction entrypoint and
+    /// finalized height, in addition to the proposal payload in [`MultisigProposalTerminalState`].
     #[derive(
         Debug,
         Clone,
@@ -686,6 +680,7 @@ pub mod multisig {
         Encode,
         IntoSchema,
         Constructor,
+        norito::JsonDeserialize,
         norito::NoritoSchema,
     )]
     #[norito_schema(name = "iroha_executor_data_model::isi::multisig::MultisigSpec")]
@@ -709,6 +704,7 @@ pub mod multisig {
         Encode,
         IntoSchema,
         Constructor,
+        norito::JsonDeserialize,
         norito::NoritoSchema,
     )]
     #[norito_schema(name = "iroha_executor_data_model::isi::multisig::MultisigProposalValue")]
@@ -765,64 +761,6 @@ pub mod multisig {
             out.end_container();
             result?;
             Ok(())
-        }
-    }
-    impl JsonDeserialize for MultisigSpec {
-        fn json_deserialize(parser: &mut json::Parser<'_>) -> Result<Self, json::Error> {
-            let mut visitor = json::MapVisitor::new(parser)?;
-            let mut signatories: Option<BTreeMap<AccountId, Weight>> = None;
-            let mut quorum: Option<NonZeroU16> = None;
-            let mut transaction_ttl_ms: Option<NonZeroU64> = None;
-            while let Some(key) = visitor.next_key()? {
-                match key.as_str() {
-                    "signatories" => {
-                        let raw = visitor.parse_value::<Value>()?;
-                        let map = match raw {
-                            Value::Object(map) => map,
-                            _ => {
-                                return Err(json::Error::InvalidField {
-                                    field: "signatories".into(),
-                                    message: "expected object".into(),
-                                });
-                            }
-                        };
-                        let mut parsed = BTreeMap::new();
-                        for (account, weight_value) in map {
-                            let account_id = AccountId::parse_encoded(&account).map_err(|err| {
-                                json::Error::InvalidField {
-                                    field: format!("signatories.{account}"),
-                                    message: err.to_string(),
-                                }
-                            })?;
-                            let weight: Weight = json::from_value(weight_value)?;
-                            parsed.insert(account_id, weight);
-                        }
-                        signatories = Some(parsed);
-                    }
-                    "quorum" => {
-                        let value = visitor.parse_value::<NonZeroU16>()?;
-                        quorum = Some(value);
-                    }
-                    "transaction_ttl_ms" => {
-                        let value = visitor.parse_value::<NonZeroU64>()?;
-                        transaction_ttl_ms = Some(value);
-                    }
-                    _ => {
-                        visitor.skip_value()?;
-                    }
-                }
-            }
-            visitor.finish()?;
-            let signatories =
-                signatories.ok_or_else(|| json::Error::missing_field("signatories"))?;
-            let quorum = quorum.ok_or_else(|| json::Error::missing_field("quorum"))?;
-            let transaction_ttl_ms = transaction_ttl_ms
-                .ok_or_else(|| json::Error::missing_field("transaction_ttl_ms"))?;
-            Ok(Self {
-                signatories,
-                quorum,
-                transaction_ttl_ms,
-            })
         }
     }
     impl JsonSerialize for MultisigProposalValue {
@@ -884,59 +822,6 @@ pub mod multisig {
             Ok(())
         }
     }
-    impl JsonDeserialize for MultisigProposalValue {
-        fn json_deserialize(parser: &mut json::Parser<'_>) -> Result<Self, json::Error> {
-            let mut visitor = json::MapVisitor::new(parser)?;
-            let mut instructions: Option<Vec<InstructionBox>> = None;
-            let mut proposed_at_ms: Option<u64> = None;
-            let mut expires_at_ms: Option<u64> = None;
-            let mut approvals: Option<BTreeSet<AccountId>> = None;
-            let mut is_relayed: Option<Option<bool>> = None;
-            while let Some(key) = visitor.next_key()? {
-                match key.as_str() {
-                    "instructions" => {
-                        let value = visitor.parse_value::<Vec<InstructionBox>>()?;
-                        instructions = Some(value);
-                    }
-                    "proposed_at_ms" => {
-                        let value = visitor.parse_value::<u64>()?;
-                        proposed_at_ms = Some(value);
-                    }
-                    "expires_at_ms" => {
-                        let value = visitor.parse_value::<u64>()?;
-                        expires_at_ms = Some(value);
-                    }
-                    "approvals" => {
-                        let value = visitor.parse_value::<BTreeSet<AccountId>>()?;
-                        approvals = Some(value);
-                    }
-                    "is_relayed" => {
-                        let value = visitor.parse_value::<Option<bool>>()?;
-                        is_relayed = Some(value);
-                    }
-                    _ => {
-                        visitor.skip_value()?;
-                    }
-                }
-            }
-            visitor.finish()?;
-            let instructions =
-                instructions.ok_or_else(|| json::Error::missing_field("instructions"))?;
-            let proposed_at_ms =
-                proposed_at_ms.ok_or_else(|| json::Error::missing_field("proposed_at_ms"))?;
-            let expires_at_ms =
-                expires_at_ms.ok_or_else(|| json::Error::missing_field("expires_at_ms"))?;
-            let approvals = approvals.ok_or_else(|| json::Error::missing_field("approvals"))?;
-            let is_relayed = is_relayed.unwrap_or(None);
-            Ok(Self {
-                instructions,
-                proposed_at_ms,
-                expires_at_ms,
-                approvals,
-                is_relayed,
-            })
-        }
-    }
     impl From<MultisigSpec> for Json {
         fn from(details: MultisigSpec) -> Self {
             Json::new(details)
@@ -946,7 +831,7 @@ pub mod multisig {
         type Error = norito::Error;
         fn try_from(payload: &Json) -> Result<Self, norito::Error> {
             norito::json::from_str::<Self>(payload.as_ref())
-                .map_err(|e| norito::Error::from(e.to_string()))
+                .map_err(norito::json::Error::into_core_error)
         }
     }
     impl From<MultisigProposalValue> for Json {
@@ -958,7 +843,7 @@ pub mod multisig {
         type Error = norito::Error;
         fn try_from(payload: &Json) -> Result<Self, norito::Error> {
             norito::json::from_str::<Self>(payload.as_ref())
-                .map_err(|e| norito::Error::from(e.to_string()))
+                .map_err(norito::json::Error::into_core_error)
         }
     }
     #[cfg(test)]
@@ -1039,6 +924,190 @@ pub mod multisig {
         }
 
         #[test]
+        fn multisig_spec_rejects_every_duplicate_field_before_replacement() {
+            let source = json::to_json(&sample_spec()).unwrap();
+            for (name, value) in [
+                ("signatories", "{}"),
+                ("quorum", "1"),
+                ("transaction_ttl_ms", "1"),
+            ] {
+                let duplicate = format!("{{\"{name}\":{value},{}", &source[1..]);
+                let error = json::from_str::<MultisigSpec>(&duplicate)
+                    .expect_err("duplicate multisig spec field must not replace authority");
+                assert!(matches!(error, json::Error::DuplicateField { field } if field == name));
+            }
+            let escaped = format!("{{\"\\u0071uorum\":1,{}", &source[1..]);
+            assert!(matches!(json::from_str::<MultisigSpec>(&escaped),
+                Err(json::Error::DuplicateField { field }) if field == "quorum"));
+        }
+
+        #[test]
+        fn multisig_proposal_rejects_every_duplicate_field_including_null() {
+            let expected = MultisigProposalValue::new(
+                vec![sample_instruction_box()],
+                1,
+                2,
+                BTreeSet::from([fixture_account(4)]),
+                Some(false),
+            );
+            let source = json::to_json(&expected).unwrap();
+            for (name, value) in [
+                ("instructions", "[]"),
+                ("proposed_at_ms", "0"),
+                ("expires_at_ms", "0"),
+                ("approvals", "[]"),
+                ("is_relayed", "null"),
+            ] {
+                let duplicate = format!("{{\"{name}\":{value},{}", &source[1..]);
+                let error = json::from_str::<MultisigProposalValue>(&duplicate)
+                    .expect_err("duplicate multisig proposal field must not replace authority");
+                assert!(matches!(error, json::Error::DuplicateField { field } if field == name));
+            }
+        }
+
+        #[test]
+        fn canonical_multisig_readers_keep_wire_values_required_fields_and_optional_null() {
+            let spec = sample_spec();
+            let source = json::to_json(&spec).unwrap();
+            let decoded = json::from_str::<MultisigSpec>(&source).unwrap();
+            assert_eq!(decoded, spec);
+            assert_eq!(json::to_json(&decoded).unwrap(), source);
+            assert!(matches!(json::from_str::<MultisigSpec>("{}"),
+                Err(json::Error::MissingField { field }) if field == "signatories"));
+            let expected = MultisigProposalValue::new(
+                vec![sample_instruction_box()],
+                1,
+                2,
+                BTreeSet::from([fixture_account(4)]),
+                None,
+            );
+            let source = json::to_json(&expected).unwrap();
+            assert!(source.contains(",\"is_relayed\":null"));
+            let omitted = source.replace(",\"is_relayed\":null", "");
+            for input in [source.as_str(), omitted.as_str()] {
+                let decoded = json::from_str::<MultisigProposalValue>(input).unwrap();
+                assert_eq!(decoded, expected);
+                assert_eq!(json::to_json(&decoded).unwrap(), source);
+            }
+            assert!(matches!(json::from_str::<MultisigProposalValue>("{}"),
+                Err(json::Error::MissingField { field }) if field == "instructions"));
+        }
+
+        fn allocation_limits(bytes: usize) -> norito::DecodeLimits {
+            norito::DecodeLimits::new(usize::MAX, usize::MAX, usize::MAX, bytes, usize::MAX)
+        }
+
+        #[test]
+        fn multisig_signatory_json_preserves_original_refusal_at_every_allocation_limit() {
+            let expected = sample_spec();
+            let source = json::to_json(&expected).unwrap();
+            let (baseline, usage) =
+                norito::core::with_decode_limits_measured(allocation_limits(usize::MAX), || {
+                    json::from_str::<MultisigSpec>(&source)
+                });
+            assert_eq!(baseline.unwrap(), expected);
+            let demand = usage.total_allocated_bytes();
+            assert!(demand > 0);
+            for limit in 0..demand {
+                let error =
+                    norito::core::with_decode_limits_measured(allocation_limits(limit), || {
+                        json::from_str::<MultisigSpec>(&source)
+                    })
+                    .0
+                    .expect_err("every smaller original allocation limit must refuse");
+                let original = error.into_core_error();
+                let Some(norito::core::DecodeResourceError::TotalAllocationExceeded {
+                    attempted,
+                    limit: actual_limit,
+                }) = original.decode_resource_error()
+                else {
+                    panic!(
+                        "signatory account decoding erased original refusal at {limit}: {original:?}"
+                    );
+                };
+                assert_eq!(actual_limit, u64::try_from(limit).unwrap());
+                assert!(attempted > actual_limit);
+            }
+            let (retry, usage) =
+                norito::core::with_decode_limits_measured(allocation_limits(demand), || {
+                    json::from_str::<MultisigSpec>(&source)
+                });
+            assert_eq!(retry.unwrap(), expected);
+            assert_eq!(usage.total_allocated_bytes(), demand);
+            let malformed = source.replacen(&fixture_account(1).to_string(), "invalid-account", 1);
+            let error = json::from_str::<MultisigSpec>(&malformed).unwrap_err();
+            assert!(!error.is_decode_resource_limit());
+        }
+
+        fn assert_metadata_refusal_and_retry<T: std::fmt::Debug + PartialEq>(
+            payload: &Json,
+            expected: &T,
+            decode: impl Fn(&Json) -> Result<T, norito::Error>,
+        ) {
+            let source_pointer = payload.as_ref().as_ptr();
+            let (baseline, usage) =
+                norito::core::with_decode_limits_measured(allocation_limits(usize::MAX), || {
+                    decode(payload)
+                });
+            assert_eq!(&baseline.unwrap(), expected);
+            let demand = usage.total_allocated_bytes();
+            assert!(demand > 0);
+            for limit in [0, 1, demand - 1] {
+                let context = norito::core::DecodeBudgetContext::new(allocation_limits(
+                    demand.checked_mul(4).unwrap(),
+                ));
+                let error = context
+                    .with(|| {
+                        norito::core::with_decode_limits_measured(allocation_limits(limit), || {
+                            decode(payload)
+                        })
+                    })
+                    .0
+                    .expect_err("actual metadata reader must refuse its original inner limit");
+                let Some(norito::core::DecodeResourceError::TotalAllocationExceeded {
+                    attempted,
+                    limit: actual_limit,
+                }) = error.decode_resource_error()
+                else {
+                    panic!("metadata conversion erased original resource fields: {error:?}");
+                };
+                assert_eq!(actual_limit, u64::try_from(limit).unwrap());
+                assert!(attempted > actual_limit);
+                let before_retry = context.consumed_allocated_bytes();
+                assert_eq!(&context.with(|| decode(payload)).unwrap(), expected);
+                assert_eq!(
+                    context.consumed_allocated_bytes() - before_retry,
+                    u64::try_from(demand).unwrap()
+                );
+                assert_eq!(payload.as_ref().as_ptr(), source_pointer);
+            }
+        }
+
+        #[test]
+        fn multisig_spec_metadata_keeps_original_resource_fields_and_same_context_retry() {
+            let expected = sample_spec();
+            let payload = Json::try_new(expected.clone()).unwrap();
+            assert_metadata_refusal_and_retry(&payload, &expected, |value| {
+                MultisigSpec::try_from(value)
+            });
+        }
+
+        #[test]
+        fn multisig_proposal_metadata_keeps_original_resource_fields_and_same_context_retry() {
+            let expected = MultisigProposalValue::new(
+                vec![sample_instruction_box()],
+                1,
+                2,
+                BTreeSet::from([fixture_account(4)]),
+                Some(false),
+            );
+            let payload = Json::try_new(expected.clone()).unwrap();
+            assert_metadata_refusal_and_retry(&payload, &expected, |value| {
+                MultisigProposalValue::try_from(value)
+            });
+        }
+
+        #[test]
         fn multisig_metadata_values_support_bounded_json() {
             let spec = sample_spec();
             let encoded_spec = Json::try_new(spec.clone()).expect("bounded multisig spec JSON");
@@ -1086,9 +1155,12 @@ pub mod multisig {
                         .expect_err("the actual JSON decoder must honor its zero-allocation scope");
                     assert!(
                         matches!(
-                            error,
-                            norito::Error::Json(norito::json::Error::DecodeResourceLimit)
-                        ) || norito::core::decode_error_matches_active_limits(&error),
+                            error.decode_resource_error(),
+                            Some(norito::core::DecodeResourceError::TotalAllocationExceeded {
+                                limit: 0,
+                                ..
+                            })
+                        ),
                         "original JSON refusal was erased: {error:?}",
                     );
                 },
@@ -1100,10 +1172,7 @@ pub mod multisig {
             let malformed = Json::new(norito::json!({"UnknownMultisigVariant": {}}));
             let error = MultisigInstructionBox::try_from(&malformed)
                 .expect_err("unknown variants remain deterministic errors");
-            assert!(!matches!(
-                error,
-                norito::Error::Json(norito::json::Error::DecodeResourceLimit)
-            ));
+            assert!(error.decode_resource_error().is_none());
             assert!(!norito::core::decode_error_matches_active_limits(&error));
         }
         #[test]
@@ -1332,8 +1401,8 @@ pub mod multisig {
 
             use norito::json::{BoundedJsonError, JsonSerialize, JsonWriteSink};
 
-            pub(crate) const ORIGINAL_DEPTH: usize = 7;
-            pub(crate) struct OriginalSink {
+            pub const ORIGINAL_DEPTH: usize = 7;
+            pub struct OriginalSink {
                 pub(crate) text: String,
                 pub(crate) depth: usize,
                 cap: usize,
@@ -1384,7 +1453,7 @@ pub mod multisig {
                 }
             }
             /// Retain exact bytes/errors/depth on every byte cap and every actual entry refusal.
-            pub(crate) fn audit_write(
+            pub fn audit_write(
                 ordinary: &str,
                 write: impl Fn(&mut dyn JsonWriteSink) -> Result<(), BoundedJsonError>,
             ) {
@@ -1429,7 +1498,7 @@ pub mod multisig {
                 assert_eq!(retry.depth, ORIGINAL_DEPTH);
             }
             /// Observe the same owning object via ordinary and checked canonical writers.
-            pub(crate) fn audit<T: JsonSerialize + ?Sized>(value: &T) {
+            pub fn audit<T: JsonSerialize + ?Sized>(value: &T) {
                 let original = std::ptr::from_ref(value);
                 let mut ordinary = String::new();
                 value.json_serialize(&mut ordinary);

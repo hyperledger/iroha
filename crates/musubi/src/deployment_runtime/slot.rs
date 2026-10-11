@@ -279,22 +279,30 @@ impl DeploymentSlot {
         Ok(())
     }
 
-    /// Recover the exact active plan; historical completion never moves publication backward.
+    /// Recover the original reviewed plan; historical completion never moves publication backward.
     pub(crate) fn resume(
         &self,
         service: &DeploymentService,
         journal: &Path,
+        expected: &DeploymentPreflight,
         progress: &mut dyn FnMut(DeploymentProgress),
     ) -> Result<DeploymentReceipt> {
         self.admit_resume(service, journal)?;
-        let id = plan_journal_id(&self.authenticate(service, journal)?)?;
+        let retained = self.authenticate(service, journal)?;
+        retained.require_same_plan(expected)?;
+        let id = plan_journal_id(&retained)?;
         match self.read_state()? {
             Publication::Active { journal: active } if active == id => {
                 // Re-establish durable publication after a prior ambiguous directory sync.
                 self.write_state(&Publication::Active { journal: id })?;
                 self.revalidate()?;
+                #[cfg(test)]
+                resume_open_test_support::run();
                 let result = service
                     .resume(journal, &mut |event| {
+                        if let DeploymentProgress::Prepared(actual) = &event {
+                            actual.require_same_plan(expected)?;
+                        }
                         progress(event);
                         self.revalidate().map_err(DeploymentError::Journal)
                     })
@@ -308,7 +316,7 @@ impl DeploymentSlot {
             ),
             Publication::Active { .. } | Publication::Preparing { .. } => {
                 let receipt = service
-                    .completed_receipt(journal)
+                    .completed_receipt(journal, expected)
                     .map_err(|error| journal_failure(error, journal))?;
                 self.revalidate()?;
                 receipt.ok_or_else(|| eyre!("another deployment is active; unfinished recovery cannot replace its journal: {}", journal.display()))
@@ -322,13 +330,14 @@ impl DeploymentSlot {
         journal: &Path,
     ) -> Result<iroha_contract_deploy::DeploymentCancellation> {
         self.admit_resume(service, journal)?;
-        let id = plan_journal_id(&self.authenticate(service, journal)?)?;
+        let retained = self.authenticate(service, journal)?;
+        let id = plan_journal_id(&retained)?;
         if self.read_state()? != (Publication::Active { journal: id }) {
             bail!("only the exact active deployment may be cancelled in this slot");
         }
         self.revalidate()?;
         let cancellation = service
-            .cancel(journal)
+            .cancel(journal, &retained)
             .map_err(|error| journal_failure(error, journal))?;
         self.revalidate()?;
         Ok(cancellation)
@@ -349,8 +358,10 @@ impl DeploymentSlot {
         let same_input =
             retained.code_hash == request.code_hash && &retained.contract_alias == request.alias;
         let inspect = || {
+            self.authenticate(service, &journal)?
+                .require_same_plan(&retained)?;
             service
-                .inspect_journal(&journal)
+                .inspect_journal(&journal, &retained)
                 .map_err(|error| journal_failure(error, &journal))
         };
         let disposition = if same_input {
@@ -373,7 +384,7 @@ impl DeploymentSlot {
                 if request.prepare_only {
                     None
                 } else {
-                    Some(self.resume(service, &journal, progress)?)
+                    Some(self.resume(service, &journal, &retained, progress)?)
                 }
             }
             JournalDisposition::Pending { .. } => bail!(
@@ -381,7 +392,7 @@ impl DeploymentSlot {
                 journal.display()
             ),
             JournalDisposition::Completed(_) if same_input => Some(service
-                .current_completed_receipt(&journal)
+                .current_completed_receipt(&journal, &retained)
                 .map_err(|error| journal_failure(error, &journal))?
                 .ok_or_else(|| eyre!(
                     "completed deployment lost its authenticated receipt\nDeployment journal: {}",
@@ -459,5 +470,47 @@ impl DeploymentSlot {
         self.revalidate()?;
         self.write_state(&Publication::Active { journal: id })?;
         Ok(journal)
+    }
+}
+
+#[cfg(test)]
+pub(super) mod resume_open_test_support {
+    //! One-shot mutation at the actual authenticate-to-resume journal-open boundary.
+
+    use std::cell::RefCell;
+
+    thread_local! {
+        static BEFORE_OPEN: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
+    }
+
+    pub(super) fn run() {
+        let hook = BEFORE_OPEN.with(|slot| slot.borrow_mut().take());
+        if let Some(hook) = hook {
+            hook();
+        }
+    }
+
+    /// Run one scoped boundary mutation, clearing an unused hook on refusal or unwind.
+    pub(crate) fn with_before_open<R>(
+        hook: impl FnOnce() + 'static,
+        action: impl FnOnce() -> R,
+    ) -> R {
+        struct Reset;
+        impl Drop for Reset {
+            fn drop(&mut self) {
+                BEFORE_OPEN.with(|slot| {
+                    slot.borrow_mut().take();
+                });
+            }
+        }
+        BEFORE_OPEN.with(|slot| {
+            assert!(
+                slot.borrow().is_none(),
+                "resume-open fixture is already active"
+            );
+            *slot.borrow_mut() = Some(Box::new(hook));
+        });
+        let _reset = Reset;
+        action()
     }
 }

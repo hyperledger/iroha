@@ -1824,7 +1824,7 @@ fn sumeragi_amx_expiry_refusal_and_unwind_preserve_original_pending_graph() {
                 Ok(())
             })
             .expect_err("record refusal must preserve all original pending entries");
-        assert!(std::ptr::eq(error, &refusal));
+        assert!(std::ptr::eq(error, &raw const refusal));
         assert_eq!(observed, expected[..fail_at]);
         assert_eq!(state, before);
         assert_eq!(state.transactions.as_ptr(), original_pointer);

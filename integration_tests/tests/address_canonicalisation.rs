@@ -515,7 +515,7 @@ async fn accounts_listing_filter_rejects_dotted_i105_literals() -> Result<()> {
     let literal = dotted_i105_alice_literal();
     let reason = AccountId::parse_encoded(&literal)
         .expect_err("dotted I105 literal must fail strict parsing")
-        .reason()
+        .code_str()
         .to_string();
     let filter = format!(r#"{{"op":"eq","args":["id","{literal}"]}}"#);
     let http = http_client();
@@ -561,7 +561,7 @@ async fn accounts_query_rejects_dotted_i105_filter_literals() -> Result<()> {
     let literal = dotted_i105_alice_literal();
     let reason = AccountId::parse_encoded(&literal)
         .expect_err("dotted I105 literal must fail strict parsing")
-        .reason()
+        .code_str()
         .to_string();
     let body = format!(r#"{{"filter":{{"op":"eq","args":["id","{literal}"]}},"limit":4}}"#);
     let http = http_client();
@@ -685,7 +685,7 @@ async fn account_path_endpoints_reject_i105_literals() -> Result<()> {
     let literal = dotted_i105_alice_literal();
     let reason = AccountId::parse_encoded(&literal)
         .expect_err("dotted I105 literal must fail strict parsing")
-        .reason()
+        .code_str()
         .to_string();
     let http = http_client();
     let surfaces: [SurfaceSpec; 3] = [
@@ -737,7 +737,7 @@ async fn account_path_endpoints_reject_selector_prefixed_literals() -> Result<()
     let literal = selector_prefixed_literal();
     let rejection_reason = AccountId::parse_encoded(&literal)
         .expect_err("selector-prefixed literal must fail to parse")
-        .reason()
+        .code_str()
         .to_owned();
     let http = http_client();
     let surfaces: [SurfaceSpec; 3] = [
@@ -789,7 +789,7 @@ async fn account_path_endpoints_reject_public_key_literals() -> Result<()> {
     let literal = public_key_literal();
     let reason = AccountId::parse_encoded(&literal)
         .expect_err("public-key@domain literal must fail strict parsing")
-        .reason()
+        .code_str()
         .to_string();
     let http = http_client();
     let surfaces: [SurfaceSpec; 3] = [
@@ -894,7 +894,7 @@ async fn asset_holders_query_rejects_dotted_i105_filter_literals() -> Result<()>
     let literal = dotted_i105_alice_literal();
     let reason = AccountId::parse_encoded(&literal)
         .expect_err("dotted I105 literal must fail strict parsing")
-        .reason()
+        .code_str()
         .to_string();
     let body = format!(r#"{{"filter":{{"op":"eq","args":["account_id","{literal}"]}},"limit":4}}"#);
     let http = http_client();
@@ -1291,7 +1291,7 @@ async fn explorer_transactions_emit_i105_literals() -> Result<()> {
     };
     let dotted_i105_reason = AccountId::parse_encoded(&dotted_i105_filter)
         .expect_err("dotted I105 authority filter must fail strict parsing")
-        .reason()
+        .code_str()
         .to_string();
     let resp = http
         .get(dotted_i105_filter_url)
@@ -1406,7 +1406,7 @@ async fn explorer_instructions_emit_i105_literals() -> Result<()> {
     };
     let dotted_i105_reason = AccountId::parse_encoded(&dotted_i105_filter)
         .expect_err("dotted I105 authority filter must fail strict parsing")
-        .reason()
+        .code_str()
         .to_string();
     let resp = http
         .get(dotted_i105_filter_url)
@@ -1544,7 +1544,7 @@ async fn accounts_query_rejects_selector_prefixed_filter_literals() -> Result<()
     let literal = selector_prefixed_literal();
     let rejection_reason = AccountId::parse_encoded(&literal)
         .expect_err("selector-prefixed literal must fail to parse")
-        .reason()
+        .code_str()
         .to_owned();
     let body = format!(r#"{{"filter":{{"op":"eq","args":["id","{literal}"]}},"limit":4}}"#);
     let http = http_client();
@@ -1587,7 +1587,7 @@ async fn accounts_query_rejects_public_key_filter_literals() -> Result<()> {
     let literal = public_key_literal();
     let reason = AccountId::parse_encoded(&literal)
         .expect_err("public-key@domain literal must fail strict parsing")
-        .reason()
+        .code_str()
         .to_string();
     let body = format!(r#"{{"filter":{{"op":"eq","args":["id","{literal}"]}},"limit":4}}"#);
     let http = http_client();
@@ -1690,7 +1690,7 @@ async fn accounts_query_accepts_alias_and_rejects_dotted_i105_filter_literals() 
     let body = resp.text().await?;
     let reason = AccountId::parse_encoded(&i105_literal)
         .expect_err("dotted I105 literal must fail strict parsing")
-        .reason()
+        .code_str()
         .to_string();
     assert_eq!(
         status,
@@ -2001,7 +2001,7 @@ async fn kaigi_endpoints_emit_i105_literals() -> Result<()> {
     let body = detail_resp.text().await?;
     let reason = AccountId::parse_encoded(&noncanonical_relay_literal)
         .expect_err("dotted I105 relay literal must fail strict parsing")
-        .reason()
+        .code_str()
         .to_string();
     assert!(
         body.contains(&reason),

@@ -331,6 +331,9 @@ Checkpoint export and canonical encoding bounds checks each share exact immutabl
 within that one producer call. Export still verifies the fresh witness, certificate and retained
 decisions; encoding still checks every bound. The workspace ends before return or serialization,
 and active decode owners retain their original independent validation and allocation charges.
+Current attestation validation also shares pure epoch work across its ordered genesis and tip
+proof checks within one call. Both proofs, certificates and runtime bindings remain mandatory;
+active decode owners retain both independent decodes and their original charges and refusals.
 Catalog startup retains each native-selected predecessor component before renewal and reconciles
 an already-applied original renewal before strict current-use rendering. Initial startup and
 purpose-closed renewal authorization share one finite epoch/claim owner. A later owned turn may
@@ -362,6 +365,11 @@ Every mutable record read, decoder and full graph check remains independent of w
 Both scopes close native ownership on ordinary errors; a directory change restored entirely
 inside a scope may be unobserved. Active decode budgets and reads without a tree retain their
 original scope sequence.
+For the exact immutable snapshot layout, the root inventory and its adjacent Original and
+anchor reads share one native scope. The external selection reference remains independently
+checked, and the enclosing tree still closes on every ordinary result. Active budgets and
+custom layouts keep their independent root checks; root changes restored entirely inside
+the combined scope may be unobserved.
 Within the complete read-only graph traversal, a separate borrowed capability covers only an
 exact body's immutable Original already checked by the enclosing snapshot entry and exit.
 Persistent source failure at exit supersedes any ordinary inner result; a change restored

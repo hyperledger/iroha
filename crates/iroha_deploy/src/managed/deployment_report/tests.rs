@@ -127,6 +127,46 @@ fn global_report_preserves_service_receipt_without_parent_observation() {
 }
 
 #[test]
+fn lifecycle_guidance_keeps_applied_receipt_and_original_journal_unchanged() {
+    let _guard = super::super::native_test_guard();
+    let (_temporary, _store, target) = global_fixture();
+    let original = receipt(&target);
+    let original_json = original.to_json().unwrap();
+    for recovered in [false, true] {
+        let mut report = target
+            .finish_with(original.clone(), "original-journal".into(), || {
+                panic!("no parent")
+            })
+            .unwrap();
+        report.lifecycle = Some(
+            iroha_contract_deploy::LifecycleHook {
+                name: "hajimari".into(),
+                params: vec![iroha_contract_deploy::LifecycleParameter {
+                    name: "start".into(),
+                    type_name: "int".into(),
+                }],
+            }
+            .guidance(recovered),
+        );
+        let json = report.to_json().unwrap();
+        assert_eq!(
+            json.get("status").and_then(|value| value.as_str()),
+            Some("applied")
+        );
+        assert_eq!(json.get("receipt"), Some(&original_json));
+        assert_eq!(
+            json.get("journal").and_then(|value| value.as_str()),
+            Some("original-journal")
+        );
+        assert_eq!(
+            json.get("lifecycle").unwrap(),
+            &norito::json::to_value(report.lifecycle.as_ref().unwrap()).unwrap()
+        );
+        assert_eq!(report.execution_summary(), "Applied on localnet local");
+    }
+}
+
+#[test]
 fn signed_private_capture_keeps_local_applied_when_generation_changes() {
     let _guard = super::super::native_test_guard();
     let (_temporary, store, target) = private_fixture();

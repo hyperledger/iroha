@@ -14,9 +14,11 @@ mod retained_musubi;
 mod retained_musubi_group;
 #[path = "publication/retained_rows.rs"]
 mod retained_rows;
+#[cfg(test)]
 pub(super) use retained_musubi::RetainedPackageReadError;
 #[cfg(test)]
 pub(super) use retained_musubi::retained_package_control_layout_for_test;
+#[cfg(test)]
 pub(super) use retained_musubi_group::RetainedMusubiGroupReadError;
 #[cfg(test)]
 pub(super) use retained_musubi_group::retained_musubi_group_control_layout_for_test;

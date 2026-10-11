@@ -14534,7 +14534,12 @@ mod tests {
         })
         .unwrap_err();
         assert!(
-            matches!(producer, norito::json::Error::DecodeResourceLimit),
+            matches!(
+                producer,
+                norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                )
+            ),
             "{producer:?}"
         );
         let parser =
@@ -14543,7 +14548,9 @@ mod tests {
         assert!(
             matches!(
                 parser.downcast_ref::<norito::json::Error>(),
-                Some(norito::json::Error::DecodeResourceLimit)
+                Some(norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                ))
             ),
             "{parser:?}"
         );
@@ -14554,7 +14561,9 @@ mod tests {
         assert!(
             matches!(
                 capacity.downcast_ref::<norito::json::Error>(),
-                Some(norito::json::Error::DecodeResourceLimit)
+                Some(norito::json::Error::DecodeResource(
+                    norito::core::DecodeResourceError::TotalAllocationExceeded { .. }
+                ))
             ),
             "{capacity:?}"
         );

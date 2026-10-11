@@ -7,8 +7,9 @@ use crate::archive_fetch::PreparedProductionSorafsArchiveTransportV1;
 use eyre::{Result, WrapErr as _, bail, eyre};
 use iroha::config::Config;
 use iroha_contract_deploy::{
-    DeploymentError, DeploymentPreflight, DeploymentProgress, DeploymentReceipt, DeploymentRequest,
-    DeploymentService, JournalDisposition, MAX_DEPLOYMENT_ARTIFACT_BYTES, PreparedDeployment,
+    DeploymentError, DeploymentLifecycleGuidance, DeploymentPreflight, DeploymentProgress,
+    DeploymentReceipt, DeploymentRequest, DeploymentService, JournalDisposition, LifecycleHook,
+    MAX_DEPLOYMENT_ARTIFACT_BYTES, PreparedDeployment,
 };
 use iroha_data_model::{
     account::address::ChainDiscriminantGuard, smart_contract::ContractAlias,
@@ -186,6 +187,7 @@ pub struct BuiltArtifact {
     bytes: Vec<u8>,
     name: String,
     code_hash: iroha::crypto::Hash,
+    lifecycle_hook: Option<LifecycleHook>,
 }
 impl BuiltArtifact {
     /// Verify complete artifact bytes and retain their canonical contract name.
@@ -214,6 +216,7 @@ impl BuiltArtifact {
             bytes,
             name,
             code_hash: verified.code_hash,
+            lifecycle_hook: LifecycleHook::from_verified(&verified),
         })
     }
 
@@ -250,6 +253,8 @@ pub struct DeploymentRun {
     pub receipt: DeploymentReceipt,
     /// Exact journal used for this operation.
     pub journal: PathBuf,
+    /// Optional artifact-derived guidance; it never asserts the current lifecycle state.
+    pub lifecycle: Option<DeploymentLifecycleGuidance>,
 }
 
 /// Lazy exact registry configuration and archive policy supplied by the environment owner.
@@ -438,8 +443,10 @@ impl DeploymentRuntime {
             return Ok(DeploymentRun {
                 receipt,
                 journal: retained.journal,
+                lifecycle: artifact.lifecycle_hook.map(|hook| hook.guidance(true)),
             });
         }
+        let lifecycle = artifact.lifecycle_hook.map(|hook| hook.guidance(false));
         let prepared = service.prepare(&DeploymentRequest {
             artifact: artifact.bytes,
             alias,
@@ -449,7 +456,11 @@ impl DeploymentRuntime {
         review(prepared.preflight())?;
         let journal = session.persist(&service, &prepared)?;
         let receipt = session.execute(&service, &prepared, &journal, progress)?;
-        Ok(DeploymentRun { receipt, journal })
+        Ok(DeploymentRun {
+            receipt,
+            journal,
+            lifecycle,
+        })
     }
 
     /// Recover the exact retained plan without compiling, signing replacements or replaying.
@@ -500,11 +511,18 @@ impl DeploymentRuntime {
             &plan_journal_id(&retained_preflight)?,
         )?;
         let receipt = after_review(&retained_preflight, review, || {
-            session.resume(&service, &retained, progress)
+            session.resume(&service, &retained, &retained_preflight, progress)
         })?;
+        // Guidance is a separate read-only convenience. Its failure cannot erase Applied.
+        let lifecycle = service
+            .retained_lifecycle_hook(&retained, receipt.code_hash)
+            .ok()
+            .flatten()
+            .map(|hook| hook.guidance(true));
         Ok(DeploymentRun {
             receipt,
             journal: retained,
+            lifecycle,
         })
     }
 
@@ -978,6 +996,55 @@ private_key = "802620CCF31D85E3B32A4BEA59987CE0C78E3B8E2DB93881468AB2435FE45D5C9
         assert!(!temp.path().join("journals").exists());
         assert!(!temp.path().join("explicit-build-cache").exists());
         assert!(!temp.path().join("Musubi.lock").exists());
+        Ok(())
+    }
+
+    #[test]
+    fn source_bytecode_and_package_keep_the_same_canonical_lifecycle_guidance() -> Result<()> {
+        let temp = TempDir::new()?;
+        let source = temp.path().join("counter.ko");
+        fs::write(
+            &source,
+            "seiyaku Counter { state int value; 始まり(int start) { value = start; } view fn current() authorize(anyone) -> int { return value; } }",
+        )?;
+        let runtime = DeploymentRuntime::new(
+            config(),
+            temp.path().join("journals"),
+            temp.path().join("cache"),
+        );
+        let built = runtime.build(&ContractInput::from_path(&source, None, None, false)?)?;
+        let bytecode = temp.path().join("counter.to");
+        fs::write(&bytecode, built.bytes())?;
+        let loaded = runtime.build(&ContractInput::from_path(&bytecode, None, None, false)?)?;
+        fs::write(
+            temp.path().join("Musubi.toml"),
+            r#"manifest-version = 1
+[package]
+namespace = "demo"
+name = "counter"
+version = "0.1.0"
+edition = "1"
+abi-version = 1
+[[contract]]
+name = "counter"
+path = "counter.ko"
+"#,
+        )?;
+        let packaged = runtime.build(&ContractInput::from_path(temp.path(), None, None, false)?)?;
+        let expected = Some(LifecycleHook {
+            name: "hajimari".into(),
+            params: vec![iroha_contract_deploy::LifecycleParameter {
+                name: "start".into(),
+                type_name: "int".into(),
+            }],
+        });
+        for artifact in [built, loaded, packaged] {
+            assert_eq!(artifact.lifecycle_hook, expected);
+            let hook = artifact.lifecycle_hook.unwrap();
+            assert!(!hook.clone().guidance(false).recovered);
+            assert!(hook.guidance(true).recovered);
+        }
+        assert!(!temp.path().join("journals").exists());
         Ok(())
     }
 

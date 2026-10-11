@@ -111,10 +111,10 @@ impl TerminalSelection<'_> {
     }
 }
 
+#[cfg(test)]
 impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
     // One actual completed target observation; the test callback can apply real pool pressure
     // but cannot replace a carrier, result, source or verifier outcome.
-    #[cfg(test)]
     pub(crate) fn probe_terminal_target_once(
         &mut self,
         observe: impl FnOnce(&CommittedBlock) + Send + Sync + 'v,
@@ -125,7 +125,9 @@ impl<'v, V: StateReadOnly + ?Sized> CertifiedChain<'v, V> {
         *self.terminal_probe.get_mut() = Some(Box::new(observe));
         Ok(())
     }
+}
 
+impl<V: StateReadOnly + ?Sized> CertifiedChain<'_, V> {
     #[cfg(test)]
     pub(crate) fn terminal_target_for_test(&self) -> Option<&CommittedBlock> {
         self.terminal

@@ -1222,9 +1222,16 @@ the installed repair without proof or entropy execution
 independent review SHA
 `a59de5a32838dc35af919bdbdebfa7ccbc021529dee98b9fc39c7cc8ffc93582`).
 These are finite diagnostic bounds; the canonical descriptor limit remains
-65,535 columns. The full regression has not been rerun after the changes.
-Actual large A1 construction remains unexecuted, and unchanged
-inner recursive constants cannot supply coherent recursive authority.
+65,535 columns. The full maintained regression now passes all 100 controls and
+14 small k6 reference proofs with no failures, errors or skips (142.45 s). Its
+source/interpreter pins remain unchanged (`target/qualification/setup-current-source-controls-2`,
+result SHA `3a1d68c6ea2f92aabce9a109ab3812c58171e6da27bc2e74bffbdacfb6845efd`).
+Before execution, an exact old/current source review updated the stale commitment
+pin for the bounded-prefix helper and test-only observation changes; existing
+non-probe bodies remain byte-identical. The initial source refusal is retained.
+This establishes diagnostic regression results, not operational equivalence,
+current setup authority or C12. Actual large A1 construction remains unexecuted,
+and unchanged inner recursive constants cannot supply coherent recursive authority.
 
 ## Executable checks and remaining review
 
