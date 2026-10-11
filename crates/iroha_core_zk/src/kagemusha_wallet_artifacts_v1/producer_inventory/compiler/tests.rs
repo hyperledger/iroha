@@ -347,3 +347,29 @@ fn indexed_original_reuse_requires_complete_source_import_on_both_curves() {
     indexed_original_reuse::<Ep>();
     indexed_original_reuse::<Eq>();
 }
+
+fn changed_source_regenerates<C: PastaCurve>() {
+    let mut disk = Memory::default();
+    let params = PinnedParams::<C>::derive(8).unwrap();
+    let cfg = config(vec![InstanceType::Bounded], false, limits());
+    let mut compiler = OfflineCompilerV1::new(scope(), &mut disk, limits(), 1 << 30).unwrap();
+    let previous = compiler
+        .key(&Tiny(C::ScalarExt::ONE), &params, &cfg)
+        .unwrap();
+    drop(compiler);
+    let count = disk.blobs.len();
+    let mut compiler = OfflineCompilerV1::new(scope(), &mut disk, limits(), 1 << 30).unwrap();
+    compiler.index_original(previous.original).unwrap();
+    let changed = compiler
+        .key(&Tiny(C::ScalarExt::from(3)), &params, &cfg)
+        .unwrap();
+    assert_ne!(changed.original, previous.original);
+    drop(compiler);
+    assert!(disk.blobs.len() > count);
+}
+
+#[test]
+fn indexed_original_reuse_regenerates_changed_source_on_both_curves() {
+    changed_source_regenerates::<Ep>();
+    changed_source_regenerates::<Eq>();
+}

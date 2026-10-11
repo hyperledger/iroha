@@ -47,6 +47,30 @@ contains the verifier pack, producer inventory, transport and financial-original
 metadata, and the closed `wallet-originals` directory. Provisional compiler
 originals are excluded from the carrier.
 
+To reuse a previous carrier's originals, pass
+`--reuse-candidates /absolute/private/inputs/candidates.json`. The closed JSON
+has `schema: "iroha.kagemusha.wallet-artifact-candidates.v1"`,
+`carrier_directory`, `scheme_id_hex`, `manifest_digest_hex`,
+`verifier_pack_sha256` and `producer_inventory_sha256`. The four digest values
+are nonzero lowercase 64-digit hex strings. Its paths and file protections follow
+the same rules as the production request.
+
+The command authenticates the pinned pack and canonical catalog, and indexes
+each exact protected original through the shared compiler. Candidates remain
+read-only in their existing directory. A matching source fingerprint still
+requires complete current-source import; a changed fingerprint generates a new
+key in this run's cache. A missing or changed named candidate is an error, never
+a reason to fall back to another copy. Only the final selected roster is copied
+to the new carrier. The output retains the candidate request, pack and catalog.
+Candidate input grants no installation or finality authority. A new network
+still requires its genuine signed genesis and newly signed scheme metadata.
+
+For read-only compatibility diagnosis, run
+`kagemusha_wallet_artifacts --inspect-sources /absolute/carrier SCHEME_HEX MANIFEST_HEX`.
+It authenticates the selected pack and catalog, imports every sigma, Q program
+and operation route, and checks the complete Omega closure. It does not admit
+genesis, a wallet runtime or financial execution.
+
 ## Native Load Finality
 
 `GET /v1/kagemusha/{scheme}/wallets/{wallet}/loads/{request}/finality` requires
