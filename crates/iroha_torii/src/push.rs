@@ -285,6 +285,7 @@ impl AppliedBlockCursor {
 }
 #[derive(Debug)]
 enum PushReplayError {
+    AwaitingGenesisSuccessor,
     Deferred(ExecutionDeferred),
     Backpressure {
         height: u64,
@@ -817,6 +818,16 @@ impl PushBridge {
         if current_height >= target_height {
             return Ok(());
         }
+        // Native genesis execution needs the real H2 anchor. A height observation
+        // grants no authority: defer source verification until that successor is
+        // stably published, then authenticate the unchanged complete native prefix.
+        // Idle chains produce no blocks, so bootstrap must remain cancellable.
+        if !cfg!(all(test, sumeragi_torii_mutation = "TOR5"))
+            && authoritative_height == 1
+            && target_height == 1
+        {
+            return Err(PushReplayError::AwaitingGenesisSuccessor);
+        }
         let first_height = current_height.checked_add(1).ok_or_else(|| {
             PushReplayError::Fatal(PushError::Storage(
                 "push applied-block cursor height overflowed".to_owned(),
@@ -842,6 +853,11 @@ impl PushBridge {
         }
         if cursor.height == 0 {
             return Ok(());
+        }
+        if authoritative_height == 1 {
+            return Err(PushError::Storage(
+                "push applied-block cursor cannot be published before genesis has a committed successor".into(),
+            ).into());
         }
         if read.cursor_is_verified(&cursor)? {
             return Ok(());
@@ -1518,6 +1534,14 @@ async fn replay_with_queue_drain_observed(
         match result {
             Ok(()) => return Ok(PushReplayOutcome::Complete),
             Err(PushReplayError::Fatal(error)) => return Err(error),
+            Err(PushReplayError::AwaitingGenesisSuccessor) => {
+                tokio::select! {
+                    () = shutdown_signal.receive() => {
+                        return Ok(PushReplayOutcome::StoppedByShutdown);
+                    },
+                    () = state.wait_for_committed_height(2) => {}
+                }
+            }
             Err(PushReplayError::Deferred(reason)) => {
                 // Mutation restores only the old current-read abandonment. The
                 // original typed refusal and its exact release cut remain unchanged.
@@ -2807,6 +2831,405 @@ mod tests {
         }
         chain
     }
+    fn native_push_genesis_config() -> iroha_core::sumeragi::test_chain::TestChainConfig {
+        use iroha_core::{state::World, sumeragi::test_chain::TestChainConfig};
+        use iroha_data_model::prelude::{Account, Register};
+        let mut config = TestChainConfig::new(World::new(), 1_000);
+        let account = AccountId::parse_encoded(TEST_ACCOUNT_I105).expect("fixture account");
+        config
+            .genesis_instructions
+            .push(Register::account(Account::new(account)).into());
+        config
+    }
+
+    /// Only H2's schedule, captured from genuinely replayed G1 before H2 is supplied.
+    struct RestartedPushGenesisSchedule {
+        instance: iroha_sumeragi::types::Hash32,
+        config: iroha_sumeragi::types::HeightConfig,
+    }
+    impl iroha_core::sumeragi::availability_schedule::AvailabilitySchedule
+        for RestartedPushGenesisSchedule
+    {
+        fn instance(&self) -> iroha_sumeragi::types::Hash32 {
+            self.instance
+        }
+        fn height_config(
+            &self,
+            height: u64,
+        ) -> Result<Option<iroha_sumeragi::types::HeightConfig>, ExecutionAttemptError<io::Error>>
+        {
+            Ok((height == 2).then(|| self.config.clone()))
+        }
+    }
+
+    /// Re-execute the original stored genesis into a new State/pool, then replay real H2.
+    struct RestartedPushGenesis {
+        state: Arc<State>,
+        kura: Arc<Kura>,
+        blocks: iroha_core::sumeragi::block_store::KuraBlockStore,
+        executor: iroha_core::sumeragi::executor::StateExecutor,
+    }
+    impl RestartedPushGenesis {
+        fn new(source: &iroha_core::sumeragi::test_chain::CertifiedTestChain) -> Self {
+            use iroha_core::{
+                state::{StateReadOnly as _, WorldReadOnly as _},
+                sumeragi::{
+                    block_store::{KuraBlockStore, Staging},
+                    crypto::BlsCrypto,
+                    executor::{ExecutorContext, StateExecutor},
+                    startup,
+                    test_chain::CertifiedTestChain,
+                },
+            };
+            let prepared = CertifiedTestChain::prepare(native_push_genesis_config()).unwrap();
+            let state = prepared.state;
+            let kura = prepared.kura;
+            assert_eq!(state.committed_height(), 0);
+            assert_eq!(kura.blocks_count(), 0);
+            let original = source.committed(1);
+            assert_eq!(
+                prepared.genesis.expected_hash(),
+                source.validated_genesis().expected_hash()
+            );
+            kura.store_block(original.block().clone()).unwrap();
+            let (genesis, certificate, stored_tip) =
+                startup::stored_genesis(&state).unwrap().unwrap();
+            let instance = iroha_core::sumeragi::node::root_instance(
+                &genesis,
+                &state.chain_id_ref().to_string(),
+            )
+            .unwrap();
+            assert_eq!(instance, source.instance());
+            let genesis_account = AccountId::new(prepared.genesis.public_key().clone());
+            let consensus_mode = prepared.genesis.consensus_metadata().mode.into();
+            let tip = startup::apply_genesis(
+                &state,
+                genesis,
+                &genesis_account,
+                consensus_mode,
+                Some(&certificate),
+            )
+            .unwrap();
+            assert_eq!(tip.block_hash, stored_tip.block_hash);
+            assert_eq!(tip.result, stored_tip.result);
+            assert_eq!(state.committed_height(), 1);
+
+            // Authority comes only from the independently re-executed G1 State.
+            // This fixture admits H2 only, not a caller-selected historical schedule.
+            let scheduled = state
+                .view()
+                .world()
+                .consensus_schedule()
+                .ready(2)
+                .unwrap()
+                .clone();
+            let crypto = Arc::new(BlsCrypto::new());
+            crypto
+                .admit_committee(scheduled.epoch.committee.iter().map(|member| {
+                    (
+                        member.validator.public_key(),
+                        member.proof_of_possession.as_slice(),
+                    )
+                }))
+                .unwrap();
+            let schedule = Arc::new(RestartedPushGenesisSchedule {
+                instance,
+                config: scheduled.height_config().unwrap(),
+            });
+            let staging = Staging::new();
+            let blocks = KuraBlockStore::new(
+                Arc::clone(&kura),
+                crypto.clone(),
+                startup::GENESIS_HEIGHT,
+                staging.clone(),
+                state.ivm_execution_budget(),
+                schedule,
+            );
+            let (events, _) = tokio::sync::broadcast::channel(16);
+            let executor = StateExecutor::spawn(ExecutorContext {
+                state: Arc::clone(&state),
+                native_context_archive: Arc::new(
+                    iroha_core::query::native_context_archive::NativeContextArchive::open(
+                        state.kura(),
+                        state.ivm_execution_budget(),
+                        state.kura().native_context_archive_max_bytes(),
+                    )
+                    .unwrap(),
+                ),
+                queue: None,
+                staging,
+                events,
+                genesis_account,
+                consensus_mode,
+                applied: (1, tip.block_hash),
+                crypto: Some(crypto),
+                applied_watch: Arc::new(iroha_core::sumeragi::lanes::global::AppliedWatch::new(
+                    1,
+                    state.view().latest_block_hash(),
+                )),
+                lane_blocks: prepared.lane_blocks,
+            })
+            .unwrap();
+            Self {
+                state,
+                kura,
+                blocks,
+                executor,
+            }
+        }
+
+        fn replay_successor(
+            &mut self,
+            source: &iroha_core::sumeragi::test_chain::CertifiedTestChain,
+        ) {
+            assert_eq!(self.state.committed_height(), 1);
+            assert_eq!(source.height(), 2);
+            self.kura
+                .store_block(source.committed(2).block().clone())
+                .unwrap();
+            let (body, certificate) = self.blocks.committed_body(2).unwrap().unwrap();
+            assert!(body.admitted_to(&self.state.ivm_execution_budget()));
+            self.executor.replay(&body, &certificate).unwrap();
+            assert_eq!(self.state.committed_height(), 2);
+        }
+    }
+
+    #[tokio::test]
+    async fn push_worker_genesis_bootstrap_waits_for_authenticated_successor_and_shutdown() {
+        use iroha_core::sumeragi::test_chain::CertifiedTestChain;
+        for restarted in [false, true] {
+            for publish_successor in [false, true] {
+                let mut chain = CertifiedTestChain::start(native_push_genesis_config()).unwrap();
+                let mut replayed = restarted.then(|| RestartedPushGenesis::new(&chain));
+                let state = Arc::clone(
+                    replayed
+                        .as_ref()
+                        .map_or(chain.state(), |owner| &owner.state),
+                );
+                assert_eq!(state.committed_height(), 1);
+                assert_eq!(state.exact_durable_block_count().unwrap(), 1);
+                let temp = tempfile::tempdir().unwrap();
+                let dispatcher = Arc::new(MockDispatcher::new(vec![DispatchOutcome::Sent]));
+                let bridge = PushBridge::with_dispatcher_and_limits_in(
+                    test_bridge_config(),
+                    dispatcher.clone(),
+                    test_storage_limits(1, 1),
+                    temp.path().to_path_buf(),
+                )
+                .unwrap();
+                bridge
+                    .register_device(register_request("genesis-bootstrap"))
+                    .unwrap();
+                let cursor_before = fs::read(bridge.applied_block_cursor_path()).unwrap();
+                let pool = state.ivm_execution_budget();
+                let before_worker = pool.reserved_bytes();
+                // Deliberately send no Push events: State publication must wake bootstrap.
+                let (events, _) = tokio::sync::broadcast::channel(4);
+                let shutdown = ShutdownSignal::new();
+                let mut worker = bridge
+                    .start_event_worker(Arc::clone(&state), events.clone(), shutdown.clone())
+                    .unwrap()
+                    .unwrap();
+                let parked = tokio::time::timeout(Duration::from_millis(20), &mut worker).await;
+                assert!(
+                    parked.is_err(),
+                    "applied G1 worker must remain parked until its actual successor or shutdown; restarted={restarted}, got {parked:?}"
+                );
+                let waiting_cursor = bridge.applied_block_cursor.lock().clone();
+                let waiting_disk = fs::read(bridge.applied_block_cursor_path()).unwrap();
+                let waiting_queue = bridge.queued_count();
+                let waiting_calls = dispatcher.calls.lock().unwrap().len();
+                let progress = if publish_successor {
+                    // The fixture supplies an actual signed clock Log transaction, not an empty block.
+                    chain.commit(Vec::new());
+                    if let Some(owner) = replayed.as_mut() {
+                        owner.replay_successor(&chain);
+                    }
+                    tokio::time::timeout(Duration::from_secs(10), async {
+                        while bridge.applied_block_cursor.lock().height != 2 {
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await
+                } else {
+                    Ok(())
+                };
+                shutdown.send();
+                let exit = worker.await.unwrap();
+                assert_eq!(exit, crate::ToriiCriticalWorkerExit::StoppedByShutdown);
+                assert_eq!(waiting_cursor, AppliedBlockCursor::origin());
+                assert_eq!(
+                    waiting_disk, cursor_before,
+                    "bootstrap wait must not publish a cursor"
+                );
+                assert_eq!(waiting_queue, 0);
+                assert_eq!(waiting_calls, 0, "bootstrap wait must not dispatch");
+                assert!(
+                    progress.is_ok(),
+                    "authentic successor must wake the original worker without a Push event"
+                );
+                let cursor = bridge.applied_block_cursor.lock().clone();
+                if publish_successor {
+                    assert_eq!(cursor.height, 2);
+                    assert_eq!(cursor.block_hash, Some(chain.committed(2).block_hash()));
+                    assert_eq!(
+                        read_json::<AppliedBlockCursor>(
+                            &bridge.applied_block_cursor_path(),
+                            MAX_PUSH_APPLIED_BLOCK_CURSOR_BYTES
+                        )
+                        .unwrap(),
+                        cursor
+                    );
+                    let native = state_block_at_height(&state, 1).unwrap();
+                    assert_eq!(
+                        native.encode_wire().unwrap(),
+                        chain.committed(1).block().encode_wire().unwrap()
+                    );
+                    assert_eq!(
+                        bridge.queued_count() + dispatcher.calls.lock().unwrap().len(),
+                        1,
+                        "the original genesis activity appears exactly once after full authentication"
+                    );
+                } else {
+                    assert_eq!(cursor, AppliedBlockCursor::origin());
+                    assert_eq!(
+                        fs::read(bridge.applied_block_cursor_path()).unwrap(),
+                        cursor_before
+                    );
+                    assert_eq!(bridge.queued_count(), 0);
+                    assert_eq!(dispatcher.calls.lock().unwrap().len(), 0);
+                    assert_eq!(
+                        pool.reserved_bytes(),
+                        before_worker,
+                        "parked cancellation refunds original retry control"
+                    );
+                }
+                drop(events);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn push_worker_genesis_bootstrap_rejects_corrupt_history_and_nonzero_cursor() {
+        use iroha_core::sumeragi::test_chain::CertifiedTestChain;
+        for missing in [false, true] {
+            let mut chain = CertifiedTestChain::start(native_push_genesis_config()).unwrap();
+            let state = Arc::clone(chain.state());
+            let temp = tempfile::tempdir().unwrap();
+            let dispatcher = Arc::new(MockDispatcher::new(Vec::new()));
+            let bridge = PushBridge::with_dispatcher_and_limits_in(
+                test_bridge_config(),
+                dispatcher.clone(),
+                test_storage_limits(1, 1),
+                temp.path().to_path_buf(),
+            )
+            .unwrap();
+            bridge
+                .register_device(register_request("untrusted-genesis"))
+                .unwrap();
+            let cursor_before = fs::read(bridge.applied_block_cursor_path()).unwrap();
+            let (events, _) = tokio::sync::broadcast::channel(4);
+            let shutdown = ShutdownSignal::new();
+            let mut worker = bridge
+                .start_event_worker(Arc::clone(&state), events.clone(), shutdown.clone())
+                .unwrap()
+                .unwrap();
+            let parked = tokio::time::timeout(Duration::from_millis(20), &mut worker).await;
+            assert!(
+                parked.is_err(),
+                "applied G1 worker must remain parked before adversarial successor delivery; got {parked:?}"
+            );
+            // This test uses Tokio's current-thread runtime. Publish synchronously, then
+            // corrupt the actual original journal before the woken Push worker can poll.
+            chain.commit(Vec::new());
+            let path = Kura::canonical_storage_path(&chain.kura().store_root()).join("blocks.data");
+            let original = fs::read(&path).unwrap();
+            let saved = path.with_extension("genesis-bootstrap-original");
+            if missing {
+                fs::rename(&path, &saved).unwrap();
+            } else {
+                let mut corrupt = original.clone();
+                corrupt[0] ^= 0xff;
+                fs::write(&path, corrupt).unwrap();
+            }
+            let terminal = tokio::time::timeout(Duration::from_secs(10), &mut worker).await;
+            if missing {
+                fs::rename(&saved, &path).unwrap();
+            } else {
+                fs::write(&path, &original).unwrap();
+            }
+            shutdown.send();
+            let exit = match terminal {
+                Ok(exit) => exit.unwrap(),
+                Err(_) => worker.await.unwrap(),
+            };
+            assert_eq!(
+                exit,
+                crate::ToriiCriticalWorkerExit::UnexpectedExit,
+                "successor notification supplies no authority for corrupt or missing history"
+            );
+            assert_eq!(
+                *bridge.applied_block_cursor.lock(),
+                AppliedBlockCursor::origin()
+            );
+            assert_eq!(
+                fs::read(bridge.applied_block_cursor_path()).unwrap(),
+                cursor_before
+            );
+            assert_eq!(bridge.queued_count(), 0);
+            assert_eq!(dispatcher.calls.lock().unwrap().len(), 0);
+            drop(events);
+        }
+        let chain = CertifiedTestChain::start(native_push_genesis_config()).unwrap();
+        for cursor in [
+            AppliedBlockCursor {
+                version: APPLIED_BLOCK_CURSOR_VERSION,
+                height: 1,
+                block_hash: Some(chain.committed(1).block_hash()),
+            },
+            AppliedBlockCursor {
+                version: APPLIED_BLOCK_CURSOR_VERSION,
+                height: 2,
+                block_hash: Some(chain.committed(1).block_hash()),
+            },
+            AppliedBlockCursor {
+                version: APPLIED_BLOCK_CURSOR_VERSION,
+                height: 0,
+                block_hash: Some(chain.committed(1).block_hash()),
+            },
+            AppliedBlockCursor {
+                version: APPLIED_BLOCK_CURSOR_VERSION + 1,
+                height: 0,
+                block_hash: None,
+            },
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let bridge =
+                PushBridge::new_in(test_bridge_config(), temp.path().to_path_buf()).unwrap();
+            *bridge.applied_block_cursor.lock() = cursor.clone();
+            let (events, _) = tokio::sync::broadcast::channel(4);
+            let shutdown = ShutdownSignal::new();
+            let mut worker = bridge
+                .start_event_worker(Arc::clone(chain.state()), events.clone(), shutdown.clone())
+                .unwrap()
+                .unwrap();
+            let terminal = tokio::time::timeout(Duration::from_secs(10), &mut worker).await;
+            shutdown.send();
+            let exit = match terminal {
+                Ok(exit) => exit.unwrap(),
+                Err(_) => worker.await.unwrap(),
+            };
+            assert_eq!(
+                exit,
+                crate::ToriiCriticalWorkerExit::UnexpectedExit,
+                "non-origin or corrupt cursor cannot wait on a genesis-only State"
+            );
+            assert_eq!(*bridge.applied_block_cursor.lock(), cursor);
+            assert_eq!(bridge.queued_count(), 0);
+            drop(events);
+        }
+    }
+
     fn pristine_push_state(kura: Arc<Kura>) -> Arc<State> {
         Arc::new(State::new_for_testing(
             iroha_core::state::World::new(),

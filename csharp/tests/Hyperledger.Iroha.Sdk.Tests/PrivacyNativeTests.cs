@@ -20,7 +20,7 @@ public sealed class PrivacyNativeTests
     [Fact]
     public void ExactClosedRegistryIsStable()
     {
-        Assert.Equal(27U, PrivacyNative.RequiredBridgeAbiVersion);
+        Assert.Equal(29U, PrivacyNative.RequiredBridgeAbiVersion);
         Assert.Equal(typeof(uint), Enum.GetUnderlyingType(typeof(PrivacyProtocolIdV1)));
         Assert.Equal(12, PrivacyProtocolsV1.All.Count);
         Assert.Equal(Expected, PrivacyProtocolsV1.All.Select(value => value.CanonicalLabel()));

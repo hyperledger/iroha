@@ -75,7 +75,7 @@ fn transaction_result_fee_receipt_fixture() -> NexusFeeReceipt {
 }
 
 #[test]
-fn transaction_result_fee_receipt_uses_three_mandatory_tuple_frames() {
+fn transaction_result_fee_receipt_uses_four_mandatory_tuple_frames() {
     for receipt in [None, Some(transaction_result_fee_receipt_fixture())] {
         let mut result = TransactionResult::new(Ok(DataTriggerSequence::default()));
         result.set_nexus_fee_receipt(receipt);
@@ -89,6 +89,7 @@ fn transaction_result_fee_receipt_uses_three_mandatory_tuple_frames() {
                 norito::codec::encode_with_header_flags(&result.0).0,
                 norito::codec::encode_with_header_flags(&result.1).0,
                 norito::codec::encode_with_header_flags(&result.2).0,
+                norito::codec::encode_with_header_flags(&result.3).0,
             ];
             let mut expected = Vec::new();
             for field in &fields {
@@ -110,7 +111,7 @@ fn transaction_result_fee_receipt_uses_three_mandatory_tuple_frames() {
                 norito::core::frame_bare_with_header_flags::<TransactionResult>(&payload, flags)
                     .expect("frame exact transaction result");
             let decoded = norito::core::decode_from_bytes::<TransactionResult>(&framed)
-                .expect("decode all three result fields");
+                .expect("decode all four result fields");
             assert_eq!(decoded, result, "layout {flags:#x}");
         }
     }
@@ -162,16 +163,21 @@ fn transaction_result_fee_receipt_json_requires_key_and_rejects_duplicate_null()
     let (prefix, receipt) = json
         .rsplit_once(",\"nexus_fee_receipt\":")
         .expect("mandatory receipt key");
-    assert_eq!(receipt, "null}");
+    let (receipt, suffix) = receipt
+        .split_once(',')
+        .expect("mandatory contract events follow the receipt");
+    assert_eq!(receipt, "null");
+    assert_eq!(suffix, "\"contract_events\":[]}");
     assert_eq!(
         norito::json::from_str::<TransactionResult>(&json).expect("explicit null is present"),
         unpaid
     );
-    let missing = format!("{prefix}}}");
+    let missing = format!("{prefix},{suffix}");
     let error = norito::json::from_str::<TransactionResult>(&missing)
         .expect_err("missing receipt key must not synthesize None");
     assert!(error.to_string().contains("nexus_fee_receipt"));
-    let duplicate = format!("{prefix},\"nexus_fee_receipt\":null,\"nexus_fee_receipt\":null}}");
+    let duplicate =
+        format!("{prefix},\"nexus_fee_receipt\":null,\"nexus_fee_receipt\":null,{suffix}");
     let error = norito::json::from_str::<TransactionResult>(&duplicate)
         .expect_err("a first null value still marks the key as present");
     assert!(error.to_string().contains("nexus_fee_receipt"));

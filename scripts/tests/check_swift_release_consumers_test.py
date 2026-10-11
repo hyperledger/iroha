@@ -124,7 +124,7 @@ class ReleaseConsumersTests(unittest.TestCase):
             self.assertNotIn("unsafeFlags", manifest)
             source = (OWNER.FIXTURES / kind / "Sources" / product / "main.swift").read_text()
             self.assertIn("all-zero peer key", source)
-            self.assertIn("== 25", source)
+            self.assertIn("== 29", source)
             self.assertIn("changed message", source)
 
 

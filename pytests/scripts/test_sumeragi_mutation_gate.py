@@ -6104,10 +6104,11 @@ def test_push_retry_mutation_has_exact_retained_operation_owner():
     ("none", "killed_by_test"), ("incidental_only", "error"),
     ("missing", "error"), ("ignored", "error"),
 ])
-def test_push_retry_named_kill_requires_original_late_refusal_control(
-    monkeypatch, tmp_path, damage, verdict
+@pytest.mark.parametrize("mid", ["TOR4", "TOR5"])
+def test_push_named_kill_requires_declared_control(
+    monkeypatch, tmp_path, damage, verdict, mid
 ):
-    rule = gate.index_mutations(gate.TORII_MUTATIONS)["TOR4"]
+    rule = gate.index_mutations(gate.TORII_MUTATIONS)[mid]
     rows = [(name, "FAILED") for name in rule.tests]
     if damage == "incidental_only":
         rows = [(name, "ok") for name in rule.tests]
@@ -6124,8 +6125,29 @@ def test_push_retry_named_kill_requires_original_late_refusal_control(
     assert result["verdict"] == verdict, result
     assert "scenario" not in result
     if verdict == "killed_by_test":
-        assert result["named"]["required_failed"] == list(rule.tests)
+        assert result["named"]["required_failed"] == sorted(rule.tests)
     elif damage == "incidental_only":
         assert result["reason"] == "named tests: only additional substring-selected tests failed"
     else:
         assert result["reason"] == "named tests: missing-test"
+
+
+def test_push_genesis_mutation_has_own_lifecycle_controls():
+    mid = "TOR5"
+    rule = gate.index_mutations(gate.TORII_MUTATIONS)[mid]
+    assert rule.tests == (
+        "push::tests::push_worker_genesis_bootstrap_waits_for_authenticated_successor_and_shutdown",
+        "push::tests::push_worker_genesis_bootstrap_rejects_corrupt_history_and_nonzero_cursor",
+    ) and not rule.scenarios
+    assert gate.has_switch(mid, torii=True)
+    for family in ({}, {"core": True}, {"daemon": True}, {"model": True},
+                   {"sdk": True}, {"deploy": True}, {"norito": True}):
+        assert not gate.has_switch(mid, **family)
+    source = ROOT / "crates/iroha_torii/src"
+    owners = {path.relative_to(source).as_posix() for path in source.rglob("*.rs")
+              if f'sumeragi_torii_mutation = "{mid}"' in path.read_text()}
+    assert owners == {"push.rs"}
+    native = (source / "push.rs").read_text()
+    assert all("fn " + name.rsplit("::", 1)[-1] + "(" in native for name in rule.tests)
+    rows = re.findall(r"^\| TOR5 \| (.+)$", (ROOT / "specs/sumeragi.md").read_text(), re.M)
+    assert len(rows) == 1 and all(name in rows[0] for name in rule.tests)

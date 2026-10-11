@@ -1162,6 +1162,9 @@ TORII_MUTATIONS = [
     m("TOR4", "Push replay: discard the original current carrier attempt on a late capacity refusal",
       ["push::tests::push_replay_late_capacity_retains_original_frame_and_waits_for_external_release",
        "push::tests::push_replay_verification_slot_capacity_preserves_original_wait_and_resumes"]),
+    m("TOR5", "Push startup: read genesis execution before its genuine committed successor instead of waiting",
+      ["push::tests::push_worker_genesis_bootstrap_waits_for_authenticated_successor_and_shutdown",
+       "push::tests::push_worker_genesis_bootstrap_rejects_corrupt_history_and_nonzero_cursor"]),
 
 ]
 
