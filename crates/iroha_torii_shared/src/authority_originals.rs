@@ -26,6 +26,7 @@ use iroha_data_model::{
         MAX_WORLD_STATE_SNAPSHOT_ENTRIES_V1, SumeragiFinalityAttestation, WorldStateSnapshotV1,
     },
 };
+use iroha_model_base::topology::DataSpaceId;
 use norito::derive::{JsonDeserialize, JsonSerialize, NoritoDeserialize, NoritoSerialize};
 use sha2::{Digest as _, Sha256};
 
@@ -100,6 +101,13 @@ pub enum NativeAuthorityOriginalsSelectorV1 {
     },
     /// Exact identifier policy and the RAM-LFE program named by that original.
     IdentifierPolicy(IdentifierPolicyId),
+    /// Exact governed asset policy and activation marker, from one physical dataspace.
+    RetailPolicy {
+        /// Native asset selected independently by the consumer.
+        asset: AssetDefinitionId,
+        /// Physical route selected independently by the consumer.
+        dataspace: DataSpaceId,
+    },
 }
 
 /// One selected family; unrelated private values are never added to this carrier.
@@ -132,6 +140,8 @@ pub enum NativeAuthorityOriginalsFamilyV1 {
     GlobalFeeProgram(NativeGlobalFeeProgramStateV1),
     /// Actual policy and its referenced program from the same certified World cut.
     IdentifierPolicy(NativeIdentifierPolicyStateV1),
+    /// Exact native policy and immutable activation bytes from the same World cut.
+    RetailPolicy(NativeRetailPolicyStateV1),
 }
 
 fn refused(message: &str) -> norito::Error {
@@ -174,6 +184,13 @@ impl NativeAuthorityOriginalsRequestV1 {
                     ));
                 }
                 Ok(())
+            }
+            NativeAuthorityOriginalsSelectorV1::RetailPolicy { dataspace, .. }
+                if *dataspace == DataSpaceId::UNIVERSAL =>
+            {
+                Err(refused(
+                    "authority originals retail policy requires a physical dataspace",
+                ))
             }
             _ => Ok(()),
         }
@@ -418,6 +435,19 @@ impl NativeAuthorityOriginalsV1 {
                 }
                 bounded_row(&state.policy)?;
                 bounded_row(&state.program)?;
+            }
+            (
+                NativeAuthorityOriginalsSelectorV1::RetailPolicy { .. },
+                NativeAuthorityOriginalsFamilyV1::RetailPolicy(state),
+            ) => {
+                for wire in [&state.policy_wire, &state.activation_wire] {
+                    if wire.is_empty() {
+                        return Err(refused("authority originals retail row is empty"));
+                    }
+                    bounded_row(wire)?;
+                }
+                // These are exact stored bytes, not a policy projection. Their native
+                // decoding, identity and World membership belong to the consumer.
             }
             _ => {
                 return Err(refused(
@@ -669,6 +699,44 @@ impl<'a> NativeIdentifierPolicyStateRefV1<'a> {
     }
 }
 
+/// Exact canonical stored rows, still unauthenticated until native World membership.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    JsonSerialize,
+    JsonDeserialize,
+    NoritoSerialize,
+    NoritoDeserialize,
+    norito::NoritoSchema,
+)]
+#[norito(deny_unknown_fields, no_fast_from_json)]
+#[norito_schema(name = "iroha_torii_shared::authority_originals::NativeRetailPolicyStateV1")]
+pub struct NativeRetailPolicyStateV1 {
+    /// Complete native policy frame at the selected asset/dataspace key.
+    pub policy_wire: Vec<u8>,
+    /// Complete native immutable activation frame at the selected asset key.
+    pub activation_wire: Vec<u8>,
+}
+
+/// Borrowed encoder of exact stored policy rows; the World retains both allocations.
+#[derive(NoritoSerialize, JsonSerialize)]
+pub struct NativeRetailPolicyStateRefV1<'a> {
+    policy_wire: FieldRef<'a, Vec<u8>>,
+    activation_wire: FieldRef<'a, Vec<u8>>,
+}
+impl<'a> NativeRetailPolicyStateRefV1<'a> {
+    /// Borrow both rows from the same qualified World without cloning their bytes.
+    #[must_use]
+    pub fn new(policy_wire: &'a Vec<u8>, activation_wire: &'a Vec<u8>) -> Self {
+        Self {
+            policy_wire: FieldRef(policy_wire),
+            activation_wire: FieldRef(activation_wire),
+        }
+    }
+}
+
 /// Borrowed exact encoder of `NativeGlobalFeeProgramStateV1`; allocations stay with the original finite owner.
 #[derive(NoritoSerialize, JsonSerialize)]
 pub struct NativeGlobalFeeProgramStateRefV1<'a> {
@@ -769,6 +837,8 @@ pub enum NativeAuthorityOriginalsFamilyRefV1<'a> {
     GlobalFeeProgram(NativeGlobalFeeProgramStateRefV1<'a>),
     /// Borrowed identifier policy and its referenced program originals.
     IdentifierPolicy(NativeIdentifierPolicyStateRefV1<'a>),
+    /// Borrowed native retail policy and activation originals.
+    RetailPolicy(NativeRetailPolicyStateRefV1<'a>),
 }
 impl norito::NoritoSchema for NativeAuthorityOriginalsRefV1<'_> {
     fn nominal_name() -> String {

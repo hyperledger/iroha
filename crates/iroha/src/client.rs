@@ -22,6 +22,7 @@ pub mod kagemusha;
 #[cfg(test)]
 mod kagemusha_http_tests;
 mod moderation;
+pub mod multisig_native;
 mod multisig_validation;
 pub mod musubi;
 #[cfg(test)]
@@ -3466,6 +3467,10 @@ pub struct MultisigProposalResolveResponse {
     /// Terminal timestamp for finalized, canceled, or expired proposals.
     #[norito(default)]
     pub terminal_at_ms: Option<u64>,
+    /// Untrusted candidate for separately authenticated native execution evidence.
+    /// Never treat this lookup reference or the JSON status as finality.
+    #[norito(required)]
+    pub terminal_entrypoint_hash: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq, Eq, JsonSerialize, JsonDeserialize, NSer, NDe)]
 /// Request payload for proposing a generic multisig instruction batch.
@@ -8979,6 +8984,50 @@ mod evidence_http_tests {
         );
     }
     #[test]
+    fn multisig_proposal_resolve_requires_terminal_candidate_field_but_accepts_null() {
+        let account_id = AccountId::new(checked_random_keypair().public_key().clone());
+        let instructions = Vec::<iroha_data_model::isi::InstructionBox>::new();
+        let proposal_id = HashOf::new(&instructions).to_string();
+        let mut response = norito::json!({
+            "resolved_multisig_account_id": (account_id.to_string()),
+            "proposal_id": (proposal_id.clone()),
+            "instructions_hash": (proposal_id),
+            "operation_type": "ONCHAIN_MULTISIG",
+            "intent": null,
+            "proposal": {
+                "instructions": [], "proposed_at_ms": 1, "expires_at_ms": 2,
+                "approvals": [], "is_relayed": null
+            },
+            "status": "COLLECTING_SIGNATURES",
+            "terminal_at_ms": null,
+            "terminal_entrypoint_hash": null
+        });
+        let decode = |response: &Value| {
+            norito::json::from_slice::<MultisigProposalResolveResponse>(
+                &norito::json::to_vec(response).expect("encode response"),
+            )
+        };
+        assert_eq!(decode(&response).unwrap().terminal_entrypoint_hash, None);
+        let candidate = "ab".repeat(32);
+        response.as_object_mut().unwrap().insert(
+            "terminal_entrypoint_hash".into(),
+            Value::from(candidate.clone()),
+        );
+        assert_eq!(
+            decode(&response).unwrap().terminal_entrypoint_hash,
+            Some(candidate)
+        );
+        response
+            .as_object_mut()
+            .unwrap()
+            .remove("terminal_entrypoint_hash");
+        assert!(matches!(
+            decode(&response),
+            Err(norito::json::Error::MissingField { field })
+                if field == "terminal_entrypoint_hash"
+        ));
+    }
+    #[test]
     fn post_multisig_proposals_resolve_builds_selector_explicit_request() {
         let client = client_with_base_url(base_url());
         let snapshots: SnapshotStore = Arc::new(Mutex::new(Vec::new()));
@@ -8994,7 +9043,7 @@ mod evidence_http_tests {
                     "\"operation_type\":\"ONCHAIN_MULTISIG\",\"intent\":null,",
                     "\"proposal\":{{\"instructions\":[],\"proposed_at_ms\":1,\"expires_at_ms\":2,",
                     "\"approvals\":[],\"is_relayed\":null}},\"status\":\"COLLECTING_SIGNATURES\",",
-                    "\"terminal_at_ms\":null}}"
+                    "\"terminal_at_ms\":null,\"terminal_entrypoint_hash\":null}}"
                 ),
                 account_id = account_id,
                 proposal_id = proposal_id,

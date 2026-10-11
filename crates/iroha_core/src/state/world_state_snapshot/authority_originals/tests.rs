@@ -989,3 +989,193 @@ fn certified_identifier_originals_keep_read_root_budget_and_tip_fences() {
     assert!(!called.get());
     assert_eq!(budget.reserved_bytes(), 0);
 }
+
+fn retail_original_world() -> (World, iroha_data_model::asset::AssetDefinitionId, AccountId) {
+    use iroha_data_model::asset::retail_daily_limit::{
+        retail_activation_state_path_v1, retail_policy_state_path_v1,
+    };
+    let mut world = World::new();
+    let reader = owner(53);
+    let (id, value) = Account::new(reader.clone()).build(&reader).into_key_value();
+    world.accounts.insert(id, value);
+    let asset = iroha_data_model::asset::AssetDefinitionId::derive_from_components(
+        DomainId::try_new("retail", "universal").unwrap(),
+        "unit".parse().unwrap(),
+    );
+    // Exact stored data only. The reader, not the publisher, owns native policy decoding.
+    world.smart_contract_state.insert(
+        retail_policy_state_path_v1(&asset, DataSpaceId::new(41)),
+        vec![1, 3, 5],
+    );
+    world
+        .smart_contract_state
+        .insert(retail_activation_state_path_v1(&asset), vec![2, 4, 6]);
+    (world, asset, reader)
+}
+
+#[test]
+fn retail_originals_require_both_exact_same_cut_rows_and_finite_budget() {
+    use iroha_data_model::asset::retail_daily_limit::retail_activation_state_path_v1;
+    let (world, asset, _) = retail_original_world();
+    let budget = AllocationBudget::new(16 * 1024 * 1024);
+    let mut block = world.block();
+    let captured = snapshot(&block, &budget);
+    let before = budget.reserved_bytes();
+    consume_retail_policy(
+        &captured.snapshot,
+        &block,
+        &asset,
+        DataSpaceId::new(41),
+        &budget,
+        |_, policy, activation| {
+            assert_eq!(policy, &[1, 3, 5]);
+            assert_eq!(activation, &[2, 4, 6]);
+            assert!(budget.reserved_bytes() > before);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(budget.reserved_bytes(), before);
+    let called = Cell::new(false);
+    for ds in [DataSpaceId::new(42), DataSpaceId::UNIVERSAL] {
+        assert!(
+            consume_retail_policy(
+                &captured.snapshot,
+                &block,
+                &asset,
+                ds,
+                &budget,
+                |_, _, _| {
+                    called.set(true);
+                    Ok(())
+                }
+            )
+            .is_err()
+        );
+    }
+    assert!(
+        consume_retail_policy(
+            &captured.snapshot,
+            &block,
+            &asset,
+            DataSpaceId::new(41),
+            &AllocationBudget::new(0),
+            |_, _, _| {
+                called.set(true);
+                Ok(())
+            }
+        )
+        .is_err()
+    );
+    block
+        .smart_contract_state
+        .insert(retail_activation_state_path_v1(&asset), vec![8]);
+    assert!(
+        consume_retail_policy(
+            &captured.snapshot,
+            &block,
+            &asset,
+            DataSpaceId::new(41),
+            &budget,
+            |_, _, _| {
+                called.set(true);
+                Ok(())
+            }
+        )
+        .is_err()
+    );
+    assert!(!called.get());
+    assert_eq!(budget.reserved_bytes(), before);
+}
+
+#[test]
+fn certified_retail_originals_keep_read_permission_budget_and_tip_fences() {
+    let (mut world, asset, reader) = retail_original_world();
+    world.account_permissions.insert(
+        reader.clone(),
+        BTreeSet::from([iroha_executor_data_model::permission::query::CanReadAllLedgerData.into()]),
+    );
+    let mut config = TestChainConfig::new(world, 1_000);
+    config.genesis_instructions = vec![
+        Register::domain(Domain::new(
+            DomainId::try_new("retail", "universal").unwrap(),
+        ))
+        .into(),
+    ];
+    let mut chain = CertifiedTestChain::start(config).unwrap();
+    chain.commit_at(2_000, vec![]);
+    let tip = chain.committed(2);
+    let budget = AllocationBudget::new(32 * 1024 * 1024);
+    chain
+        .state()
+        .with_native_retail_policy_originals_v1(
+            &tip,
+            &reader,
+            &asset,
+            DataSpaceId::new(41),
+            &budget,
+            |snapshot, policy, activation| {
+                assert_eq!(
+                    snapshot.root().unwrap(),
+                    tip.commitment().execution.world_state_root
+                );
+                assert_eq!(policy, &[1, 3, 5]);
+                assert_eq!(activation, &[2, 4, 6]);
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert_eq!(budget.reserved_bytes(), 0);
+    let called = Cell::new(false);
+    assert!(
+        chain
+            .state()
+            .with_native_retail_policy_originals_v1(
+                &tip,
+                chain.genesis_account(),
+                &asset,
+                DataSpaceId::new(41),
+                &budget,
+                |_, _, _| {
+                    called.set(true);
+                    Ok(())
+                }
+            )
+            .is_err()
+    );
+    assert!(
+        chain
+            .state()
+            .with_native_retail_policy_originals_v1(
+                &tip,
+                &reader,
+                &asset,
+                DataSpaceId::new(41),
+                &AllocationBudget::new(0),
+                |_, _, _| {
+                    called.set(true);
+                    Ok(())
+                }
+            )
+            .is_err()
+    );
+    chain.commit_at(3_000, vec![]);
+    assert!(
+        chain
+            .state()
+            .with_native_retail_policy_originals_v1(
+                &tip,
+                &reader,
+                &asset,
+                DataSpaceId::new(41),
+                &budget,
+                |_, _, _| {
+                    called.set(true);
+                    Ok(())
+                }
+            )
+            .is_err()
+    );
+    assert!(!called.get());
+    assert_eq!(budget.reserved_bytes(), 0);
+}

@@ -18472,6 +18472,25 @@ fn multisig_proposal_intent<W: iroha_core::state::WorldReadOnly>(
             Some(IrohaJson::new(Value::Object(payload)))
         })
         .or_else(|| {
+            // Display only the complete single native mint. Approval admission
+            // independently compares the reviewed intent with the batch hash.
+            let [instruction] = proposal.instructions.as_slice() else {
+                return None;
+            };
+            let iroha_data_model::isi::MintBox::Asset(mint) = instruction
+                .as_any()
+                .downcast_ref::<iroha_data_model::isi::MintBox>()?
+            else {
+                return None;
+            };
+            let mut payload = Map::new();
+            payload.insert("kind".into(), Value::from("MINT"));
+            payload.insert("asset_id".into(), Value::from(mint.destination().definition().to_string()));
+            payload.insert("amount".into(), Value::from(mint.object().to_string()));
+            payload.insert("to_account_id".into(), Value::from(mint.destination().account().to_string()));
+            Some(IrohaJson::new(Value::Object(payload)))
+        })
+        .or_else(|| {
             proposal.instructions.first().and_then(|instruction| {
                 let Ok(
                     iroha_executor_data_model::isi::multisig::MultisigInstructionBox::InvalidateOutstanding(invalidate),
@@ -21295,6 +21314,53 @@ mod multisig_selector_tests {
         assert!(multisig_proposal_intent(&world_view, &source, &proposal).is_none());
         proposal.instructions.clear();
         assert!(multisig_proposal_intent(&world_view, &source, &proposal).is_none());
+    }
+    #[test]
+    fn single_asset_mint_has_exact_typed_intent_and_rejects_partial_projection() {
+        let destination = checked_multisig_selector_account_id(0x79, "derive mint intent destination");
+        let definition = test_asset_definition_id();
+        let instruction: dm::InstructionBox = dm::Mint::asset_quantity(
+            25_u32, dm::AssetId::new(definition.clone(), destination.clone()),
+        ).into();
+        let mut proposal = MultisigProposalValue::new(vec![instruction.clone()], 100, 200, BTreeSet::new(), None);
+        let world = World::default();
+        let world_view = world.view();
+        assert_eq!(multisig_proposal_operation_type(&world_view, &destination, &proposal), "MINT");
+        let intent = multisig_proposal_intent(&world_view, &destination, &proposal)
+            .expect("single mint intent").try_into_any_norito::<norito::json::Value>().expect("mint value");
+        assert_eq!(intent, norito::json!({
+            "kind": "MINT", "asset_id": (definition.to_string()), "amount": "25",
+            "to_account_id": (destination.to_string()),
+        }));
+        proposal.instructions.push(instruction);
+        assert!(multisig_proposal_intent(&world_view, &destination, &proposal).is_none());
+        proposal.instructions.clear();
+        assert!(multisig_proposal_intent(&world_view, &destination, &proposal).is_none());
+    }
+    #[test]
+    fn terminal_execution_candidate_is_bounded_exact_and_never_ambiguous() {
+        use iroha_core::smartcontracts::isi::multisig::multisig_proposal_terminal_execution_state_key;
+        use iroha_executor_data_model::isi::multisig::{MultisigProposalTerminalExecutionStateV1, MultisigProposalTerminalState, MultisigProposalTerminalStatus};
+        let account = checked_multisig_selector_account_id(0x7a, "terminal candidate account");
+        let instructions = vec![dm::InstructionBox::from(dm::Log::new(dm::Level::INFO, "terminal candidate".into()))];
+        let hash = HashOf::new(&instructions);
+        let proposal = MultisigProposalRecord {proposal: MultisigProposalValue::new(instructions, 100, 200, BTreeSet::new(), None),
+            status: MultisigProposalStatus::Finalized, terminal_at_ms: Some(150)};
+        let terminal = MultisigProposalTerminalState::new(account.clone(), hash, proposal.proposal.clone(), MultisigProposalTerminalStatus::Finalized, 150);
+        let mut world = World::default();
+        assert_eq!(multisig_terminal_execution_candidate(&world.view(), &account, &hash, &proposal, 1).unwrap(), None);
+        let first = MultisigProposalTerminalExecutionStateV1::new(terminal.clone(), account.clone(), 1, [0x11; 32]);
+        let first_key = multisig_proposal_terminal_execution_state_key(first.terminal_entrypoint_hash, &account, &hash);
+        world.smart_contract_state_mut_for_testing().insert(first_key.clone(), norito::to_bytes(&first).unwrap());
+        assert_eq!(multisig_terminal_execution_candidate(&world.view(), &account, &hash, &proposal, 1).unwrap(), Some("11".repeat(32)));
+        assert!(multisig_terminal_execution_candidate(&world.view(), &account, &hash, &proposal, 0).is_err());
+        let mut pending = proposal.clone(); pending.status = MultisigProposalStatus::CollectingSignatures;
+        assert_eq!(multisig_terminal_execution_candidate(&world.view(), &account, &hash, &pending, 0).unwrap(), None);
+        let second = MultisigProposalTerminalExecutionStateV1::new(terminal, account.clone(), 2, [0x33; 32]);
+        world.smart_contract_state_mut_for_testing().insert(multisig_proposal_terminal_execution_state_key(second.terminal_entrypoint_hash, &account, &hash), norito::to_bytes(&second).unwrap());
+        assert!(multisig_terminal_execution_candidate(&world.view(), &account, &hash, &proposal, 2).is_err());
+        world.smart_contract_state_mut_for_testing().insert(first_key, norito::to_bytes(&second).unwrap());
+        assert!(multisig_terminal_execution_candidate(&world.view(), &account, &hash, &proposal, 2).is_err());
     }
     #[test]
     fn policy_change_invalidation_has_explicit_operation_type_and_exact_account_intent() {
@@ -25984,6 +26050,11 @@ fn multisig_proposals_resolve_response(
         &resolved_multisig_account_id,
         &proposal_record.proposal,
     );
+    let terminal_entrypoint_hash = multisig_terminal_execution_candidate(
+        &world, &resolved_multisig_account_id, &instructions_hash, &proposal_record,
+        usize::try_from(app_query_limits().max_fetch_size)
+            .map_err(|_| multisig_selector_validation_error("terminal lookup scan limit exceeds usize"))?,
+    )?;
     Ok(MultisigProposalResolveResponseDto {
         resolved_multisig_account_id,
         proposal_id: hash_literal.clone(),
@@ -25993,7 +26064,46 @@ fn multisig_proposals_resolve_response(
         proposal: proposal_record.proposal,
         status: proposal_record.status.as_str().to_owned(),
         terminal_at_ms: proposal_record.terminal_at_ms,
+        terminal_entrypoint_hash,
     })
+}
+
+// Candidate discovery only. Consumers authenticate the corresponding complete
+// native execution evidence against an independently verified checkpoint root.
+fn multisig_terminal_execution_candidate<W: iroha_core::state::WorldReadOnly>(
+    world: &W,
+    account: &AccountId,
+    instructions_hash: &HashOf<Vec<InstructionBox>>,
+    proposal: &MultisigProposalRecord,
+    mut remaining: usize,
+) -> Result<Option<String>> {
+    use iroha_core::smartcontracts::isi::multisig::multisig_proposal_terminal_execution_state_key;
+    use iroha_executor_data_model::isi::multisig::{MultisigProposalTerminalExecutionStateV1, MultisigProposalTerminalStatus};
+    if !matches!(proposal.status, MultisigProposalStatus::Finalized) { return Ok(None); }
+    let prefix = StatePath::from_str("multisig/proposal-terminal-execution/")
+        .expect("static terminal execution prefix");
+    let suffix = format!("/{}/{}", HashOf::new(account), instructions_hash);
+    let mut candidate = None;
+    for (key, bytes) in world.smart_contract_state().range(prefix.clone()..) {
+        if !key.as_ref().starts_with(prefix.as_ref()) { break; }
+        remaining = remaining.checked_sub(1).ok_or_else(|| multisig_selector_validation_error("terminal execution candidate scan exceeds configured limit"))?;
+        if !key.as_ref().ends_with(&suffix) { continue; }
+        let execution: MultisigProposalTerminalExecutionStateV1 = norito::decode_from_bytes(bytes)
+            .map_err(|error| conversion_error(format!("invalid native terminal execution record: {error}")))?;
+        let canonical = norito::to_bytes(&execution).map_err(|error| conversion_error(error.to_string()))?;
+        if canonical.as_slice() != bytes.as_slice() || execution.entrypoint_account_id != *account
+            || execution.terminal.multisig_account_id != *account
+            || execution.terminal.instructions_hash != *instructions_hash
+            || multisig_proposal_terminal_execution_state_key(execution.terminal_entrypoint_hash, account, instructions_hash) != *key {
+            return Err(conversion_error("native terminal execution record has a substituted key or account".into()));
+        }
+        if execution.terminal.proposal != proposal.proposal
+            || Some(execution.terminal.terminal_at_ms) != proposal.terminal_at_ms
+            || execution.terminal.status != MultisigProposalTerminalStatus::Finalized { continue; }
+        if candidate.is_some() { return Err(conversion_error("native terminal execution candidate is ambiguous".into())); }
+        candidate = Some(hex::encode(execution.terminal_entrypoint_hash));
+    }
+    Ok(candidate)
 }
 fn format_unix_timestamp_ms_rfc3339(value: u64) -> Result<String> {
     let timestamp = OffsetDateTime::from_unix_timestamp_nanos(i128::from(value) * 1_000_000)
@@ -28331,6 +28441,8 @@ pub struct MultisigProposalResolveResponseDto {
     pub status: String,
     #[norito(default)]
     pub terminal_at_ms: Option<u64>,
+    /// Untrusted lookup candidate, requiring separately rooted execution evidence.
+    pub terminal_entrypoint_hash: Option<String>,
 }
 ( Debug, crate::json_macros::JsonDeserialize, norito::derive::NoritoDeserialize, crate::json_macros::JsonSerialize, norito::derive::NoritoSerialize,)
 #[derive(norito::NoritoSchema)]
