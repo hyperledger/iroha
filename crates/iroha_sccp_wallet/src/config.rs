@@ -12,7 +12,6 @@
 //! ethereum_execution = []
 //! ethereum_beacon = []
 //! bsc = []
-//! tron = []
 //! ton_liteservers = []
 //!
 //! [[sccp.secret_headers]]             # optional, repeatable
@@ -24,8 +23,8 @@
 //! network_id = "hash:…#…"             # canonical NetworkId literal
 //! network = "ethereum-mainnet"        # profile key
 //! revision = 1
-//! address = "0x…"                     # EVM: 20 bytes; TRON: 21 bytes starting 0x41
-//! runtime_code_hash = "0x…"           # EVM and TRON: keccak256 of the runtime code
+//! address = "0x…"                     # EVM: 20 bytes
+//! runtime_code_hash = "0x…"           # EVM: keccak256 of the runtime code
 //! # TON instead: master_account = "0x…" and
 //! # minter_code, wallet_code, bucket_code = { hash = "0x…", depth = N }
 //! ```
@@ -82,7 +81,6 @@ use iroha_data_model::{
     bridge::SccpNetworkV1,
     sccp::deployment::{
         SccpDeploymentV1, SccpEvmDeploymentV1, SccpTonCodeRefV1, SccpTonDeploymentV1,
-        SccpTronDeploymentV1,
     },
 };
 use iroha_sccp_rpc::{EndpointSet, HttpConfig, HttpEndpointKind, endpoints::EndpointError};
@@ -153,9 +151,6 @@ pub struct SccpClientEndpointsUser {
     /// BNB Smart Chain JSON-RPC URLs.
     #[config(default)]
     pub bsc: Vec<String>,
-    /// TRON HTTP API URLs.
-    #[config(default)]
-    pub tron: Vec<String>,
     /// TON liteservers as `<ipv4>:<port>:<base64 ed25519 public key>`.
     #[config(default)]
     pub ton_liteservers: Vec<String>,
@@ -177,14 +172,14 @@ pub struct SccpTonCodeEntry {
 pub struct SccpPinnedDeploymentEntry {
     /// Taira `NetworkId` the deployment belongs to.
     pub network_id: NetworkId,
-    /// External profile key (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).
+    /// External profile key (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).
     pub network: String,
     /// Route revision (at least 1).
     pub revision: u32,
-    /// EVM (20 bytes) or TRON (21 bytes, `0x41…`) contract address.
+    /// EVM: contract address (20 bytes).
     #[norito(default)]
     pub address: Option<String>,
-    /// EVM and TRON: `keccak256` of the deployed runtime code.
+    /// EVM: `keccak256` of the deployed runtime code.
     #[norito(default)]
     pub runtime_code_hash: Option<String>,
     /// TON: account id of the Jetton master (workchain 0).
@@ -462,7 +457,6 @@ impl SccpClientEndpointsUser {
                 errors,
             ),
             bsc: http(&self.bsc, "bsc", endpoints::BSC, errors),
-            tron: http(&self.tron, "tron", endpoints::TRON, errors),
             ton_liteservers: parse_list(
                 &self.ton_liteservers,
                 "ton_liteservers",
@@ -617,25 +611,18 @@ fn entry_deployment(
         let address = entry
             .address
             .as_deref()
-            .ok_or("address is required for EVM and TRON deployments")?;
+            .ok_or("address is required for EVM deployments")?;
         let runtime_code_hash = parse_hex_fixed::<32>(
             "runtime_code_hash",
             entry
                 .runtime_code_hash
                 .as_deref()
-                .ok_or("runtime_code_hash is required for EVM and TRON deployments")?,
+                .ok_or("runtime_code_hash is required for EVM deployments")?,
         )?;
-        if network == SccpNetworkV1::TronMainnet {
-            SccpDeploymentV1::Tron(SccpTronDeploymentV1 {
-                address: parse_hex_fixed::<21>("address", address)?,
-                runtime_code_hash,
-            })
-        } else {
-            SccpDeploymentV1::Evm(SccpEvmDeploymentV1 {
-                address: parse_hex_fixed::<20>("address", address)?,
-                runtime_code_hash,
-            })
-        }
+        SccpDeploymentV1::Evm(SccpEvmDeploymentV1 {
+            address: parse_hex_fixed::<20>("address", address)?,
+            runtime_code_hash,
+        })
     };
     if !deployment.fits_network(network) {
         return Err(format!(
@@ -827,9 +814,9 @@ runtime_code_hash = "0x{h}"
 
 [[sccp.deployments]]
 network_id = "{network_id}"
-network = "tron-mainnet"
+network = "bsc-mainnet"
 revision = 2
-address = "0x41{t}"
+address = "0x{b}"
 runtime_code_hash = "0x{h}"
 
 [[sccp.deployments]]
@@ -842,7 +829,7 @@ wallet_code = {{ hash = "0x{h}", depth = 5 }}
 bucket_code = {{ hash = "0x{h}", depth = 3 }}
 "#,
             a = "22".repeat(20),
-            t = "33".repeat(20),
+            b = "33".repeat(20),
             m = "44".repeat(32),
             h = "AB".repeat(32),
         );
@@ -889,10 +876,13 @@ bucket_code = {{ hash = "0x{h}", depth = 3 }}
                 runtime_code_hash: [0xab; 32],
             })
         );
-        assert!(matches!(
-            config.pinned_deployment(&id, SccpNetworkV1::TronMainnet, 2),
-            Some(SccpDeploymentV1::Tron(_))
-        ));
+        assert_eq!(
+            config.pinned_deployment(&id, SccpNetworkV1::BscMainnet, 2),
+            Some(&SccpDeploymentV1::Evm(SccpEvmDeploymentV1 {
+                address: [0x33; 20],
+                runtime_code_hash: [0xab; 32],
+            }))
+        );
         assert!(matches!(
             config.pinned_deployment(&id, SccpNetworkV1::TonMainnet, 1),
             Some(SccpDeploymentV1::Ton(_))
@@ -931,6 +921,11 @@ bucket_code = {{ hash = "0x{h}", depth = 3 }}
             SccpClientConfig::load(&unknown),
             Err(ConfigError::Read(_))
         ));
+        let retired = write_config(dir.path(), "[sccp.endpoints]\ntron = []\n");
+        assert!(
+            matches!(SccpClientConfig::load(&retired), Err(ConfigError::Read(_))),
+            "SCCP v1 has no TRON endpoint list"
+        );
         let invalid = write_config(
             dir.path(),
             "[sccp]\npoll_interval_ms = 0\n[sccp.endpoints]\nbsc = [\"http://rpc.example\", \"https://a.example\", \"https://a.example\"]\n",
@@ -965,12 +960,14 @@ bucket_code = {{ hash = "0x{h}", depth = 3 }}
         let mut mixed = good.clone();
         mixed.master_account = Some(format!("0x{}", "44".repeat(32)));
         assert!(entry_deployment(&mixed).is_err());
-        let mut bad_prefix = good.clone();
-        bad_prefix.network = "tron-mainnet".to_owned();
-        bad_prefix.address = Some(format!("0x42{}", "33".repeat(20)));
+        let mut retired = good.clone();
+        retired.network = "tron-mainnet".to_owned();
+        retired.address = Some(format!("0x41{}", "33".repeat(20)));
         assert!(
-            entry_deployment(&bad_prefix).is_err(),
-            "TRON needs the 0x41 prefix"
+            entry_deployment(&retired)
+                .unwrap_err()
+                .contains("not an external SCCP profile"),
+            "SCCP v1 has no TRON profile"
         );
         let mut evm_fields_on_ton = good.clone();
         evm_fields_on_ton.network = "ton-mainnet".to_owned();

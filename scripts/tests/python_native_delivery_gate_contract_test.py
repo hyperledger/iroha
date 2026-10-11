@@ -118,7 +118,7 @@ def test_production_pin_is_unconditional_and_original_privacy_transcript_asserti
         "Python SDK gate call inventory/order drifted", "Maturin Python transcript drifted",
         "pure SDK offline wheel build transcript drifted", "pure SDK preflight transcript drifted",
         "private wheel installation transcript drifted", "installed wheel verification transcript drifted",
-        "ABI28 record transcript drifted", "ABI28 verification transcript drifted",
+        "ABI29 record transcript drifted", "ABI29 verification transcript drifted",
         "installed-package pytest transcript drifted",
     ):
         assert assertion in harness

@@ -4,6 +4,15 @@ All notable changes to `IrohaSwift` are documented in this file.
 
 ## [Unreleased]
 
+- Bridge ABI 29 (no ABI 28 compatibility). `KagemushaWalletEnrollmentV1.abandon()` returns
+  `KagemushaWalletEnrollmentAbandonmentV1`: `localAbandoned` (Native result kind 58, nothing
+  to submit) or `abandonment(frame)` (kind 28, the exact retained signed frame) instead of
+  frame bytes. Added the closed E1 refusal table `KagemushaWalletEnrollmentRefusalV1` with
+  `KagemushaWalletEnrollmentRefusalClassV1`, admitted only through Native's table, and
+  `KagemushaWalletEnrollmentOutcomeV1`, which keeps a withheld E6 delivery distinct from a
+  terminal refusal. The Apple key profile has only `secureElement`; tag 2 now fails closed.
+  The native export retention table retains the refusal export and is sorted.
+
 - KAGEMUSHA wallet V1 follows the single-design G1 layout: 20 SHA-256 roles,
   including the NEW unsigned app/enrollment policy identities,
   59 Poseidon domains and 16 signing domains. Every signature signs its exact

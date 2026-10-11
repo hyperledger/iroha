@@ -904,74 +904,106 @@ mod tests {
 
     #[test]
     fn compacted_outstanding_balance_requires_its_retained_beneficiary_owner() {
-        crate::retail_fee_tests::fixture(1_793_451_600_000, |stx, _| {
-            let binding = fund_two_validators(stx);
-            assert!(settlement::accrue_next_page(stx, &binding).unwrap());
-            assert!(settlement::accrue_next_page(stx, &binding).unwrap());
-            let checkpoint = history::Checkpoint {
-                height: stx.block_height(),
-                next_allocation: 1,
-                next_claim: 0,
-                funded: BigInt::from(101_u32),
-                credited: BigInt::from(101_u32),
-                paid: BigInt::default(),
-                archive_chain: Some(Hash::new(b"component checkpoint original commitment")),
-            };
-            for beneficiary in [account(2), account(3)] {
-                let amount = read::<u128>(stx, &claimable_key(&binding, &beneficiary).unwrap())
+        for recover_before_compaction in [false, true] {
+            crate::retail_fee_tests::fixture(1_793_451_600_000, |stx, _| {
+                let binding = fund_two_validators(stx);
+                assert!(settlement::accrue_next_page(stx, &binding).unwrap());
+                assert!(settlement::accrue_next_page(stx, &binding).unwrap());
+                let original = account(2);
+                let recovered = account(4);
+                // Recovery validates original live evidence. Establish it before
+                // constructing this restore-only compacted state representation.
+                if recover_before_compaction {
+                    beneficiary::rekey_beneficiary(stx, &original, &recovered).unwrap();
+                }
+                let owner = beneficiary::owner(stx, &binding, &original)
                     .unwrap()
                     .unwrap();
+                let checkpoint = history::Checkpoint {
+                    height: stx.block_height(),
+                    next_allocation: 1,
+                    next_claim: 0,
+                    funded: BigInt::from(101_u32),
+                    credited: BigInt::from(101_u32),
+                    paid: BigInt::default(),
+                    archive_chain: Some(Hash::new(b"component checkpoint original commitment")),
+                };
+                for beneficiary in [account(2), account(3)] {
+                    let amount = read::<u128>(stx, &claimable_key(&binding, &beneficiary).unwrap())
+                        .unwrap()
+                        .unwrap();
+                    write(
+                        stx,
+                        history::balance_key(&binding, &beneficiary).unwrap(),
+                        &history::Balance {
+                            beneficiary,
+                            amount,
+                        },
+                    )
+                    .unwrap();
+                }
+                // Seed the compacted representation for this restore-only corruption
+                // check; certified native archive retirement is tested separately.
                 write(
                     stx,
-                    history::balance_key(&binding, &beneficiary).unwrap(),
-                    &history::Balance {
-                        beneficiary,
-                        amount,
-                    },
+                    state_key(&binding, "HistoryCheckpoint").unwrap(),
+                    &checkpoint,
                 )
                 .unwrap();
-            }
-            // Seed the compacted representation for this restore-only corruption
-            // check; certified native archive retirement is tested separately.
-            write(
-                stx,
-                state_key(&binding, "HistoryCheckpoint").unwrap(),
-                &checkpoint,
-            )
-            .unwrap();
-            let prefix = state_key(&binding, "").unwrap();
-            let retired = stx
-                .world
-                .smart_contract_state
-                .iter()
-                .filter_map(|(key, _)| {
-                    let suffix = key.as_ref().strip_prefix(prefix.as_ref())?;
-                    [
-                        "Allocation/",
-                        "Entitlement/",
-                        "ExposureSource/",
-                        "HistoryJournal/",
-                    ]
+                let prefix = state_key(&binding, "").unwrap();
+                let retired = stx
+                    .world
+                    .smart_contract_state
                     .iter()
-                    .any(|family| suffix.starts_with(family))
-                    .then(|| key.clone())
-                })
-                .collect::<Vec<_>>();
-            for key in retired {
-                stx.world.smart_contract_state.remove(key);
-            }
-            validate(&stx.world, &binding).unwrap();
-            let revision =
-                validation_fee_beneficiary_revision_key(&binding, &account(2), 0).unwrap();
-            let bytes = stx
-                .world
-                .smart_contract_state
-                .remove(revision.clone())
-                .unwrap();
-            assert!(validate(&stx.world, &binding).is_err());
-            stx.world.smart_contract_state.insert(revision, bytes);
-            validate(&stx.world, &binding).unwrap();
-        });
+                    .filter_map(|(key, _)| {
+                        let suffix = key.as_ref().strip_prefix(prefix.as_ref())?;
+                        [
+                            "Allocation/",
+                            "Entitlement/",
+                            "ExposureSource/",
+                            "HistoryJournal/",
+                        ]
+                        .iter()
+                        .any(|family| suffix.starts_with(family))
+                        .then(|| key.clone())
+                    })
+                    .collect::<Vec<_>>();
+                for key in retired {
+                    stx.world.smart_contract_state.remove(key);
+                }
+                validate(&stx.world, &binding).unwrap();
+                let revision =
+                    validation_fee_beneficiary_revision_key(&binding, &original, owner.revision)
+                        .unwrap();
+                let bytes = stx
+                    .world
+                    .smart_contract_state
+                    .remove(revision.clone())
+                    .unwrap();
+                assert!(validate(&stx.world, &binding).is_err());
+                stx.world.smart_contract_state.insert(revision, bytes);
+                validate(&stx.world, &binding).unwrap();
+                let mut aliases = vec![&original];
+                if recover_before_compaction {
+                    aliases.push(&recovered);
+                }
+                for current in aliases {
+                    let key = validation_fee_beneficiary_alias_key(&binding, current).unwrap();
+                    let bytes = stx.world.smart_contract_state.remove(key.clone()).unwrap();
+                    assert!(validate(&stx.world, &binding).is_err());
+                    let substituted = ValidationFeeRewardBeneficiaryAlias {
+                        account_id: current.clone(),
+                        beneficiary_id: account(3),
+                    };
+                    stx.world
+                        .smart_contract_state
+                        .insert(key.clone(), norito::to_bytes(&substituted).unwrap());
+                    assert!(validate(&stx.world, &binding).is_err());
+                    stx.world.smart_contract_state.insert(key, bytes);
+                    validate(&stx.world, &binding).unwrap();
+                }
+            });
+        }
     }
 
     #[test]

@@ -39,18 +39,30 @@ pub enum EnrollmentIssuerErrorV1 {
     /// Current authenticated selection differs, including account routing or revocation.
     #[error("enrollment issuer current selection differs")]
     Selection,
-    /// The private verifier retained a definitive rejection for this consumed attempt.
-    #[error("enrollment evidence rejected")]
-    Rejected,
-    /// The operation remains consumed and may only recover the original worker outcome.
+    /// The private verifier retained a terminal refusal for this consumed attempt, with exactly
+    /// one closed reason (design §2.4) that every retry returns unchanged.
+    #[error("enrollment evidence refused: code {}", .0.code())]
+    Refused(KagemushaWalletEnrollmentRefusalV1),
+    /// An authenticated eligibility observation withholds delivery of an Issued outcome with
+    /// code 11 (`AccountNotApproved`) or 12 (`AccountFrozen`). The Issued outcome, its exact E6
+    /// and its quota share stay retained; a later approving observation returns the same E6.
+    #[error("enrollment credential delivery withheld: code {}", .0.code())]
+    DeliveryWithheld(KagemushaWalletEnrollmentRefusalV1),
+    /// The worker could not decide before any effect; a retry resumes the same claim.
     #[error("enrollment verification outcome pending")]
     Pending,
+    /// An effect may have taken place without a retained terminal outcome. Recovery never
+    /// repeats the effect: it never verifies again as a first attempt or signs again.
+    #[error("enrollment outcome unknown")]
+    OutcomeUnknown,
     /// Preserve native custody, uncertainty, conflict and definitive provider denial separately.
     #[error(transparent)]
     Journal(#[from] EnrollmentJournalErrorV1),
 }
 type Result<T> = std::result::Result<T, EnrollmentIssuerErrorV1>;
-use EnrollmentIssuerErrorV1::{Invalid, Pending, Rejected, Selection, Unavailable};
+use EnrollmentIssuerErrorV1::{
+    DeliveryWithheld, Invalid, OutcomeUnknown, Pending, Refused, Selection, Unavailable,
+};
 
 /// An in-process authenticated session. It cannot be decoded or constructed from a verdict.
 /// Its private cursor and issuer incarnation prevent foreign-owner or stale-attempt use.
@@ -147,6 +159,15 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
         if session.issuer != self.incarnation {
             return Err(Selection);
         }
+        // The authoritative current attempt decides, before any new observation, worker
+        // exchange or signer call: a retained terminal eligibility refusal answers every later
+        // operation of every session unchanged, and any other stale cursor is rejected.
+        if let Some(reason) = session.attempt.refusal() {
+            return Err(Refused(reason));
+        }
+        if let Some(reason) = self.journal.current_refusal(&session.attempt)? {
+            return Err(Refused(reason));
+        }
         Ok(())
     }
 
@@ -165,20 +186,36 @@ impl<R: EnrollmentIssuerRuntimeV1> EnrollmentIssuerV1<R> {
         dispatch_original: &[u8],
     ) -> Result<EnrollmentIssuerSessionV1> {
         let dispatch = PreKeyDispatchV1::decode(dispatch_original).map_err(|_| Invalid)?;
+        // A policy naming an unknown or unqualified vendor adapter is a configuration failure
+        // before any E1 is selected, never an E1 outcome.
+        iroha_core_zk::kagemusha_wallet_enrollment_v1::issuer_worker::require_qualified_android_adapters_v1(
+            &dispatch.policy.platform,
+        )
+        .map_err(|_| Selection)?;
         let account = self.runtime.authenticate_call(call, dispatch_original)?;
         if account != dispatch.account {
             return Err(Selection);
         }
-        self.current(&dispatch)?;
         let account_digest = kagemusha_wallet_account_digest_v1(&account).map_err(|_| Invalid)?;
         let key = self
             .journal
             .request_key(&account_digest, &dispatch.request_id)?;
         let stable = dispatch.stable_selection().map_err(|_| Invalid)?;
-        let attempt = if let Some(prior) = self.journal.read(&key)? {
+        let prior = self.journal.read(&key)?;
+        if let Some(prior) = &prior {
             if prior.selection().stable_selection != stable {
                 return Err(Selection);
             }
+        }
+        // A durably retained terminal refusal is recovered from the journal alone: answering
+        // it unchanged needs no live provider, worker or signer dependency.
+        let terminal = prior
+            .as_ref()
+            .is_some_and(|prior| prior.refusal().or(prior.worker_refusal()).is_some());
+        if !terminal {
+            self.current(&dispatch)?;
+        }
+        let attempt = if let Some(prior) = prior {
             prior
         } else {
             if dispatch.purpose != KagemushaEnrollmentPermitPurposeV1::Fresh {

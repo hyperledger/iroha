@@ -275,7 +275,7 @@ impl<A: AnchorSource, C: TransactionCheck + Send, T: LaneTransactions> LaneExecu
         {
             return Ok(ExecOutcome::Invalid);
         }
-        // Lane instances admit batches; only G executes beacon/Parliament control.
+        // Lane instances admit batches; only G executes the consensus-native beacon control.
         // Match the independent lane evidence verifier before caching any admission.
         if !block.header().control_witness.is_empty() {
             return Ok(ExecOutcome::Invalid);

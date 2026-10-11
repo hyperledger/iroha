@@ -1,10 +1,15 @@
 //! Golden SCCP v1 vectors (`specs/sccp.md` §11).
 //!
-//! Regenerates `fixtures/sccp/{payload,commitment_tree,control,history,eip712,roster,
+//! Regenerates `fixtures/sccp/{payload,commitment_tree,history,eip712,roster,
 //! evm_calldata}_v1.json` from `iroha_sccp::v1` and asserts byte equality with the committed
 //! files. Every generator also cross-checks its vectors with the crate's verifiers (paths,
 //! signature sets, roster rotation, proof bundles), so a committed vector is always one the Rust
 //! implementation accepts or rejects exactly as recorded.
+//!
+//! `control_v1.json` is a revision-5 reference file: `tests/v1_reference_control.rs` owns it.
+//! Of the files written here, `payload_v1.json` follows revision 5 (its sections, §0, §2 and
+//! §3.1–§3.3, describe the current profiles, codecs and payload layout); the other five still
+//! carry the revision 4 layouts named in their `spec` strings.
 //!
 //! After a reviewed layout change, rewrite the files with
 //! `cargo test -p iroha_sccp --test v1_vectors -- --ignored regenerate_v1_vectors`.
@@ -17,10 +22,9 @@ use iroha_sccp::v1::{
     constants::{
         ATTESTATION_TYPE, ATTESTATION_TYPEHASH, BRIDGE_KEY_TYPE, BRIDGE_KEY_TYPEHASH,
         CODEC_CANONICAL_TEXT, CODEC_TAIRA_ACCOUNT, DOMAIN_TYPEHASH, EIP712_DOMAIN_TYPE,
-        EVENT_CONTROL_APPLIED, EVENT_TOPICS, MAX_CLOCK_SKEW_MS, MAX_ROSTER_MEMBERS,
-        MAX_ROSTER_VALIDITY_MS, MIN_ROSTER_MEMBERS, NAME_HASH, PREVIOUS_ROSTER_GRACE_MS,
-        SECP256K1_HALF_N, SECP256K1_N, SELECTORS, TON_AMOUNT_BOUND, TOPIC_CONTROL_APPLIED,
-        VERSION_HASH,
+        EVENT_TOPICS, MAX_CLOCK_SKEW_MS, MAX_ROSTER_MEMBERS, MAX_ROSTER_VALIDITY_MS,
+        MIN_ROSTER_MEMBERS, NAME_HASH, PREVIOUS_ROSTER_GRACE_MS, SECP256K1_HALF_N, SECP256K1_N,
+        SELECTORS, TON_AMOUNT_BOUND, VERSION_HASH,
     },
     eip712::{AttestationFieldsV1, BridgeKeyPopFieldsV1, domain_separator, peer_key_hash},
     evm_abi::{
@@ -37,8 +41,8 @@ use iroha_sccp::v1::{
     history::{HistoryAccumulatorV1, history_path, history_root},
     merkle::{PromoteOddTree, merkle_root},
     network::{
-        ALL_NETWORKS, EXTERNAL_NETWORKS, account_codec, domain, identity_word, lane_bytes,
-        network_bytes, route_id, tag,
+        ALL_NETWORKS, EXTERNAL_NETWORKS, account_codec, domain, identity_word, network_bytes,
+        route_id, tag,
     },
     payload::{PayloadAccountV1, SccpTransferPayloadV1},
     proof::{
@@ -159,11 +163,6 @@ fn external_account(network: SccpNetworkV1, seed: u8) -> Vec<u8> {
     let body = keccak256(&[b"SCCP/FIXTURE/EXTERNAL/V1", &[seed]]);
     match network {
         SccpNetworkV1::EthereumMainnet | SccpNetworkV1::BscMainnet => body[12..].to_vec(),
-        SccpNetworkV1::TronMainnet => {
-            let mut bytes = vec![0x41];
-            bytes.extend_from_slice(&body[12..]);
-            bytes
-        }
         SccpNetworkV1::TonMainnet => {
             let mut bytes = vec![0; 4];
             bytes.extend_from_slice(&body);
@@ -177,7 +176,6 @@ fn external_account(network: SccpNetworkV1, seed: u8) -> Vec<u8> {
 fn destination_word(network: SccpNetworkV1) -> [u8; 32] {
     match network {
         SccpNetworkV1::TonMainnet => [0x44; 32],
-        SccpNetworkV1::TronMainnet => word_address(&[0x33; 20]),
         _ => word_address(&[0x22; 20]),
     }
 }
@@ -320,6 +318,14 @@ fn direction_payload(
     .expect("valid direction payload")
 }
 
+/// An account of the removed TRON profile in its retired codec 5 form: `0x41` then 20 bytes.
+fn retired_tron_account(seed: u8) -> PayloadAccountV1 {
+    let body = keccak256(&[b"SCCP/FIXTURE/EXTERNAL/V1", &[seed]]);
+    let mut bytes = vec![0x41];
+    bytes.extend_from_slice(&body[12..]);
+    PayloadAccountV1::new(5, bytes)
+}
+
 fn payload_json(label: &str, payload: &SccpTransferPayloadV1) -> Value {
     let encoded = payload.encode().expect("valid payload");
     assert_eq!(
@@ -406,9 +412,16 @@ fn rejected_payloads() -> Vec<Value> {
     ));
     cases.push((
         "recipient_codec_5_on_eth",
+        mutate(&|payload| payload.recipient = retired_tron_account(0)),
+    ));
+    // The removed TRON profile as it encoded its own lanes: domain 5, codec 5 accounts and the
+    // route id `taira_tron_xor`.
+    cases.push((
+        "retired_tron_domain_5_outbound",
         mutate(&|payload| {
-            payload.recipient =
-                PayloadAccountV1::new(5, external_account(SccpNetworkV1::TronMainnet, 0));
+            payload.dest_domain = 5;
+            payload.recipient = retired_tron_account(0);
+            "taira_tron_xor".clone_into(&mut payload.route_id);
         }),
     ));
     cases.push((
@@ -437,7 +450,7 @@ fn rejected_payloads() -> Vec<Value> {
         bytes[index] = CODEC_TAIRA_ACCOUNT;
         bytes
     }));
-    let inbound = direction_payload(SccpNetworkV1::TronMainnet, SccpNetworkV1::SoraTaira, 0);
+    let inbound = direction_payload(SccpNetworkV1::BscMainnet, SccpNetworkV1::SoraTaira, 0);
     let inbound_mutate = |f: &dyn Fn(&mut SccpTransferPayloadV1)| {
         let mut payload = inbound.clone();
         f(&mut payload);
@@ -448,12 +461,20 @@ fn rejected_payloads() -> Vec<Value> {
         inbound_mutate(&|payload| payload.deadline_ms = 1),
     ));
     cases.push((
-        "tron_sender_without_0x41",
-        inbound_mutate(&|payload| payload.sender.bytes[0] = 0x42),
+        "inbound_zero_evm_sender",
+        inbound_mutate(&|payload| payload.sender.bytes.fill(0)),
     ));
     cases.push((
-        "tron_zero_sender",
-        inbound_mutate(&|payload| payload.sender.bytes[1..].fill(0)),
+        "sender_codec_5_on_bsc",
+        inbound_mutate(&|payload| payload.sender = retired_tron_account(0)),
+    ));
+    cases.push((
+        "retired_tron_domain_5_inbound",
+        inbound_mutate(&|payload| {
+            payload.source_domain = 5;
+            payload.sender = retired_tron_account(0);
+            "taira_tron_xor".clone_into(&mut payload.route_id);
+        }),
     ));
     let ton = direction_payload(SccpNetworkV1::SoraTaira, SccpNetworkV1::TonMainnet, 0);
     let ton_mutate = |f: &dyn Fn(&mut SccpTransferPayloadV1)| {
@@ -552,7 +573,7 @@ fn payload_fixture() -> Value {
     with(
         header(
             "iroha.sccp.payload.v1",
-            "specs/sccp.md §0, §2, §3.1–§3.3 (revision 4)",
+            "specs/sccp.md §0, §2, §3.1–§3.3 (revision 5)",
         ),
         vec![
             ("taira_network_id", hex(&TAIRA)),
@@ -758,120 +779,6 @@ fn commitment_tree_fixture() -> Value {
             ),
             ("trees", Value::Array(trees)),
             ("negatives", Value::Array(negatives)),
-        ],
-    )
-}
-
-// ---------------------------------------------------------------------------------------------
-// control_v1.json
-// ---------------------------------------------------------------------------------------------
-
-#[allow(
-    clippy::too_many_lines,
-    reason = "one generator writes one fixture file"
-)]
-fn control_fixture() -> Value {
-    let example = |nonce: u64, paused: bool, expected: &str| {
-        let word = word_address(&[0x22; 20]);
-        let leaf = control_leaf(
-            &TAIRA,
-            SccpNetworkV1::EthereumMainnet,
-            &word,
-            1,
-            nonce,
-            paused,
-        )
-        .expect("control leaf");
-        assert_eq!(hex_string(&leaf), expected, "§3.4 example");
-        obj([
-            ("target", profile(SccpNetworkV1::EthereumMainnet)),
-            ("destination_word", hex(&word)),
-            ("route_revision", num(1)),
-            ("control_nonce", num(nonce)),
-            ("paused", Value::Bool(paused)),
-            ("leaf", hex(&leaf)),
-        ])
-    };
-    let spec_examples = vec![
-        example(
-            1,
-            true,
-            "0x93d641053e51b4d28f40930e098212e8b6ab340ceaaf8ad38a458203ce98c662",
-        ),
-        example(
-            2,
-            false,
-            "0x85fcfc8718c845c212df8ae486161d03bde8116eaa7dd74bbb2312667bce5cdf",
-        ),
-    ];
-    let mut controls = Vec::new();
-    for network in EXTERNAL_NETWORKS {
-        let word = destination_word(network);
-        for revision in [1_u32, 2] {
-            for control_nonce in [1_u64, 2, 1 << 32] {
-                for paused in [true, false] {
-                    let preimage = control_leaf_preimage(
-                        &TAIRA,
-                        network,
-                        &word,
-                        revision,
-                        control_nonce,
-                        paused,
-                    )
-                    .expect("control preimage");
-                    assert_eq!(preimage.len(), 126);
-                    let leaf =
-                        control_leaf(&TAIRA, network, &word, revision, control_nonce, paused)
-                            .expect("control leaf");
-                    controls.push(obj([
-                        ("target", profile(network)),
-                        ("destination_word", hex(&word)),
-                        ("route_revision", num(u64::from(revision))),
-                        ("control_nonce", num(control_nonce)),
-                        ("paused", Value::Bool(paused)),
-                        (
-                            "lane_bytes",
-                            hex(&lane_bytes(SccpNetworkV1::SoraTaira, network, &TAIRA)
-                                .expect("lane")),
-                        ),
-                        ("preimage", hex(&preimage)),
-                        ("leaf", hex(&leaf)),
-                    ]));
-                }
-            }
-        }
-    }
-    let word = destination_word(SccpNetworkV1::EthereumMainnet);
-    let rejected = [
-        ("taira_target", SccpNetworkV1::SoraTaira, 1_u32, 1_u64),
-        ("zero_revision", SccpNetworkV1::EthereumMainnet, 0, 1),
-        ("zero_control_nonce", SccpNetworkV1::EthereumMainnet, 1, 0),
-    ]
-    .into_iter()
-    .map(|(label, target, revision, nonce)| {
-        let error = control_leaf(&TAIRA, target, &word, revision, nonce, true)
-            .expect_err("rejected control");
-        obj([
-            ("label", text(label)),
-            ("target", profile(target)),
-            ("route_revision", num(u64::from(revision))),
-            ("control_nonce", num(nonce)),
-            ("error", error_name(error)),
-        ])
-    })
-    .collect();
-    with(
-        header(
-            "iroha.sccp.control.v1",
-            "specs/sccp.md §3.4, §4.14.6, §5.1.6 (revision 4)",
-        ),
-        vec![
-            ("taira_network_id", hex(&TAIRA)),
-            ("event_signature", text(EVENT_CONTROL_APPLIED)),
-            ("topic_control_applied", hex(&TOPIC_CONTROL_APPLIED)),
-            ("spec_examples", Value::Array(spec_examples)),
-            ("controls", Value::Array(controls)),
-            ("rejected", Value::Array(rejected)),
         ],
     )
 }
@@ -1914,10 +1821,9 @@ fn void_expired_variants(
 }
 
 /// The shared void and burn calldata conformance table (§5.1.7, §5.1.8, §5.2.2): every entry
-/// records the Rust decoder's verdict (the decoders Taira's TRON light client uses) and the
-/// destination's outcome in a state where the canonical call succeeds, and the two accept
-/// exactly the same entries. `contract` is `accept`, a custom error, or `empty` for a revert
-/// in Solidity's ABI decoder.
+/// records the Rust decoder's verdict and the destination's outcome in a state where the
+/// canonical call succeeds, and the two accept exactly the same entries. `contract` is
+/// `accept`, a custom error, or `empty` for a revert in Solidity's ABI decoder.
 fn calldata_conformance(
     transfer_call: &TransferToTairaCallV1,
     void_expired: &[u8],
@@ -2084,10 +1990,9 @@ fn calldata_conformance(
 
 type Generator = fn() -> Value;
 
-const FIXTURES: [(&str, Generator); 7] = [
+const FIXTURES: [(&str, Generator); 6] = [
     ("payload_v1.json", payload_fixture),
     ("commitment_tree_v1.json", commitment_tree_fixture),
-    ("control_v1.json", control_fixture),
     ("history_v1.json", history_fixture),
     ("eip712_v1.json", eip712_fixture),
     ("roster_v1.json", roster_fixture),

@@ -163,9 +163,11 @@ implicitly mint XOR. Replayed finalized service and conversion allocations do
 not create a second credit.
 
 Conversion reserves its entire funded XOR output and enqueues one durable
-allocation cursor. Each subsequent finalized block automatically credits one
-historical page per active payout binding. A subsequent conversion for that
-binding waits until its cursor is exhausted. Page size
+allocation cursor. Before customer instructions, each committed block advances
+at most one funded exposure page per retained payout binding. A subsequent
+conversion for that binding waits until its cursor is exhausted. Reward cursors
+create no blocks or transactions: a completely idle chain waits for ordinary
+submitted Network work or certified lane merges to produce the next block. Page size
 bounds allocation work without limiting the number of stake changes in an earning
 month or blocking mandatory slashing. Sealed exposure pages and monetary receipts
 remain in the authenticated original blockchain archive. Live state retains
@@ -472,10 +474,13 @@ account migration and entity deletion preserve these obligations.
       `staker`, bonded amount) plus pending unbond timers. Optional
       `?validator=<i105-account-id>` filters the response for dashboards that focus
       on a single validator; `canonical I105 rendering` applies to all literals.
-    - `GET /v1/nexus/public-lanes/{lane}/rewards/pending` – pending rewards per
-      asset for the requested account. Requires `account=<i105-account-id>` and accepts
-      optional exact `asset_id` filter; `canonical I105 rendering` applies to
-      the account literal in the response.
+    - `GET /v1/nexus/public-lanes/{lane}/rewards/pending` – the requested
+      account's automatic funded XOR entitlement, including amounts below the
+      payment threshold. Requires `account=<i105-account-id>` and accepts an
+      optional exact `asset_id` filter for the source custody balance-bucket
+      `AssetId`. The response uses canonical I105 account literals and includes
+      beneficiary identity and revision, the next claim sequence, the lifecycle
+      seal, the exact amount and a `claimable` threshold flag.
   - Lifecycle ISIs use the standard transaction path (Torii
     `/v1/pipeline/transactions` or the CLI instruction pipeline). Example Norito JSON
     payloads:
@@ -500,7 +505,7 @@ account migration and entity deletion preserve these obligations.
   peers are offline, Torii returns deterministic `503 route_unavailable`
   instead of probing non-authoritative peers and timing out.
 - **Telemetry + runbooks:** metrics expose validator counts, bonded and pending
-  stake, reward totals, and slash counters under the
+  stake, and slash counters under the
   `nexus_public_lane_*` family. Wire dashboards to the same data set used by
   NX-9 acceptance tests so validator deltas and reward/slash evidence remain
   auditable. Slashing instructions remain governance-only; automatic reward

@@ -4394,7 +4394,7 @@ impl PrivacyCapabilitySnapshotV1 {
     }
 }
 /// Exact native bridge ABI required by the first-release privacy SDK surface.
-pub const PRIVACY_BRIDGE_ABI_VERSION_V1: u32 = 28;
+pub const PRIVACY_BRIDGE_ABI_VERSION_V1: u32 = 29;
 /// Maximum accepted size of one canonical local compiled-profile catalog archive.
 pub const PRIVACY_COMPILED_PROFILE_CATALOG_ARCHIVE_MAX_BYTES_V1: usize = 256 * 1024;
 /// Maximum elements accepted in one catalog sequence.
@@ -4437,7 +4437,7 @@ pub enum PrivacyCompiledProfileCatalogArchiveValidationStatusV1 {
     InvalidCatalog = 8,
 }
 impl PrivacyCompiledProfileCatalogArchiveValidationStatusV1 {
-    /// Return the stable ABI-28 integer representation.
+    /// Return the stable ABI-29 integer representation.
     #[must_use]
     pub const fn code(self) -> i32 {
         self as i32
@@ -4515,7 +4515,7 @@ pub const PRIVACY_CAPABILITY_ARCHIVE_MAX_TOTAL_ALLOCATION_BYTES_V1: usize =
 pub const PRIVACY_CAPABILITY_ARCHIVE_MAX_NESTING_DEPTH_V1: usize = 32;
 /// Stable result codes returned by every native privacy capability validator.
 ///
-/// These numeric discriminants are part of ABI 28. SDKs must accept only
+/// These numeric discriminants are part of ABI 29. SDKs must accept only
 /// [`Self::Valid`]; every other value is a fail-closed rejection.
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -4540,7 +4540,7 @@ pub enum PrivacyCapabilityArchiveValidationStatusV1 {
     InvalidManifest = 8,
 }
 impl PrivacyCapabilityArchiveValidationStatusV1 {
-    /// Return the stable ABI-28 integer representation.
+    /// Return the stable ABI-29 integer representation.
     #[must_use]
     pub const fn code(self) -> i32 {
         self as i32

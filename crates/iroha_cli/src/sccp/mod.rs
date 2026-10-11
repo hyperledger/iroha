@@ -8,14 +8,14 @@
 //! `recent` the newest records.
 //!
 //! `finalize`, `roster-sync` and `deploy` act on every destination: the Solidity deployments
-//! (Ethereum and BSC over JSON-RPC, TRON over the java-tron HTTP API, signed with an owner-only
-//! secp256k1 key file) and the TON minter (over ADNL liteservers, sent from the user's `v5r1`
-//! wallet with an owner-only Ed25519 key file). They read the deployment's roster state, verify
-//! Taira's bundle or rotation chain locally and submit the destination call.
+//! (Ethereum and BSC over JSON-RPC, signed with an owner-only secp256k1 key file) and the TON
+//! minter (over ADNL liteservers, sent from the user's `v5r1` wallet with an owner-only Ed25519
+//! key file). They read the deployment's roster state, verify Taira's bundle or rotation chain
+//! locally and submit the destination call.
 //!
-//! `claim`, `lc-advance` and `lc-bootstrap` build Ethereum, BSC, TRON and TON light-client
-//! evidence from the source chain's public RPC (for Ethereum also a beacon light-client API, for
-//! TRON the java-tron HTTP API, for TON ADNL liteservers) through the shared
+//! `claim`, `lc-advance` and `lc-bootstrap` build Ethereum, BSC and TON light-client evidence
+//! from the source chain's public RPC (for Ethereum also a beacon light-client API, for TON ADNL
+//! liteservers) through the shared
 //! `iroha_sccp_rpc::builders::SourceChainBuilder` entry points. `claim` lets the builder pick the
 //! proof's anchor from Taira's light client (§4.13.5), verifies the evidence locally against it
 //! and submits any `Backfill` advances the anchor needs first, each in its own transaction.
@@ -26,7 +26,6 @@
 mod evm;
 mod governance;
 mod ton;
-mod tron;
 
 use eyre::{Result, WrapErr as _, eyre};
 use iroha::{
@@ -70,20 +69,20 @@ pub enum Command {
     Roster(RosterArgs),
     /// Fetch the catch-up rotation chain from a generation.
     Rotations(RotationsArgs),
-    /// Mint an attested outbound message on its EVM, TRON or TON destination.
+    /// Mint an attested outbound message on its EVM or TON destination.
     Finalize(FinalizeArgs),
-    /// Rotate an EVM, TRON or TON destination's roster forward to Taira's current generation.
+    /// Rotate an EVM or TON destination's roster forward to Taira's current generation.
     RosterSync(RosterSyncArgs),
     /// SCCP proposals to the SORA Parliament.
     #[command(subcommand)]
     Governance(governance::Command),
-    /// Deploy an EVM, TRON or TON destination pinned to a Taira generation and print its
+    /// Deploy an EVM or TON destination pinned to a Taira generation and print its
     /// `RegisterRoute`.
     Deploy(DeployArgs),
-    /// Prove an Ethereum, BSC or TRON (`transferToTaira`) or TON (`sccp_burn_to_taira`) burn on
+    /// Prove an Ethereum or BSC (`transferToTaira`) or TON (`sccp_burn_to_taira`) burn on
     /// Taira and settle it, submitting the `Backfill` advances an aged burn needs first.
     Claim(ClaimArgs),
-    /// Advance Taira's Ethereum, BSC, TRON or TON light client toward the latest finality, one
+    /// Advance Taira's Ethereum, BSC or TON light client toward the latest finality, one
     /// bounded step per run.
     LcAdvance(LcAdvanceArgs),
     /// Build the Parliament `InitializeLightClient` action of the latest finalized source block.
@@ -96,15 +95,14 @@ pub enum Command {
 /// Arguments of `iroha sccp claim`.
 #[derive(clap::Args, Debug)]
 pub struct ClaimArgs {
-    /// Source network (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).
+    /// Source network (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).
     #[arg(long)]
     pub network: String,
-    /// Burn transaction: EVM `transferToTaira` tx hash, TRON tx id, or TON `<lt>:<hash>` of the
-    /// minter transaction that emitted `sccp_transfer_to_taira`.
+    /// Burn transaction: EVM `transferToTaira` tx hash, or TON `<lt>:<hash>` of the minter
+    /// transaction that emitted `sccp_transfer_to_taira`.
     #[arg(long)]
     pub tx_hash: String,
-    /// JSON-RPC endpoint (EVM), java-tron HTTP API endpoint (TRON) or liteserver list (TON) of
-    /// the source chain.
+    /// JSON-RPC endpoint (EVM) or liteserver list (TON) of the source chain.
     #[arg(long)]
     pub rpc_url: String,
     /// Beacon API endpoint serving the light-client routes (Ethereum only).
@@ -115,11 +113,10 @@ pub struct ClaimArgs {
 /// Arguments of `iroha sccp lc-advance`.
 #[derive(clap::Args, Debug)]
 pub struct LcAdvanceArgs {
-    /// Source network (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).
+    /// Source network (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).
     #[arg(long)]
     pub network: String,
-    /// JSON-RPC endpoint (EVM), java-tron HTTP API endpoint (TRON) or liteserver list (TON) of
-    /// the source chain.
+    /// JSON-RPC endpoint (EVM) or liteserver list (TON) of the source chain.
     #[arg(long)]
     pub rpc_url: String,
     /// Beacon API endpoint serving the light-client routes (Ethereum only).
@@ -130,11 +127,10 @@ pub struct LcAdvanceArgs {
 /// Arguments of `iroha sccp lc-bootstrap`.
 #[derive(clap::Args, Debug)]
 pub struct LcBootstrapArgs {
-    /// Source network (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).
+    /// Source network (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).
     #[arg(long)]
     pub network: String,
-    /// JSON-RPC endpoint (EVM), java-tron HTTP API endpoint (TRON) or liteserver list (TON) of
-    /// the source chain.
+    /// JSON-RPC endpoint (EVM) or liteserver list (TON) of the source chain.
     #[arg(long)]
     pub rpc_url: String,
     /// Beacon API endpoint serving the light-client routes (Ethereum only).
@@ -148,7 +144,7 @@ pub struct LcBootstrapArgs {
 /// Arguments of `iroha sccp lc-profile`.
 #[derive(clap::Args, Debug)]
 pub struct LcProfileArgs {
-    /// Source network (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).
+    /// Source network (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).
     #[arg(long)]
     pub network: String,
     /// Compiled profile version to activate (default: the newest compiled version).
@@ -159,7 +155,7 @@ pub struct LcProfileArgs {
 /// Arguments of `iroha sccp deploy`.
 #[derive(clap::Args, Debug)]
 pub struct DeployArgs {
-    /// Destination network (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).
+    /// Destination network (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).
     #[arg(long)]
     pub network: String,
     /// Route revision the deployment serves (the route's next revision).
@@ -171,16 +167,16 @@ pub struct DeployArgs {
     /// Taira roster generation to pin; the current one when absent.
     #[arg(long)]
     pub generation: Option<u64>,
-    /// Creation bytecode from `scripts/contract_artifact_corridor.py build` (hex text); it must
-    /// match the locked artifact of the network's compiler (EVM or TRON).
+    /// EVM: creation bytecode from `scripts/contract_artifact_corridor.py build` (hex text); it
+    /// must match the locked artifact.
     #[arg(long)]
     pub creation_bytecode: Option<std::path::PathBuf>,
     /// TON: the Acton build directory holding `SccpTairaXorMinter.json`,
     /// `SccpTairaXorWallet.json` and `SccpConsumedBucket.json`.
     #[arg(long)]
     pub ton_build_dir: Option<std::path::PathBuf>,
-    /// JSON-RPC endpoint (EVM), java-tron HTTP API endpoint (TRON), or comma-separated
-    /// `<ip>:<port>:<base64 key>` liteservers (TON; empty for the compiled list).
+    /// JSON-RPC endpoint (EVM), or comma-separated `<ip>:<port>:<base64 key>` liteservers (TON;
+    /// empty for the compiled list).
     #[arg(long)]
     pub rpc_url: String,
     /// Owner-only key file of the deploying account (secp256k1; TON: the Ed25519 seed of the
@@ -196,32 +192,31 @@ pub struct DeployArgs {
 /// Locked `SccpTairaXor` artifacts (`scripts/contract_tooling/artifact-lock.json`).
 const ARTIFACT_LOCK: &str = include_str!("../../../../scripts/contract_tooling/artifact-lock.json");
 
-/// The locked keccak-256 of the `SccpTairaXor` creation bytecode of `target` (`evm` or
-/// `tron`).
-fn locked_creation_keccak(target: &str) -> Result<[u8; 32]> {
+/// The locked keccak-256 of the `SccpTairaXor` creation bytecode (the lock's `evm` target).
+fn locked_creation_keccak() -> Result<[u8; 32]> {
     let lock: norito::json::Value =
         norito::json::from_str(ARTIFACT_LOCK).map_err(|error| eyre!("artifact lock: {error}"))?;
     let text = lock
         .get("targets")
-        .and_then(|targets| targets.get(target))
+        .and_then(|targets| targets.get("evm"))
         .and_then(|evm| evm.get("contracts"))
         .and_then(|contracts| contracts.get("contracts/evm/sccp/SccpTairaXor.sol:SccpTairaXor"))
         .and_then(|contract| contract.get("creation_bytecode_keccak256_hex"))
         .and_then(norito::json::Value::as_str)
-        .ok_or_else(|| eyre!("the artifact lock has no {target} creation hash"))?;
+        .ok_or_else(|| eyre!("the artifact lock has no SccpTairaXor creation hash"))?;
     parse_word(text)
 }
 
-/// Read creation bytecode hex text and check it against the lock of `target`.
-fn locked_creation_bytecode(path: &std::path::Path, target: &str) -> Result<Vec<u8>> {
+/// Read creation bytecode hex text and check it against the lock.
+fn locked_creation_bytecode(path: &std::path::Path) -> Result<Vec<u8>> {
     let text =
         std::fs::read_to_string(path).wrap_err_with(|| format!("read {}", path.display()))?;
     let text = text.trim();
     let bytecode = hex::decode(text.strip_prefix("0x").unwrap_or(text))
         .wrap_err("creation bytecode is not hex")?;
-    if iroha_sccp::v1::hashes::keccak256(&[&bytecode]) != locked_creation_keccak(target)? {
+    if iroha_sccp::v1::hashes::keccak256(&[&bytecode]) != locked_creation_keccak()? {
         return Err(eyre!(
-            "the creation bytecode differs from the locked {target} SccpTairaXor artifact"
+            "the creation bytecode differs from the locked SccpTairaXor artifact"
         ));
     }
     Ok(bytecode)
@@ -233,8 +228,8 @@ pub struct FinalizeArgs {
     /// Message id (32-byte hex).
     #[arg(long)]
     pub message_id: String,
-    /// JSON-RPC endpoint (EVM), java-tron HTTP API endpoint (TRON), or comma-separated
-    /// liteservers (TON; empty for the compiled list).
+    /// JSON-RPC endpoint (EVM), or comma-separated liteservers (TON; empty for the compiled
+    /// list).
     #[arg(long)]
     pub rpc_url: String,
     /// Owner-only key file of the account that pays for the call (secp256k1; TON: the Ed25519
@@ -258,8 +253,8 @@ pub struct RosterSyncArgs {
     /// Route revision of the deployment; defaults to the route's live revision.
     #[arg(long)]
     pub revision: Option<u32>,
-    /// JSON-RPC endpoint (EVM), java-tron HTTP API endpoint (TRON), or comma-separated
-    /// liteservers (TON; empty for the compiled list).
+    /// JSON-RPC endpoint (EVM), or comma-separated liteservers (TON; empty for the compiled
+    /// list).
     #[arg(long)]
     pub rpc_url: String,
     /// Owner-only key file of the account that pays for the calls (secp256k1; TON: the Ed25519
@@ -274,15 +269,13 @@ pub struct RosterSyncArgs {
 /// Arguments of `iroha sccp send`.
 #[derive(clap::Args, Debug)]
 pub struct SendArgs {
-    /// External target network (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`,
-    /// `ton-mainnet`).
+    /// External target network (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).
     #[arg(long)]
     pub network: String,
     /// XOR amount, for example `1.5`.
     #[arg(long)]
     pub amount: String,
-    /// Recipient on the target: `0x`-hex (EVM 20 bytes, TRON 21 bytes with the `41` prefix) or
-    /// `0:<64 hex>` (TON raw address).
+    /// Recipient on the target: `0x`-hex (EVM, 20 bytes) or `0:<64 hex>` (TON raw address).
     #[arg(long)]
     pub recipient: String,
     /// Route revision to record on; defaults to the route's `Bidirectional` revision.
@@ -480,61 +473,6 @@ impl Run for Command {
     }
 }
 
-/// A Solidity deployment (EVM or TRON) reached through its chain's endpoint.
-enum SolidityDestination {
-    /// Ethereum or BSC.
-    Evm(evm::EvmDestination),
-    /// TRON.
-    Tron(tron::TronDestination),
-}
-
-impl SolidityDestination {
-    fn roster_generation(&self) -> Result<u64> {
-        Ok(match self {
-            Self::Evm(destination) => destination.roster_state()?.generation,
-            Self::Tron(destination) => destination.roster_state()?.generation,
-        })
-    }
-
-    fn finalize_call(
-        &self,
-        bundle: &iroha_sccp::api::SccpMessageProofBundleV1,
-        taira_network_id: [u8; 32],
-    ) -> Result<Vec<u8>> {
-        match self {
-            Self::Evm(destination) => destination.finalize_call(bundle, taira_network_id),
-            Self::Tron(destination) => destination.finalize_call(bundle, taira_network_id),
-        }
-    }
-
-    fn rotation_calls(
-        &self,
-        chain: &iroha_sccp::api::SccpRotationChainV1,
-        target_generation: u64,
-        taira_network_id: [u8; 32],
-    ) -> Result<Vec<Vec<u8>>> {
-        match self {
-            Self::Evm(destination) => {
-                destination.rotation_calls(chain, target_generation, taira_network_id)
-            }
-            Self::Tron(destination) => {
-                destination.rotation_calls(chain, target_generation, taira_network_id)
-            }
-        }
-    }
-
-    fn send(
-        &self,
-        key: &iroha_sccp_wallet::pure::evm::EvmSigningKey,
-        data: Vec<u8>,
-    ) -> Result<[u8; 32]> {
-        match self {
-            Self::Evm(destination) => destination.send(key, data),
-            Self::Tron(destination) => destination.send(key, data),
-        }
-    }
-}
-
 /// The deployment and destination identity of `(network, revision)` from Taira's registry (the
 /// live revision when `revision` is `None`).
 fn route_deployment(
@@ -569,21 +507,18 @@ fn route_deployment(
     ))
 }
 
-/// Connect to the Solidity deployment of `(network, revision)` through `rpc_url`.
-fn solidity_destination(
+/// Connect to the EVM deployment of `(network, revision)` through `rpc_url`.
+fn evm_destination(
     client: &BlockingClient,
     network: SccpNetworkV1,
     revision: Option<u32>,
     rpc_url: &str,
-) -> Result<SolidityDestination> {
+) -> Result<evm::EvmDestination> {
     use iroha::data_model::sccp::deployment::SccpDeploymentV1;
     match route_deployment(client, network, revision)? {
-        (SccpDeploymentV1::Evm(deployment), destination) => Ok(SolidityDestination::Evm(
-            evm::EvmDestination::connect(rpc_url, network, deployment.address, destination)?,
-        )),
-        (SccpDeploymentV1::Tron(deployment), destination) => Ok(SolidityDestination::Tron(
-            tron::TronDestination::connect(rpc_url, deployment.address, destination)?,
-        )),
+        (SccpDeploymentV1::Evm(deployment), destination) => {
+            evm::EvmDestination::connect(rpc_url, network, deployment.address, destination)
+        }
         (SccpDeploymentV1::Ton(_), _) => {
             Err(eyre!("{} is a TON destination", network.profile_key()))
         }
@@ -641,7 +576,7 @@ fn finalize<C: RunContext>(context: &mut C, args: FinalizeArgs) -> Result<()> {
         let hash = destination.finalize(&bundle, taira_network_id, &wallet)?;
         return context.println(hex::encode(hash));
     }
-    let destination = solidity_destination(
+    let destination = evm_destination(
         &client,
         record.network,
         Some(record.revision),
@@ -781,27 +716,25 @@ fn deploy_ton<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
     context.print_data(&vec![action])
 }
 
-/// `iroha sccp deploy`: deploy a pinned EVM, TRON or TON destination and print its
-/// `RegisterRoute` action.
+/// `iroha sccp deploy`: deploy a pinned EVM or TON destination and print its `RegisterRoute`
+/// action.
 fn deploy<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
     use iroha::data_model::sccp::{
-        deployment::{SccpDeploymentV1, SccpEvmDeploymentV1, SccpTronDeploymentV1},
+        deployment::{SccpDeploymentV1, SccpEvmDeploymentV1},
         governance::{SccpGovernanceActionV1, SccpRegisterRouteActionV1},
     };
     let network = parse_network(&args.network)?;
-    let target = match network {
-        SccpNetworkV1::EthereumMainnet | SccpNetworkV1::BscMainnet => "evm",
-        SccpNetworkV1::TronMainnet => "tron",
+    match network {
+        SccpNetworkV1::EthereumMainnet | SccpNetworkV1::BscMainnet => {}
         SccpNetworkV1::TonMainnet => return deploy_ton(context, args),
         SccpNetworkV1::SoraTaira => {
             return Err(eyre!("{} is not a destination", network.profile_key()));
         }
-    };
+    }
     let bytecode = locked_creation_bytecode(
         args.creation_bytecode
             .as_deref()
             .ok_or_else(|| eyre!("Solidity deployments need `--creation-bytecode`"))?,
-        target,
     )?;
     let max_supply: Numeric = args.max_supply.parse().map_err(|_| {
         eyre!(
@@ -833,38 +766,22 @@ fn deploy<C: RunContext>(context: &mut C, args: DeployArgs) -> Result<()> {
     ));
     let key = evm::load_key(&args.key_file)?;
     // Deploy, then wait for the code to appear and print the Parliament action.
-    let deployment = if network == SccpNetworkV1::TronMainnet {
-        let api = tron::connect_api(&args.rpc_url)?;
-        let (id, address) = tron::deploy(&api, &key, data)?;
-        context.println(format!(
-            "deployment transaction {}; contract {}",
-            hex::encode(id),
-            hex::encode(address)
-        ))?;
-        let runtime_code_hash = wait_for_code(|| tron::runtime_code_hash(&api, &address))?;
-        SccpDeploymentV1::Tron(SccpTronDeploymentV1 {
-            address,
-            runtime_code_hash,
-        })
-    } else {
-        let chain = evm::connect_chain(&args.rpc_url, network)?;
-        let (hash, nonce) = evm::send_transaction(&chain, network, &key, None, data)?;
-        let address = evm::created_address(&key.address(), nonce);
-        context.println(format!(
-            "deployment transaction 0x{}; contract 0x{}",
-            hex::encode(hash),
-            hex::encode(address)
-        ))?;
-        let runtime_code_hash = wait_for_code(|| evm::runtime_code_hash(&chain, &address))?;
-        SccpDeploymentV1::Evm(SccpEvmDeploymentV1 {
-            address,
-            runtime_code_hash,
-        })
-    };
+    let chain = evm::connect_chain(&args.rpc_url, network)?;
+    let (hash, nonce) = evm::send_transaction(&chain, network, &key, None, data)?;
+    let address = evm::created_address(&key.address(), nonce);
+    context.println(format!(
+        "deployment transaction 0x{}; contract 0x{}",
+        hex::encode(hash),
+        hex::encode(address)
+    ))?;
+    let runtime_code_hash = wait_for_code(|| evm::runtime_code_hash(&chain, &address))?;
     let action = SccpGovernanceActionV1::RegisterRoute(SccpRegisterRouteActionV1 {
         network,
         revision: args.revision,
-        deployment,
+        deployment: SccpDeploymentV1::Evm(SccpEvmDeploymentV1 {
+            address,
+            runtime_code_hash,
+        }),
         max_wrapped_supply,
         initial_roster_generation: roster.generation,
     });
@@ -896,13 +813,12 @@ fn source_builder(
     rpc_url: &str,
     beacon_url: Option<&str>,
 ) -> Result<Box<dyn SourceChainBuilder>> {
-    use iroha_sccp_rpc::builders::{bsc::BscBuilder, ton::TonBuilder, tron::TronBuilder};
+    use iroha_sccp_rpc::builders::{bsc::BscBuilder, ton::TonBuilder};
     let builder: Box<dyn SourceChainBuilder> = match network {
         SccpNetworkV1::EthereumMainnet => Box::new(ethereum_builder(rpc_url, beacon_url)?),
         SccpNetworkV1::BscMainnet => {
             Box::new(BscBuilder::new(evm::connect_chain(rpc_url, network)?))
         }
-        SccpNetworkV1::TronMainnet => Box::new(TronBuilder::new(tron::connect_api(rpc_url)?)),
         SccpNetworkV1::TonMainnet => Box::new(TonBuilder::new(ton::connect(rpc_url)?)),
         SccpNetworkV1::SoraTaira => {
             return Err(eyre!("{} is not a source chain", network.profile_key()));
@@ -1060,36 +976,6 @@ fn ton_claim(
     Ok((revision, payload, evidence))
 }
 
-/// `iroha sccp claim` for TRON: the payload comes from the burn's `SccpTransferToTaira` log
-/// (read from the solidified transaction info), the proof from the call itself.
-fn tron_claim(
-    client: &BlockingClient,
-    args: &ClaimArgs,
-) -> Result<(u32, Vec<u8>, SourceEvidenceV1)> {
-    use iroha_sccp::v1::{evm_abi::TransferToTairaLogV1, payload::SccpTransferPayloadV1};
-    use iroha_sccp_rpc::builders::tron::TronBuilder;
-    let tx_id = parse_word(&args.tx_hash)?;
-    let api = tron::connect_api(&args.rpc_url)?;
-    let info = api
-        .solidity_transaction_info(&tx_id)
-        .map_err(|error| eyre!("gettransactioninfobyid: {error}"))?
-        .ok_or_else(|| eyre!("the transaction is not solidified yet"))?;
-    let log = info
-        .logs
-        .iter()
-        .find_map(|log| TransferToTairaLogV1::decode(&log.topics, &log.data).ok())
-        .ok_or_else(|| eyre!("the transaction emitted no SccpTransferToTaira log"))?;
-    let payload = SccpTransferPayloadV1::decode(&log.payload)
-        .map_err(|error| eyre!("the burned payload does not decode: {error}"))?;
-    let evidence = prove(
-        client,
-        SccpNetworkV1::TronMainnet,
-        &TronBuilder::new(api),
-        &SourceEventRefV1::Tron { tx_id },
-    )?;
-    Ok((payload.route_revision, log.payload, evidence))
-}
-
 /// `iroha sccp claim` for Ethereum and BSC: the payload comes from the receipt's
 /// `SccpTransferToTaira` log.
 fn evm_claim(
@@ -1133,10 +1019,10 @@ fn claim<C: RunContext>(context: &mut C, args: ClaimArgs) -> Result<()> {
     use iroha::data_model::isi::sccp::SubmitSccpInboundMessageV1;
     let network = parse_network(&args.network)?;
     let client = blocking(context)?;
-    let (revision, payload, evidence) = match network {
-        SccpNetworkV1::TronMainnet => tron_claim(&client, &args)?,
-        SccpNetworkV1::TonMainnet => ton_claim(&client, &args)?,
-        _ => evm_claim(&client, network, &args)?,
+    let (revision, payload, evidence) = if network == SccpNetworkV1::TonMainnet {
+        ton_claim(&client, &args)?
+    } else {
+        evm_claim(&client, network, &args)?
     };
     submit_evidence(
         context,
@@ -1270,9 +1156,9 @@ fn roster_sync<C: RunContext>(context: &mut C, args: RosterSyncArgs) -> Result<(
         }
         return Ok(());
     }
-    let destination = solidity_destination(&client, network, args.revision, &args.rpc_url)?;
+    let destination = evm_destination(&client, network, args.revision, &args.rpc_url)?;
     let capabilities = client.sccp().capabilities()?;
-    let from = destination.roster_generation()?;
+    let from = destination.roster_state()?.generation;
     let chain = client
         .sccp()
         .rotations(from, iroha_sccp::v1::constants::MAX_ROTATIONS_PER_CALL)?;
@@ -1440,12 +1326,12 @@ mod tests {
         .expect("evm");
         assert_eq!(evm, vec![0x11; 20]);
         assert!(parse_recipient(SccpNetworkV1::EthereumMainnet, &"00".repeat(20)).is_err());
-        let tron = parse_recipient(
-            SccpNetworkV1::TronMainnet,
-            &format!("41{}", "22".repeat(20)),
-        )
-        .expect("tron");
-        assert_eq!(tron.len(), 21);
+        for network in [SccpNetworkV1::EthereumMainnet, SccpNetworkV1::BscMainnet] {
+            assert!(
+                parse_recipient(network, &format!("41{}", "22".repeat(20))).is_err(),
+                "a 21-byte address of the retired TRON codec is no EVM recipient"
+            );
+        }
         let ton = parse_recipient(SccpNetworkV1::TonMainnet, &format!("0:{}", "33".repeat(32)))
             .expect("ton");
         assert_eq!(&ton[..4], &[0; 4]);
@@ -1460,6 +1346,10 @@ mod tests {
             SccpNetworkV1::BscMainnet
         );
         assert!(parse_network("sora-taira").is_err());
+        assert!(
+            parse_network("tron-mainnet").is_err(),
+            "SCCP v1 has no TRON profile"
+        );
         assert_eq!(parse_word(&"ab".repeat(32)).expect("word"), [0xab; 32]);
         assert!(parse_word("ab").is_err());
         assert_eq!(parse_attestation("own").expect("own"), SccpAttestation::Own);
@@ -1536,10 +1426,6 @@ mod tests {
                 .network()
         };
         assert_eq!(
-            network(SccpNetworkV1::TronMainnet, "https://tron.invalid"),
-            SccpNetworkV1::TronMainnet
-        );
-        assert_eq!(
             network(SccpNetworkV1::TonMainnet, ""),
             SccpNetworkV1::TonMainnet
         );
@@ -1548,6 +1434,22 @@ mod tests {
             source_builder(SccpNetworkV1::EthereumMainnet, "https://eth.invalid", None).is_err()
         );
         assert!(source_builder(SccpNetworkV1::SoraTaira, "https://taira.invalid", None).is_err());
+    }
+
+    #[test]
+    fn creation_bytecode_must_match_the_locked_artifact() {
+        locked_creation_keccak().expect("the lock pins the SccpTairaXor creation hash");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("creation.hex");
+        std::fs::write(&path, "0x6080\n").expect("write");
+        let error = locked_creation_bytecode(&path).expect_err("not the locked artifact");
+        assert!(
+            error.to_string().contains("differs from the locked"),
+            "{error}"
+        );
+        std::fs::write(&path, "not hex").expect("write");
+        assert!(locked_creation_bytecode(&path).is_err());
+        assert!(locked_creation_bytecode(&dir.path().join("missing.hex")).is_err());
     }
 
     #[test]

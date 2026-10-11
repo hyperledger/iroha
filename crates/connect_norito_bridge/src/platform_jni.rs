@@ -18,8 +18,6 @@ use iroha_data_model::{
 mod account_address;
 mod committed_transaction_inclusion;
 mod confidential_prover;
-#[cfg(unix)]
-mod first_device_auth_key_v1;
 mod gpu;
 mod kagemusha_wallet_advance;
 mod kagemusha_wallet_observation;

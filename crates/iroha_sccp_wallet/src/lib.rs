@@ -6,7 +6,7 @@
 //!
 //! - `pure`: network-free verification of proof bundles, rotation chains and
 //!   Parliament controls against the destination's own state, and destination
-//!   transaction encodings (EVM calldata and EIP-1559 signing; TRON and TON),
+//!   transaction encodings (EVM calldata and EIP-1559 signing; TON),
 //!   exportable to SDK bridges;
 //! - `config`: the file-only `[sccp]` table (endpoint lists, timeouts, pinned
 //!   deployments per Taira `NetworkId`), kept in its own file beside the

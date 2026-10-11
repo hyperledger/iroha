@@ -115,7 +115,9 @@ pub const KAGEMUSHA_WALLET_FACT_APP_ATTEST_GENUINE_DEVICE_V1: u32 = 1 << 6;
 pub const KAGEMUSHA_WALLET_FACT_APP_ATTEST_KEY_BINDING_V1: u32 = 1 << 7;
 /// The App Attest environment is production.
 pub const KAGEMUSHA_WALLET_FACT_APP_ATTEST_PRODUCTION_V1: u32 = 1 << 8;
-/// A Play Integrity enrollment-time signal was recorded.
+/// Retired issuer output: a Play Integrity enrollment-time signal was recorded. Newly generated
+/// evidence never sets this bit; historical enrollment evidence, and every renewal that preserves
+/// it, may carry it. It stays defined and Apple-forbidden so those credentials stay valid.
 pub const KAGEMUSHA_WALLET_FACT_PLAY_INTEGRITY_SIGNAL_V1: u32 = 1 << 9;
 /// No chain certificate was on the attestation revocation status list at the check.
 pub const KAGEMUSHA_WALLET_FACT_REVOCATION_LIST_CLEAR_V1: u32 = 1 << 10;
@@ -128,8 +130,8 @@ pub const KAGEMUSHA_WALLET_ANDROID_FORBIDDEN_FACTS_V1: u32 =
     KAGEMUSHA_WALLET_FACT_APP_ATTEST_GENUINE_DEVICE_V1
         | KAGEMUSHA_WALLET_FACT_APP_ATTEST_KEY_BINDING_V1
         | KAGEMUSHA_WALLET_FACT_APP_ATTEST_PRODUCTION_V1;
-/// Fact bits an Apple evidence record never carries: Android key/boot/patch facts, Play
-/// Integrity, and a hardware-backed claim about the separately generated payment key.
+/// Fact bits an Apple evidence record never carries: Android key/boot/patch facts, the retired
+/// Play Integrity bit, and a hardware-backed claim about the separately generated payment key.
 pub const KAGEMUSHA_WALLET_APPLE_FORBIDDEN_FACTS_V1: u32 =
     KAGEMUSHA_WALLET_FACT_HARDWARE_BACKED_KEY_V1
         | KAGEMUSHA_WALLET_FACT_STRONGBOX_V1

@@ -8,36 +8,21 @@ fn invalid() -> Error {
     Error::Original("initial enrollment credential binding")
 }
 
+/// One hardware profile per platform: Android generates in StrongBox where the phone declares
+/// it and in the TEE otherwise, and the attested level chooses the evidence kind; Apple uses
+/// the Secure Enclave. No policy selects or refuses a hardware level.
 pub(super) fn evidence_matches_policy(
-    platform: KagemushaWalletEnrollmentPlatformV1,
+    platform: &KagemushaWalletEnrollmentPlatformV1,
     profile: KagemushaWalletKeyProfileV1,
     evidence: KagemushaWalletEvidenceKindV1,
 ) -> bool {
-    use KagemushaWalletAndroidHardwareV1 as Hardware;
     use KagemushaWalletEnrollmentPlatformV1 as Platform;
     use KagemushaWalletEvidenceKindV1 as Evidence;
     use KagemushaWalletKeyProfileV1 as Profile;
     matches!(
         (platform, profile, evidence),
         (
-            Platform::Android {
-                hardware: Hardware::Tee,
-                ..
-            },
-            Profile::AndroidTee,
-            Evidence::AndroidKeyMintTee
-        ) | (
-            Platform::Android {
-                hardware: Hardware::StrongBox,
-                ..
-            },
-            Profile::SecureElement,
-            Evidence::AndroidKeyMintStrongBox
-        ) | (
-            Platform::Android {
-                hardware: Hardware::TeeOrStrongBox,
-                ..
-            },
+            Platform::Android { .. },
             Profile::SecureElementOrTee,
             Evidence::AndroidKeyMintTee | Evidence::AndroidKeyMintStrongBox
         ) | (
@@ -46,6 +31,20 @@ pub(super) fn evidence_matches_policy(
             Evidence::AppleAppAttest
         )
     )
+}
+
+/// The single key profile of a platform.
+pub(super) fn platform_key_profile(
+    platform: &KagemushaWalletEnrollmentPlatformV1,
+) -> KagemushaWalletKeyProfileV1 {
+    match platform {
+        KagemushaWalletEnrollmentPlatformV1::Android { .. } => {
+            KagemushaWalletKeyProfileV1::SecureElementOrTee
+        }
+        KagemushaWalletEnrollmentPlatformV1::Apple { .. } => {
+            KagemushaWalletKeyProfileV1::SecureElement
+        }
+    }
 }
 
 // A later monetary marker must still name the exact original wallet incarnation. Enrollment
@@ -74,33 +73,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn credential_evidence_requires_the_exact_signed_platform_and_hardware_profile() {
-        use KagemushaWalletAndroidHardwareV1 as Hardware;
+    fn credential_evidence_requires_the_single_platform_profile_and_attested_kind() {
         use KagemushaWalletEnrollmentPlatformV1 as Platform;
         use KagemushaWalletEvidenceKindV1 as Evidence;
         use KagemushaWalletKeyProfileV1 as Profile;
-        let android = |hardware| Platform::Android {
-            attestation_root_sha256: [1; 32],
-            hardware,
+        let android = Platform::Android {
+            root_set: vec![KagemushaWalletAndroidRootV1 {
+                family: KagemushaWalletAndroidRootFamilyV1::GoogleRsa,
+                spki_sha256: [1; 32],
+                revocation_source: KagemushaWalletRevocationSourceV1::GoogleAttestationStatus,
+            }],
             patch_floor_yyyymm: 202610,
-            play_integrity_maximum_age_ms: 120_000,
-            require_play_recognized: true,
-            require_licensed: true,
-            minimum_device_integrity: KagemushaWalletPlayIntegrityLevelV1::Device,
         };
+        let apple = Platform::Apple {
+            attestation_root_sha256: [1; 32],
+        };
+        assert_eq!(platform_key_profile(&android), Profile::SecureElementOrTee);
+        assert_eq!(platform_key_profile(&apple), Profile::SecureElement);
         for (platform, profile, allowed) in [
             (
-                android(Hardware::Tee),
-                Profile::AndroidTee,
-                vec![Evidence::AndroidKeyMintTee],
-            ),
-            (
-                android(Hardware::StrongBox),
-                Profile::SecureElement,
-                vec![Evidence::AndroidKeyMintStrongBox],
-            ),
-            (
-                android(Hardware::TeeOrStrongBox),
+                &android,
                 Profile::SecureElementOrTee,
                 vec![
                     Evidence::AndroidKeyMintTee,
@@ -108,19 +100,13 @@ mod tests {
                 ],
             ),
             (
-                Platform::Apple {
-                    attestation_root_sha256: [1; 32],
-                },
+                &apple,
                 Profile::SecureElement,
                 vec![Evidence::AppleAppAttest],
             ),
         ] {
             for evidence in Evidence::ALL {
-                for offered in [
-                    Profile::SecureElement,
-                    Profile::SecureElementOrTee,
-                    Profile::AndroidTee,
-                ] {
+                for offered in [Profile::SecureElement, Profile::SecureElementOrTee] {
                     assert_eq!(
                         evidence_matches_policy(platform, offered, evidence),
                         offered == profile && allowed.contains(&evidence),

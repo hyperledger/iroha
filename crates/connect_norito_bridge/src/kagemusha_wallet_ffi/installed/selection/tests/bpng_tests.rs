@@ -47,7 +47,9 @@ impl BpngFixture {
         mutate(&mut app, "ledger", ledger);
         let mut consensus = native["consensus"].clone();
         // Preserve the maintained BPNG v7 renderer grammar while replacing only
-        // its public genesis/roster selections with genuine fixture originals.
+        // its public genesis/roster selections with genuine fixture originals. BPNG
+        // signs no finality-verifier pin.
+        object_mut(&mut consensus).remove("finalityVerifierSha256");
         mutate(&mut consensus, "mode", Value::String(short_mode.into()));
         for name in [
             "checkpointSha256",
@@ -93,12 +95,13 @@ impl BpngFixture {
         for name in ["python_sha256", "openssl_sha256"] {
             mutate(&mut base.runtime, name, Value::String("55".repeat(32)));
         }
+        // Only Apple selects a root DER original; Android roots are SPKI pins in its policy.
+        mutate(
+            object_mut(&mut base.runtime).get_mut("apple").unwrap(),
+            "attestation_root_der_base64",
+            Value::String(STANDARD.encode(SESSION_ROOT)),
+        );
         for name in ["android", "apple"] {
-            mutate(
-                object_mut(&mut base.runtime).get_mut(name).unwrap(),
-                "attestation_root_der_base64",
-                Value::String(STANDARD.encode(SESSION_ROOT)),
-            );
             mutate(
                 object_mut(&mut base.runtime).get_mut(name).unwrap(),
                 "verifier_configuration_path",
@@ -259,15 +262,23 @@ fn cbsi_consensus_keeps_exact_protocol_tags_for_both_genuine_genesis_modes() {
     }
 }
 
+fn bpng_root(android: bool) -> &'static [u8] {
+    if android { b"" } else { SESSION_ROOT }
+}
 #[test]
 fn bpng_session_authenticates_actual_retail_claims_and_exact_signed_release() {
     let fixture = BpngFixture::new();
     let selected = fixture.load().unwrap();
     let token = bpng_token(&bpng_claims(), &session_key(7));
     for android in [true, false] {
-        let originals = [token.as_slice(), b"", SESSION_ROOT];
+        let originals = [token.as_slice(), b"", bpng_root(android)];
         let session = selected.enrollment_session(android, originals).unwrap();
         assert!(session.matches(originals));
+        // Android carries no root original: its KeyMint chain carries its own root.
+        assert_eq!(
+            session.config.attestation_root_der,
+            (!android).then(|| SESSION_ROOT.to_vec())
+        );
         assert_eq!(session.config.actor, b"owner@example.test");
         assert_eq!(session.config.fi, b"mibank.bpng");
         assert_eq!(
@@ -291,12 +302,12 @@ fn bpng_session_authenticates_actual_retail_claims_and_exact_signed_release() {
     let other = other.load().unwrap();
     assert_ne!(
         selected
-            .enrollment_session(true, [&token, b"", SESSION_ROOT])
+            .enrollment_session(true, [&token, b"", b""])
             .unwrap()
             .config
             .release,
         other
-            .enrollment_session(true, [&token, b"", SESSION_ROOT])
+            .enrollment_session(true, [&token, b"", b""])
             .unwrap()
             .config
             .release,
@@ -309,33 +320,46 @@ fn bpng_session_rejects_wrong_signer_modified_token_root_and_foreign_proof() {
     let token = bpng_token(&bpng_claims(), &session_key(7));
     let mut tampered = token.clone();
     tampered[10] ^= 1;
-    for bad in [
-        bpng_token(&bpng_claims(), &session_key(8)),
-        tampered,
-        vec![b'x'; 16_385],
-    ] {
+    for android in [true, false] {
+        for bad in [
+            bpng_token(&bpng_claims(), &session_key(8)),
+            tampered.clone(),
+            vec![b'x'; 16_385],
+        ] {
+            assert!(
+                selected
+                    .enrollment_session(android, [&bad, b"", bpng_root(android)])
+                    .is_err()
+            );
+        }
         assert!(
             selected
-                .enrollment_session(true, [&bad, b"", SESSION_ROOT])
+                .enrollment_session(android, [&token, b"offered DPoP", bpng_root(android)])
+                .is_err()
+        );
+        // Product selection, not an empty frame supplied by managed code, selects BPNG.
+        let cbsi = BaseFixture::new().load().unwrap();
+        assert!(
+            cbsi.enrollment_session(android, [&token, b"", bpng_root(android)])
                 .is_err()
         );
     }
-    assert!(
-        selected
-            .enrollment_session(true, [&token, b"", b"wrong root"])
-            .is_err()
-    );
-    assert!(
-        selected
-            .enrollment_session(true, [&token, b"offered DPoP", SESSION_ROOT])
-            .is_err()
-    );
-    // Product selection, not an empty frame supplied by managed code, selects BPNG.
-    let cbsi = BaseFixture::new().load().unwrap();
-    assert!(
-        cbsi.enrollment_session(true, [&token, b"", SESSION_ROOT])
-            .is_err()
-    );
+    // Apple requires exactly the signed runtime's root; Android refuses any offered root,
+    // including the genuine Apple one.
+    for root in [b"wrong root".as_slice(), b""] {
+        assert!(
+            selected
+                .enrollment_session(false, [&token, b"", root])
+                .is_err()
+        );
+    }
+    for root in [b"wrong root".as_slice(), SESSION_ROOT] {
+        assert!(
+            selected
+                .enrollment_session(true, [&token, b"", root])
+                .is_err()
+        );
+    }
 }
 
 #[test]
@@ -366,11 +390,13 @@ fn bpng_session_rejects_resigned_foreign_incomplete_and_invalid_claims() {
     }
     for changed in mutations {
         let token = bpng_token(&changed, &session_key(7));
-        assert!(
-            selected
-                .enrollment_session(true, [&token, b"", SESSION_ROOT])
-                .is_err()
-        );
+        for android in [true, false] {
+            assert!(
+                selected
+                    .enrollment_session(android, [&token, b"", bpng_root(android)])
+                    .is_err()
+            );
+        }
     }
 }
 
@@ -412,21 +438,30 @@ fn bpng_public_session_selection_has_no_unsigned_or_unknown_field_fallback() {
 }
 
 #[test]
-fn bpng_public_roots_must_match_the_actual_signed_enrollment_policy() {
-    for name in ["android", "apple"] {
-        for replacement in [None, Some(""), Some("YQ=="), Some("YQ"), Some(" YQ==")] {
-            let mut fixture = BpngFixture::new();
-            let platform = object_mut(object_mut(&mut fixture.0.runtime).get_mut(name).unwrap());
-            if let Some(value) = replacement {
-                platform.insert(
-                    "attestation_root_der_base64".into(),
-                    Value::String(value.into()),
-                );
-            } else {
-                platform.remove("attestation_root_der_base64");
-            }
-            assert!(fixture.load().is_err());
+fn bpng_public_apple_root_must_match_the_signed_policy_and_android_selects_none() {
+    for replacement in [None, Some(""), Some("YQ=="), Some("YQ"), Some(" YQ==")] {
+        let mut fixture = BpngFixture::new();
+        let platform = object_mut(object_mut(&mut fixture.0.runtime).get_mut("apple").unwrap());
+        if let Some(value) = replacement {
+            platform.insert(
+                "attestation_root_der_base64".into(),
+                Value::String(value.into()),
+            );
+        } else {
+            platform.remove("attestation_root_der_base64");
         }
+        assert!(fixture.load().is_err());
+    }
+    // The retired Android root DER original is refused even when it is well formed.
+    for value in [STANDARD.encode(SESSION_ROOT), "YQ==".into(), String::new()] {
+        let mut fixture = BpngFixture::new();
+        object_mut(
+            object_mut(&mut fixture.0.runtime)
+                .get_mut("android")
+                .unwrap(),
+        )
+        .insert("attestation_root_der_base64".into(), Value::String(value));
+        assert!(fixture.load().is_err());
     }
     let selected = BpngFixture::new().load().unwrap();
     let mut claims = bpng_claims();
@@ -434,9 +469,23 @@ fn bpng_public_roots_must_match_the_actual_signed_enrollment_policy() {
     let token = bpng_token(&claims, &session_key(7));
     assert!(
         selected
-            .enrollment_session(true, [&token, b"", SESSION_ROOT])
+            .enrollment_session(true, [&token, b"", b""])
             .is_err()
     );
+}
+#[test]
+fn bpng_android_policy_with_unqualified_vendor_adapter_fails_configuration() {
+    let mut roots = google_roots();
+    roots.push(vendor_root("huawei"));
+    let mut fixture = BpngFixture::new();
+    fixture.0.set_android_platform(android_platform(roots));
+    assert!(matches!(
+        fixture.load(),
+        Err(Failure {
+            status: INVALID,
+            ..
+        })
+    ));
 }
 fn bpng_sign(key: &KeyPair, app: &[u8]) -> Vec<u8> {
     let mut message = b"bpng:taira-app-runtime-manifest:v7\0".to_vec();
@@ -656,11 +705,6 @@ fn bpng_signed_projection_refuses_foreign_network_asset_routes_and_service() {
             "services",
             "coreApiUrl",
             Value::String("https://other.invalid".into()),
-        ),
-        (
-            "firstDeviceAuthentication",
-            "schema",
-            Value::String("cbsi.first-device-auth-runtime-selection.v1".into()),
         ),
     ] {
         let mut fixture = BpngFixture::new();
@@ -1111,160 +1155,67 @@ fn bpng_v7_rejects_retired_v6_application_and_signature_domains() {
     );
 }
 
-fn first_device_authentication_selection() -> Value {
-    // Public metadata fixtures confer no authenticated-original or wallet authority.
-    norito::json!({"schema":("bpng.first-device-auth-runtime-selection.v1"),"googleOAuthClientId":("fixture-client.apps.googleusercontent.com"),"googleOAuthIssuer":("https://accounts.google.com"),"integrityCloudProjectNumber":(123456789),"originalAuthPolicySha256":("11".repeat(32)),"verifierConfigurationSha256":("22".repeat(32)),"googlePolicySha256":("33".repeat(32))})
-}
-fn accepts_signed_authentication_selection(selection: Value) -> bool {
-    let key = KeyPair::from_seed(vec![15; 32], Algorithm::Ed25519);
-    let trust = RuntimeTrust {
-        authority: RuntimeAuthority::BpngTairaV7,
-        key: key.public_key().clone(),
-    };
-    let mut app: Value = norito::json::from_slice(include_bytes!("bpng_app_v7.json")).unwrap();
-    mutate(&mut app, "firstDeviceAuthentication", selection);
-    let bytes = canonical(&app);
-    signed_app(&trust, &bytes, &bpng_sign(&key, &bytes)).is_ok()
-}
 #[test]
-fn signed_authentication_selection_requires_exact_current_fields_and_types() {
-    let selection = first_device_authentication_selection();
-    assert!(accepts_signed_authentication_selection(selection.clone()));
-    let Value::Object(map) = &selection else {
-        panic!("fixture object")
-    };
-    for field in map.keys() {
-        let mut changed = map.clone();
-        changed.remove(field);
-        assert!(!accepts_signed_authentication_selection(Value::Object(
-            changed
-        )));
-    }
-    let mut changed = selection.clone();
-    mutate(&mut changed, "authorized", Value::Bool(true));
-    assert!(!accepts_signed_authentication_selection(changed));
-    for invalid in [
-        Value::Null,
-        Value::Bool(true),
-        Value::String("selection".into()),
-        Value::Array(vec![]),
+fn bpng_v7_refuses_retired_first_device_otp_anchor_and_finality_pin_members() {
+    // A runtime without these members is the current contract (no firstDeviceAuthentication
+    // selection, as every phone, iPhone included, needs).
+    let fixture = BpngFixture::new();
+    for name in [
+        "firstDeviceAuthentication",
+        "authentication",
+        "retailStageAnchorAuthority",
     ] {
-        assert!(!accepts_signed_authentication_selection(invalid));
+        assert!(!object(&fixture.0.app).unwrap().contains_key(name));
     }
-    for invalid in [
-        Value::String("bpng.first-device-auth-runtime-selection.v2".into()),
-        Value::from(1_u64),
-        Value::Null,
-    ] {
-        let mut changed = selection.clone();
-        mutate(&mut changed, "schema", invalid);
-        assert!(!accepts_signed_authentication_selection(changed));
-    }
-    let key = KeyPair::from_seed(vec![15; 32], Algorithm::Ed25519);
-    let mut missing: Value = norito::json::from_slice(include_bytes!("bpng_app_v7.json")).unwrap();
-    object_mut(&mut missing).remove("firstDeviceAuthentication");
-    let bytes = canonical(&missing);
     assert!(
-        signed_app(
-            &RuntimeTrust {
-                authority: RuntimeAuthority::BpngTairaV7,
-                key: key.public_key().clone()
-            },
-            &bytes,
-            &bpng_sign(&key, &bytes)
-        )
-        .is_err()
+        !object(&fixture.0.app["consensus"])
+            .unwrap()
+            .contains_key("finalityVerifierSha256")
     );
-}
-#[test]
-fn signed_authentication_oauth_strings_enforce_exact_issuer_and_ascii_client_bounds() {
-    for (field, valid) in [
-        ("googleOAuthClientId", "!".into()),
-        ("googleOAuthClientId", "~".repeat(1024)),
-        ("googleOAuthIssuer", "accounts.google.com".into()),
-        ("googleOAuthIssuer", "https://accounts.google.com".into()),
-    ] {
-        let mut selection = first_device_authentication_selection();
-        mutate(&mut selection, field, Value::String(valid));
-        assert!(accepts_signed_authentication_selection(selection));
-    }
-    for (field, invalid) in [
-        ("googleOAuthClientId", "".into()),
-        ("googleOAuthClientId", "x".repeat(1025)),
-        ("googleOAuthClientId", "client id".into()),
-        ("googleOAuthClientId", "client\n".into()),
-        ("googleOAuthClientId", "\u{7f}".into()),
-        ("googleOAuthClientId", "é".into()),
-        ("googleOAuthIssuer", "http://accounts.google.com".into()),
-        ("googleOAuthIssuer", "https://accounts.google.com/".into()),
+    fixture.load().unwrap();
+    let (app, _, runtime) = fixture.originals();
+    // Each retired member, genuinely re-signed by the exact v7 authority, is refused rather
+    // than ignored: the exact member lists of Native, Core and both apps flip together.
+    for (name, value) in [
         (
-            "googleOAuthIssuer",
-            "https://accounts.google.com.evil".into(),
+            "firstDeviceAuthentication",
+            norito::json!({"schema":("bpng.first-device-auth-runtime-selection.v1"),"googleOAuthClientId":("fixture-client.apps.googleusercontent.com"),"googleOAuthIssuer":("https://accounts.google.com"),"integrityCloudProjectNumber":(123456789),"originalAuthPolicySha256":("11".repeat(32)),"verifierConfigurationSha256":("22".repeat(32)),"googlePolicySha256":("33".repeat(32))}),
         ),
-        ("googleOAuthIssuer", " accounts.google.com".into()),
+        (
+            "authentication",
+            norito::json!({"schema":("bpng.taira-poc-auth-policy.v1"),"otpMode":("poc-fixed"),"otpFixedCode":("123456"),"totpMode":("poc-fixed")}),
+        ),
+        (
+            "retailStageAnchorAuthority",
+            norito::json!({"purpose":("bpng.retail-stage-sumeragi-anchor.v1"),"algorithm":("ed25519")}),
+        ),
+        ("firstDeviceAuthentication", Value::Null),
     ] {
-        let mut selection = first_device_authentication_selection();
-        mutate(&mut selection, field, Value::String(invalid));
-        assert!(!accepts_signed_authentication_selection(selection));
-    }
-    for field in ["googleOAuthClientId", "googleOAuthIssuer"] {
-        for invalid in [
-            Value::from(123_u64),
-            Value::Bool(true),
-            Value::Null,
-            Value::Array(vec![]),
-        ] {
-            let mut selection = first_device_authentication_selection();
-            mutate(&mut selection, field, invalid);
-            assert!(!accepts_signed_authentication_selection(selection));
-        }
-    }
-}
-#[test]
-fn signed_authentication_project_requires_a_positive_safe_json_integer() {
-    for valid in [1_u64, 9_007_199_254_740_991] {
-        let mut selection = first_device_authentication_selection();
-        mutate(
-            &mut selection,
-            "integrityCloudProjectNumber",
-            Value::from(valid),
+        let mut document = json(&app, APP_MANIFEST_MAX, true).unwrap();
+        object_mut(&mut document).insert(name.into(), value);
+        let document = canonical(&document);
+        let signature = bpng_sign(&fixture.0.key, &document);
+        assert!(
+            signed_app(&fixture.trust(), &document, &signature).is_err(),
+            "{name}"
         );
-        assert!(accepts_signed_authentication_selection(selection));
+        assert!(
+            fixture
+                .load_originals(&document, &signature, &runtime)
+                .is_err(),
+            "{name}"
+        );
     }
-    for invalid in [
-        Value::from(-1_i64),
-        Value::from(0_u64),
-        Value::from(1.5_f64),
-        Value::from(9_007_199_254_740_992_u64),
-        Value::String("1".into()),
-        Value::Bool(true),
-        Value::Null,
-    ] {
-        let mut selection = first_device_authentication_selection();
-        mutate(&mut selection, "integrityCloudProjectNumber", invalid);
-        assert!(!accepts_signed_authentication_selection(selection));
-    }
-}
-#[test]
-fn signed_authentication_original_pins_require_typed_nonzero_lowercase_digests() {
-    for field in [
-        "originalAuthPolicySha256",
-        "verifierConfigurationSha256",
-        "googlePolicySha256",
-    ] {
-        for invalid in [
-            Value::String("0".repeat(64)),
-            Value::String("A".repeat(64)),
-            Value::String("g".repeat(64)),
-            Value::String("a".repeat(63)),
-            Value::String("a".repeat(65)),
-            Value::from(123_u64),
-            Value::Bool(false),
-            Value::Null,
-        ] {
-            let mut selection = first_device_authentication_selection();
-            mutate(&mut selection, field, invalid);
-            assert!(!accepts_signed_authentication_selection(selection));
-        }
-    }
+    let mut document = json(&app, APP_MANIFEST_MAX, true).unwrap();
+    mutate(
+        object_mut(&mut document).get_mut("consensus").unwrap(),
+        "finalityVerifierSha256",
+        Value::String("ff".repeat(32)),
+    );
+    let document = canonical(&document);
+    assert!(
+        fixture
+            .load_originals(&document, &bpng_sign(&fixture.0.key, &document), &runtime)
+            .is_err()
+    );
 }

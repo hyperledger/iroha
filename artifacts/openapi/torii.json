@@ -38361,22 +38361,6 @@
             "additionalProperties": false,
             "properties": {
               "deployment": {
-                "$ref": "#/components/schemas/SccpTronDeploymentV1"
-              },
-              "family": {
-                "const": "tron"
-              }
-            },
-            "required": [
-              "family",
-              "deployment"
-            ],
-            "type": "object"
-          },
-          {
-            "additionalProperties": false,
-            "properties": {
-              "deployment": {
                 "$ref": "#/components/schemas/SccpTonDeploymentV1"
               },
               "family": {
@@ -38415,8 +38399,7 @@
             "enum": [
               "ethereum_mainnet",
               "bsc_mainnet",
-              "ton_mainnet",
-              "tron_mainnet"
+              "ton_mainnet"
             ],
             "type": "string"
           },
@@ -39395,33 +39378,6 @@
           "minter_code",
           "wallet_code",
           "bucket_code"
-        ],
-        "type": "object"
-      },
-      "SccpTronAddressHex21V1": {
-        "description": "Canonical uppercase 21-byte TRON address without a prefix; the first byte is 0x41 and the remainder is nonzero.",
-        "maxLength": 42,
-        "minLength": 42,
-        "not": {
-          "pattern": "^410{40}$"
-        },
-        "pattern": "^41[0-9A-F]{40}$",
-        "type": "string"
-      },
-      "SccpTronDeploymentV1": {
-        "additionalProperties": false,
-        "description": "TRON bridge-token contract and the Keccak-256 of its runtime bytecode.",
-        "properties": {
-          "address": {
-            "$ref": "#/components/schemas/SccpTronAddressHex21V1"
-          },
-          "runtime_code_hash": {
-            "$ref": "#/components/schemas/SccpUpperHex32"
-          }
-        },
-        "required": [
-          "address",
-          "runtime_code_hash"
         ],
         "type": "object"
       },
@@ -89941,7 +89897,7 @@
         "operationId": "sccpControlsV1",
         "parameters": [
           {
-            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).",
+            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).",
             "in": "path",
             "name": "network",
             "required": true,
@@ -89949,7 +89905,6 @@
               "enum": [
                 "ethereum-mainnet",
                 "bsc-mainnet",
-                "tron-mainnet",
                 "ton-mainnet"
               ],
               "type": "string"
@@ -90061,7 +90016,7 @@
         "operationId": "sccpControlProofV1",
         "parameters": [
           {
-            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).",
+            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).",
             "in": "path",
             "name": "network",
             "required": true,
@@ -90069,7 +90024,6 @@
               "enum": [
                 "ethereum-mainnet",
                 "bsc-mainnet",
-                "tron-mainnet",
                 "ton-mainnet"
               ],
               "type": "string"
@@ -90572,7 +90526,7 @@
         "operationId": "sccpLightClientV1",
         "parameters": [
           {
-            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).",
+            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).",
             "in": "path",
             "name": "network",
             "required": true,
@@ -90580,7 +90534,6 @@
               "enum": [
                 "ethereum-mainnet",
                 "bsc-mainnet",
-                "tron-mainnet",
                 "ton-mainnet"
               ],
               "type": "string"
@@ -90661,7 +90614,7 @@
         "operationId": "sccpLightClientCheckpointsV1",
         "parameters": [
           {
-            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).",
+            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).",
             "in": "path",
             "name": "network",
             "required": true,
@@ -90669,7 +90622,6 @@
               "enum": [
                 "ethereum-mainnet",
                 "bsc-mainnet",
-                "tron-mainnet",
                 "ton-mainnet"
               ],
               "type": "string"
@@ -90770,7 +90722,7 @@
         "operationId": "sccpLightClientSetsV1",
         "parameters": [
           {
-            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).",
+            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).",
             "in": "path",
             "name": "network",
             "required": true,
@@ -90778,7 +90730,6 @@
               "enum": [
                 "ethereum-mainnet",
                 "bsc-mainnet",
-                "tron-mainnet",
                 "ton-mainnet"
               ],
               "type": "string"
@@ -90870,7 +90821,6 @@
               "enum": [
                 "ethereum-mainnet",
                 "bsc-mainnet",
-                "tron-mainnet",
                 "ton-mainnet"
               ],
               "type": "string"
@@ -91183,7 +91133,7 @@
         "operationId": "sccpOutboundByNonceV1",
         "parameters": [
           {
-            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `tron-mainnet`, `ton-mainnet`).",
+            "description": "External network profile key (`ethereum-mainnet`, `bsc-mainnet`, `ton-mainnet`).",
             "in": "path",
             "name": "network",
             "required": true,
@@ -91191,7 +91141,6 @@
               "enum": [
                 "ethereum-mainnet",
                 "bsc-mainnet",
-                "tron-mainnet",
                 "ton-mainnet"
               ],
               "type": "string"

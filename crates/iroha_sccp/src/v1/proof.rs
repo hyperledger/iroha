@@ -10,7 +10,7 @@
 use iroha_data_model::bridge::SccpNetworkV1;
 
 use super::{
-    constants::{CODEC_TON_ACCOUNT36, CODEC_TRON_ADDRESS21, MAX_BLOCK_LEAVES},
+    constants::{CODEC_TON_ACCOUNT36, MAX_BLOCK_LEAVES},
     eip712::AttestationFieldsV1,
     hashes::{self, LeafError},
     history::verify_history_inclusion,
@@ -68,11 +68,8 @@ impl DestinationV1 {
     #[must_use]
     pub fn is_self(&self, recipient_codec: u8, recipient: &[u8]) -> bool {
         match recipient_codec {
-            // EVM: word(address) of the recipient; TRON: without the 0x41 prefix.
-            CODEC_TRON_ADDRESS21 => {
-                recipient.len() == 21 && recipient[1..] == self.destination_word[12..]
-            }
             CODEC_TON_ACCOUNT36 => recipient.len() == 36 && recipient[4..] == self.destination_word,
+            // EVM: word(address) of the recipient.
             _ => recipient.len() == 20 && recipient == &self.destination_word[12..],
         }
     }
@@ -597,15 +594,16 @@ mod tests {
     fn is_self_per_codec() {
         let word = word_address(&[0x22; 20]);
         let dest = DestinationV1 {
-            network: SccpNetworkV1::TronMainnet,
+            network: SccpNetworkV1::BscMainnet,
             route_revision: 1,
             destination_word: word,
         };
-        let mut tvm_account = vec![0x41];
-        tvm_account.extend_from_slice(&[0x22; 20]);
-        assert!(dest.is_self(CODEC_TRON_ADDRESS21, &tvm_account));
         assert!(dest.is_self(2, &[0x22; 20]));
         assert!(!dest.is_self(2, &[0x23; 20]));
+        // The retired 21-byte TRON form (`0x41` then the address) names no deployment.
+        let mut retired = vec![0x41];
+        retired.extend_from_slice(&[0x22; 20]);
+        assert!(!dest.is_self(5, &retired));
         let ton_dest = DestinationV1 {
             network: SccpNetworkV1::TonMainnet,
             route_revision: 1,

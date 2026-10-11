@@ -54,7 +54,7 @@ interface AtomicPrivateSettlementResponseVerifierV1 {
 object AtomicPrivateSettlementNativeResponseVerifierV1 :
     AtomicPrivateSettlementResponseVerifierV1 {
     private const val LIBRARY_NAME = "connect_norito_bridge"
-    private const val REQUIRED_BRIDGE_ABI_VERSION = 28
+    private const val REQUIRED_BRIDGE_ABI_VERSION = 29
     private const val HASH_BYTES = 32
     private const val RESPONSE_MAX_BYTES = 32 * 1024 * 1024
     private const val APPROVAL_REQUEST_MAX_BYTES = 1024 * 1024
@@ -199,7 +199,7 @@ object AtomicPrivateSettlementNativeResponseVerifierV1 :
         } catch (failure: UnsatisfiedLinkError) {
             throw IllegalStateException(
                 "native private settlement response verifier is unavailable: " +
-                    "required ABI-28 method $method is missing",
+                    "required ABI-29 method $method is missing",
                 failure,
             )
         }

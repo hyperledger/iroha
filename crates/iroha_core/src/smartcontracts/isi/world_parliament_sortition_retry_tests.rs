@@ -3,7 +3,8 @@
 // the Parliament manager otherwise.
 
 /// Seed a qualified attempt of `proposal` whose complete initial generation, requested at
-/// height 1, failed without a roster because its pulse never finalized.
+/// height 1, consumed the pulse of its exact slot and failed without a roster because
+/// nobody accepted before the invitation window closed.
 fn seed_parliament_no_roster_retry_fixture(
     state_transaction: &mut StateTransaction<'_, '_>,
     proposal: ProposalKind,
@@ -32,6 +33,8 @@ fn seed_parliament_no_roster_retry_fixture(
         },
         PARLIAMENT_GOVERNANCE_POLICY_VERSION_V1,
         PULSE_DELAY,
+        // The initial slot `REQUEST_HEIGHT + PULSE_DELAY` is the first native pulse height.
+        REQUEST_HEIGHT + PULSE_DELAY + 1,
         proposal.effect_preimage_hash_v1(),
         expected_head,
         requirements.clone(),
@@ -70,13 +73,14 @@ fn seed_parliament_no_roster_retry_fixture(
         .register_sortition_request_batch(governance_attempt_id, registrations, candidates)
         .expect("register the initial generation");
     attempt
-        .fail_body_election_no_roster(
-            governance_attempt_id,
+        .fail_sortition_generation_with_empty_roster_for_tests(
             BodyElectionAttemptId::derive_v1(governance_attempt_id, requirements[0].body, 0),
-            false,
+            iroha_data_model::governance::types::BeaconPulseId::new([0xE5; 32]),
+            &state_transaction.network_id,
+            &state_transaction.gov,
             REQUEST_HEIGHT + PULSE_DELAY + 1,
         )
-        .expect("the initial pulse never finalized");
+        .expect("the consumed initial pulse left every roster empty");
 
     state_transaction
         .world

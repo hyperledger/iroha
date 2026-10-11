@@ -932,24 +932,9 @@ record!(
     "iroha_data_model::isi::sccp::ReportSccpLightClientEquivocationV1"
 );
 record!(
-    sccp_set_sccp_bridge_key_v1,
-    crate::isi::sccp::SetSccpBridgeKeyV1,
-    "iroha_data_model::isi::sccp::SetSccpBridgeKeyV1"
-);
-record!(
     sccp_settle_sccp_v1,
     crate::isi::sccp::SettleSccpV1,
     "iroha_data_model::isi::sccp::SettleSccpV1"
-);
-record!(
-    sccp_submit_sccp_attestation_fault_v1,
-    crate::isi::sccp::SubmitSccpAttestationFaultV1,
-    "iroha_data_model::isi::sccp::SubmitSccpAttestationFaultV1"
-);
-record!(
-    sccp_submit_sccp_attestations_v1,
-    crate::isi::sccp::SubmitSccpAttestationsV1,
-    "iroha_data_model::isi::sccp::SubmitSccpAttestationsV1"
 );
 record!(
     sccp_submit_sccp_inbound_message_v1,

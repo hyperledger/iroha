@@ -136,6 +136,75 @@ fn automatic_multiple_validator_nominations_accrue_and_claim_exact_xor() {
 }
 
 #[test]
+fn empty_eligible_service_preserves_validator_gross_and_signed_claim() {
+    const XOR: u128 = 1_000_000_000;
+    crate::retail_fee_tests::fixture(1_793_451_600_000, |stx, policy| {
+        let (_, binding) = network_xor_claim_fixture(stx, policy);
+        let validator = account(2);
+        let period = earning_month(stx.block_unix_timestamp_ms() - 1).unwrap();
+        // This component starts after authenticated signer admission. A retained
+        // signer can have no bonded exposure after unbonding or slashing; the
+        // actual committee-admission and parent-capture tests cover that owner.
+        // The synthetic unit is only an allocation weight, never staking funds.
+        let original_stake_rows = stx
+            .world
+            .public_lane_stake_shares
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<Vec<_>>();
+        exposure::record_service(stx, &binding, period, &validator, BTreeMap::new()).unwrap();
+        write(
+            stx,
+            service_key(&binding, period).unwrap(),
+            &ValidationFeeServiceSnapshot {
+                earning_period_start_ms: period,
+                service_blocks: BTreeMap::from([(validator.clone(), 1)]),
+            },
+        )
+        .unwrap();
+        let captured: iroha_data_model::validation_fee_rewards::ValidationFeeExposurePage = read(
+            stx,
+            &exposure::page_key(&binding, period, &validator, 0).unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            captured.exposure,
+            vec![
+                iroha_data_model::validation_fee_rewards::ValidationFeeRewardExposure {
+                    service_blocks: 1,
+                    stakes: BTreeMap::from([(validator.clone(), Quantity::one())]),
+                }
+            ]
+        );
+        fund_test_conversion(stx, &binding, period, 100 * XOR);
+        assert!(settlement::accrue_next_page(stx, &binding).unwrap());
+        assert!(!settlement::accrue_next_page(stx, &binding).unwrap());
+        assert_eq!(
+            read::<u128>(stx, &claimable_key(&binding, &validator).unwrap()).unwrap(),
+            Some(100 * XOR)
+        );
+        signed_claim_all(stx, &binding, &validator);
+        let asset = AssetId::new(binding.xor_asset_id.clone(), validator);
+        assert_eq!(
+            minor_units(stx.world.assets.get(&asset).unwrap().as_ref(), 9).unwrap(),
+            100 * XOR
+        );
+        let rewards = read_state(stx, &binding).unwrap();
+        assert_eq!((rewards.reserved_xor, rewards.next_claim), (0, 1));
+        assert_eq!(
+            stx.world
+                .public_lane_stake_shares
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<Vec<_>>(),
+            original_stake_rows
+        );
+        reconciliation::validate(&stx.world, &binding).unwrap();
+    });
+}
+
+#[test]
 fn delayed_funding_preserves_pre_exit_service_and_late_stake_cannot_capture_it() {
     const XOR: u128 = 1_000_000_000;
     crate::retail_fee_tests::fixture(1_793_451_600_000, |stx, policy| {

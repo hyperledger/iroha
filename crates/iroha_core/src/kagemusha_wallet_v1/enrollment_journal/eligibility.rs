@@ -106,7 +106,43 @@ pub(super) fn validate_index(record: &Record) -> Result<()> {
             return Err(Invalid);
         }
     }
+    if record.refusal != 0 {
+        // The terminal refusal names one exact retained, unconsumed signed denial whose
+        // decision is its closed code.
+        let exchange = record
+            .eligibility
+            .iter()
+            .find(|entry| entry.nonce == record.refusal_nonce)
+            .ok_or(Invalid)?;
+        let (policy, request) = exchange.validate()?;
+        if exchange.response.is_empty() || exchange.consumed_at_ms != 0 {
+            return Err(Invalid);
+        }
+        let response = KagemushaEligibilityResponseV1::decode_canonical(
+            &exchange.response,
+            &policy,
+            &request,
+            exchange.received_at_ms,
+        )
+        .map_err(|_| Invalid)?;
+        if refusal_of(response.body.decision).map(|refusal| refusal.code()) != Some(record.refusal)
+        {
+            return Err(Invalid);
+        }
+    }
     Ok(())
+}
+
+/// Closed refusal of a definitive denial; `None` for an approval.
+fn refusal_of(
+    decision: KagemushaEligibilityDecisionV1,
+) -> Option<iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1> {
+    use iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1 as Refusal;
+    match decision {
+        KagemushaEligibilityDecisionV1::ApprovedUnfrozen => None,
+        KagemushaEligibilityDecisionV1::NotApproved => Some(Refusal::AccountNotApproved),
+        KagemushaEligibilityDecisionV1::Frozen => Some(Refusal::AccountFrozen),
+    }
 }
 
 fn attempt_digest(attempt: &EnrollmentAttemptV1) -> Result<[u8; 32]> {
@@ -201,6 +237,10 @@ impl EnrollmentJournalV1 {
         request: &KagemushaEligibilityRequestV1,
         now_ms: u64,
     ) -> Result<()> {
+        // A terminal refusal admits no further observation.
+        if attempt.refusal().is_some() {
+            return Err(Conflict);
+        }
         self.require_current(attempt)?;
         require_bound(attempt, dispatch, policy, request)?;
         if now_ms < request.requested_at_ms || now_ms >= request.expires_at_ms {
@@ -250,6 +290,9 @@ impl EnrollmentJournalV1 {
         response: &[u8],
         now_ms: u64,
     ) -> Result<()> {
+        if attempt.refusal().is_some() {
+            return Err(Conflict);
+        }
         let exchange = self.read_eligibility(attempt, nonce)?.ok_or(Conflict)?;
         if exchange.attempt_cursor != attempt_digest(attempt)?
             || exchange.consumed_at_ms != 0
@@ -296,6 +339,9 @@ impl EnrollmentJournalV1 {
         expected_request: &KagemushaEligibilityRequestV1,
         now_ms: u64,
     ) -> Result<()> {
+        if attempt.refusal().is_some() {
+            return Err(Conflict);
+        }
         self.require_current(attempt)?;
         require_bound(attempt, dispatch, current_policy, expected_request)?;
         let exchange = self
@@ -319,8 +365,17 @@ impl EnrollmentJournalV1 {
             now_ms,
         )
         .map_err(|_| Invalid)?;
-        if response.body.decision != KagemushaEligibilityDecisionV1::ApprovedUnfrozen {
-            return Err(EnrollmentJournalErrorV1::Ineligible);
+        if let Some(refusal) = refusal_of(response.body.decision) {
+            // Before any credential can exist the definitive denial is retained atomically as
+            // the attempt's terminal refusal, naming this exact signed observation. Afterwards
+            // (issued, or possibly signed) it only withholds the current operation.
+            if attempt.pre_issuance() {
+                let mut record = attempt.record.clone();
+                record.refusal = refusal.code();
+                record.refusal_nonce = expected_request.nonce;
+                self.advance(attempt, record)?;
+            }
+            return Err(EnrollmentJournalErrorV1::Ineligible(refusal));
         }
         let mut record = attempt.record.clone();
         let exchange = record

@@ -1338,16 +1338,6 @@ impl StateTelemetry {
             false,
         );
     }
-    /// Record a reward distribution for a public lane.
-    #[cfg(feature = "telemetry")]
-    pub fn record_public_lane_reward(&self, lane_id: LaneId, amount: &Quantity) {
-        self.adjust_public_lane_amount(
-            &self.metrics.nexus_public_lane_reward_total,
-            lane_id,
-            amount,
-            true,
-        );
-    }
     /// Increment the slash counter for a public lane.
     #[cfg(feature = "telemetry")]
     pub fn record_public_lane_slash(&self, lane_id: LaneId) {
@@ -10645,16 +10635,6 @@ mod tests {
         assert!(
             (pending - 250.0).abs() < f64::EPSILON,
             "pending unbond gauge should track deltas"
-        );
-        telemetry.record_public_lane_reward(lane, &Quantity::from(100_u32));
-        telemetry.record_public_lane_reward(lane, &Quantity::from(50_u32));
-        let rewards = metrics
-            .nexus_public_lane_reward_total
-            .with_label_values(&["5"])
-            .get();
-        assert!(
-            (rewards - 150.0).abs() < f64::EPSILON,
-            "reward gauge should accumulate"
         );
         telemetry.record_public_lane_slash(lane);
         assert_eq!(

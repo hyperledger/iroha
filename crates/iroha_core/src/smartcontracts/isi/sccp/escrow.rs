@@ -57,7 +57,7 @@ pub fn xor_quantity(amount: u128) -> Result<Quantity, Error> {
         })
 }
 
-/// Create the four route escrow accounts and empty routes (genesis, §4.1).
+/// Create the three route escrow accounts and empty routes (genesis, §4.1).
 ///
 /// Each escrow is registered as its own authority with the effects and events of an ordinary
 /// `Register<Account>`, before its route exists, so the escrow guards cannot refuse it; once
@@ -289,11 +289,22 @@ mod tests {
     }
 
     #[test]
-    fn genesis_creates_four_registered_escrows_once() {
+    fn genesis_creates_three_registered_escrows_once() {
         let state = blank_state();
         let mut block = state.block(header(1));
         let mut stx = block.transaction();
         create_route_escrows(&mut stx).expect("escrows");
+        assert_eq!(
+            store::routes::iter(&*stx.world)
+                .map(|(network, _)| *network)
+                .collect::<Vec<_>>(),
+            [
+                SccpNetworkV1::EthereumMainnet,
+                SccpNetworkV1::BscMainnet,
+                SccpNetworkV1::TonMainnet
+            ],
+            "one escrow per route network"
+        );
         let network_id = *stx.network_id();
         for network in SCCP_ROUTE_NETWORKS_V1 {
             let escrow = escrow_account(&network_id, network).expect("route");
@@ -373,7 +384,7 @@ mod tests {
             b"sccp-escrow-ordinary-instructions-component",
         ));
         create_route_escrows(&mut stx).expect("escrows");
-        let network = SccpNetworkV1::TronMainnet;
+        let network = SccpNetworkV1::TonMainnet;
         let escrow = escrow_account(stx.network_id(), network).expect("route");
         lock(&mut stx, network, &holder, 1_000_000_000, [1; 32]).expect("lock");
         let xor = sccp_taira_xor_asset_definition_id();

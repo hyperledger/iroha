@@ -2,7 +2,7 @@
 
 use super::*;
 use iroha_allocation::{AllocationBudget, AllocationRefusal, ChargedShared, PrepaidSharedError};
-use iroha_data_model::{governance::types::BeaconSessionId, sumeragi::BeaconHorizonStatusV1};
+use iroha_data_model::sumeragi::BeaconHorizonStatusV1;
 use std::{
     sync::{Mutex, MutexGuard, TryLockError},
     time::{Duration, Instant},
@@ -186,22 +186,12 @@ impl NativeBeaconProducer {
             });
             return Ok(());
         }
-        let boundary_pulse = (current.mode == ConsensusMode::Npos)
+        // The horizon is consensus-native only: the `NPoS` pre-boundary pulse, and nothing on a
+        // Permissioned root. Governance slots never enter it.
+        let next = (current.mode == ConsensusMode::Npos)
             .then(|| current.authorization.last_height.checked_sub(1))
             .flatten()
             .filter(|height| *height >= context.height);
-        let parliament = world
-            .parliament_required_beacon_pulse_slots()
-            .iter()
-            .filter(|((session, height), attempts)| {
-                *session == BeaconSessionId::for_network_v1(&current.network_id)
-                    && *height >= context.height
-                    && *height <= current.authorization.last_height
-                    && !attempts.is_empty()
-            })
-            .map(|((_, height), _)| *height)
-            .min();
-        let next = boundary_pulse.into_iter().chain(parliament).min();
         let local =
             current
                 .committee

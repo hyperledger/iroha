@@ -4,18 +4,17 @@
 //! (`finalizeFromTaira`, `finalizeFromTairaHistorical`, `rotateRosters`, `applyControl`,
 //! `applyControlHistorical`, `voidExpired`, `voidExpiredHistorical`, `voidFrozen` and the
 //! canonical `transferToTaira`), encoders and strict decoders of the view calls, strict decoders
-//! of the calldata Taira proves on TRON (`transferToTaira`, `voidExpired*`, `voidFrozen`), and
-//! strict encoders and decoders of the `SccpTransferToTaira` and `SccpVoided` logs.
+//! of the `transferToTaira`, `voidExpired*` and `voidFrozen` calldata, and strict encoders and
+//! decoders of the `SccpTransferToTaira` and `SccpVoided` logs.
 //!
 //! The encoders produce exactly the calldata Solidity's own encoder produces: heads in argument
 //! order, dynamic values as offsets into the tail relative to the start of their enclosing
 //! sequence, `bytes` length-prefixed and zero-padded to 32 bytes. The decoders are strict: they
 //! accept only that canonical form (canonical offsets, clean integer words, zero padding and no
-//! trailing bytes), which is the only form a destination accepts for the calls Taira proves from
-//! TRON calldata (§5.1.7, §5.1.8, §5.2.2).
+//! trailing bytes), which is the only form a destination accepts for those calls (§5.1.7,
+//! §5.1.8, §5.2.2).
 //!
-//! The same calldata runs on ETH, BSC and TRON; TRON addresses are the 20-byte form without the
-//! `0x41` prefix.
+//! The same calldata runs on ETH and BSC.
 
 use iroha_data_model::bridge::SccpNetworkV1;
 
@@ -507,20 +506,20 @@ impl TransferToTairaCallV1 {
     }
 
     /// The inbound payload Taira rebuilds from this call (§4.12.2): `source` → Taira with
-    /// `nonce = expectedNonce`, `amount = tokenAmount`, the caller as sender (20 bytes, or the
-    /// 21-byte `0x41` form on TRON) and the route constants.
+    /// `nonce = expectedNonce`, `amount = tokenAmount`, the caller as sender (20 bytes) and the
+    /// route constants.
     ///
     /// # Errors
     ///
-    /// Returns [`AbiError::PayloadMismatch`] when `source` is not an EVM-family profile or the
-    /// payload rules fail.
+    /// Returns [`AbiError::PayloadMismatch`] when `source` is not an EVM profile or the payload
+    /// rules fail.
     pub fn inbound_payload(
         &self,
         source: SccpNetworkV1,
         route_revision: u32,
         caller: &[u8; 20],
     ) -> Result<SccpTransferPayloadV1, AbiError> {
-        let sender = evm_family_account(source, caller)?;
+        let sender = evm_account(source, caller)?;
         SccpTransferPayloadV1::inbound(
             source,
             self.expected_nonce,
@@ -533,22 +532,16 @@ impl TransferToTairaCallV1 {
     }
 }
 
-/// The payload account bytes of a 20-byte EVM-family address on `network` (codec 2 or 5).
-fn evm_family_account(network: SccpNetworkV1, address: &[u8; 20]) -> Result<Vec<u8>, AbiError> {
+/// The payload account bytes of a 20-byte address on the EVM profile `network` (codec 2).
+fn evm_account(network: SccpNetworkV1, address: &[u8; 20]) -> Result<Vec<u8>, AbiError> {
     match external_account_codec(network) {
         Some(super::constants::CODEC_EVM_ADDRESS20) => Ok(address.to_vec()),
-        Some(super::constants::CODEC_TRON_ADDRESS21) => {
-            let mut bytes = Vec::with_capacity(21);
-            bytes.push(super::constants::TRON_ADDRESS_PREFIX);
-            bytes.extend_from_slice(address);
-            Ok(bytes)
-        }
         _ => Err(AbiError::PayloadMismatch),
     }
 }
 
 // ---------------------------------------------------------------------------------------------
-// Canonical-encoding check of the void calls Taira proves from TRON calldata
+// Canonical-encoding check of the void calls
 // ---------------------------------------------------------------------------------------------
 
 /// The ABI type of one value, as far as the canonical-encoding check needs it.
@@ -699,7 +692,7 @@ fn check_canonical_args(args: &[u8], members: &[AbiShape]) -> Result<(), AbiErro
     }
 }
 
-/// A decoded void call (TRON void proofs are transaction-based, §4.16).
+/// A decoded void call (§5.1.8).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum VoidCallV1 {
     /// `voidExpired` or `voidExpiredHistorical` of one nonce (the first static head word).
@@ -980,7 +973,7 @@ pub fn encode_roster_state_return(state: &RosterStateV1) -> Vec<u8> {
 pub struct TransferToTairaLogV1 {
     /// `message_id` of the inbound payload.
     pub message_id: [u8; 32],
-    /// The burning caller (20 bytes; TRON without the `0x41` prefix).
+    /// The burning caller (20 bytes).
     pub sender: [u8; 20],
     /// The caller's per-sender nonce.
     pub nonce: u64,
@@ -1060,7 +1053,7 @@ impl TransferToTairaLogV1 {
     ) -> Result<SccpTransferPayloadV1, AbiError> {
         let payload =
             SccpTransferPayloadV1::decode(&self.payload).map_err(|_| AbiError::PayloadMismatch)?;
-        let sender = evm_family_account(source, &self.sender)?;
+        let sender = evm_account(source, &self.sender)?;
         let bound = payload.source() == Some(source)
             && payload.target() == Some(SccpNetworkV1::SoraTaira)
             && payload.route_revision == route_revision
@@ -1863,14 +1856,14 @@ mod tests {
             expected_nonce: 7,
         };
         let caller = [0x33; 20];
-        let tron = call
-            .inbound_payload(SccpNetworkV1::TronMainnet, 2, &caller)
+        let bsc = call
+            .inbound_payload(SccpNetworkV1::BscMainnet, 2, &caller)
             .unwrap();
-        assert_eq!(tron.sender.bytes[0], 0x41);
-        assert_eq!(tron.sender.bytes[1..], caller);
-        assert_eq!(tron.nonce, 7);
-        assert_eq!(tron.amount, 1_000_000_000);
-        assert_eq!(tron.route_id, "taira_tron_xor");
+        assert_eq!(bsc.sender.bytes, caller);
+        assert_eq!(bsc.nonce, 7);
+        assert_eq!(bsc.route_revision, 2);
+        assert_eq!(bsc.amount, 1_000_000_000);
+        assert_eq!(bsc.route_id, "taira_bsc_xor");
         let eth = call
             .inbound_payload(SccpNetworkV1::EthereumMainnet, 1, &caller)
             .unwrap();
@@ -2108,15 +2101,16 @@ mod tests {
     }
 
     #[test]
-    fn evm_family_helpers() {
-        assert_eq!(
-            evm_family_account(SccpNetworkV1::BscMainnet, &[1; 20]),
-            Ok(vec![1; 20])
-        );
-        assert_eq!(
-            evm_family_account(SccpNetworkV1::SoraTaira, &[1; 20]),
-            Err(AbiError::PayloadMismatch)
-        );
+    fn evm_helpers() {
+        for network in [SccpNetworkV1::EthereumMainnet, SccpNetworkV1::BscMainnet] {
+            assert_eq!(evm_account(network, &[1; 20]), Ok(vec![1; 20]));
+        }
+        for network in [SccpNetworkV1::SoraTaira, SccpNetworkV1::TonMainnet] {
+            assert_eq!(
+                evm_account(network, &[1; 20]),
+                Err(AbiError::PayloadMismatch)
+            );
+        }
         assert_eq!(selector_of(&[1, 2, 3]), Err(AbiError::BadLength));
         assert_eq!(read_bool(&word_u64(1), 0), Ok(true));
         assert_eq!(read_address(&word_address(&[5; 20]), 0), Ok([5; 20]));

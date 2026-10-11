@@ -543,9 +543,9 @@ mod tests {
         );
         assert_eq!(
             retention_class(
-                SccpNetworkV1::TronMainnet,
-                2_400,
-                1_200,
+                SccpNetworkV1::BscMainnet,
+                16_384,
+                8_192,
                 SccpLcCheckpointOriginV1::Backfill
             ),
             SccpLcRetentionClassV1::StrideCandidate { bucket: 2 }

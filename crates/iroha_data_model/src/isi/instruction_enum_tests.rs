@@ -924,94 +924,28 @@ include!("default_registry_tail_test.rs");
 pub mod sccp_instruction_enum {
     use super::RegistryGuard;
     use crate::{
-        NetworkId,
         bridge::SccpNetworkV1,
         isi::{
             Instruction, InstructionBox,
             sccp::{
                 AdvanceSccpLightClientV1, InitializeSccpV1, RecordSccpMessage,
-                ReportSccpLightClientEquivocationV1, SetSccpBridgeKeyV1, SettleSccpV1,
-                SubmitSccpAttestationFaultV1, SubmitSccpAttestationsV1, SubmitSccpInboundMessageV1,
+                ReportSccpLightClientEquivocationV1, SettleSccpV1, SubmitSccpInboundMessageV1,
                 SubmitSccpOutboundVoidV1,
             },
         },
         sccp::{
-            attestation::{SccpAttestationSignatureV1, SccpAttestationStatementV1},
             inbound::SccpSourceProofBytesV1,
-            keys::SccpBridgeKeyBindingV1,
             light_client::{SccpLcAdvanceBytesV1, SccpLcEvidenceBytesV1},
             params::SccpParametersV1,
         },
     };
-    use iroha_crypto::{Algorithm, Hash, HashOf, KeyPair, SignatureOf};
-    use iroha_model_base::peer::PeerId;
     use iroha_primitives::numeric::Numeric;
 
-    fn network_id() -> NetworkId {
-        NetworkId::from_genesis_hash(HashOf::<crate::block::BlockHeader>::from_untyped_unchecked(
-            Hash::new([0x7a; Hash::LENGTH]),
-        ))
-    }
-
-    /// Deterministic populated values of the ten SCCP v1 instructions, in wire-id order.
+    /// Deterministic populated values of the seven SCCP v1 instructions, in wire-id order.
     pub fn initialize() -> InitializeSccpV1 {
         InitializeSccpV1 {
             parameters: SccpParametersV1::taira_default(),
             reset_nonce: [0x5a; 32],
-        }
-    }
-
-    /// Populated bridge-key registration signed by a deterministic peer key.
-    pub fn set_bridge_key() -> SetSccpBridgeKeyV1 {
-        let peer_keys = KeyPair::try_from_seed(vec![0x21; 32], Algorithm::Ed25519)
-            .expect("deterministic Ed25519 seed");
-        let peer = PeerId::new(peer_keys.public_key().clone());
-        let public_key = Some([2; 33]);
-        let binding = SccpBridgeKeyBindingV1::new(network_id(), peer.clone(), public_key, 3, 0);
-        SetSccpBridgeKeyV1 {
-            peer,
-            public_key,
-            activation_epoch: 3,
-            binding_nonce: 0,
-            peer_signature: SignatureOf::new(peer_keys.private_key(), &binding),
-            key_pop: Some([0x1b; 65]),
-        }
-    }
-
-    /// Populated attestation batch.
-    pub fn submit_attestations() -> SubmitSccpAttestationsV1 {
-        SubmitSccpAttestationsV1 {
-            entries: vec![
-                SccpAttestationSignatureV1 {
-                    height: 9,
-                    signer_index: 0,
-                    signature: [0x1c; 65],
-                },
-                SccpAttestationSignatureV1 {
-                    height: 10,
-                    signer_index: 3,
-                    signature: [0x1b; 65],
-                },
-            ],
-        }
-    }
-
-    /// Populated equivocation evidence.
-    pub fn submit_fault() -> SubmitSccpAttestationFaultV1 {
-        SubmitSccpAttestationFaultV1 {
-            statement: SccpAttestationStatementV1 {
-                height: 9,
-                epoch: 1,
-                timestamp_ms: 1_758_000_000_000,
-                block_hash: [1; 32],
-                sccp_root: [2; 32],
-                message_count: 1,
-                history_root: [3; 32],
-                history_size: 1,
-                roster_digest: [4; 32],
-                next_roster_digest: [0; 32],
-            },
-            signature: [0x1b; 65],
         }
     }
 
@@ -1044,7 +978,7 @@ pub mod sccp_instruction_enum {
     /// Populated void proof submission.
     pub fn submit_void() -> SubmitSccpOutboundVoidV1 {
         SubmitSccpOutboundVoidV1 {
-            network: SccpNetworkV1::TronMainnet,
+            network: SccpNetworkV1::BscMainnet,
             revision: 1,
             proof: SccpSourceProofBytesV1::new(vec![0x4e, 0x52, 0x54, 0x30, 0x02])
                 .expect("bounded proof"),
@@ -1077,18 +1011,6 @@ pub mod sccp_instruction_enum {
                 initialize().into(),
             ),
             (
-                "iroha.instruction.v1::sccp::SetSccpBridgeKeyV1",
-                set_bridge_key().into(),
-            ),
-            (
-                "iroha.instruction.v1::sccp::SubmitSccpAttestationsV1",
-                submit_attestations().into(),
-            ),
-            (
-                "iroha.instruction.v1::sccp::SubmitSccpAttestationFaultV1",
-                submit_fault().into(),
-            ),
-            (
                 "iroha.instruction.v1::sccp::RecordSccpMessage",
                 record().into(),
             ),
@@ -1116,7 +1038,7 @@ pub mod sccp_instruction_enum {
     fn sccp_instructions_use_their_v1_wire_ids() {
         let registry = crate::instruction_registry::default();
         let samples = boxed_samples();
-        assert_eq!(samples.len(), 10, "the complete SCCP v1 instruction set");
+        assert_eq!(samples.len(), 7, "the complete SCCP v1 instruction set");
         for (wire_id, instruction) in &samples {
             let type_name = Instruction::id(&**instruction);
             assert!(
@@ -1161,9 +1083,6 @@ pub mod sccp_instruction_enum {
         use crate::isi::generated_record_identity_tests::capture;
         let rows = [
             capture(initialize()),
-            capture(set_bridge_key()),
-            capture(submit_attestations()),
-            capture(submit_fault()),
             capture(record()),
             capture(submit_inbound()),
             capture(settle()),
@@ -1190,12 +1109,56 @@ pub mod sccp_instruction_enum {
                 .is_some()
         );
         assert_eq!(
-            samples[4].1.as_any().downcast_ref::<RecordSccpMessage>(),
+            samples[1].1.as_any().downcast_ref::<RecordSccpMessage>(),
             Some(&record())
         );
         assert_eq!(
-            samples[6].1.as_any().downcast_ref::<SettleSccpV1>(),
+            samples[3].1.as_any().downcast_ref::<SettleSccpV1>(),
             Some(&settle())
+        );
+    }
+
+    #[test]
+    fn retired_sccp_wire_ids_are_unregistered() {
+        let _guard = RegistryGuard::set(crate::instruction_registry::default());
+        let registry = crate::instruction_registry::default();
+        for name in [
+            "SetSccpBridgeKeyV1",
+            "SubmitSccpAttestationsV1",
+            "SubmitSccpAttestationFaultV1",
+        ] {
+            let wire_id = format!("iroha.instruction.v1::sccp::{name}");
+            assert!(!registry.contains(&wire_id), "{wire_id}");
+            assert!(
+                !crate::isi::registry::is_instruction_wire_id_registered(&wire_id),
+                "{wire_id}"
+            );
+            assert!(registry.decode(&wire_id, &[]).is_none(), "{wire_id}");
+            let type_name = format!("iroha_data_model::isi::sccp::{name}");
+            assert_eq!(registry.wire_id(&type_name), None, "{type_name}");
+            // A boxed instruction frame that names the retired wire id does not decode.
+            let frame = norito::to_bytes(&(wire_id.clone(), vec![0_u8; 64]))
+                .expect("serialize a retired instruction frame");
+            assert!(
+                norito::decode_from_bytes::<InstructionBox>(&frame).is_err(),
+                "{wire_id}"
+            );
+        }
+        let sccp_wire_ids: Vec<&str> = boxed_samples()
+            .iter()
+            .map(|(wire_id, _)| *wire_id)
+            .collect();
+        assert_eq!(
+            sccp_wire_ids,
+            [
+                "iroha.instruction.v1::sccp::InitializeSccpV1",
+                "iroha.instruction.v1::sccp::RecordSccpMessage",
+                "iroha.instruction.v1::sccp::SubmitSccpInboundMessageV1",
+                "iroha.instruction.v1::sccp::SettleSccpV1",
+                "iroha.instruction.v1::sccp::SubmitSccpOutboundVoidV1",
+                "iroha.instruction.v1::sccp::AdvanceSccpLightClientV1",
+                "iroha.instruction.v1::sccp::ReportSccpLightClientEquivocationV1",
+            ]
         );
     }
 }

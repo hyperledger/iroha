@@ -551,14 +551,14 @@ final class ToriiGovernanceDecodingTests: XCTestCase {
         ] {
             XCTAssertNoThrow(try decodeSccpRouteProposal(accepted), accepted)
         }
-        let tronLightClient = sccpProposalBody(
-            subject: #"{"subject":"light_client","key":{"network":"tron_mainnet","profile":null}}"#
+        let tonLightClient = sccpProposalBody(
+            subject: #"{"subject":"light_client","key":{"network":"ton_mainnet","profile":null}}"#
         )
         XCTAssertNoThrow(
             try ToriiParliamentProposalV1(
                 validating: proposalKindJSON(
                     kind: "SccpRouteGovernance",
-                    payload: "{\"proposal\":\(tronLightClient)}"
+                    payload: "{\"proposal\":\(tonLightClient)}"
                 )
             )
         )
@@ -578,6 +578,7 @@ final class ToriiGovernanceDecodingTests: XCTestCase {
             sccpProposalBody(subject: #"{"subject":"parameters","key":{"network":"bsc_mainnet","profile":null}}"#),
             sccpProposalBody(subject: #"{"subject":"route","key":{"network":"sora","profile":null}}"#),
             sccpProposalBody(subject: #"{"subject":"route","key":{"network":"solana_mainnet","profile":null}}"#),
+            sccpProposalBody(subject: #"{"subject":"light_client","key":{"network":"tron_mainnet","profile":null}}"#),
             sccpProposalBody(subject: #"{"subject":"route","key":{"network":"bsc_mainnet","profile":"default"}}"#),
             sccpProposalBody(subject: #"{"subject":"route","key":{"network":"bsc_mainnet"}}"#),
             sccpProposalBody(subject: #"{"subject":"route","key":null}"#),

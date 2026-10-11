@@ -226,7 +226,7 @@ mod tests {
         let state = blank_state();
         let mut block = state.block(header(2));
         let mut stx = block.transaction();
-        let network = SccpNetworkV1::TronMainnet;
+        let network = SccpNetworkV1::BscMainnet;
         apply_frozen_void(&mut stx, network, 1).expect_err("no route");
         store::routes::insert(&mut stx, network, sample_route(network)).expect("route");
         assert_eq!(

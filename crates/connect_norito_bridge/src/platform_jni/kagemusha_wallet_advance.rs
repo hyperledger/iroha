@@ -4,7 +4,7 @@ use crate::kagemusha_wallet_ffi as wallet;
 use jni::{
     JNIEnv,
     objects::{JByteArray, JClass, JObject, JObjectArray, JValue},
-    sys::{jint, jlong, jobject},
+    sys::{jboolean, jint, jlong, jobject},
 };
 
 pub(super) fn read(
@@ -386,4 +386,19 @@ pub extern "system" fn Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWa
         wallet::enrollment::call(runtime as u64, action)
     });
     response(&mut env, result)
+}
+/// Closed E1 refusal table (design §2.4), the same pure lookup as the C export: the holder
+/// class 1 Phone, 2 App, 3 Attempt or 4 Account, or `INVALID` for zero, unknown and
+/// platform-inapplicable codes. No handle, state or admission verdict.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_enrollmentRefusal(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    code: jint,
+    android: jboolean,
+) -> jint {
+    match u16::try_from(code) {
+        Ok(code) => wallet::connect_norito_kagemusha_wallet_enrollment_refusal_v1(code, android),
+        Err(_) => wallet::INVALID,
+    }
 }

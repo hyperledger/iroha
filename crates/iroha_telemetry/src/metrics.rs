@@ -2381,8 +2381,6 @@ fields {
     pub nexus_public_lane_stake_bonded: float_gauge_vec(&["lane"]);
     /// Nexus public-lane pending-unbond amount per lane.
     pub nexus_public_lane_unbond_pending: float_gauge_vec(&["lane"]);
-    /// Nexus public-lane cumulative rewards recorded per lane.
-    pub nexus_public_lane_reward_total: float_gauge_vec(&["lane"]);
     /// Nexus public-lane slash event counter per lane.
     pub nexus_public_lane_slash_total: int_counter_vec(&["lane"]);
     /// Number of scheduler layers in the latest validated block
@@ -3689,7 +3687,7 @@ construct {
     [nexus_lane_block_height nexus_lane_finality_lag_slots nexus_lane_settlement_backlog_xor
         nexus_public_lane_validator_total nexus_public_lane_validator_activation_total
         nexus_public_lane_validator_reject_total nexus_public_lane_stake_bonded
-        nexus_public_lane_unbond_pending nexus_public_lane_reward_total
+        nexus_public_lane_unbond_pending
         nexus_public_lane_slash_total nexus_scheduler_lane_teu_capacity
         nexus_scheduler_lane_teu_slot_committed nexus_scheduler_lane_trigger_level
         nexus_scheduler_starvation_bound_slots nexus_scheduler_lane_teu_slot_breakdown
@@ -4036,7 +4034,7 @@ initialize (metrics) {
         nexus_lane_block_height nexus_lane_finality_lag_slots nexus_lane_settlement_backlog_xor
         nexus_public_lane_validator_total nexus_public_lane_validator_activation_total
         nexus_public_lane_validator_reject_total nexus_public_lane_stake_bonded
-        nexus_public_lane_unbond_pending nexus_public_lane_reward_total
+        nexus_public_lane_unbond_pending
         nexus_public_lane_slash_total nexus_scheduler_lane_teu_capacity
         nexus_scheduler_lane_teu_slot_committed nexus_scheduler_lane_trigger_level
         nexus_scheduler_starvation_bound_slots nexus_scheduler_lane_teu_slot_breakdown
@@ -4209,12 +4207,12 @@ epilogue {
 }
 const METRIC_CATALOG_V2: &str = include_str!("metrics/catalog_v2.tsv");
 const METRIC_CATALOG_V2_HEADER: &str = "# iroha-telemetry-metric-catalog-v2";
-const METRIC_CATALOG_V2_ROWS: usize = 657;
-const METRIC_CATALOG_V2_REGISTERED: usize = 624;
-const METRIC_CATALOG_V2_BYTES: usize = 89_361;
+const METRIC_CATALOG_V2_ROWS: usize = 656;
+const METRIC_CATALOG_V2_REGISTERED: usize = 623;
+const METRIC_CATALOG_V2_BYTES: usize = 89_244;
 #[cfg(test)]
 const METRIC_CATALOG_V2_BLAKE3: &str =
-    "2c38e99479fb4ff1aca7f1cd3984f00f63395526673d8af9e38dddce19be68c0";
+    "cb8a2c06089ea22def6b728133db214199cf4adf07640b0bbbb2ff63d9d2e264";
 
 #[derive(Clone, Copy)]
 struct MetricSpec {

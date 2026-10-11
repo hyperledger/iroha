@@ -190,7 +190,7 @@ jobs:
         run: python3 -I -S -B scripts/tests/validate_norito_bridge_xcframework_test.py
       - name: Shared output lock fixtures
         run: python3 -I -S -B scripts/tests/exec_with_file_lock_test.py
-      - name: Host native ABI-28 artifact checker fixtures
+      - name: Host native ABI-29 artifact checker fixtures
         run: python3 -B -m pytest -q scripts/tests/check_native_sdk_artifact_test.py
       - name: Android app native archive authenticator fixtures
         run: python3 -I -B scripts/tests/check_android_app_native_archive_test.py

@@ -87,16 +87,14 @@ impl Wallet for TestWallet {
         self.calls.fetch_add(1, Ordering::SeqCst);
         match op[0] {
             0 => Ok(Response::default()),
-            1 => Ok(completion(Some(state::Completion::Complete(vec![
-                0, 255, 0, 7,
-            ])))),
-            2 => Ok(completion(Some(state::Completion::Pending))),
-            3 => Ok(completion(Some(state::Completion::DeliveryDataLoss))),
+            1 => completion(Some(state::Completion::Complete(vec![0, 255, 0, 7]))),
+            2 => completion(Some(state::Completion::Pending)),
+            3 => completion(Some(state::Completion::DeliveryDataLoss)),
             _ => Err(Failure::unavailable(UNAVAILABLE, U::Io(5))),
         }
     }
     fn resume(&mut self) -> Result<Response> {
-        Ok(completion(Some(state::Completion::Pending)))
+        completion(Some(state::Completion::Pending))
     }
     fn fold(&mut self) -> Result<Response> {
         Ok(Response {
@@ -480,9 +478,44 @@ fn open_request_layout_has_exact_four_original_pointer_length_pairs() {
 
 #[test]
 fn collected_receive_returns_existing_credit_status_response_kind() {
-    let response = completion(Some(state::Completion::CreditStatus(vec![1, 2, 3])));
+    let response = completion(Some(state::Completion::CreditStatus(vec![1, 2, 3]))).unwrap();
     assert_eq!(response.kind, 10);
     assert_eq!(response.bytes, [1, 2, 3]);
+}
+
+#[test]
+fn runtime_capacity_shortfalls_are_typed_failures_never_device_verdicts() {
+    use advance::{KagemushaWalletNotPerformedV1 as N, KagemushaWalletProviderErrorV1 as P};
+    assert_eq!((NOT_ENOUGH_STORAGE, NOT_ENOUGH_MEMORY), (-12, -14));
+    // Before proving and before commit (design §5.3).
+    for (error, status) in [
+        (state::Error::NotEnoughStorage, NOT_ENOUGH_STORAGE),
+        (state::Error::NotEnoughMemory, NOT_ENOUGH_MEMORY),
+        (state::Error::Provider(P::NoSpace), NOT_ENOUGH_STORAGE),
+    ] {
+        let failure = Failure::from(error);
+        assert_eq!(failure, Failure::code(status));
+        assert_eq!((failure.reason, failure.platform_code), (-1, 0));
+    }
+    // Advance's own commit-time reservation is the same typed storage result, not a
+    // not-performed detail.
+    assert_eq!(
+        completion(Some(state::Completion::NotPerformed(N::CapacityWait))).unwrap_err(),
+        Failure::code(NOT_ENOUGH_STORAGE)
+    );
+    for (reason, detail) in [(N::StaleHead, 0), (N::Invalid { field: "x" }, 2)] {
+        let response = completion(Some(state::Completion::NotPerformed(reason))).unwrap();
+        assert_eq!((response.kind, response.detail), (3, detail));
+        assert!(response.bytes.is_empty());
+    }
+    // The C result carries the status with no bytes and no platform reason.
+    for status in [NOT_ENOUGH_STORAGE, NOT_ENOUGH_MEMORY] {
+        let mut out = WalletResult::default();
+        let returned = unsafe { exports::output(&mut out, || Err(Failure::code(status))) };
+        assert_eq!((returned, out.status, out.reason), (status, status, -1));
+        assert!(out.bytes.is_null());
+        assert_eq!(out.length, 0);
+    }
 }
 
 #[test]

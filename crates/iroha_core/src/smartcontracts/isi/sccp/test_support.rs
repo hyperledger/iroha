@@ -194,7 +194,7 @@ impl SampleInstructions {
     /// Return a void proof submission.
     pub(crate) fn void() -> SubmitSccpOutboundVoidV1 {
         SubmitSccpOutboundVoidV1 {
-            network: SccpNetworkV1::TronMainnet,
+            network: SccpNetworkV1::BscMainnet,
             revision: 1,
             proof: SccpSourceProofBytesV1::new(vec![0x4e, 0x52, 0x54, 0x30, 0x02])
                 .expect("bounded proof"),
@@ -616,7 +616,7 @@ pub(crate) fn funded_xor_state(holder: &AccountId, balance: u128) -> State {
     )
 }
 
-/// Initialize SCCP (Taira default parameters, the four route escrows, live roster generation
+/// Initialize SCCP (Taira default parameters, the three route escrows, live roster generation
 /// 1) unless it already exists, and add revision `revision` of `network` with `activation` and
 /// the cap `max_wrapped_supply`.
 pub(crate) fn install_value_route(

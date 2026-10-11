@@ -66,15 +66,14 @@ use std::{
 use thiserror::Error;
 mod kagemusha_enrollment;
 pub use kagemusha_enrollment::{
-    KagemushaEnrollmentGoogle, KagemushaEnrollmentIssuer, KagemushaEnrollmentProvider,
-    KagemushaEnrollmentWorker,
+    KagemushaEnrollmentIssuer, KagemushaEnrollmentProvider, KagemushaEnrollmentWorker,
 };
 mod app_routed_read_config;
 mod musubi_publication_installation;
 pub use musubi_publication_installation::MusubiPublicationInstallation;
 mod sccp;
 pub use sccp::{
-    SccpAttestor, SccpLightClientKeeper, SccpLightClientKeeperEndpoints, SccpNode, SccpSecretHeader,
+    SccpKeeper, SccpLightClientKeeper, SccpLightClientKeeperEndpoints, SccpNode, SccpSecretHeader,
 };
 type Result<T, E> = core::result::Result<T, Report<[E]>>;
 type KyberKeyInputs = (Vec<u8>, ParameterOrigin, Vec<u8>, ParameterOrigin);
@@ -1002,7 +1001,7 @@ pub struct Root {
     /// Concurrency settings for thread pools.
     #[config(nested)]
     concurrency: Concurrency,
-    /// Node-local SCCP attestor and light-client keeper (`[sccp.*]`, file-only).
+    /// Node-local SCCP keeper and its light-client duty (`[sccp.*]`, file-only).
     #[config(nested)]
     sccp: SccpNode,
     /// Node data directory: state paths default under `<data_dir>/state/` and secret files
@@ -1105,7 +1104,7 @@ pub enum ParseError {
     /// Genesis trust-root configuration was absent, ambiguous, or invalid.
     #[error("Invalid genesis trust-root configuration")]
     InvalidGenesisConfig,
-    /// Node-local SCCP attestor or light-client keeper configuration was invalid.
+    /// Node-local SCCP keeper configuration was invalid.
     #[error("Invalid SCCP node configuration")]
     InvalidSccpConfig,
 }
@@ -2599,7 +2598,8 @@ pub struct Governance {
     /// Alternates retained for each attempt-local Parliament body draw.
     #[config(default = "crate::parameters::defaults::governance::PARLIAMENT_ALTERNATE_SIZE")]
     pub parliament_alternate_size: usize,
-    /// Exact nonzero delay from a committed Parliament sortition request to its beacon pulse.
+    /// Minimum nonzero delay from a committed Parliament sortition request to its beacon pulse,
+    /// which is the first consensus-native `NPoS` pulse height at or after that delay.
     #[config(
         default = "crate::parameters::defaults::governance::PARLIAMENT_SORTITION_PULSE_DELAY_BLOCKS"
     )]
@@ -4922,12 +4922,6 @@ pub struct Sccp {
     /// Maximum framed native-finality header bytes committed in one block.
     #[config(default = "defaults::zk::sccp::MAX_NATIVE_HEADER_BYTES_PER_BLOCK")]
     pub max_native_header_bytes_per_block: NonZeroU64,
-    /// Maximum secp256k1 recoveries in one transaction.
-    #[config(default = "defaults::zk::sccp::MAX_SECP256K1_RECOVERIES_PER_TRANSACTION")]
-    pub max_secp256k1_recoveries_per_transaction: NonZeroU32,
-    /// Maximum secp256k1 recoveries committed in one block.
-    #[config(default = "defaults::zk::sccp::MAX_SECP256K1_RECOVERIES_PER_BLOCK")]
-    pub max_secp256k1_recoveries_per_block: NonZeroU32,
     /// Maximum Ed25519 signature checks in one transaction.
     #[config(default = "defaults::zk::sccp::MAX_ED25519_SIGNATURE_CHECKS_PER_TRANSACTION")]
     pub max_ed25519_signature_checks_per_transaction: NonZeroU32,
@@ -4962,10 +4956,6 @@ impl Default for Sccp {
                 defaults::zk::sccp::MAX_NATIVE_HEADER_BYTES_PER_TRANSACTION,
             max_native_header_bytes_per_block:
                 defaults::zk::sccp::MAX_NATIVE_HEADER_BYTES_PER_BLOCK,
-            max_secp256k1_recoveries_per_transaction:
-                defaults::zk::sccp::MAX_SECP256K1_RECOVERIES_PER_TRANSACTION,
-            max_secp256k1_recoveries_per_block:
-                defaults::zk::sccp::MAX_SECP256K1_RECOVERIES_PER_BLOCK,
             max_ed25519_signature_checks_per_transaction:
                 defaults::zk::sccp::MAX_ED25519_SIGNATURE_CHECKS_PER_TRANSACTION,
             max_ed25519_signature_checks_per_block:
@@ -5045,12 +5035,6 @@ impl Sccp {
             "max_native_header_bytes_per_block",
         );
         require_order(
-            self.max_secp256k1_recoveries_per_transaction,
-            self.max_secp256k1_recoveries_per_block,
-            "max_secp256k1_recoveries_per_transaction",
-            "max_secp256k1_recoveries_per_block",
-        );
-        require_order(
             self.max_ed25519_signature_checks_per_transaction,
             self.max_ed25519_signature_checks_per_block,
             "max_ed25519_signature_checks_per_transaction",
@@ -5076,8 +5060,6 @@ impl Sccp {
                 .max_ethereum_light_client_updates_per_block,
             max_native_header_bytes_per_transaction: self.max_native_header_bytes_per_transaction,
             max_native_header_bytes_per_block: self.max_native_header_bytes_per_block,
-            max_secp256k1_recoveries_per_transaction: self.max_secp256k1_recoveries_per_transaction,
-            max_secp256k1_recoveries_per_block: self.max_secp256k1_recoveries_per_block,
             max_ed25519_signature_checks_per_transaction: self
                 .max_ed25519_signature_checks_per_transaction,
             max_ed25519_signature_checks_per_block: self.max_ed25519_signature_checks_per_block,
@@ -5157,14 +5139,31 @@ mod sccp_limit_tests {
     }
     #[test]
     #[should_panic(
-        expected = "zk.sccp.max_secp256k1_recoveries_per_transaction must not exceed zk.sccp.max_secp256k1_recoveries_per_block"
+        expected = "zk.sccp.max_ed25519_signature_checks_per_transaction must not exceed zk.sccp.max_ed25519_signature_checks_per_block"
     )]
     fn rejects_transaction_work_limit_above_block_limit() {
         let mut limits = Sccp::default();
-        limits.max_secp256k1_recoveries_per_transaction =
+        limits.max_ed25519_signature_checks_per_transaction =
             NonZeroU32::new(2).expect("two is nonzero");
-        limits.max_secp256k1_recoveries_per_block = NonZeroU32::new(1).expect("one is nonzero");
+        limits.max_ed25519_signature_checks_per_block = NonZeroU32::new(1).expect("one is nonzero");
         let _ = limits.parse();
+    }
+    #[test]
+    fn retired_secp256k1_recovery_limits_are_not_part_of_the_schema() {
+        for key in [
+            "max_secp256k1_recoveries_per_transaction",
+            "max_secp256k1_recoveries_per_block",
+        ] {
+            let retired: toml::Table =
+                toml::from_str(&format!("{key} = 1")).expect("parse retired SCCP key");
+            assert!(
+                ConfigReader::new()
+                    .with_toml_source(TomlSource::inline(retired))
+                    .read_and_complete::<Sccp>()
+                    .is_err(),
+                "{key} belonged to the removed TRON light client"
+            );
+        }
     }
 }
 /// Execution mode override for the FASTPQ prover.

@@ -8,11 +8,25 @@ pub(crate) struct EnactedFixture {
     pub(crate) logical_beacon: BeaconSessionId,
 }
 
+/// Positive corridor genesis: proof-valid beacon custody and the short signed NPoS epoch
+/// whose native pre-boundary pulses are the only sortition slots.
 pub(crate) fn builder(builder: NetworkBuilder) -> NetworkBuilder {
+    with_signed_npos_epoch(
+        builder_with_signer_modes(builder, POSITIVE_BEACON_SIGNER_MODES),
+        CORRIDOR_NPOS_EPOCH_LENGTH_BLOCKS,
+    )
+}
+
+/// The same citizen and governance genesis with caller-selected beacon custody and no
+/// explicit NPoS snapshot, so the network signs the default epoch length.
+pub(crate) fn builder_with_signer_modes(
+    builder: NetworkBuilder,
+    signer_modes: [ParliamentBeaconSignerMode; VALIDATOR_COUNT],
+) -> NetworkBuilder {
     let citizens = citizen_accounts(&citizen_keys());
     let mut builder = builder
         .with_npos_consensus()
-        .with_parliament_beacon_signer_modes(POSITIVE_BEACON_SIGNER_MODES)
+        .with_parliament_beacon_signer_modes(signer_modes)
         .with_block_cadence(EXACT_HEIGHT_SUBMISSION_CADENCE)
         .with_config_layer(|layer| {
             layer
@@ -102,7 +116,7 @@ pub(crate) fn builder(builder: NetworkBuilder) -> NetworkBuilder {
 
 // Caller-registered citizens are absent from the network's fee bootstrap. Fund them with
 // ordinary signed transfers using the exact XOR definition in the signed NPoS parameters.
-async fn fund_citizen_fees(
+pub(crate) async fn fund_citizen_fees(
     network: &iroha_test_network::Network,
     client: &Client,
     citizens: &[AccountId],
@@ -281,7 +295,8 @@ pub(crate) async fn enact(
     assert_eq!(initial.attempt().stage, GovernanceStageV1::Rules);
     let request_height =
         next_execution_height(&client, 0, "canonical sortition registration").await?;
-    let sortition_pulse_height = request_height + 4;
+    let sortition_pulse_height =
+        expected_sortition_slot(network, &client, attempt_id, request_height, None).await?;
     let logical_beacon = BeaconSessionId::for_network_v1(&network.network_id());
     let mut election_ids = BTreeMap::new();
     let mut request_ids = Vec::new();
@@ -320,20 +335,11 @@ pub(crate) async fn enact(
     )
     .await?;
     assert_eq!(current_height(&client).await?, request_height);
-    advance_to_autonomous_predecessor(&network, &client, sortition_pulse_height, "sortition pulse")
-        .await?;
-    network.ensure_blocks(sortition_pulse_height).await?;
-    assert_eq!(
-        current_height(&client).await?,
-        sortition_pulse_height,
-        "the demanded sortition threshold-beacon effect must autonomously finalize its exact height",
-    );
-    let mut sortition_pulses = Vec::with_capacity(network.peers().len());
-    for peer in network.peers() {
-        sortition_pulses.push(pulse_at(&peer.client(), sortition_pulse_height).await?);
-    }
-    assert!(sortition_pulses.windows(2).all(|pair| pair[0] == pair[1]));
-    let sortition_pulse = sortition_pulses[0].clone();
+    // Governance-local wait: the request demands nothing from consensus. The slot is the
+    // native pre-boundary pulse height, which the NPoS chain finalizes for its own schedule.
+    let sortition_pulse =
+        await_native_sortition_pulse(network, &client, sortition_pulse_height, "sortition pulse")
+            .await?;
     assert_eq!(sortition_pulse.height, sortition_pulse_height);
     assert_eq!(sortition_pulse.network_id, network.network_id());
     assert_eq!(sortition_pulse.session_id, beacon_record.session.session_id);
@@ -371,6 +377,8 @@ pub(crate) async fn enact(
         &expected_context,
     )
     .wrap_err("independently verify the sortition pulse threshold signature")?;
+    cross_native_boundary_after_pulse(network, &client, &sortition_pulse, "sortition pulse")
+        .await?;
     let sortition_governance_seed =
         global_threshold_beacon_governance_seed_v1(&sortition_pulse, sortition_pulse_height);
     assert_ne!(
@@ -899,6 +907,11 @@ pub(crate) async fn enact(
     )
     .await?;
 
+    // TODO: the timed-OVN release slot is no longer consensus demand, so no pulse is
+    // finalized at `release_height` unless it coincides with a native pre-boundary height
+    // and the wait below never ends. Replace everything from the ballot registration to the
+    // final release with the anonymous ballot (specs/parliament_private_ballot_design.md
+    // 12.2 step 4); every caller of this fixture is ignored until then.
     advance_to_autonomous_predecessor(&network, &client, release_height, "timed-OVN release pulse")
         .await?;
     network.ensure_blocks(release_height).await?;

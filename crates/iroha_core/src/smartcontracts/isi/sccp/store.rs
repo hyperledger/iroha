@@ -567,7 +567,7 @@ mod tests {
         let state = blank_state();
         let mut block = state.block(header(3));
         let mut stx = block.transaction();
-        let key = (SccpNetworkV1::TronMainnet, 2);
+        let key = (SccpNetworkV1::BscMainnet, 2);
         assert_eq!(pending_count(&*stx.world, &key), (0, 0));
         assert_eq!(set_pending_counts(&mut stx, key, (2, 0)), (0, 0));
         assert_eq!(set_pending_counts(&mut stx, key, (1, 1)), (2, 0));

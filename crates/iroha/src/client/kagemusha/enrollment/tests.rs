@@ -337,6 +337,115 @@ async fn rejects_invalid_response_frames_original_bounds_and_media_types() {
 }
 
 #[tokio::test]
+async fn identical_statuses_relay_distinct_typed_enrollment_outcomes() {
+    use iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1 as Refusal;
+    use iroha_torii_shared::kagemusha_enrollment::{
+        ENROLLMENT_DELIVERY_WITHHELD_HEADER_V1, ENROLLMENT_OUTCOME_HEADER_V1,
+        ENROLLMENT_REFUSAL_CODE_HEADER_V1,
+    };
+    for (status, name, value, expected) in [
+        (
+            403,
+            ENROLLMENT_REFUSAL_CODE_HEADER_V1,
+            "12",
+            Some(EnrollmentServiceOutcomeV1::Refused(Refusal::AccountFrozen)),
+        ),
+        (
+            403,
+            ENROLLMENT_DELIVERY_WITHHELD_HEADER_V1,
+            "12",
+            Some(EnrollmentServiceOutcomeV1::DeliveryWithheld(
+                Refusal::AccountFrozen,
+            )),
+        ),
+        (
+            403,
+            ENROLLMENT_REFUSAL_CODE_HEADER_V1,
+            "3",
+            Some(EnrollmentServiceOutcomeV1::Refused(
+                Refusal::from_code(3).unwrap(),
+            )),
+        ),
+        (
+            409,
+            ENROLLMENT_OUTCOME_HEADER_V1,
+            "unknown",
+            Some(EnrollmentServiceOutcomeV1::OutcomeUnknown),
+        ),
+        // A malformed or status-inconsistent outcome is a decode failure, never generic HTTP.
+        (403, ENROLLMENT_REFUSAL_CODE_HEADER_V1, "13", None),
+        (403, ENROLLMENT_DELIVERY_WITHHELD_HEADER_V1, "4", None),
+        (503, ENROLLMENT_OUTCOME_HEADER_V1, "unknown", None),
+    ] {
+        let reply = HttpResponse::builder()
+            .status(status)
+            .header(name, value)
+            .body(b"enrollment operation unavailable or rejected".to_vec())
+            .unwrap();
+        let (client, requests, _) = attach(reply, Duration::ZERO, Duration::ZERO);
+        let result = client
+            .account_client()
+            .unwrap()
+            .kagemusha()
+            .enrollment(&request(Action::Deliver))
+            .await;
+        match expected {
+            Some(expected) => assert!(
+                matches!(result, Err(Error::EnrollmentOutcome { operation: OP, outcome }) if outcome == expected),
+                "{name}: {value}"
+            ),
+            None => assert!(
+                matches!(result, Err(Error::Decode { operation: OP, .. })),
+                "{name}: {value}"
+            ),
+        }
+        assert_eq!(requests.lock().unwrap().len(), 1, "never retried");
+    }
+    // A successful body carrying any outcome header, valid or malformed, is never success.
+    for (name, value) in [
+        (ENROLLMENT_REFUSAL_CODE_HEADER_V1, "12"),
+        (ENROLLMENT_DELIVERY_WITHHELD_HEADER_V1, "11"),
+        (ENROLLMENT_OUTCOME_HEADER_V1, "unknown"),
+        (ENROLLMENT_REFUSAL_CODE_HEADER_V1, "x"),
+    ] {
+        let mut reply = response(&Response::Credential(vec![9, 10]));
+        reply
+            .headers_mut()
+            .insert(name, http::HeaderValue::from_static(value));
+        let (client, _, _) = attach(reply, Duration::ZERO, Duration::ZERO);
+        assert!(
+            matches!(
+                client
+                    .account_client()
+                    .unwrap()
+                    .kagemusha()
+                    .enrollment(&request(Action::Deliver))
+                    .await,
+                Err(Error::Decode { operation: OP, .. })
+            ),
+            "{name}: {value}"
+        );
+    }
+    let mut reply = response(&Response::Credential(vec![9, 10]));
+    for _ in 0..2 {
+        reply.headers_mut().append(
+            ENROLLMENT_OUTCOME_HEADER_V1,
+            http::HeaderValue::from_static("unknown"),
+        );
+    }
+    let (client, _, _) = attach(reply, Duration::ZERO, Duration::ZERO);
+    assert!(matches!(
+        client
+            .account_client()
+            .unwrap()
+            .kagemusha()
+            .enrollment(&request(Action::Deliver))
+            .await,
+        Err(Error::Decode { operation: OP, .. })
+    ));
+}
+
+#[tokio::test]
 async fn unavailable_and_oversized_responses_never_replay() {
     for status in [401, 403, 404, 429, 503] {
         let reply = HttpResponse::builder()

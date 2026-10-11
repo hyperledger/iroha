@@ -1391,7 +1391,6 @@ macro_rules! with_world_overlay_fields {
             parliament_timed_ovn_casting_candidates,
             parliament_required_beacon_pulse_slots,
             parliament_certified_enactments,
-            parliament_unavailable_beacon_pulse_slots,
             parliament_tle_key_session_retention_deadlines,
             tle_key_session_selection_intervals,
             tle_key_sessions,
@@ -4543,17 +4542,17 @@ pub struct WorldData {
     #[norito(skip)]
     pub(crate) parliament_timed_ovn_casting_candidates:
         Storage<BallotAttemptId, ParliamentTimedOvnCastingCandidateV1>,
-    /// Governance attempts that currently require a logical beacon slot.
+    /// Governance-local read index of the beacon slots that live attempts await.
+    ///
+    /// It creates no consensus obligation: no pulse is demanded, vetoed or checked against it.
+    /// TODO: rename and re-scope with the governance due-item iterator when timed-OVN is
+    /// retired (specs/parliament_private_ballot_design.md 12.2 step 4).
     #[norito(skip)]
     pub(crate) parliament_required_beacon_pulse_slots:
         Storage<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     /// Certified governance attempts keyed by their exact enactment height.
     #[norito(skip)]
     pub(crate) parliament_certified_enactments: Storage<u64, BTreeSet<GovernanceAttemptId>>,
-    /// Governance attempts that terminally classified a logical beacon slot as unavailable.
-    #[norito(skip)]
-    pub(crate) parliament_unavailable_beacon_pulse_slots:
-        Storage<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     /// Exact attempt contributors grouped by TLE key session and opening deadline.
     #[norito(skip)]
     pub(crate) parliament_tle_key_session_retention_deadlines:
@@ -5543,7 +5542,11 @@ pub struct WorldBlockFields<'world> {
     #[norito(skip)]
     pub(crate) parliament_timed_ovn_casting_candidates:
         StorageField<'world, BallotAttemptId, ParliamentTimedOvnCastingCandidateV1>,
-    /// Governance attempts that currently require a logical beacon slot.
+    /// Governance-local read index of the beacon slots that live attempts await.
+    ///
+    /// It creates no consensus obligation: no pulse is demanded, vetoed or checked against it.
+    /// TODO: rename and re-scope with the governance due-item iterator when timed-OVN is
+    /// retired (specs/parliament_private_ballot_design.md 12.2 step 4).
     #[norito(skip)]
     pub(crate) parliament_required_beacon_pulse_slots:
         StorageField<'world, (BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
@@ -5551,10 +5554,6 @@ pub struct WorldBlockFields<'world> {
     #[norito(skip)]
     pub(crate) parliament_certified_enactments:
         StorageField<'world, u64, BTreeSet<GovernanceAttemptId>>,
-    /// Governance attempts that terminally classified a logical beacon slot as unavailable.
-    #[norito(skip)]
-    pub(crate) parliament_unavailable_beacon_pulse_slots:
-        StorageField<'world, (BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     /// Exact attempt contributors grouped by TLE key session and opening deadline.
     #[norito(skip)]
     pub(crate) parliament_tle_key_session_retention_deadlines:
@@ -6300,7 +6299,6 @@ impl WorldBlock<'_> {
             parliament_timed_ovn_casting_candidates,
             parliament_required_beacon_pulse_slots,
             parliament_certified_enactments,
-            parliament_unavailable_beacon_pulse_slots,
             parliament_tle_key_session_retention_deadlines,
             tle_key_session_selection_intervals,
             tle_key_sessions,
@@ -7176,15 +7174,16 @@ pub struct WorldTransaction<'block, 'world> {
     /// Active hidden-ballot phase windows eligible for compact casting snapshots.
     pub(crate) parliament_timed_ovn_casting_candidates:
         StorageTransaction<'block, BallotAttemptId, ParliamentTimedOvnCastingCandidateV1>,
-    /// Governance attempts that currently require a logical beacon slot.
+    /// Governance-local read index of the beacon slots that live attempts await.
+    ///
+    /// It creates no consensus obligation: no pulse is demanded, vetoed or checked against it.
+    /// TODO: rename and re-scope with the governance due-item iterator when timed-OVN is
+    /// retired (specs/parliament_private_ballot_design.md 12.2 step 4).
     pub(crate) parliament_required_beacon_pulse_slots:
         StorageTransaction<'block, (BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     /// Certified governance attempts keyed by their exact enactment height.
     pub(crate) parliament_certified_enactments:
         StorageTransaction<'block, u64, BTreeSet<GovernanceAttemptId>>,
-    /// Governance attempts that terminally classified a logical beacon slot as unavailable.
-    pub(crate) parliament_unavailable_beacon_pulse_slots:
-        StorageTransaction<'block, (BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     /// Exact attempt contributors grouped by TLE key session and opening deadline.
     pub(crate) parliament_tle_key_session_retention_deadlines:
         StorageTransaction<'block, TleKeySessionId, ParliamentTleKeySessionRetentionIndexV1>,
@@ -9464,7 +9463,11 @@ pub struct WorldView<'world> {
     /// Active hidden-ballot phase windows eligible for compact casting snapshots.
     pub(crate) parliament_timed_ovn_casting_candidates:
         StorageView<'world, BallotAttemptId, ParliamentTimedOvnCastingCandidateV1>,
-    /// Governance attempts that currently require a logical beacon slot.
+    /// Governance-local read index of the beacon slots that live attempts await.
+    ///
+    /// It creates no consensus obligation: no pulse is demanded, vetoed or checked against it.
+    /// TODO: rename and re-scope with the governance due-item iterator when timed-OVN is
+    /// retired (specs/parliament_private_ballot_design.md 12.2 step 4).
     pub(crate) parliament_required_beacon_pulse_slots:
         StorageView<'world, (BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     /// Certified governance attempts keyed by their exact enactment height.
@@ -9474,9 +9477,6 @@ pub struct WorldView<'world> {
     )]
     pub(crate) parliament_certified_enactments:
         StorageView<'world, u64, BTreeSet<GovernanceAttemptId>>,
-    /// Governance attempts that terminally classified a logical beacon slot as unavailable.
-    pub(crate) parliament_unavailable_beacon_pulse_slots:
-        StorageView<'world, (BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     /// Exact attempt contributors grouped by TLE key session and opening deadline.
     pub(crate) parliament_tle_key_session_retention_deadlines:
         StorageView<'world, TleKeySessionId, ParliamentTleKeySessionRetentionIndexV1>,
@@ -18068,14 +18068,12 @@ struct ParliamentDerivedReadIndexesV1 {
     timed_ovn_casting_candidates: BTreeMap<BallotAttemptId, ParliamentTimedOvnCastingCandidateV1>,
     required_beacon_pulse_slots: BTreeMap<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     certified_enactments: BTreeMap<u64, BTreeSet<GovernanceAttemptId>>,
-    unavailable_beacon_pulse_slots: BTreeMap<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>,
     tle_key_session_retention_deadlines:
         BTreeMap<TleKeySessionId, ParliamentTleKeySessionRetentionIndexV1>,
 }
 
 fn parliament_derived_read_indexes_v1<'a>(
     attempts: impl IntoIterator<Item = (&'a GovernanceAttemptId, &'a ParliamentAttemptStateV1)>,
-    finalized_beacon_pulse_slots: &BTreeSet<(BeaconSessionId, u64)>,
 ) -> Result<ParliamentDerivedReadIndexesV1, String> {
     let attempts = attempts.into_iter().collect::<Vec<_>>();
     let member_reference_counts = parliament_member_reference_counts_v1(attempts.iter().copied())
@@ -18094,8 +18092,6 @@ fn parliament_derived_read_indexes_v1<'a>(
     let mut required_beacon_pulse_slots =
         BTreeMap::<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>::new();
     let mut certified_enactments = BTreeMap::<u64, BTreeSet<GovernanceAttemptId>>::new();
-    let mut unavailable_beacon_pulse_slots =
-        BTreeMap::<(BeaconSessionId, u64), BTreeSet<GovernanceAttemptId>>::new();
     let mut tle_key_session_retention_deadlines =
         BTreeMap::<TleKeySessionId, ParliamentTleKeySessionRetentionIndexV1>::new();
     for (governance_attempt_id, attempt) in attempts {
@@ -18107,17 +18103,6 @@ fn parliament_derived_read_indexes_v1<'a>(
         }
         for pulse_slot in attempt.required_beacon_pulse_slots_v1() {
             required_beacon_pulse_slots
-                .entry(pulse_slot)
-                .or_default()
-                .insert(*governance_attempt_id);
-        }
-        for pulse_slot in attempt.unavailable_beacon_pulse_slots_v1() {
-            if finalized_beacon_pulse_slots.contains(&pulse_slot) {
-                return Err(format!(
-                    "Parliament attempt {governance_attempt_id:?} classifies finalized logical beacon slot {pulse_slot:?} as unavailable"
-                ));
-            }
-            unavailable_beacon_pulse_slots
                 .entry(pulse_slot)
                 .or_default()
                 .insert(*governance_attempt_id);
@@ -18172,7 +18157,6 @@ fn parliament_derived_read_indexes_v1<'a>(
         timed_ovn_casting_candidates,
         required_beacon_pulse_slots,
         certified_enactments,
-        unavailable_beacon_pulse_slots,
         tle_key_session_retention_deadlines,
     })
 }
@@ -19304,21 +19288,9 @@ impl World {
             let proposals = self.governance_proposals.view();
             validation_fee_proposal_index_v1(proposals.iter())
         };
-        let finalized_beacon_pulse_slots = {
-            let pulses = self.global_beacon_pulses.view();
-            pulses
-                .iter()
-                .map(|(_, pulse)| {
-                    (
-                        BeaconSessionId::for_network_v1(&pulse.network_id),
-                        pulse.height,
-                    )
-                })
-                .collect::<BTreeSet<_>>()
-        };
         let current_parliament = {
             let attempts = self.parliament_attempts.view();
-            parliament_derived_read_indexes_v1(attempts.iter(), &finalized_beacon_pulse_slots)?
+            parliament_derived_read_indexes_v1(attempts.iter())?
         };
         let tle_key_session_selection_intervals = {
             let lifecycles = self.tle_key_session_lifecycles.view();
@@ -19349,7 +19321,6 @@ impl World {
             let reverted_attempts = self.parliament_attempts.block_and_revert();
             let reverted_lifecycles = self.tle_key_session_lifecycles.block_and_revert();
             let reverted_active_key_sessions = self.tle_active_key_session.block_and_revert();
-            let reverted_pulses = self.global_beacon_pulses.block_and_revert();
 
             if reverted_citizens.len() > maximum_citizens {
                 return Err(format!(
@@ -19365,26 +19336,13 @@ impl World {
                 })?;
             let previous_validation_fee_proposal_index =
                 validation_fee_proposal_index_v1(reverted_proposals.iter());
-            let previous_finalized_beacon_pulse_slots = reverted_pulses
-                .iter()
-                .map(|(_, pulse)| {
-                    (
-                        BeaconSessionId::for_network_v1(&pulse.network_id),
-                        pulse.height,
-                    )
-                })
-                .collect::<BTreeSet<_>>();
-            let previous_parliament = parliament_derived_read_indexes_v1(
-                reverted_attempts.iter(),
-                &previous_finalized_beacon_pulse_slots,
-            )?;
+            let previous_parliament = parliament_derived_read_indexes_v1(reverted_attempts.iter())?;
             let previous_tle_key_session_selection_intervals =
                 tle_key_session_selection_intervals_v1(
                     reverted_lifecycles.iter(),
                     reverted_active_key_sessions.iter(),
                 )?;
 
-            drop(reverted_pulses);
             drop(reverted_active_key_sessions);
             drop(reverted_lifecycles);
             drop(reverted_attempts);
@@ -19406,7 +19364,6 @@ impl World {
             timed_ovn_casting_candidates,
             required_beacon_pulse_slots,
             certified_enactments,
-            unavailable_beacon_pulse_slots,
             tle_key_session_retention_deadlines,
         } = current_parliament;
         let ParliamentDerivedReadIndexesV1 {
@@ -19416,7 +19373,6 @@ impl World {
             timed_ovn_casting_candidates: previous_timed_ovn_casting_candidates,
             required_beacon_pulse_slots: previous_required_beacon_pulse_slots,
             certified_enactments: previous_certified_enactments,
-            unavailable_beacon_pulse_slots: previous_unavailable_beacon_pulse_slots,
             tle_key_session_retention_deadlines: previous_tle_key_session_retention_deadlines,
         } = previous_parliament;
 
@@ -19447,10 +19403,6 @@ impl World {
         self.parliament_certified_enactments = rebuild_derived_storage_with_previous(
             certified_enactments,
             previous_certified_enactments,
-        );
-        self.parliament_unavailable_beacon_pulse_slots = rebuild_derived_storage_with_previous(
-            unavailable_beacon_pulse_slots,
-            previous_unavailable_beacon_pulse_slots,
         );
         self.parliament_tle_key_session_retention_deadlines = rebuild_derived_storage_with_previous(
             tle_key_session_retention_deadlines,
@@ -20993,11 +20945,8 @@ macro_rules! world_ro_accessors {
             storage parliament_attempts:
                 iroha_data_model::governance::types::GovernanceAttemptId =>
                 ParliamentAttemptStateV1;
-            /// Exact pending Parliament beacon-slot requests (read-only).
+            /// Governance-local index of beacon slots that live attempts await (read-only).
             storage parliament_required_beacon_pulse_slots:
-                (BeaconSessionId, u64) => BTreeSet<GovernanceAttemptId>;
-            /// Exact terminally unavailable Parliament beacon slots (read-only).
-            storage parliament_unavailable_beacon_pulse_slots:
                 (BeaconSessionId, u64) => BTreeSet<GovernanceAttemptId>;
             /// Exact retention-deadline contributors grouped by TLE key session.
             storage parliament_tle_key_session_retention_deadlines:
@@ -22223,10 +22172,6 @@ impl<'world> WorldBlock<'world> {
             || self.global_beacon_pulses.iter().next().is_some()
             || self.global_beacon_pulse_slots.iter().next().is_some()
             || self.global_beacon_latest_pulse.iter().next().is_some()
-            || self
-                .parliament_unavailable_beacon_pulse_slots
-                .get(&pulse_slot)
-                .is_some_and(|attempts| !attempts.is_empty())
         {
             return Err(crate::beacon::GlobalThresholdBeaconError::PersistenceConflict);
         }
@@ -23538,17 +23483,21 @@ impl WorldTransaction<'_, '_> {
             .unwrap_or_default();
         let previous_enactment_height =
             previous_attempt.and_then(ParliamentAttemptStateV1::certified_enactment_height_v1);
-        let previous_unavailable_slots = previous_attempt
-            .map(ParliamentAttemptStateV1::unavailable_beacon_pulse_slots_v1)
-            .unwrap_or_default();
         let previous_tle_retention_contributions = previous_attempt
             .map(ParliamentAttemptStateV1::tle_key_session_retention_contributions_v1)
             .unwrap_or_default();
         let next_required_slots = attempt.required_beacon_pulse_slots_v1();
         let next_enactment_height = attempt.certified_enactment_height_v1();
-        let next_unavailable_slots = attempt.unavailable_beacon_pulse_slots_v1();
         let next_tle_retention_contributions = attempt.tle_key_session_retention_contributions_v1();
-        if next_unavailable_slots
+        // Governance-internal integrity check on the attempt write, computed directly from
+        // the attempt: a timed-OVN ballot may not be classified `ReleasePulseUnavailable`
+        // at a release slot that already holds a finalized pulse. It never constrains the
+        // pulse, and no sortition slot participates: a sortition election has no
+        // unavailable classification at all.
+        // TODO: delete with the timed-OVN ballot path
+        // (specs/parliament_private_ballot_design.md 12.2 step 4).
+        if attempt
+            .unavailable_release_pulse_slots_v1()
             .iter()
             .any(|slot| self.global_beacon_pulse_slots.get(slot).is_some())
         {
@@ -23657,22 +23606,6 @@ impl WorldTransaction<'_, '_> {
                     .insert(height, attempts);
             }
         }
-        for slot in previous_unavailable_slots.difference(&next_unavailable_slots) {
-            let Some(mut attempts) = self
-                .parliament_unavailable_beacon_pulse_slots
-                .get(slot)
-                .cloned()
-            else {
-                continue;
-            };
-            attempts.remove(&id);
-            if attempts.is_empty() {
-                self.parliament_unavailable_beacon_pulse_slots.remove(*slot);
-            } else {
-                self.parliament_unavailable_beacon_pulse_slots
-                    .insert(*slot, attempts);
-            }
-        }
         for (key_session_id, opening_deadline) in previous_tle_retention_contributions {
             self.remove_parliament_tle_retention_contribution(id, key_session_id, opening_deadline);
         }
@@ -23708,16 +23641,6 @@ impl WorldTransaction<'_, '_> {
             attempts.insert(id);
             self.parliament_certified_enactments
                 .insert(height, attempts);
-        }
-        for slot in next_unavailable_slots.difference(&previous_unavailable_slots) {
-            let mut attempts = self
-                .parliament_unavailable_beacon_pulse_slots
-                .get(slot)
-                .cloned()
-                .unwrap_or_default();
-            attempts.insert(id);
-            self.parliament_unavailable_beacon_pulse_slots
-                .insert(*slot, attempts);
         }
         for (key_session_id, opening_deadline) in next_tle_retention_contributions {
             self.insert_parliament_tle_retention_contribution(id, key_session_id, opening_deadline);
@@ -24188,16 +24111,6 @@ impl WorldTransaction<'_, '_> {
         if self.global_beacon_pulse_slots.get(&pulse_slot).is_some() {
             return Err(GlobalThresholdBeaconError::ReusedPulse);
         }
-        if self
-            .parliament_unavailable_beacon_pulse_slots
-            .get(&(logical_beacon_session_id, pulse.height))
-            .is_some_and(|attempts| !attempts.is_empty())
-        {
-            // Once consensus has objectively closed an absent sortition or release slot,
-            // accepting a late pulse would make the persisted Parliament transcript
-            // contradictory and non-restartable.
-            return Err(GlobalThresholdBeaconError::PersistenceConflict);
-        }
         let cursor = self
             .global_beacon_latest_pulse
             .get(&GLOBAL_THRESHOLD_BEACON_SINGLETON_KEY)
@@ -24310,22 +24223,6 @@ impl WorldTransaction<'_, '_> {
                 self.parliament_required_beacon_pulse_slots.remove(slot);
             } else {
                 self.parliament_required_beacon_pulse_slots
-                    .insert(slot, attempts);
-            }
-        }
-        for slot in ParliamentAttemptStateV1::unavailable_beacon_pulse_slots_v1(&removed) {
-            let Some(mut attempts) = self
-                .parliament_unavailable_beacon_pulse_slots
-                .get(&slot)
-                .cloned()
-            else {
-                continue;
-            };
-            attempts.remove(id);
-            if attempts.is_empty() {
-                self.parliament_unavailable_beacon_pulse_slots.remove(slot);
-            } else {
-                self.parliament_unavailable_beacon_pulse_slots
                     .insert(slot, attempts);
             }
         }
@@ -24629,7 +24526,6 @@ impl WorldTransaction<'_, '_> {
             parliament_timed_ovn_casting_candidates: _,
             parliament_required_beacon_pulse_slots: _,
             parliament_certified_enactments: _,
-            parliament_unavailable_beacon_pulse_slots: _,
             parliament_tle_key_session_retention_deadlines: _,
             tle_key_session_selection_intervals: _,
             tle_key_sessions: _,
@@ -24857,7 +24753,6 @@ impl WorldTransaction<'_, '_> {
         self.parliament_timed_ovn_casting_candidates.apply();
         self.parliament_required_beacon_pulse_slots.apply();
         self.parliament_certified_enactments.apply();
-        self.parliament_unavailable_beacon_pulse_slots.apply();
         self.parliament_tle_key_session_retention_deadlines.apply();
         self.tle_key_session_selection_intervals.apply();
         self.tle_key_sessions.apply();
@@ -36253,16 +36148,6 @@ pub fn compute_zk_consensus_policy_hash(
         &mut h,
         "sccp.max_native_header_bytes_per_block",
         sccp.max_native_header_bytes_per_block.get(),
-    );
-    zk_policy_put_u32(
-        &mut h,
-        "sccp.max_secp256k1_recoveries_per_transaction",
-        sccp.max_secp256k1_recoveries_per_transaction.get(),
-    );
-    zk_policy_put_u32(
-        &mut h,
-        "sccp.max_secp256k1_recoveries_per_block",
-        sccp.max_secp256k1_recoveries_per_block.get(),
     );
     zk_policy_put_u32(
         &mut h,

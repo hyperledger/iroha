@@ -379,6 +379,44 @@
         "x_tail": "0x16cec22995143de69ebdc0b5539946541c4e86cc0999baef609ef22ddabe5fd50000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000"
       },
       "ton_next_keys": null
+    },
+    "c011": {
+      "evm": {
+        "committee": "0x83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb398d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325a99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2ae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001",
+        "header": "0x534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000456000001a31866622001000000027c897a8d996be612fd8f666076a704aa50e002af73ae3e1729ddfb77cd038aed000000000000000a48bc5b44c9944d49bcf961b322a136be824ed636474ee856250aee68ce784f0b0000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "qc": "0x000000000000000ba273a069ca10e4dc9ffc462d1b964533c962d0f0146b180dfa1a1a9419c8838d000000000000000080b3121b964f2ca72a03b076f822289cfe0ff034b80857fc22e400e2f94a5d7f084a0dab2db9435b5cb98954c2cbd63846ba42819e851c24afd1118bacfb6b6300000007",
+        "signature": "0x0c2b0751065cba9dbde43ce73a858bf726f8b168e9e6a5769a14e1424f132298347f5527cf4dbe29e9f826da0ce0ad4e06b3c8c615b46cbb095d0172232a48ba76b72120519b8dadee065f2b70c72d59041402ee04a62ebffe466ce8697e31be129105d1a80e8c99192b5eef2f4f7f5c4d8a15e1f4a0d6e7a0a3806f044ee6138ece4cde43fdb87db5033dfe55178600007a76f00f9d813ac3f2c01f63f023e84707a99f7157925d151f96e537e5b3fe7740ceccb3d3fd08344829655c8ccf6b",
+        "signerYs": "0x048270060da9b702afed119fe57f80607f3388fb6c532f3a9ec54a57ad80a699a63abfc6519df5405eee91feebf4f52f0c0ac18578fe918653088e6493f0400e979f38f4dd43f758cedd4a0a1bfe876b645661e2b5a804a3f36c943d5ad979cc189ca9f9261bc6a75a73f6e4372566e298afb937c463cd4d210678e1676ffad3b88c3252925a7ab9f4fa6d4a64178a42"
+      },
+      "header_fields": {
+        "committee_root": "0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1",
+        "flags": 1,
+        "generation": 5,
+        "height": 1110,
+        "history_root": "0x48bc5b44c9944d49bcf961b322a136be824ed636474ee856250aee68ce784f0b",
+        "history_size": 10,
+        "message_count": 2,
+        "network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
+        "next_committee_root": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "sccp_root": "0x7c897a8d996be612fd8f666076a704aa50e002af73ae3e1729ddfb77cd038aed",
+        "timestamp_ms": 1800000660000,
+        "validity_ms": 0
+      },
+      "label": "X_1110",
+      "signed_by": "K0",
+      "signer_indices": [
+        0,
+        1,
+        2
+      ],
+      "ton": {
+        "qc_fixed_cell": "0x000000000000000ba273a069ca10e4dc9ffc462d1b964533c962d0f0146b180dfa1a1a9419c8838d000000000000000080b3121b964f2ca72a03b076f822289cfe0ff034b80857fc22e400e2f94a5d7f084a0dab2db9435b5cb98954c2cbd63846ba42819e851c24afd1118bacfb6b63",
+        "signature": "0x86b3c8c615b46cbb095d0172232a48ba76b72120519b8dadee065f2b70c72d59041402ee04a62ebffe466ce8697e31be0c2b0751065cba9dbde43ce73a858bf726f8b168e9e6a5769a14e1424f132298347f5527cf4dbe29e9f826da0ce0ad4e",
+        "signers": 7,
+        "x_head": "0x534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000456000001a31866622001000000027c897a8d996be612fd8f666076a704aa50e002af73ae3e1729ddfb77cd038aed000000000000000a",
+        "x_tail": "0x48bc5b44c9944d49bcf961b322a136be824ed636474ee856250aee68ce784f0b0000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "ton_next_keys": null
     }
   },
   "committees": {
@@ -979,11 +1017,10 @@
       "track": 2
     }
   ],
-  "conventions": "byte strings are 0x-prefixed lowercase hex; `preimage` is the 199-byte control-leaf preimage and `ton_b1`/`ton_b2` its two TON HASHEXT builders (125 + 74 bytes); scenario rows follow committee_transitions_v1.json. The Taira blocks of `destination_effects` are synthetic destination inputs: every scenario starts from a fresh destination, and the control nonces of a block are chosen for that scenario, so they need not follow Taira's dense per-revision sequence (\u00a74.14.6 step 1)",
+  "conventions": "byte strings are 0x-prefixed lowercase hex; `preimage` is the 199-byte control-leaf preimage and `ton_b1`/`ton_b2` its two TON HASHEXT builders (125 + 74 bytes); scenario rows follow committee_transitions_v1.json. `now_ms` is the destination clock: block.timestamp (EVM) or now() (TON) in whole seconds, times 1000, so every `now_ms` is a multiple of 1000; within a scenario `now_ms` never decreases from one step to the next (equal values are calls in the same block or second). Taira-side times (`X.timestamp_ms`, `untilMs`, payload deadlines, fast-pause expiries) are milliseconds and may be sub-second, so a time boundary is probed with the nearest whole-second clock values on both sides. The Taira blocks of `destination_effects` are synthetic destination inputs: every scenario starts from a fresh destination, and the control nonces of a block are chosen for that scenario, so they need not follow Taira's dense per-revision sequence (\u00a74.14.6 step 1). `rejected[].error` is the refusal of the Rust and Python reference when Taira records a control: BadControl is the \u00a73.4 constraint error, and TargetNotExternal, ZeroRevision and ZeroControlNonce are reference labels for the recording rules of \u00a74.14.6 (a route targets an external network, revisions and control nonces start at 1), which no contract reports. `rejected[].destination` is what the destination model answers when such a leaf is certified anyway (null: the leaf does not exist). Row parliament_paused_2 cannot reach a contract through its typed interface (`bool parliamentPaused` on EVM, where the ABI decoder refuses a dirty word, and `Bool` on TON), so no contract harness replays it",
   "destination_effects": [
     {
       "deployment": {
-        "cheap_path": true,
         "consensus_instance": "0x7777777777777777777777777777777777777777777777777777777777777777",
         "destination_word": "0x0000000000000000000000002222222222222222222222222222222222222222",
         "flavor": "evm",
@@ -1356,7 +1393,6 @@
     },
     {
       "deployment": {
-        "cheap_path": true,
         "consensus_instance": "0x7777777777777777777777777777777777777777777777777777777777777777",
         "destination_word": "0x0000000000000000000000002222222222222222222222222222222222222222",
         "flavor": "evm",
@@ -1599,7 +1635,6 @@
     },
     {
       "deployment": {
-        "cheap_path": true,
         "consensus_instance": "0x7777777777777777777777777777777777777777777777777777777777777777",
         "destination_word": "0x0000000000000000000000002222222222222222222222222222222222222222",
         "flavor": "evm",
@@ -1839,7 +1874,6 @@
     },
     {
       "deployment": {
-        "cheap_path": true,
         "consensus_instance": "0x7777777777777777777777777777777777777777777777777777777777777777",
         "destination_word": "0x0000000000000000000000002222222222222222222222222222222222222222",
         "flavor": "evm",
@@ -2141,7 +2175,6 @@
     },
     {
       "deployment": {
-        "cheap_path": true,
         "consensus_instance": "0x7777777777777777777777777777777777777777777777777777777777777777",
         "destination_word": "0x0000000000000000000000002222222222222222222222222222222222222222",
         "flavor": "evm",
@@ -2285,7 +2318,7 @@
               "parliamentPaused": false
             }
           },
-          "now_ms": 1802592599999,
+          "now_ms": 1802592599000,
           "state_after": {
             "checkpoints": [
               {
@@ -2373,7 +2406,6 @@
     },
     {
       "deployment": {
-        "cheap_path": true,
         "consensus_instance": "0x7777777777777777777777777777777777777777777777777777777777777777",
         "destination_word": "0x0000000000000000000000002222222222222222222222222222222222222222",
         "flavor": "evm",
@@ -2501,7 +2533,7 @@
             "events": [],
             "outcome": "MintingIsPaused"
           },
-          "now_ms": 1800003600000,
+          "now_ms": 1800001200000,
           "proof": {
             "block": {
               "height": 1070,
@@ -2565,7 +2597,7 @@
             ],
             "outcome": "ok"
           },
-          "now_ms": 1800003600000,
+          "now_ms": 1800001200000,
           "state_after": {
             "checkpoints": [
               {
@@ -2726,7 +2758,7 @@
             "events": [],
             "outcome": "MintingIsPaused"
           },
-          "now_ms": 1800007199999,
+          "now_ms": 1800007199000,
           "proof": {
             "block": {
               "height": 1070,
@@ -2847,7 +2879,6 @@
     },
     {
       "deployment": {
-        "cheap_path": true,
         "consensus_instance": "0x7777777777777777777777777777777777777777777777777777777777777777",
         "destination_word": "0x0000000000000000000000002222222222222222222222222222222222222222",
         "flavor": "evm",
@@ -3090,7 +3121,6 @@
     },
     {
       "deployment": {
-        "cheap_path": true,
         "consensus_instance": "0x7777777777777777777777777777777777777777777777777777777777777777",
         "destination_word": "0x0000000000000000000000002222222222222222222222222222222222222222",
         "flavor": "evm",
@@ -3215,7 +3245,6 @@
     },
     {
       "deployment": {
-        "cheap_path": true,
         "consensus_instance": "0x7777777777777777777777777777777777777777777777777777777777777777",
         "destination_word": "0x0000000000000000000000002222222222222222222222222222222222222222",
         "flavor": "evm",
@@ -3621,7 +3650,7 @@
             "events": [],
             "outcome": "CommitteeNotAccepted"
           },
-          "now_ms": 1801209600001,
+          "now_ms": 1801209601000,
           "proof": {
             "block": {
               "height": 1010,
@@ -3662,6 +3691,352 @@
           }
         }
       ]
+    },
+    {
+      "deployment": {
+        "consensus_instance": "0x7777777777777777777777777777777777777777777777777777777777777777",
+        "destination_word": "0x0000000000000000000000002222222222222222222222222222222222222222",
+        "flavor": "evm",
+        "max_wrapped_supply": "1000000000000000000",
+        "network": "ethereum-mainnet",
+        "pin": {
+          "committee_root": "0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1",
+          "generation": 5,
+          "keys": [
+            "0x83c23b910a1e9cf60e85d533950243df2a8cef1c3182b1d6e2c5289ae2664b9a884613c59e71224fba05eed8badcfb39",
+            "0x8d909a6fefc006a29afea57e2ab4bafc0e4acb79f62097db6691573a92f7d329d63b05a92f6cea5b880694f27c45f325",
+            "0xa99c9240635b5da3ef43a0e250e914bc965201b84a58f6dc3ee53a3a87cc4cbe6cf99d0b101c1b826158846e67da98e2",
+            "0xae66e29c98258210f4b30d7201be4257ebcdc88249cca3f0dc5e9e483f22c9a46c95cd24724ca8022a7791a7ae40c001"
+          ],
+          "start_height": 1000,
+          "until_ms": 1801209600000
+        },
+        "route_revision": 1,
+        "taira_network_id": "0x1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "description": "a fast pause whose expiry ends in 001 ms: the whole-second destination clock is paused at the last clock value below fastPauseUntilMs (1 ms earlier) and mints at the next one (999 ms later)",
+      "flavor": "evm",
+      "initial_state": {
+        "checkpoints": [],
+        "committee": {
+          "generation": 5,
+          "high": 999,
+          "root": "0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1",
+          "start": 1000,
+          "until_ms": 1801209600000
+        },
+        "consumed": [],
+        "equivocated": false,
+        "op_count": 0,
+        "pause": {
+          "control_nonce": 0,
+          "fast_pause_until_ms": 0,
+          "parliament_paused": false
+        },
+        "total_supply": "0"
+      },
+      "name": "fast_pause_sub_second_expiry",
+      "steps": [
+        {
+          "call": "applyControl",
+          "certificate": "c011",
+          "expected": {
+            "events": [
+              {
+                "certificate": "c011",
+                "event": "SccpCertificate",
+                "generation": 5,
+                "height": 1110
+              },
+              {
+                "event": "SccpCheckpointed",
+                "header": "0x78d1d4048d93ce780b716218696f35c7765d2947e57ee300e03a95224670da63",
+                "height": 1110
+              },
+              {
+                "certificateId": "0x54dc46651f30d61b06134b3bfe5cff3dc09f0c454074c8ae442f7fc6d209a2d4",
+                "controlNonce": 1,
+                "event": "SccpControlApplied",
+                "fastPauseUntilMs": 1800007200001,
+                "parliamentPaused": false,
+                "track": 2
+              }
+            ],
+            "outcome": "ok"
+          },
+          "now_ms": 1800001200000,
+          "proof": {
+            "block": {
+              "height": 1110,
+              "historyIndex": 0,
+              "historyPath": [],
+              "messageCount": 2,
+              "sccpRoot": "0x7c897a8d996be612fd8f666076a704aa50e002af73ae3e1729ddfb77cd038aed"
+            },
+            "certificateId": "0x54dc46651f30d61b06134b3bfe5cff3dc09f0c454074c8ae442f7fc6d209a2d4",
+            "controlNonce": 1,
+            "effectHash": "0x3c33dfe77275b6e509f60b732913c7d6803dd7ca28d9d3fb0a9e0146a3e748da",
+            "fastPauseUntilMs": 1800007200001,
+            "leafIndex": 0,
+            "parliamentPaused": false,
+            "path": [
+              "0x6106e5c55d3e97100310e8b6bff2fd1a1c3a66af981a4e3c8676aa9ee530686d"
+            ],
+            "track": 2
+          },
+          "state_after": {
+            "checkpoints": [
+              {
+                "height": 1110,
+                "id": "0x78d1d4048d93ce780b716218696f35c7765d2947e57ee300e03a95224670da63"
+              }
+            ],
+            "committee": {
+              "generation": 5,
+              "high": 1110,
+              "root": "0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1",
+              "start": 1000,
+              "until_ms": 1801209600000
+            },
+            "consumed": [],
+            "equivocated": false,
+            "live": true,
+            "op_count": 1,
+            "pause": {
+              "control_nonce": 1,
+              "effective": true,
+              "fast_pause_until_ms": 1800007200001,
+              "parliament_paused": false
+            },
+            "total_supply": "0"
+          }
+        },
+        {
+          "call": "views",
+          "expected": {
+            "committeeState": {
+              "generation": 5,
+              "high": 1110,
+              "root": "0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1",
+              "start": 1000,
+              "untilMs": 1801209600000
+            },
+            "controlNonce": 1,
+            "equivocated": false,
+            "initialCommittee": {
+              "generation": 5,
+              "root": "0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1",
+              "start": 1000,
+              "untilMs": 1801209600000
+            },
+            "live": true,
+            "mintingPaused": true,
+            "opCount": 1,
+            "pauseState": {
+              "controlNonce": 1,
+              "effective": true,
+              "fastPauseUntilMs": 1800007200001,
+              "parliamentPaused": false
+            }
+          },
+          "now_ms": 1800007200000,
+          "state_after": {
+            "checkpoints": [
+              {
+                "height": 1110,
+                "id": "0x78d1d4048d93ce780b716218696f35c7765d2947e57ee300e03a95224670da63"
+              }
+            ],
+            "committee": {
+              "generation": 5,
+              "high": 1110,
+              "root": "0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1",
+              "start": 1000,
+              "until_ms": 1801209600000
+            },
+            "consumed": [],
+            "equivocated": false,
+            "live": true,
+            "op_count": 1,
+            "pause": {
+              "control_nonce": 1,
+              "effective": true,
+              "fast_pause_until_ms": 1800007200001,
+              "parliament_paused": false
+            },
+            "total_supply": "0"
+          }
+        },
+        {
+          "call": "finalizeFromCheckpoint",
+          "checkpoint": {
+            "header": "0x534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000456000001a31866622001000000027c897a8d996be612fd8f666076a704aa50e002af73ae3e1729ddfb77cd038aed000000000000000a48bc5b44c9944d49bcf961b322a136be824ed636474ee856250aee68ce784f0b0000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "expected": {
+            "events": [],
+            "outcome": "MintingIsPaused"
+          },
+          "now_ms": 1800007200000,
+          "proof": {
+            "block": {
+              "height": 1110,
+              "historyIndex": 0,
+              "historyPath": [],
+              "messageCount": 2,
+              "sccpRoot": "0x7c897a8d996be612fd8f666076a704aa50e002af73ae3e1729ddfb77cd038aed"
+            },
+            "leafIndex": 1,
+            "path": [
+              "0x7ad261411107fc0e6170c93222760798fefe973e862a37da2add20a641963e22"
+            ],
+            "payload": "0x02010000000000000001000000000000000500000001000001a31d82ac0000000000010003786f720000000000000000000000003b9aca00030022015a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a020014444444444444444444444444444444444444444401000d74616972615f6574685f786f72"
+          },
+          "state_after": {
+            "checkpoints": [
+              {
+                "height": 1110,
+                "id": "0x78d1d4048d93ce780b716218696f35c7765d2947e57ee300e03a95224670da63"
+              }
+            ],
+            "committee": {
+              "generation": 5,
+              "high": 1110,
+              "root": "0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1",
+              "start": 1000,
+              "until_ms": 1801209600000
+            },
+            "consumed": [],
+            "equivocated": false,
+            "live": true,
+            "op_count": 1,
+            "pause": {
+              "control_nonce": 1,
+              "effective": true,
+              "fast_pause_until_ms": 1800007200001,
+              "parliament_paused": false
+            },
+            "total_supply": "0"
+          }
+        },
+        {
+          "call": "views",
+          "expected": {
+            "committeeState": {
+              "generation": 5,
+              "high": 1110,
+              "root": "0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1",
+              "start": 1000,
+              "untilMs": 1801209600000
+            },
+            "controlNonce": 1,
+            "equivocated": false,
+            "initialCommittee": {
+              "generation": 5,
+              "root": "0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1",
+              "start": 1000,
+              "untilMs": 1801209600000
+            },
+            "live": true,
+            "mintingPaused": false,
+            "opCount": 1,
+            "pauseState": {
+              "controlNonce": 1,
+              "effective": false,
+              "fastPauseUntilMs": 1800007200001,
+              "parliamentPaused": false
+            }
+          },
+          "now_ms": 1800007201000,
+          "state_after": {
+            "checkpoints": [
+              {
+                "height": 1110,
+                "id": "0x78d1d4048d93ce780b716218696f35c7765d2947e57ee300e03a95224670da63"
+              }
+            ],
+            "committee": {
+              "generation": 5,
+              "high": 1110,
+              "root": "0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1",
+              "start": 1000,
+              "until_ms": 1801209600000
+            },
+            "consumed": [],
+            "equivocated": false,
+            "live": true,
+            "op_count": 1,
+            "pause": {
+              "control_nonce": 1,
+              "effective": false,
+              "fast_pause_until_ms": 1800007200001,
+              "parliament_paused": false
+            },
+            "total_supply": "0"
+          }
+        },
+        {
+          "call": "finalizeFromCheckpoint",
+          "checkpoint": {
+            "header": "0x534343502f46494e414c4954592f563111111111111111111111111111111111111111111111111111111111111111110000000000000456000001a31866622001000000027c897a8d996be612fd8f666076a704aa50e002af73ae3e1729ddfb77cd038aed000000000000000a48bc5b44c9944d49bcf961b322a136be824ed636474ee856250aee68ce784f0b0000000000000005990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a100000000000000000000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "expected": {
+            "events": [
+              {
+                "event": "SccpFinalized",
+                "messageId": "0xa5aee3db41c93386f72db74745f2a729074585aa87fe37c907e8acd211e8015d",
+                "nonce": 5,
+                "recipient": "0x4444444444444444444444444444444444444444",
+                "tokenAmount": "1000000000"
+              }
+            ],
+            "outcome": "ok",
+            "return": "0xa5aee3db41c93386f72db74745f2a729074585aa87fe37c907e8acd211e8015d"
+          },
+          "now_ms": 1800007201000,
+          "proof": {
+            "block": {
+              "height": 1110,
+              "historyIndex": 0,
+              "historyPath": [],
+              "messageCount": 2,
+              "sccpRoot": "0x7c897a8d996be612fd8f666076a704aa50e002af73ae3e1729ddfb77cd038aed"
+            },
+            "leafIndex": 1,
+            "path": [
+              "0x7ad261411107fc0e6170c93222760798fefe973e862a37da2add20a641963e22"
+            ],
+            "payload": "0x02010000000000000001000000000000000500000001000001a31d82ac0000000000010003786f720000000000000000000000003b9aca00030022015a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a020014444444444444444444444444444444444444444401000d74616972615f6574685f786f72"
+          },
+          "state_after": {
+            "checkpoints": [
+              {
+                "height": 1110,
+                "id": "0x78d1d4048d93ce780b716218696f35c7765d2947e57ee300e03a95224670da63"
+              }
+            ],
+            "committee": {
+              "generation": 5,
+              "high": 1110,
+              "root": "0x990240eeee78c47b3adbf4deb5473fbf4778a4a2e8bac774bed12295b08956a1",
+              "start": 1000,
+              "until_ms": 1801209600000
+            },
+            "consumed": [
+              5
+            ],
+            "equivocated": false,
+            "live": true,
+            "op_count": 2,
+            "pause": {
+              "control_nonce": 1,
+              "effective": false,
+              "fast_pause_until_ms": 1800007200001,
+              "parliament_paused": false
+            },
+            "total_supply": "1000000000"
+          }
+        }
+      ]
     }
   ],
   "destination_words": {
@@ -3670,7 +4045,7 @@
     "ton-mainnet": "0x3535353535353535353535353535353535353535353535353535353535353535"
   },
   "event_signature": "SccpControlApplied(uint64,uint8,bool,uint64,bytes32)",
-  "generator": "scripts/sccp_reference/generate.py (independent Python reference)",
+  "generator": "two generators write this file byte for byte: the independent Python reference (python3 scripts/sccp_reference/generate.py --write, Python 3.10+) and the Rust reference (cargo test -p iroha_sccp --test v1_reference_finality --test v1_reference_transitions --test v1_reference_control -- --ignored regenerate)",
   "max_fast_pause_ms": 2592000000,
   "rejected": [
     {
@@ -3869,8 +4244,7 @@
   ],
   "taira_network_id": "0x1111111111111111111111111111111111111111111111111111111111111111",
   "todo": [
-    "TODO: crates/iroha_sccp (Rust reference) regenerates this file from iroha_sccp::v1 and must match it byte for byte",
-    "TODO: TON destination-effect rows (minter account id as destination word) once the Acton harness pins its minter address"
+    "TODO(TON contract work package): TON destination-effect rows (minter account id as destination word) once the Acton harness pins its minter address; committee_transitions_v1.json carries the TON control rows that the placeholder word allows"
   ],
   "topic_control_applied": "0xb069397cc6f8fa22bf7c0216c554253ab0fc92a3178d10969760b028dd174238"
 }

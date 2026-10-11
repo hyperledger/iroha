@@ -289,8 +289,8 @@ TAG_SIG       = ASCII "sumeragi/sig"          TAG_BLOCK    = ASCII "sumeragi/blo
 TAG_PAY       = ASCII "sumeragi/payload"      TAG_ATT      = ASCII "sumeragi/attach"
 TAG_QC        = ASCII "sumeragi/qc"           TAG_TC       = ASCII "sumeragi/tc"
 TAG_COMMITTEE = ASCII "sumeragi/committee"    TAG_TOPOLOGY = ASCII "sumeragi/topology"
-KIND_PROPOSAL = 0x01, KIND_PREPARE = 0x02, KIND_COMMIT = 0x03, KIND_TIMEOUT = 0x04, KIND_ECHO = 0x05,
-KIND_ATTEST = 0x06; availability signatures use the separate domain of §12.8
+KIND_PROPOSAL = 0x01, KIND_PREPARE = 0x02, KIND_COMMIT = 0x03, KIND_TIMEOUT = 0x04, KIND_ECHO = 0x05;
+availability signatures use the separate domain of §12.8
 Hash32 = [u8; 32]; ValidatorIndex = u32 (canonical index into C_h)
 
 kb(pk)    = be16(len(raw)) ‖ raw    // raw: 48-byte compressed G1 point (production); 32 bytes (simulator)
@@ -671,10 +671,13 @@ the same 64 KiB witness limit, with no alternate or repeated-context result deco
 
 #### 4.1.1 Certified result of `ExecutionResultCommitment` instances (application binding)
 
-**Status.** Target layout of `specs/sccp.md` revision 5, not yet implemented (`TODO:` WP-C2);
-until it lands, Appendix E51 describes the as-built `R`. The core still treats `R` as opaque;
-this subsection fixes how the application computes it, because external verifiers pin it
-(§3.3.1).
+**Status.** Target layout of `specs/sccp.md` revision 5. Its types exist in
+`iroha_data_model::sumeragi_finality::certified_result`: `SccpFinalityHeaderV1` with `parse`,
+the outer result, the fallible `result_of_preimage`, and `CertifiedResultV1` with `decode` and
+`check_block`. Binding `F` into the `R` that nodes certify, and moving the readers to
+`CertifiedResultV1`, are not yet implemented (`TODO:` WP-C2); until they land, Appendix E51
+describes the as-built `R`. The core still treats `R` as opaque; this subsection fixes how the
+application computes it, because external verifiers pin it (§3.3.1).
 
 Every instance whose result is an `ExecutionResultCommitment` (the global chain, dataspace roots
 and private developer anchors) computes:
@@ -699,20 +702,24 @@ R      = SHA-256(RESULT_TAG ‖ F ‖ D_body)                         // RESULT_
 - The stored result preimage (`CommitCertificate.result_preimage`) is `F ‖ body`, at most
   `MAX_RESULT_PREIMAGE_BYTES = 65 536` bytes in total, so the body bound is 65 315 bytes.
   It remains local publication and certified-read evidence; it is never a vote or QC sidecar.
-  A test MUST measure the worst supported graph (a 31-seat boundary with a frozen preparation)
-  against the body bound before this layout lands; if it does not fit, the preimage bound is
-  raised to 65 757 bytes explicitly, with §3.6 and the mutation gate updated, never silently.
-  The change does not alter `FRAME_OVERHEAD`, `T_req` or the core wire.
+  The worst supported graph, a 31-seat boundary with a frozen preparation, has a body of
+  30 763 bytes, measured and pinned against the body bound by the `iroha_data_model` test
+  `maximal_31_seat_boundary_with_frozen_preparation_fits_the_result_body_bound`, so the
+  preimage bound stays 65 536 bytes.
+  The layout does not alter `FRAME_OVERHEAD`, `T_req` or the core wire.
 - `R` is a raw SHA-256 output: it is never passed through `Hash::prehashed`, `HashOf` or any
   type that checks or sets the `H` marker bit. `result_of_preimage(p)` is the only `R` function,
   for voters and readers alike; it returns nothing when `len(p) < 222`, `len(p) > 65 536` or `F`
   does not parse, and callers treat that as a mismatch, never as a local fault.
 - Readers that hold `F ‖ body` without executing it decode it through
-  `CertifiedResultV1::decode(p, scope)` (`specs/sccp.md` §3.6 C1–C5): `F` parses, its height
-  equals the body's, its network equals the scheduled epoch context's, its committee root
-  matches that context's committee, a boundary decision in the body is reflected in `F`, and a
-  `NonGlobal` scope requires the inactive form. `ExecutionResultCommitment::result()` is deleted,
-  because `R` cannot be computed from the body alone.
+  `CertifiedResultV1::decode(p, scope)`, which performs C1–C4 and the scope rule of
+  `specs/sccp.md` §3.6: `F` parses, its height equals the body's, its network equals the
+  scheduled epoch context's, its committee root matches that context's committee, a boundary
+  decision in the body is reflected in `F`, and a `NonGlobal` scope requires the inactive form.
+  A reader that also holds the block then calls
+  `CertifiedResultV1::check_block(height, timestamp_ms)`, which performs C5: `F` names the
+  block's height and canonical time. `ExecutionResultCommitment::result()` is deleted by
+  WP-C2, because `R` cannot be computed from the body alone.
 - Lane instances keep their own `LANE_RESULT_TAG` result and carry no `F`.
 
 ### 4.2 Verdicts
@@ -820,7 +827,7 @@ certified block times, so both directions need a bound. No validity rule reads a
 
 | # | Rule |
 |---|---|
-| CT1 | **Clock ahead.** For every non-genesis block of every instance of the network (global and lanes) executed with `certified = false`, the executor MUST answer `Failed(ClockAhead)` while `t(block) > local_wall_ms + max_clock_drift_ms`. It MUST NOT answer `Invalid`. Under §4.2 that is `LocalFault(ExecutorFailed)` and a retry with backoff; meanwhile no `Valid` is recorded, so §4.3 condition 4 withholds the Prepare vote. Commit votes are not guarded directly: `try_commit` Commit-votes an unflagged PrepareQC of the current view without executing, and the bound reaches every CommitQC through that PrepareQC. |
+| CT1 | **Clock ahead.** For every non-genesis block of every instance of the network (global and lanes) executed with `certified = false`, the executor MUST answer `Failed(ClockAhead)` while `t(block) > local_wall_ms + max_clock_drift_ms`. It MUST NOT answer `Invalid`. Under §4.2 that is `LocalFault(ExecutorFailed)` and a retry with backoff; meanwhile no `Valid` is recorded, so §4.3 condition 4 withholds the Prepare vote. Commit votes are not guarded directly: `try_commit` Commit-votes a PrepareQC of the current view without executing, and the bound reaches every CommitQC through that PrepareQC. |
 | CT2 | **Scope.** The apply and replay path of CommitQC-certified blocks never consults the clock. Genesis keeps its existing wall-clock check. |
 | CT3 | **Builder pacing.** The payload builder MUST NOT include a transaction with `creation_time_ms > local_wall_ms`, and MUST NOT propose while the block's canonical time, including lane merge floors, would exceed `local_wall_ms`; it waits instead. |
 | CT4 | **Bound.** `max_clock_drift_ms` is a committed chain parameter (`SumeragiParameters`), not a node-local setting, so every honest voter's guard uses the same value. Genesis validation and `validate_parameter_change` MUST enforce `max_clock_drift_ms ≤ MAX_CLOCK_DRIFT_BOUND_MS = 60 000`. |
@@ -833,22 +840,28 @@ true, and the verdict never depends on it. Without the exemption, nodes that dis
 execution on a view change, sat behind a hidden PrepareQC (F33) or restarted would answer
 `StaleDueWork` forever for a re-proposal, which keeps its original time, and a due-work block
 whose PrepareQC was hidden for longer than `gov.due_work_max_lag_ms` could never gather Prepare
-votes again, breaking L4. The exemption is sound because `Q` has `q` Prepare signers, at least
-`f + 1` of them honest, and each passed CT1 and CT5 when it first voted.
+votes again, breaking L4. The exemption is sound by induction over the PrepareQCs of the block.
+The first one formed has `q` Prepare signers, at least `f + 1` of them honest; no PrepareQC of
+the block existed when they voted, so each executed it with `certified = false` and passed CT1
+and CT5. Every later Prepare vote for the block is either guarded the same way or exempted by a
+PrepareQC that this argument already covers, so the bound of that first PrepareQC holds for all.
 
 **Properties.** Let every honest wall clock `W_i` be within `ε` of real time, with
 `2ε ≤ max_clock_drift_ms` (the liveness assumption).
 
 - **Upper bound.** If `C_h` has at most `f` Byzantine members, a CommitQC at `h` has at least
-  `f + 1` honest Commit signers; an honest member Commit-votes only on the PrepareQC of its
-  current view, whose `q` Prepare signers include at least `f + 1` honest ones; each passed CT1
-  at some real time `τ_v`, so `t(h) ≤ τ_v + ε + max_clock_drift_ms`. At any later real time an
-  individual honest clock reads `W_j ≥ τ − ε`, so `t(h) ≤ W_j + 2·max_clock_drift_ms`. A deadline
-  anchored at certified time can therefore fire up to `2·max_clock_drift_ms` early relative to
-  an individual honest clock, and wallets and relayers submit at least that plus inclusion
-  latency before a deadline. A cached `Valid` from an earlier view only lowers `τ_v`; a restart
-  re-sends a durable Prepare that was guarded when first signed; a certified re-proposal carries
-  the original honest votes.
+  `f + 1` honest Commit signers, and an honest member Commit-votes only on a PrepareQC of the
+  block in its current view. By the induction above, the bound of every PrepareQC of the block
+  is the bound of the first one formed: its `q` Prepare signers include at least `f + 1` honest
+  ones, each of which executed the block with `certified = false` and passed CT1 at some real
+  time `τ`, so `t(h) ≤ τ + ε + max_clock_drift_ms`. Every later Prepare vote for the block,
+  guarded or exempted, and the commit come after that `τ`. At any later real time an individual
+  honest clock reads `W_j ≥ τ − ε`, so `t(h) ≤ W_j + 2·max_clock_drift_ms`. A deadline anchored
+  at certified time can therefore fire up to `2·max_clock_drift_ms` early relative to an
+  individual honest clock, and wallets and relayers submit at least that plus inclusion latency
+  before a deadline. A cached `Valid` from an earlier view only lowers `τ`; a restart re-sends a
+  durable Prepare that was guarded when first signed; the Prepare votes of a certified
+  re-proposal are exempt and rest on that first PrepareQC.
 - **Lower bound for anchors.** Every block that anchors governance work or an SCCP heartbeat
   has `t(h) ≥ W_i − gov.due_work_max_lag_ms` for some honest first Prepare voter, at the time of
   that first Prepare. Between the first honest Prepare and the commit, view changes, a hidden
@@ -860,9 +873,9 @@ votes again, breaking L4. The exemption is sound because `Q` has `q` Prepare sig
 - **Determinism.** `Valid(R)` / `Invalid` is unchanged and never depends on `certified` or a
   clock; only the timing of Prepare votes does.
 
-**Verification.** CT1, CT3, CT5 and the executor's use of `certified` are Core mutation-gate
-entries (SC5, SC6, SC12, SC17, §13.4). The machine's emission of `certified` is MS51,
-killed by `det_s51_execute_certified_flag` and
+**Verification.** CT1, CT3, CT5 and the executor's use of `certified` are planned Core
+mutation-gate entries (SC5, SC6, SC12 and SC17, planning identifiers of §13.4). The machine's
+emission of `certified` is MS51, killed by `det_s51_execute_certified_flag` and
 `f33_hidden_prepareqc_due_work_block_commits_after_lag`. The deterministic simulator models CT1
 and CT5 in its toy application (§13.1): per-machine wall clocks with skew, block times stamped
 by the builders at their wall clock (so honest blocks satisfy CT3), honest executors that answer
@@ -2431,8 +2444,11 @@ and penalty arithmetic remain separate resource-accounting work (S8).
 The current signed `ChainParamsRecord.epoch_length_blocks` is the epoch authority.
 The NPoS policy must carry the same length; genesis signing, parameter admission, and schedule
 publication reject a contradiction. The global application requires its threshold pulse at
-height `h` when `(h + 1) % epoch_length_blocks == 0`, or when committed Parliament state
-requests that slot. A pulse is bound to the exact network, active public DKG session, scheduled
+height `h` exactly when the chain is NPoS and `(h + 1) % epoch_length_blocks == 0`. Governance
+state creates no pulse obligation: Parliament sortition waits governance-locally for the
+consensus-native pulse at its frozen slot (`specs/parliament_private_ballot_design.md` §9), and
+a pending governance slot never makes a pulse mandatory, admissible or a condition of a block.
+A pulse is bound to the exact network, active public DKG session, scheduled
 validator roster, height, and committed parent. It is committed by the block header's dedicated
 `global_beacon_pulse_hash` and carried in `global_beacon_pulse`; it never authorizes a block
 without transaction work.
@@ -3763,6 +3779,7 @@ profile and the same strict named-test, normal-exit and complete-harness require
 | HC221 | Public fallible World construction restores an infallible expect around its sole shared initializer | `state::world_construction_tests::world_constructor_registration_refusal_is_fallible_and_retries_original_source`, `state::world_construction_tests::world_constructor_record_refusal_is_fallible_and_retries_original_source`, `state::world_construction_tests::world_constructor_rejects_malformed_kaigi_without_panicking` | Initial storage refusal retains the original release owner before consuming entity iterators. Kaigi rebuild quotas return typed incomplete attempts, malformed sources return completed errors, and no partial World escapes. The same finite original pool/context and shared Json backing retry unchanged; physical nested graph admission remains separate. |
 | HC222 | Discard original partial AMX Worker decoder controls, completed fields and multisig member prefix after a genuine refusal | `sumeragi::executor::amx_retry_tests::partial_amx_worker_leg_refusal_retains_original_controls_and_release_wait`, `sumeragi::executor::amx_retry_tests::partial_amx_worker_leg_refusal_retains_completed_source_prefix_without_reallocation`, `sumeragi::executor::amx_retry_tests::partial_amx_worker_leg_refusal_retains_original_multisig_member_prefix_without_reallocation` | The actual original paid signed-source Worker bank retains the same finite pool, canonical controls, completed fields, member/spans/key ledgers and native digits across refusal. Its original Capacity ReleaseWait stays Pending while the external blocker lives; an unchanged retry allocates no replacement prefix. Real blocker retirement permits the same source to finish and exact last-owner refund. Every cached canonical field/element boundary still checks enclosing limits. Only the test-only omission drops that partial owner after the unchanged error. Diagnostic Strings, indirect invocation and full proof/crypto graph funding remain open. |
 | HC223 | Omit resumption of a preceding parked original AMX Worker occurrence | `sumeragi::executor::amx_retry_tests::rejected_amx_worker_occurrence_retains_source_prefix_and_replays_before_later_partial_occurrence` | A late malformed Quantity rejects signed input A after both original keys and digits were admitted; a separately signed valid B still executes through actual Worker validation. The same original bank then replays A while B holds a genuine partial Capacity refusal. Each original occurrence keeps its admitted prefix and re-enters the canonical parser, without a cached verdict or replacement backing; A returns its exact canonical cause, B retains its exact ReleaseWait until real external release, and all occurrence metadata/graphs retire with the bank. The test-only omission refuses retrieval of only the preceding parked occurrence. Exact wait/generation evidence is scoped to the bank; complete State/World execution custody remains open. |
+| HC224 | Core native pulse demand also treats a committed Parliament slot row as mandatory control (`epoch_beacon::required`) | `pending_parliament_slots_create_no_native_control_demand_and_never_block_unrelated_work` | Consensus demand is the NPoS pre-boundary height only. On a Permissioned Global chain holding a sortition generation awaiting slot 9, `required` is false, no producer opens a round, signs or reports a source failure even without a beacon session, and every block of unrelated signed work with the empty control witness executes `Valid` and commits from the slot far past it. A genuine pulse carried at the slot is refused as not requested. No pulse row appears, the request stays pending on its original slot with an unchanged index, and cold replay reproduces the certified results. A timed-OVN release slot at the next height is likewise no demand. |
 
 The finite Core full-proof interval is request-owned. Its Torii/SDK callers retain actual query, worker and response owners separately under the existing route and SDK absolute deadlines. Nested signed-genesis/result/authority graph funding remains open. These controls do not attribute the observed H3 timeout to prefix work or qualify the paid transition.
 
@@ -4506,7 +4523,8 @@ network/session/transcript/height/finalized-chain anchor. Historical readers req
 byte equality and those exact context joins; the current exact QC authenticates execution's
 full session verification. They do not claim to independently reconstruct a DKG session from
 only the transcript binding. Empty control does not establish no demand: State execution checks
-required and unsolicited pulses against the same pristine parent, including Parliament demand.
+required and unsolicited pulses against the same pristine parent. Demand is consensus-native
+only; governance state is not consulted.
 
 The generic core/driver tests use an explicit no-demand application. They are not threshold
 beacon or production finality qualification. Maintained native-network, message-loss, saturation,

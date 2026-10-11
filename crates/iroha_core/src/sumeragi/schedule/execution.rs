@@ -327,8 +327,9 @@ impl StateBlock<'_> {
             (captured, pulse)
         };
         // All source/proof/custody and complete retained allocation checks preceded any write.
-        // This pulse is a mandatory original block-start effect, usable by Parliament in this
-        // same transaction overlay; failure/drop discards its original journal with the block.
+        // This consensus-native pulse is a mandatory original block-start effect. Stored here, it
+        // is readable by later transactions of this same block (governance consumes it by its
+        // own transition and never demands it); failure/drop discards its journal with the block.
         if let (Some(value), Some(link)) = (pulse.pulse(), pulse.link()) {
             let slot = (
                 iroha_data_model::governance::types::BeaconSessionId::for_network_v1(

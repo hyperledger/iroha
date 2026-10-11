@@ -15,34 +15,33 @@ use iroha_data_model::{
     parliament_types::FIRST_RELEASE_MAX_EXACT_JSON_U64,
     sccp::{
         deployment::{
-            SCCP_TRON_ADDRESS_PREFIX_V1, SccpDeploymentV1, SccpEvmDeploymentV1, SccpTonCodeRefV1,
-            SccpTonDeploymentV1, SccpTronDeploymentV1,
+            SccpDeploymentV1, SccpEvmDeploymentV1, SccpTonCodeRefV1, SccpTonDeploymentV1,
         },
         governance::{
             SCCP_GOVERNANCE_MAX_ACTIONS_V1, SCCP_GOVERNANCE_MEMO_MAX_BYTES_V1,
             SCCP_JSON_SAFE_U64_MAX_V1, SCCP_TON_MAX_WRAPPED_SUPPLY_EXCLUSIVE_V1,
-            SccpActivateLightClientProfileActionV1, SccpClearBridgeKeyFaultActionV1,
-            SccpFreezeLightClientActionV1, SccpGovernanceActionV1, SccpGovernanceBaseRevisionV1,
-            SccpGovernanceProposalV1, SccpGovernanceStaticError, SccpGovernanceSubjectV1,
-            SccpInitializeLightClientActionV1, SccpInstallTrustedCheckpointActionV1,
-            SccpRegisterRouteActionV1, SccpReleaseStrandedActionV1, SccpRouteRevisionActionV1,
+            SccpActivateLightClientProfileActionV1, SccpFreezeLightClientActionV1,
+            SccpGovernanceActionV1, SccpGovernanceBaseRevisionV1, SccpGovernanceProposalV1,
+            SccpGovernanceStaticError, SccpGovernanceSubjectV1, SccpInitializeLightClientActionV1,
+            SccpInstallTrustedCheckpointActionV1, SccpRegisterRouteActionV1,
+            SccpReleaseStrandedActionV1, SccpRouteRevisionActionV1,
             SccpSetDestinationPausedActionV1, SccpSetParametersActionV1,
             SccpSetTairaPausedActionV1, SccpSwitchRevisionActionV1,
         },
-        keys::SccpFaultRefV1,
         light_client::{
             SCCP_LC_BOOTSTRAP_MAX_BYTES_V1, SccpLcBootstrapV1, SccpLcCheckpointDataV1,
             SccpLcCheckpointOriginV1, SccpLcCheckpointV1, SccpLcInitExpectationV1,
             SccpLightClientParamsError, SccpLightClientParamsV1,
         },
         params::{
-            SCCP_MAX_CLOCK_SKEW_MS_V1, SCCP_MAX_ROSTER_VALIDITY_MS_V1,
-            SCCP_MESSAGES_MAX_PER_BLOCK_V1, SCCP_PREVIOUS_ROSTER_GRACE_MS_V1, SccpParametersError,
-            SccpParametersV1,
+            SCCP_FAST_PAUSE_HOLD_MARGIN_MS_V1, SCCP_FAST_PAUSE_PANEL_SEATS_V1,
+            SCCP_FIXED_EXEMPT_QUOTAS_PER_BLOCK_V1, SCCP_MAX_FAST_PAUSE_MS_V1,
+            SCCP_MAX_VALIDITY_MS_V1, SCCP_MESSAGES_MAX_PER_BLOCK_V1, SCCP_MIN_EPOCH_MS_V1,
+            SCCP_MIN_HEARTBEAT_MS_V1, SCCP_PIN_MARGIN_MS_V1, SccpParameterContextV1,
+            SccpParametersError, SccpParametersV1,
         },
     },
 };
-use iroha_model_base::peer::PeerId;
 use norito::{
     NoritoSchema,
     codec::{DecodeAll, Encode},
@@ -50,14 +49,15 @@ use norito::{
 };
 
 const JSON_MAX: u64 = SCCP_JSON_SAFE_U64_MAX_V1;
+const MINUTE_MS: u64 = 60_000;
+const HOUR_MS: u64 = 3_600_000;
 const DAY_MS: u64 = 86_400_000;
 const ETH: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
 const BSC: SccpNetworkV1 = SccpNetworkV1::BscMainnet;
-const TRON: SccpNetworkV1 = SccpNetworkV1::TronMainnet;
 const TON: SccpNetworkV1 = SccpNetworkV1::TonMainnet;
 const TAIRA: SccpNetworkV1 = SccpNetworkV1::SoraTaira;
-const EXTERNAL: [SccpNetworkV1; 4] = [ETH, BSC, TRON, TON];
-const NETWORKS: [SccpNetworkV1; 5] = [TAIRA, ETH, BSC, TRON, TON];
+const EXTERNAL: [SccpNetworkV1; 3] = [ETH, BSC, TON];
+const NETWORKS: [SccpNetworkV1; 4] = [TAIRA, ETH, BSC, TON];
 
 // ---------------------------------------------------------------------------------------------
 // Fixtures
@@ -67,12 +67,6 @@ fn network_id(seed: u8) -> NetworkId {
     NetworkId::from_genesis_hash(HashOf::<BlockHeader>::from_untyped_unchecked(Hash::new(
         [seed; Hash::LENGTH],
     )))
-}
-
-fn peer(seed: u8) -> PeerId {
-    let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
-        .expect("deterministic Ed25519 seed");
-    PeerId::new(key_pair.public_key().clone())
 }
 
 fn account(seed: u8) -> AccountId {
@@ -95,20 +89,6 @@ fn evm(address: [u8; 20]) -> SccpDeploymentV1 {
     })
 }
 
-fn tron_address(body: [u8; 20]) -> [u8; 21] {
-    let mut address = [0_u8; 21];
-    address[0] = SCCP_TRON_ADDRESS_PREFIX_V1;
-    address[1..].copy_from_slice(&body);
-    address
-}
-
-fn tron(address: [u8; 21]) -> SccpDeploymentV1 {
-    SccpDeploymentV1::Tron(SccpTronDeploymentV1 {
-        address,
-        runtime_code_hash: [0xc1; 32],
-    })
-}
-
 fn ton(master_account: [u8; 32]) -> SccpDeploymentV1 {
     SccpDeploymentV1::Ton(SccpTonDeploymentV1 {
         master_account,
@@ -128,7 +108,6 @@ fn register_with(
         revision: 1,
         deployment,
         max_wrapped_supply,
-        initial_roster_generation: 3,
     })
 }
 
@@ -221,24 +200,14 @@ fn set_parameters(next: SccpParametersV1) -> SccpGovernanceActionV1 {
     SccpGovernanceActionV1::SetParameters(SccpSetParametersActionV1 { next })
 }
 
-fn clear_fault(seed: u8, height: u64) -> SccpGovernanceActionV1 {
-    SccpGovernanceActionV1::ClearBridgeKeyFault(SccpClearBridgeKeyFaultActionV1 {
-        peer: peer(seed),
-        fault: SccpFaultRefV1 {
-            address: [0x5a; 20],
-            height,
-        },
-    })
-}
-
 /// One valid action of every kind, in declaration order, with distinct destination words.
 fn every_action() -> Vec<SccpGovernanceActionV1> {
     vec![
         register(ETH, evm([0x22; 20])),
         SccpGovernanceActionV1::ActivateRevision(revision(ETH, 1)),
         switch(BSC, 1, 2),
-        SccpGovernanceActionV1::DeactivateOutbound(revision(TRON, 2)),
-        SccpGovernanceActionV1::RetireRevision(revision(TRON, 1)),
+        SccpGovernanceActionV1::DeactivateOutbound(revision(TON, 2)),
+        SccpGovernanceActionV1::RetireRevision(revision(TON, 1)),
         SccpGovernanceActionV1::RemoveStaged(revision(TON, 3)),
         release(
             ETH,
@@ -249,9 +218,8 @@ fn every_action() -> Vec<SccpGovernanceActionV1> {
         destination_paused(BSC, 2, true),
         SccpGovernanceActionV1::InitializeLightClient(initialize(TON)),
         install_checkpoint(ETH, checkpoint()),
-        freeze(TRON),
+        freeze(BSC),
         set_parameters(SccpParametersV1::taira_default()),
-        clear_fault(3, 1_000),
         activate_profile(BSC, 2),
     ]
 }
@@ -362,9 +330,14 @@ where
 
 #[test]
 fn constants_match_the_spec() {
-    assert_eq!(SCCP_MAX_ROSTER_VALIDITY_MS_V1, 2_592_000_000);
-    assert_eq!(SCCP_PREVIOUS_ROSTER_GRACE_MS_V1, 86_400_000);
-    assert_eq!(SCCP_MAX_CLOCK_SKEW_MS_V1, 3_600_000);
+    assert_eq!(SCCP_MAX_VALIDITY_MS_V1, 2_592_000_000);
+    assert_eq!(SCCP_MAX_FAST_PAUSE_MS_V1, 2_592_000_000);
+    assert_eq!(SCCP_FAST_PAUSE_HOLD_MARGIN_MS_V1, 86_400_000);
+    assert_eq!(SCCP_MIN_EPOCH_MS_V1, 3_600_000);
+    assert_eq!(SCCP_MIN_HEARTBEAT_MS_V1, 3_600_000);
+    assert_eq!(SCCP_PIN_MARGIN_MS_V1, 86_400_000);
+    assert_eq!(SCCP_FAST_PAUSE_PANEL_SEATS_V1, [5, 7, 9]);
+    assert_eq!(SCCP_FIXED_EXEMPT_QUOTAS_PER_BLOCK_V1, 5);
     assert_eq!(SCCP_MESSAGES_MAX_PER_BLOCK_V1, 512);
     assert_eq!(SCCP_GOVERNANCE_MAX_ACTIONS_V1, 16);
     assert_eq!(SCCP_GOVERNANCE_MEMO_MAX_BYTES_V1, 256);
@@ -372,7 +345,6 @@ fn constants_match_the_spec() {
     assert_eq!(SCCP_JSON_SAFE_U64_MAX_V1, FIRST_RELEASE_MAX_EXACT_JSON_U64);
     assert_eq!(SCCP_TON_MAX_WRAPPED_SUPPLY_EXCLUSIVE_V1, 1_u128 << 96);
     assert_eq!(SCCP_LC_BOOTSTRAP_MAX_BYTES_V1, 1_048_576);
-    assert_eq!(SCCP_TRON_ADDRESS_PREFIX_V1, 0x41);
 }
 
 #[test]
@@ -389,10 +361,6 @@ fn value_type_schema_names_are_stable() {
         (
             SccpEvmDeploymentV1::nominal_name(),
             "iroha_data_model::sccp::deployment::SccpEvmDeploymentV1",
-        ),
-        (
-            SccpTronDeploymentV1::nominal_name(),
-            "iroha_data_model::sccp::deployment::SccpTronDeploymentV1",
         ),
         (
             SccpTonDeploymentV1::nominal_name(),
@@ -425,10 +393,6 @@ fn value_type_schema_names_are_stable() {
         (
             SccpLcInitExpectationV1::nominal_name(),
             "iroha_data_model::sccp::light_client::SccpLcInitExpectationV1",
-        ),
-        (
-            SccpFaultRefV1::nominal_name(),
-            "iroha_data_model::sccp::keys::SccpFaultRefV1",
         ),
     ];
     for (actual, expected) in cases {
@@ -484,10 +448,6 @@ fn governance_schema_names_are_stable() {
             "iroha_data_model::sccp::governance::SccpSetParametersActionV1",
         ),
         (
-            SccpClearBridgeKeyFaultActionV1::nominal_name(),
-            "iroha_data_model::sccp::governance::SccpClearBridgeKeyFaultActionV1",
-        ),
-        (
             SccpActivateLightClientProfileActionV1::nominal_name(),
             "iroha_data_model::sccp::governance::SccpActivateLightClientProfileActionV1",
         ),
@@ -520,20 +480,17 @@ fn every_type_roundtrips_through_binary_frame_and_json() {
         p.enabled = false;
         p.min_outbound_amount = u128::MAX;
         p.inbound_self_claim_fee = 0;
-        p.roster_validity_ms = u64::MAX;
+        p.committee_validity_ms = u64::MAX;
         p.max_exempt_transactions_per_block = u32::MAX;
+        p.fast_pause_panel_seats = u32::MAX;
+        p.fast_pause_hold_ms = u64::MAX;
     }));
 
     roundtrip(&code(7));
-    for deployment in [
-        evm([0x22; 20]),
-        tron(tron_address([0x23; 20])),
-        ton([0x24; 32]),
-    ] {
+    for deployment in [evm([0x22; 20]), ton([0x24; 32])] {
         roundtrip(&deployment);
         match deployment {
             SccpDeploymentV1::Evm(inner) => roundtrip(&inner),
-            SccpDeploymentV1::Tron(inner) => roundtrip(&inner),
             SccpDeploymentV1::Ton(inner) => roundtrip(&inner),
         }
     }
@@ -566,17 +523,11 @@ fn every_type_roundtrips_through_binary_frame_and_json() {
     roundtrip(&SccpLcInitExpectationV1::Absent);
     roundtrip(&SccpLcInitExpectationV1::Unusable);
 
-    roundtrip(&SccpFaultRefV1 {
-        address: [0x5a; 20],
-        height: u64::MAX,
-    });
-
     for subject in [
         SccpGovernanceSubjectV1::Route(ETH),
-        SccpGovernanceSubjectV1::RouteControl(TRON),
+        SccpGovernanceSubjectV1::RouteControl(BSC),
         SccpGovernanceSubjectV1::LightClient(TON),
         SccpGovernanceSubjectV1::Parameters,
-        SccpGovernanceSubjectV1::BridgeKeyFault(peer(5)),
     ] {
         roundtrip(&subject);
         roundtrip(&SccpGovernanceBaseRevisionV1 {
@@ -601,11 +552,10 @@ fn every_type_roundtrips_through_binary_frame_and_json() {
             SccpGovernanceActionV1::InstallTrustedCheckpoint(inner) => roundtrip(inner),
             SccpGovernanceActionV1::FreezeLightClient(inner) => roundtrip(inner),
             SccpGovernanceActionV1::SetParameters(inner) => roundtrip(inner),
-            SccpGovernanceActionV1::ClearBridgeKeyFault(inner) => roundtrip(inner),
             SccpGovernanceActionV1::ActivateLightClientProfile(inner) => roundtrip(inner),
         }
     }
-    roundtrip(&register(TRON, tron(tron_address([0x34; 20]))));
+    roundtrip(&register(BSC, evm([0x34; 20])));
     roundtrip(&register_with(TON, ton([0x35; 32]), (1 << 96) - 1));
     roundtrip(&release(BSC, u128::MAX, "\u{3042}\u{3044} memo"));
 
@@ -637,7 +587,6 @@ fn json_tags_are_snake_case() {
         "install_trusted_checkpoint",
         "freeze_light_client",
         "set_parameters",
-        "clear_bridge_key_fault",
         "activate_light_client_profile",
     ];
     let every = every_action();
@@ -652,19 +601,11 @@ fn json_tags_are_snake_case() {
         (SccpGovernanceSubjectV1::RouteControl(ETH), "route_control"),
         (SccpGovernanceSubjectV1::LightClient(ETH), "light_client"),
         (SccpGovernanceSubjectV1::Parameters, "parameters"),
-        (
-            SccpGovernanceSubjectV1::BridgeKeyFault(peer(1)),
-            "bridge_key_fault",
-        ),
     ] {
         assert_eq!(json_tag(&subject, "subject"), tag);
     }
 
-    for (deployment, tag) in [
-        (evm([1; 20]), "evm"),
-        (tron(tron_address([1; 20])), "tron"),
-        (ton([1; 32]), "ton"),
-    ] {
+    for (deployment, tag) in [(evm([1; 20]), "evm"), (ton([1; 32]), "ton")] {
         assert_eq!(json_tag(&deployment, "family"), tag);
     }
 
@@ -693,7 +634,6 @@ fn proposal_json_is_closed_at_every_level() {
         SccpGovernanceActionV1::InitializeLightClient(initialize(ETH)),
         install_checkpoint(ETH, checkpoint()),
         set_parameters(SccpParametersV1::taira_default()),
-        clear_fault(4, 9),
     ]);
     assert_rejects_unknown_field(&proposal, &[]);
     assert_rejects_unknown_field(&proposal.base_revisions[0], &[]);
@@ -719,10 +659,6 @@ fn proposal_json_is_closed_at_every_level() {
         panic!("fifth action sets parameters");
     };
     assert_rejects_unknown_field(set, &["next"]);
-    let SccpGovernanceActionV1::ClearBridgeKeyFault(clear) = &proposal.actions[5] else {
-        panic!("sixth action clears a fault");
-    };
-    assert_rejects_unknown_field(clear, &["fault"]);
     assert_rejects_unknown_field(
         &SccpLcCheckpointV1 {
             data: checkpoint(),
@@ -751,7 +687,7 @@ fn proposal_json_carries_exact_integers_and_decimal_amounts() {
         json.contains(r#""amount":"1000000000000000000000""#),
         "{json}"
     );
-    assert!(json.contains(r#""initial_roster_generation":3"#), "{json}");
+    assert!(!json.contains("initial_roster_generation"), "{json}");
     let numeric_amount = json.replace(
         r#""amount":"1000000000000000000000""#,
         r#""amount":1000000000000000000000"#,
@@ -766,7 +702,8 @@ fn proposal_json_carries_exact_integers_and_decimal_amounts() {
 
 #[test]
 fn unknown_binary_tags_are_rejected() {
-    for tag in [15_u32, 16, 255, u32::MAX] {
+    // 13 was the bridge-key fault clearing and 4 its subject; both stay unassigned.
+    for tag in [13_u32, 15, 16, 255, u32::MAX] {
         let mut encoded = tag.encode();
         encoded.extend_from_slice(&[0x11; 256]);
         assert!(
@@ -774,7 +711,7 @@ fn unknown_binary_tags_are_rejected() {
             "action tag {tag}"
         );
     }
-    for tag in [5_u32, u32::MAX] {
+    for tag in [4_u32, 5, u32::MAX] {
         let mut encoded = tag.encode();
         encoded.extend_from_slice(&[0x11; 64]);
         assert!(
@@ -805,6 +742,60 @@ fn unknown_binary_tags_are_rejected() {
 }
 
 #[test]
+fn clear_bridge_key_fault_and_its_subject_do_not_decode() {
+    // Fault clearing was deleted with the bridge keys (§14 D1): neither its action nor its
+    // subject is a value of the payload, in JSON or in the binary codec.
+    let freeze_json = norito::json::to_json(&freeze(ETH)).expect("JSON");
+    assert!(
+        freeze_json.contains(r#""action":"freeze_light_client""#),
+        "{freeze_json}"
+    );
+    let renamed = freeze_json.replace("freeze_light_client", "clear_bridge_key_fault");
+    assert!(norito::json::from_json::<SccpGovernanceActionV1>(&renamed).is_err());
+    let empty = r#"{"action":"clear_bridge_key_fault","payload":{}}"#;
+    assert!(norito::json::from_json::<SccpGovernanceActionV1>(empty).is_err());
+
+    let subject_json = norito::json::to_json(&SccpGovernanceSubjectV1::Route(ETH)).expect("JSON");
+    assert!(
+        subject_json.contains(r#""subject":"route""#),
+        "{subject_json}"
+    );
+    let renamed = subject_json.replace(r#""subject":"route""#, r#""subject":"bridge_key_fault""#);
+    assert!(norito::json::from_json::<SccpGovernanceSubjectV1>(&renamed).is_err());
+
+    // A proposal that names the retired subject in its base revisions does not decode.
+    let proposal_json = norito::json::to_json(&proposal(vec![freeze(ETH)])).expect("JSON");
+    assert!(
+        proposal_json.contains(r#""subject":"light_client""#),
+        "{proposal_json}"
+    );
+    let renamed = proposal_json.replace(
+        r#""subject":"light_client""#,
+        r#""subject":"bridge_key_fault""#,
+    );
+    assert!(norito::json::from_json::<SccpGovernanceProposalV1>(&renamed).is_err());
+
+    // The surviving actions and subjects keep their codec indices; 13 and 4 are holes.
+    let actions = every_action();
+    let indices: [u32; 14] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14];
+    assert_eq!(actions.len(), indices.len());
+    for (action, index) in actions.iter().zip(indices) {
+        assert!(action.encode().starts_with(&index.encode()), "{action:?}");
+    }
+    for (subject, index) in [
+        SccpGovernanceSubjectV1::Route(ETH),
+        SccpGovernanceSubjectV1::RouteControl(ETH),
+        SccpGovernanceSubjectV1::LightClient(ETH),
+        SccpGovernanceSubjectV1::Parameters,
+    ]
+    .iter()
+    .zip(0_u32..)
+    {
+        assert!(subject.encode().starts_with(&index.encode()), "{subject:?}");
+    }
+}
+
+#[test]
 fn trailing_bytes_are_rejected() {
     let mut encoded = proposal(every_action()).encode();
     encoded.push(0);
@@ -827,11 +818,6 @@ fn destination_word_vectors() {
         evm(hex!("c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2")).destination_word(),
         hex!("000000000000000000000000c02aaa39b223fe8d0a0e5c4f27ead9083c756cc2")
     );
-    // TRON: word(address20) of the 0x41-prefixed address with the prefix dropped.
-    assert_eq!(
-        tron(hex!("41a614f803b6fd780986a42c78ec9c7f77e6ded13c")).destination_word(),
-        hex!("000000000000000000000000a614f803b6fd780986a42c78ec9c7f77e6ded13c")
-    );
     // TON: the Jetton master's basechain account id, verbatim.
     let master = hex!("b113a994b5024a16719f69139328eb759596c38a25f59028b146fecdc3621dfe");
     assert_eq!(ton(master).destination_word(), master);
@@ -850,28 +836,50 @@ fn destination_word_vectors() {
         .destination_word(),
         evm([0x22; 20]).destination_word()
     );
-    // An EVM contract and a TRON contract with equal 20-byte bodies share one word, which is why
+    // A TON master whose account id equals an EVM contract's word shares that word, which is why
     // the destination-word index is global across routes.
     assert_eq!(
-        tron(tron_address([0x22; 20])).destination_word(),
+        ton(evm([0x22; 20]).destination_word()).destination_word(),
         evm([0x22; 20]).destination_word()
     );
 }
 
 #[test]
+fn retired_tron_network_and_deployment_family_do_not_decode() {
+    let proposal = proposal(vec![register(ETH, evm([0x22; 20]))]);
+    let json = norito::json::to_json(&proposal).expect("serialize");
+    assert_eq!(
+        norito::json::from_json::<SccpGovernanceProposalV1>(&json).expect("deserialize"),
+        proposal
+    );
+    for (current, retired) in [
+        (
+            r#""network":"ethereum_mainnet""#,
+            r#""network":"tron_mainnet""#,
+        ),
+        (r#""family":"evm""#, r#""family":"tron""#),
+    ] {
+        assert!(json.contains(current), "{json}");
+        let hostile = json.replace(current, retired);
+        assert!(
+            norito::json::from_json::<SccpGovernanceProposalV1>(&hostile).is_err(),
+            "{retired} unexpectedly decoded"
+        );
+    }
+    // Binary: network tag 0x43 and deployment family 1 are unassigned.
+    assert!(SccpNetworkV1::decode_all(&mut 0x43_u32.encode().as_slice()).is_err());
+    let mut family = 1_u32.encode();
+    family.extend_from_slice(&[0x41; 53]);
+    assert!(SccpDeploymentV1::decode_all(&mut family.as_slice()).is_err());
+}
+
+#[test]
 fn deployments_fit_exactly_their_networks() {
     let cases = [
-        (evm([0x22; 20]), [false, true, true, false, false]),
-        (
-            tron(tron_address([0x22; 20])),
-            [false, false, false, true, false],
-        ),
-        (ton([0x33; 32]), [false, false, false, false, true]),
-        (evm([0; 20]), [false; 5]),
-        (tron(tron_address([0; 20])), [false; 5]),
-        (tron([0x22; 21]), [false; 5]),
-        (tron([0; 21]), [false; 5]),
-        (ton([0; 32]), [false; 5]),
+        (evm([0x22; 20]), [false, true, true, false]),
+        (ton([0x33; 32]), [false, false, false, true]),
+        (evm([0; 20]), [false; 4]),
+        (ton([0; 32]), [false; 4]),
     ];
     for (deployment, fits) in cases {
         for (network, expected) in NETWORKS.into_iter().zip(fits) {
@@ -885,7 +893,7 @@ fn deployments_fit_exactly_their_networks() {
     let mut last_byte = [0_u8; 20];
     last_byte[19] = 1;
     assert!(evm(last_byte).fits_network(ETH));
-    assert!(tron(tron_address(last_byte)).fits_network(TRON));
+    assert!(evm(last_byte).fits_network(BSC));
     let mut last_account = [0_u8; 32];
     last_account[31] = 1;
     assert!(ton(last_account).fits_network(TON));
@@ -902,19 +910,37 @@ fn taira_default_is_the_genesis_table_and_passes() {
         defaults,
         SccpParametersV1 {
             enabled: true,
-            roster_max_age_ms: 86_400_000,
-            roster_validity_ms: 1_209_600_000,
+            committee_validity_ms: 1_209_600_000,
+            committee_heartbeat_ms: 86_400_000,
+            forgery_evidence_grace_ms: 604_800_000,
+            destination_progress_cap_ms: 2_592_000_000,
             outbound_ttl_ms: 604_800_000,
             min_outbound_amount: 1_000_000_000,
             inbound_self_claim_fee: 10_000_000,
-            attestation_retention_ms: 2_592_000_000,
-            attestation_stall_ms: 600_000,
-            max_attestation_entries_per_instruction: 256,
-            max_exempt_transactions_per_block: 128,
+            max_exempt_transactions_per_block: 32,
+            fast_pause_panel_seats: 9,
+            fast_pause_panel_term_ms: 604_800_000,
+            fast_pause_seat_accept_window_ms: 43_200_000,
+            fast_pause_endorse_window_ms: 1_800_000,
+            fast_pause_renew_lead_ms: 86_400_000,
+            fast_pause_hold_ms: 864_000_000,
         }
     );
     assert_eq!(defaults.validate(), Ok(()));
     assert_eq!(parameters_with(|p| p.enabled = false).validate(), Ok(()));
+    assert_eq!(defaults.fast_pause_panel_quorum(), 6);
+    // The defaults meet the staking floor of the SCCP staking profile (21 d) exactly, with the
+    // Parliament attempt latency unavailable or below the 10 d hold.
+    for latency in [None, Some(0), Some(10 * DAY_MS)] {
+        assert_eq!(
+            defaults.validate_against(&SccpParameterContextV1 {
+                parliament_sccp_attempt_latency_ms: latency,
+                unbonding_delay_ms: 21 * DAY_MS,
+            }),
+            Ok(()),
+            "{latency:?}"
+        );
+    }
 }
 
 /// Assert `validate()` at a boundary value and just beyond it.
@@ -933,19 +959,41 @@ fn assert_boundary(
 }
 
 #[test]
-fn roster_ttl_and_amount_rules_hold_at_and_beyond_their_bounds() {
+fn committee_ttl_and_amount_rules_hold_at_and_beyond_their_bounds() {
     use SccpParametersError as E;
     assert_boundary(
-        "roster_max_age_ms floor",
-        |p| p.roster_max_age_ms = 3_600_000,
-        |p| p.roster_max_age_ms = 3_599_999,
-        E::RosterMaxAgeTooShort,
+        "committee_heartbeat_ms floor",
+        |p| p.committee_heartbeat_ms = HOUR_MS,
+        |p| p.committee_heartbeat_ms = HOUR_MS - 1,
+        E::CommitteeHeartbeatTooShort,
     );
     assert_boundary(
-        "roster_validity_ms ceiling",
-        |p| p.roster_validity_ms = 30 * DAY_MS,
-        |p| p.roster_validity_ms = 30 * DAY_MS + 1,
-        E::RosterValidityTooLong,
+        "committee_validity_ms ceiling",
+        |p| p.committee_validity_ms = 30 * DAY_MS,
+        |p| p.committee_validity_ms = 30 * DAY_MS + 1,
+        E::CommitteeValidityTooLong,
+    );
+    assert_boundary(
+        "forgery_evidence_grace_ms floor",
+        |p| p.forgery_evidence_grace_ms = DAY_MS,
+        |p| p.forgery_evidence_grace_ms = DAY_MS - 1,
+        E::ForgeryEvidenceGraceOutOfRange,
+    );
+    assert_boundary(
+        "forgery_evidence_grace_ms ceiling",
+        |p| p.forgery_evidence_grace_ms = 30 * DAY_MS,
+        |p| p.forgery_evidence_grace_ms = 30 * DAY_MS + 1,
+        E::ForgeryEvidenceGraceOutOfRange,
+    );
+    assert_boundary(
+        "destination_progress_cap_ms ceiling",
+        |p| p.destination_progress_cap_ms = 30 * DAY_MS,
+        |p| p.destination_progress_cap_ms = 30 * DAY_MS + 1,
+        E::DestinationProgressCapTooLong,
+    );
+    assert_eq!(
+        parameters_with(|p| p.destination_progress_cap_ms = 0).validate(),
+        Ok(())
     );
     assert_boundary(
         "outbound_ttl_ms floor",
@@ -955,14 +1003,8 @@ fn roster_ttl_and_amount_rules_hold_at_and_beyond_their_bounds() {
     );
     assert_boundary(
         "outbound_ttl_ms ceiling",
-        |p| {
-            p.outbound_ttl_ms = 90 * DAY_MS;
-            p.attestation_retention_ms = 91 * DAY_MS;
-        },
-        |p| {
-            p.outbound_ttl_ms = 90 * DAY_MS + 1;
-            p.attestation_retention_ms = 92 * DAY_MS;
-        },
+        |p| p.outbound_ttl_ms = 90 * DAY_MS,
+        |p| p.outbound_ttl_ms = 90 * DAY_MS + 1,
         E::OutboundTtlOutOfRange,
     );
     assert_boundary(
@@ -987,51 +1029,10 @@ fn roster_ttl_and_amount_rules_hold_at_and_beyond_their_bounds() {
         parameters_with(|p| p.inbound_self_claim_fee = 0).validate(),
         Ok(())
     );
-}
-
-#[test]
-fn retention_stall_and_batch_rules_hold_at_and_beyond_their_bounds() {
-    use SccpParametersError as E;
-    assert_boundary(
-        "attestation_retention_ms ceiling",
-        |p| p.attestation_retention_ms = 365 * DAY_MS,
-        |p| p.attestation_retention_ms = 365 * DAY_MS + 1,
-        E::AttestationRetentionTooLong,
-    );
-    assert_boundary(
-        "attestation_stall_ms floor",
-        |p| p.attestation_stall_ms = 60_000,
-        |p| p.attestation_stall_ms = 59_999,
-        E::AttestationStallOutOfRange,
-    );
-    assert_boundary(
-        "attestation_stall_ms ceiling",
-        |p| {
-            p.attestation_stall_ms = DAY_MS;
-            p.roster_validity_ms = 5 * DAY_MS;
-        },
-        |p| {
-            p.attestation_stall_ms = DAY_MS + 1;
-            p.roster_validity_ms = 5 * DAY_MS;
-        },
-        E::AttestationStallOutOfRange,
-    );
-    assert_boundary(
-        "max_attestation_entries_per_instruction floor",
-        |p| p.max_attestation_entries_per_instruction = 64,
-        |p| p.max_attestation_entries_per_instruction = 63,
-        E::AttestationEntriesOutOfRange,
-    );
-    assert_boundary(
-        "max_attestation_entries_per_instruction ceiling",
-        |p| p.max_attestation_entries_per_instruction = 1_024,
-        |p| p.max_attestation_entries_per_instruction = 1_025,
-        E::AttestationEntriesOutOfRange,
-    );
     assert_boundary(
         "max_exempt_transactions_per_block floor",
-        |p| p.max_exempt_transactions_per_block = 94,
-        |p| p.max_exempt_transactions_per_block = 93,
+        |p| p.max_exempt_transactions_per_block = 8,
+        |p| p.max_exempt_transactions_per_block = 7,
         E::ExemptTransactionsOutOfRange,
     );
     assert_boundary(
@@ -1041,9 +1042,9 @@ fn retention_stall_and_batch_rules_hold_at_and_beyond_their_bounds() {
         E::ExemptTransactionsOutOfRange,
     );
     for zero in [
-        parameters_with(|p| p.roster_max_age_ms = 0),
+        parameters_with(|p| p.committee_heartbeat_ms = 0),
+        parameters_with(|p| p.forgery_evidence_grace_ms = 0),
         parameters_with(|p| p.outbound_ttl_ms = 0),
-        parameters_with(|p| p.max_attestation_entries_per_instruction = 0),
         parameters_with(|p| p.max_exempt_transactions_per_block = 0),
     ] {
         assert!(zero.validate().is_err(), "{zero:?}");
@@ -1051,125 +1052,218 @@ fn retention_stall_and_batch_rules_hold_at_and_beyond_their_bounds() {
 }
 
 #[test]
-fn joint_roster_validity_rule_holds_at_and_beyond_its_bound() {
+fn fast_pause_rules_hold_at_and_beyond_their_bounds() {
     use SccpParametersError as E;
-    // 2 × roster_max_age + attestation_stall + 1 d ≤ roster_validity.
-    let floor = 2 * DAY_MS + 600_000 + DAY_MS;
+    for (seats, quorum) in [(5_u32, 4_u32), (7, 5), (9, 6)] {
+        let parameters = parameters_with(|p| p.fast_pause_panel_seats = seats);
+        assert_eq!(parameters.validate(), Ok(()), "{seats} seats");
+        assert_eq!(
+            parameters.fast_pause_panel_quorum(),
+            quorum,
+            "{seats} seats"
+        );
+    }
+    for seats in [0_u32, 4, 6, 8, 10, 31] {
+        assert_eq!(
+            parameters_with(|p| p.fast_pause_panel_seats = seats).validate(),
+            Err(E::FastPausePanelSeatsNotAdmitted),
+            "{seats} seats"
+        );
+    }
+    // A term of one minimal epoch draws at every epoch boundary.
     assert_boundary(
-        "validity floor (defaults)",
-        |p| p.roster_validity_ms = floor,
-        |p| p.roster_validity_ms = floor - 1,
-        E::RosterValidityTooShort,
+        "fast_pause_panel_term_ms floor",
+        |p| {
+            p.fast_pause_panel_term_ms = HOUR_MS;
+            p.fast_pause_seat_accept_window_ms = 30 * MINUTE_MS;
+        },
+        |p| {
+            p.fast_pause_panel_term_ms = HOUR_MS - 1;
+            p.fast_pause_seat_accept_window_ms = 10 * MINUTE_MS;
+        },
+        E::FastPausePanelTermTooShort,
     );
     assert_boundary(
-        "validity floor moves with the stall window",
+        "fast_pause_seat_accept_window_ms floor",
+        |p| p.fast_pause_seat_accept_window_ms = 10 * MINUTE_MS,
+        |p| p.fast_pause_seat_accept_window_ms = 10 * MINUTE_MS - 1,
+        E::FastPauseSeatAcceptWindowOutOfRange,
+    );
+    assert_boundary(
+        "fast_pause_seat_accept_window_ms ceiling is half the term",
+        |p| p.fast_pause_seat_accept_window_ms = 7 * DAY_MS / 2,
+        |p| p.fast_pause_seat_accept_window_ms = 7 * DAY_MS / 2 + 1,
+        E::FastPauseSeatAcceptWindowOutOfRange,
+    );
+    assert_boundary(
+        "fast_pause_endorse_window_ms floor",
+        |p| p.fast_pause_endorse_window_ms = 5 * MINUTE_MS,
+        |p| p.fast_pause_endorse_window_ms = 5 * MINUTE_MS - 1,
+        E::FastPauseEndorseWindowOutOfRange,
+    );
+    assert_boundary(
+        "fast_pause_endorse_window_ms ceiling",
+        |p| p.fast_pause_endorse_window_ms = 6 * HOUR_MS,
+        |p| p.fast_pause_endorse_window_ms = 6 * HOUR_MS + 1,
+        E::FastPauseEndorseWindowOutOfRange,
+    );
+    assert_boundary(
+        "fast_pause_renew_lead_ms floor is twice the endorse window",
+        |p| p.fast_pause_renew_lead_ms = HOUR_MS,
+        |p| p.fast_pause_renew_lead_ms = HOUR_MS - 1,
+        E::FastPauseRenewLeadOutOfRange,
+    );
+    assert_boundary(
+        "fast_pause_renew_lead_ms ceiling is half the hold",
+        |p| p.fast_pause_renew_lead_ms = 5 * DAY_MS,
+        |p| p.fast_pause_renew_lead_ms = 5 * DAY_MS + 1,
+        E::FastPauseRenewLeadOutOfRange,
+    );
+    // The hold's own ceiling is MAX_FAST_PAUSE_MS − 1 d; the joint validity rule already stops
+    // it at 30 d − 1 d − 2 × heartbeat.
+    let ceiling = SCCP_MAX_FAST_PAUSE_MS_V1 - SCCP_FAST_PAUSE_HOLD_MARGIN_MS_V1;
+    assert_eq!(ceiling, 29 * DAY_MS);
+    let with_hold = |hold: u64| {
+        parameters_with(|p| {
+            p.fast_pause_hold_ms = hold;
+            p.committee_heartbeat_ms = HOUR_MS;
+            p.committee_validity_ms = 30 * DAY_MS;
+        })
+        .validate()
+    };
+    assert_eq!(with_hold(ceiling + 1), Err(E::FastPauseHoldTooLong));
+    assert_eq!(with_hold(ceiling), Err(E::CommitteeValidityTooShort));
+    assert_eq!(with_hold(29 * DAY_MS - 2 * HOUR_MS), Ok(()));
+    assert_eq!(
+        with_hold(29 * DAY_MS - 2 * HOUR_MS + 1),
+        Err(E::CommitteeValidityTooShort)
+    );
+}
+
+#[test]
+fn joint_committee_validity_rule_holds_at_and_beyond_its_bound() {
+    use SccpParametersError as E;
+    // fast_pause_hold + 2 × committee_heartbeat + 1 d ≤ committee_validity.
+    let floor = 10 * DAY_MS + 2 * DAY_MS + DAY_MS;
+    assert_boundary(
+        "validity floor (defaults)",
+        |p| p.committee_validity_ms = floor,
+        |p| p.committee_validity_ms = floor - 1,
+        E::CommitteeValidityTooShort,
+    );
+    assert_boundary(
+        "validity floor moves with the hold",
         |p| {
-            p.roster_validity_ms = floor + 1;
-            p.attestation_stall_ms = 600_001;
+            p.committee_validity_ms = floor + 1;
+            p.fast_pause_hold_ms = 10 * DAY_MS + 1;
         },
         |p| {
-            p.roster_validity_ms = floor;
-            p.attestation_stall_ms = 600_001;
+            p.committee_validity_ms = floor;
+            p.fast_pause_hold_ms = 10 * DAY_MS + 1;
         },
-        E::RosterValidityTooShort,
+        E::CommitteeValidityTooShort,
     );
     assert_boundary(
         "validity floor moves twice as fast with the heartbeat",
         |p| {
-            p.roster_validity_ms = floor + 2;
-            p.roster_max_age_ms = DAY_MS + 1;
+            p.committee_validity_ms = floor + 2;
+            p.committee_heartbeat_ms = DAY_MS + 1;
         },
         |p| {
-            p.roster_validity_ms = floor + 1;
-            p.roster_max_age_ms = DAY_MS + 1;
+            p.committee_validity_ms = floor + 1;
+            p.committee_heartbeat_ms = DAY_MS + 1;
         },
-        E::RosterValidityTooShort,
+        E::CommitteeValidityTooShort,
     );
-    // The smallest admissible configuration: 1 h heartbeat, 1 min stall.
-    let smallest = 2 * 3_600_000 + 60_000 + DAY_MS;
+    // The smallest admissible configuration: 1 h heartbeat, 5 min endorse window, 10 min renew
+    // lead and a 20 min hold.
+    let smallest = 20 * MINUTE_MS + 2 * HOUR_MS + DAY_MS;
+    let small = |validity: u64| {
+        move |p: &mut SccpParametersV1| {
+            p.committee_heartbeat_ms = HOUR_MS;
+            p.fast_pause_endorse_window_ms = 5 * MINUTE_MS;
+            p.fast_pause_renew_lead_ms = 10 * MINUTE_MS;
+            p.fast_pause_hold_ms = 20 * MINUTE_MS;
+            p.committee_validity_ms = validity;
+        }
+    };
     assert_boundary(
-        "validity floor at the smallest heartbeat and stall",
-        |p| {
-            p.roster_max_age_ms = 3_600_000;
-            p.attestation_stall_ms = 60_000;
-            p.roster_validity_ms = smallest;
-        },
-        |p| {
-            p.roster_max_age_ms = 3_600_000;
-            p.attestation_stall_ms = 60_000;
-            p.roster_validity_ms = smallest - 1;
-        },
-        E::RosterValidityTooShort,
+        "validity floor at the smallest heartbeat and hold",
+        small(smallest),
+        small(smallest - 1),
+        E::CommitteeValidityTooShort,
     );
-    // The largest heartbeat under the 30 d ceiling at the default stall.
-    let largest_age = (30 * DAY_MS - 600_000 - DAY_MS) / 2;
+    // The largest heartbeat under the 30 d ceiling at the default hold.
+    let largest_heartbeat = (30 * DAY_MS - 10 * DAY_MS - DAY_MS) / 2;
     assert_boundary(
         "largest heartbeat under the ceiling",
         |p| {
-            p.roster_validity_ms = 30 * DAY_MS;
-            p.roster_max_age_ms = largest_age;
+            p.committee_validity_ms = 30 * DAY_MS;
+            p.committee_heartbeat_ms = largest_heartbeat;
         },
         |p| {
-            p.roster_validity_ms = 30 * DAY_MS;
-            p.roster_max_age_ms = largest_age + 1;
+            p.committee_validity_ms = 30 * DAY_MS;
+            p.committee_heartbeat_ms = largest_heartbeat + 1;
         },
-        E::RosterValidityTooShort,
+        E::CommitteeValidityTooShort,
     );
     // Checked arithmetic: an overflowing floor is a violation, never a wrap-around pass.
     for overflow in [
-        parameters_with(|p| {
-            p.roster_max_age_ms = u64::MAX / 2 + 1;
-            p.roster_validity_ms = u64::MAX;
-        }),
-        parameters_with(|p| {
-            p.roster_max_age_ms = u64::MAX / 2;
-            p.attestation_stall_ms = u64::MAX;
-            p.roster_validity_ms = u64::MAX;
-        }),
-        parameters_with(|p| {
-            p.roster_max_age_ms = (u64::MAX - DAY_MS) / 2;
-            p.attestation_stall_ms = 2;
-            p.roster_validity_ms = u64::MAX;
-        }),
+        parameters_with(|p| p.committee_heartbeat_ms = u64::MAX / 2 + 1),
+        parameters_with(|p| p.committee_heartbeat_ms = u64::MAX / 2),
+        parameters_with(|p| p.committee_heartbeat_ms = (u64::MAX - 10 * DAY_MS) / 2),
     ] {
-        assert_eq!(overflow.validate(), Err(E::RosterValidityTooShort));
+        assert_eq!(overflow.validate(), Err(E::CommitteeValidityTooShort));
     }
 }
 
 #[test]
-fn joint_attestation_retention_rule_holds_at_and_beyond_its_bound() {
+fn context_rules_bound_validity_by_the_staking_floor_and_the_hold_by_the_attempt_latency() {
     use SccpParametersError as E;
-    // outbound_ttl + 1 d ≤ attestation_retention.
-    let floor = 604_800_000 + DAY_MS;
-    assert_boundary(
-        "retention floor (defaults)",
-        |p| p.attestation_retention_ms = floor,
-        |p| p.attestation_retention_ms = floor - 1,
-        E::AttestationRetentionTooShort,
+    let defaults = SccpParametersV1::taira_default();
+    let context = |latency: Option<u64>, unbonding_delay_ms: u64| SccpParameterContextV1 {
+        parliament_sccp_attempt_latency_ms: latency,
+        unbonding_delay_ms,
+    };
+    // L1: committee_validity + forgery_evidence_grace ≤ unbonding delay (14 d + 7 d = 21 d).
+    assert_eq!(
+        defaults.validate_against(&context(None, 21 * DAY_MS)),
+        Ok(())
     );
-    assert_boundary(
-        "retention floor moves with the TTL",
-        |p| {
-            p.outbound_ttl_ms = 604_800_001;
-            p.attestation_retention_ms = floor + 1;
-        },
-        |p| {
-            p.outbound_ttl_ms = 604_800_001;
-            p.attestation_retention_ms = floor;
-        },
-        E::AttestationRetentionTooShort,
+    assert_eq!(
+        defaults.validate_against(&context(None, 21 * DAY_MS - 1)),
+        Err(E::UnbondingDelayTooShort)
     );
-    assert_boundary(
-        "retention floor at the longest TTL",
-        |p| {
-            p.outbound_ttl_ms = 90 * DAY_MS;
-            p.attestation_retention_ms = 91 * DAY_MS;
-        },
-        |p| {
-            p.outbound_ttl_ms = 90 * DAY_MS;
-            p.attestation_retention_ms = 91 * DAY_MS - 1;
-        },
-        E::AttestationRetentionTooShort,
+    // The global default unbonding delay of a chain without SCCP is zero and never passes.
+    assert_eq!(
+        defaults.validate_against(&context(None, 0)),
+        Err(E::UnbondingDelayTooShort)
+    );
+    assert_eq!(
+        parameters_with(|p| p.forgery_evidence_grace_ms = 7 * DAY_MS + 1)
+            .validate_against(&context(None, 21 * DAY_MS)),
+        Err(E::UnbondingDelayTooShort)
+    );
+    // The hold covers one Parliament attempt when its latency is available.
+    assert_eq!(
+        defaults.validate_against(&context(Some(10 * DAY_MS), 21 * DAY_MS)),
+        Ok(())
+    );
+    assert_eq!(
+        defaults.validate_against(&context(Some(10 * DAY_MS + 1), 21 * DAY_MS)),
+        Err(E::FastPauseHoldBelowAttemptLatency)
+    );
+    // An unavailable latency defers that one rule and nothing else.
+    assert_eq!(
+        parameters_with(|p| p.fast_pause_panel_seats = 8)
+            .validate_against(&context(None, 21 * DAY_MS)),
+        Err(E::FastPausePanelSeatsNotAdmitted)
+    );
+    // The context never rescues a value that breaks a rule of its own.
+    assert_eq!(
+        parameters_with(|p| p.committee_validity_ms = 30 * DAY_MS + 1)
+            .validate_against(&context(Some(0), u64::MAX)),
+        Err(E::CommitteeValidityTooLong)
     );
 }
 
@@ -1177,16 +1271,28 @@ fn joint_attestation_retention_rule_holds_at_and_beyond_its_bound() {
 fn parameter_errors_render_their_rule() {
     for (error, needle) in [
         (
-            SccpParametersError::RosterMaxAgeTooShort,
-            "roster_max_age_ms",
+            SccpParametersError::CommitteeValidityTooShort,
+            "committee_validity_ms",
         ),
         (
-            SccpParametersError::RosterValidityTooShort,
-            "roster_validity_ms",
+            SccpParametersError::CommitteeValidityTooLong,
+            "committee_validity_ms",
         ),
         (
-            SccpParametersError::RosterValidityTooLong,
-            "roster_validity_ms",
+            SccpParametersError::UnbondingDelayTooShort,
+            "unbonding_delay_ms",
+        ),
+        (
+            SccpParametersError::CommitteeHeartbeatTooShort,
+            "committee_heartbeat_ms",
+        ),
+        (
+            SccpParametersError::ForgeryEvidenceGraceOutOfRange,
+            "forgery_evidence_grace_ms",
+        ),
+        (
+            SccpParametersError::DestinationProgressCapTooLong,
+            "destination_progress_cap_ms",
         ),
         (
             SccpParametersError::OutboundTtlOutOfRange,
@@ -1201,27 +1307,65 @@ fn parameter_errors_render_their_rule() {
             "inbound_self_claim_fee",
         ),
         (
-            SccpParametersError::AttestationRetentionTooShort,
-            "attestation_retention_ms",
-        ),
-        (
-            SccpParametersError::AttestationRetentionTooLong,
-            "attestation_retention_ms",
-        ),
-        (
-            SccpParametersError::AttestationStallOutOfRange,
-            "attestation_stall_ms",
-        ),
-        (
-            SccpParametersError::AttestationEntriesOutOfRange,
-            "max_attestation_entries_per_instruction",
-        ),
-        (
             SccpParametersError::ExemptTransactionsOutOfRange,
             "max_exempt_transactions_per_block",
         ),
+        (
+            SccpParametersError::FastPausePanelSeatsNotAdmitted,
+            "fast_pause_panel_seats",
+        ),
+        (
+            SccpParametersError::FastPausePanelTermTooShort,
+            "fast_pause_panel_term_ms",
+        ),
+        (
+            SccpParametersError::FastPauseSeatAcceptWindowOutOfRange,
+            "fast_pause_seat_accept_window_ms",
+        ),
+        (
+            SccpParametersError::FastPauseEndorseWindowOutOfRange,
+            "fast_pause_endorse_window_ms",
+        ),
+        (
+            SccpParametersError::FastPauseRenewLeadOutOfRange,
+            "fast_pause_renew_lead_ms",
+        ),
+        (
+            SccpParametersError::FastPauseHoldBelowAttemptLatency,
+            "fast_pause_hold_ms",
+        ),
+        (
+            SccpParametersError::FastPauseHoldTooLong,
+            "fast_pause_hold_ms",
+        ),
     ] {
         assert!(error.to_string().contains(needle), "{error}");
+    }
+}
+
+#[test]
+fn parameters_reject_the_retired_roster_and_attestation_fields() {
+    let defaults = json_value(&SccpParametersV1::taira_default());
+    let fields = defaults.as_object().expect("object");
+    assert_eq!(fields.len(), 15, "the complete table of §4.1");
+    for retired in [
+        "roster_max_age_ms",
+        "roster_validity_ms",
+        "attestation_retention_ms",
+        "attestation_stall_ms",
+        "max_attestation_entries_per_instruction",
+    ] {
+        assert!(!fields.contains_key(retired), "{retired}");
+        let mut hostile = defaults.clone();
+        hostile
+            .as_object_mut()
+            .expect("object")
+            .insert(retired.to_owned(), Value::from(86_400_000_u64));
+        let hostile = norito::json::to_json(&hostile).expect("JSON");
+        assert!(
+            norito::json::from_json::<SccpParametersV1>(&hostile).is_err(),
+            "{retired}"
+        );
     }
 }
 
@@ -1235,7 +1379,6 @@ fn light_client_defaults_follow_the_per_chain_table() {
     let expected = [
         (ETH, 14 * DAY_MS, 8_192),
         (BSC, 5 * DAY_MS, 8_192),
-        (TRON, 7 * DAY_MS, 1_200),
         (TON, 0, 0),
     ];
     for (network, ws_bound_ms, stride) in expected {
@@ -1251,8 +1394,12 @@ fn light_client_defaults_follow_the_per_chain_table() {
         assert_eq!(params.validate(), Ok(()), "{network:?}");
     }
     assert_eq!(lc_params(ETH).max_updates_per_advance, 16);
-    assert_eq!(lc_params(TRON).max_segment_headers, 128);
-    assert_eq!(lc_params(TRON).max_ancestry_headers, 1_200);
+    for network in [ETH, BSC] {
+        assert_eq!(lc_params(network).max_segment_headers, 256);
+        assert_eq!(lc_params(network).max_ancestry_headers, 256);
+    }
+    assert_eq!(lc_params(TON).max_segment_headers, 32);
+    assert_eq!(lc_params(TON).max_ancestry_headers, 32);
 }
 
 #[test]
@@ -1271,7 +1418,7 @@ fn light_client_params_validation() {
             field: "max_segment_headers"
         })
     );
-    let mut zero_ws = lc_params(TRON);
+    let mut zero_ws = lc_params(BSC);
     zero_ws.ws_bound_ms = 0;
     assert_eq!(
         zero_ws.validate(),
@@ -1331,21 +1478,21 @@ fn every_action_has_its_spec_subject() {
         SccpGovernanceSubjectV1::Route(ETH),
         SccpGovernanceSubjectV1::Route(ETH),
         SccpGovernanceSubjectV1::Route(BSC),
-        SccpGovernanceSubjectV1::Route(TRON),
-        SccpGovernanceSubjectV1::Route(TRON),
+        SccpGovernanceSubjectV1::Route(TON),
+        SccpGovernanceSubjectV1::Route(TON),
         SccpGovernanceSubjectV1::Route(TON),
         SccpGovernanceSubjectV1::Route(ETH),
         SccpGovernanceSubjectV1::Route(BSC),
         SccpGovernanceSubjectV1::RouteControl(BSC),
         SccpGovernanceSubjectV1::LightClient(TON),
         SccpGovernanceSubjectV1::LightClient(ETH),
-        SccpGovernanceSubjectV1::LightClient(TRON),
+        SccpGovernanceSubjectV1::LightClient(BSC),
         SccpGovernanceSubjectV1::Parameters,
-        SccpGovernanceSubjectV1::BridgeKeyFault(peer(3)),
         SccpGovernanceSubjectV1::LightClient(BSC),
     ];
     let actions = every_action();
-    assert_eq!(actions.len(), 15, "§4.14.3 defines fifteen actions");
+    assert_eq!(actions.len(), 14, "one action of every kind");
+    assert_eq!(actions.len(), expected.len());
     for (action, subject) in actions.iter().zip(expected) {
         assert_eq!(action.subject(), subject, "{action:?}");
     }
@@ -1358,16 +1505,15 @@ fn every_action_has_its_spec_subject() {
             Some(ETH),
             Some(ETH),
             Some(BSC),
-            Some(TRON),
-            Some(TRON),
+            Some(TON),
+            Some(TON),
             Some(TON),
             Some(ETH),
             Some(BSC),
             Some(BSC),
             Some(TON),
             Some(ETH),
-            Some(TRON),
-            None,
+            Some(BSC),
             None,
             Some(BSC),
         ]
@@ -1377,38 +1523,27 @@ fn every_action_has_its_spec_subject() {
 #[test]
 fn subjects_order_by_variant_then_value() {
     let mut subjects = vec![
-        SccpGovernanceSubjectV1::BridgeKeyFault(peer(2)),
-        SccpGovernanceSubjectV1::BridgeKeyFault(peer(1)),
         SccpGovernanceSubjectV1::Parameters,
         SccpGovernanceSubjectV1::LightClient(TON),
         SccpGovernanceSubjectV1::LightClient(ETH),
-        SccpGovernanceSubjectV1::RouteControl(TRON),
+        SccpGovernanceSubjectV1::RouteControl(TON),
         SccpGovernanceSubjectV1::RouteControl(BSC),
         SccpGovernanceSubjectV1::Route(TON),
-        SccpGovernanceSubjectV1::Route(TRON),
         SccpGovernanceSubjectV1::Route(BSC),
         SccpGovernanceSubjectV1::Route(ETH),
     ];
     subjects.sort();
-    let (low, high) = if peer(1) < peer(2) {
-        (peer(1), peer(2))
-    } else {
-        (peer(2), peer(1))
-    };
     assert_eq!(
         subjects,
         vec![
             SccpGovernanceSubjectV1::Route(ETH),
             SccpGovernanceSubjectV1::Route(BSC),
-            SccpGovernanceSubjectV1::Route(TRON),
             SccpGovernanceSubjectV1::Route(TON),
             SccpGovernanceSubjectV1::RouteControl(BSC),
-            SccpGovernanceSubjectV1::RouteControl(TRON),
+            SccpGovernanceSubjectV1::RouteControl(TON),
             SccpGovernanceSubjectV1::LightClient(ETH),
             SccpGovernanceSubjectV1::LightClient(TON),
             SccpGovernanceSubjectV1::Parameters,
-            SccpGovernanceSubjectV1::BridgeKeyFault(low),
-            SccpGovernanceSubjectV1::BridgeKeyFault(high),
         ]
     );
 }
@@ -1420,15 +1555,12 @@ fn subject_list_is_sorted_and_deduplicated() {
         vec![
             SccpGovernanceSubjectV1::Route(ETH),
             SccpGovernanceSubjectV1::Route(BSC),
-            SccpGovernanceSubjectV1::Route(TRON),
             SccpGovernanceSubjectV1::Route(TON),
             SccpGovernanceSubjectV1::RouteControl(BSC),
             SccpGovernanceSubjectV1::LightClient(ETH),
             SccpGovernanceSubjectV1::LightClient(BSC),
-            SccpGovernanceSubjectV1::LightClient(TRON),
             SccpGovernanceSubjectV1::LightClient(TON),
             SccpGovernanceSubjectV1::Parameters,
-            SccpGovernanceSubjectV1::BridgeKeyFault(peer(3)),
         ]
     );
     // A pause spans Route{n} and RouteControl{n}, whatever the action order and repetition.
@@ -1458,13 +1590,9 @@ fn subject_list_is_sorted_and_deduplicated() {
             SccpGovernanceSubjectV1::LightClient(TON),
         ]
     );
-    // Distinct peers are distinct subjects; the same peer twice is one subject.
-    let faults = proposal(vec![
-        clear_fault(1, 5),
-        clear_fault(2, 6),
-        clear_fault(1, 7),
-    ]);
-    assert_eq!(faults.subjects().len(), 2);
+    // Distinct networks are distinct subjects; the same network twice is one subject.
+    let freezes = proposal(vec![freeze(ETH), freeze(BSC), freeze(ETH)]);
+    assert_eq!(freezes.subjects().len(), 2);
     assert!(proposal(Vec::new()).subjects().is_empty());
 }
 
@@ -1487,7 +1615,6 @@ fn valid_proposals_pass() {
         validate(vec![
             register(ETH, evm([0x22; 20])),
             register(BSC, evm([0x23; 20])),
-            register(TRON, tron(tron_address([0x24; 20]))),
             register(TON, ton([0x25; 32])),
         ]),
         Ok(())
@@ -1557,7 +1684,7 @@ fn every_network_bearing_action_rejects_taira() {
 fn light_client_profile_activation_starts_at_version_two_with_a_nonzero_hash() {
     assert_eq!(validate(vec![activate_profile(ETH, 2)]), Ok(()));
     assert_eq!(
-        validate(vec![freeze(ETH), activate_profile(TRON, 1)]),
+        validate(vec![freeze(ETH), activate_profile(BSC, 1)]),
         Err(
             SccpGovernanceStaticError::GenesisLightClientProfileVersion {
                 action: 1,
@@ -1643,14 +1770,6 @@ fn register_route_cap_bounds() {
         );
     }
     assert_eq!(
-        validate(vec![register_with(
-            TRON,
-            tron(tron_address([0x22; 20])),
-            u128::MAX
-        )]),
-        Ok(())
-    );
-    assert_eq!(
         validate(vec![register_with(TON, ton([0x33; 32]), (1 << 96) - 1)]),
         Ok(())
     );
@@ -1669,16 +1788,11 @@ fn register_route_cap_bounds() {
 #[test]
 fn register_route_deployment_must_fit_its_network() {
     for (network, deployment) in [
-        (TRON, evm([0x22; 20])),
         (TON, evm([0x22; 20])),
-        (ETH, tron(tron_address([0x22; 20]))),
-        (BSC, tron(tron_address([0x22; 20]))),
         (ETH, ton([0x33; 32])),
-        (TRON, ton([0x33; 32])),
+        (BSC, ton([0x33; 32])),
         (ETH, evm([0; 20])),
         (BSC, evm([0; 20])),
-        (TRON, tron(tron_address([0; 20]))),
-        (TRON, tron([0x42; 21])),
         (TON, ton([0; 32])),
     ] {
         assert_eq!(
@@ -1700,15 +1814,6 @@ fn destination_words_are_unique_within_one_proposal() {
                 register(BSC, evm([0x22; 20])),
             ],
             2,
-            0,
-        ),
-        // A TRON body equal to an EVM address.
-        (
-            vec![
-                register(TRON, tron(tron_address([0x22; 20]))),
-                register(ETH, evm([0x22; 20])),
-            ],
-            1,
             0,
         ),
         // A TON account id equal to an EVM word.
@@ -1805,7 +1910,7 @@ fn initialize_light_client_checks() {
     );
 
     let mut bootstrap_network = initialize(ETH);
-    bootstrap_network.bootstrap.network = TRON;
+    bootstrap_network.bootstrap.network = BSC;
     assert_eq!(
         validate(vec![SccpGovernanceActionV1::InitializeLightClient(
             bootstrap_network
@@ -1854,12 +1959,28 @@ fn initialize_light_client_checks() {
 #[test]
 fn set_parameters_applies_every_parameter_rule() {
     use SccpParametersError as E;
-    let cases: [(ParamsUpdate, SccpParametersError); 11] = [
-        (|p| p.roster_max_age_ms = 0, E::RosterMaxAgeTooShort),
-        (|p| p.roster_validity_ms = 1, E::RosterValidityTooShort),
+    // Every rule that reads only the value; the staking floor and the attempt latency are
+    // checked at enactment.
+    let cases: [(ParamsUpdate, SccpParametersError); 15] = [
         (
-            |p| p.roster_validity_ms = 30 * DAY_MS + 1,
-            E::RosterValidityTooLong,
+            |p| p.committee_validity_ms = 1,
+            E::CommitteeValidityTooShort,
+        ),
+        (
+            |p| p.committee_validity_ms = 30 * DAY_MS + 1,
+            E::CommitteeValidityTooLong,
+        ),
+        (
+            |p| p.committee_heartbeat_ms = 0,
+            E::CommitteeHeartbeatTooShort,
+        ),
+        (
+            |p| p.forgery_evidence_grace_ms = 1,
+            E::ForgeryEvidenceGraceOutOfRange,
+        ),
+        (
+            |p| p.destination_progress_cap_ms = u64::MAX,
+            E::DestinationProgressCapTooLong,
         ),
         (|p| p.outbound_ttl_ms = 1, E::OutboundTtlOutOfRange),
         (
@@ -1871,25 +1992,30 @@ fn set_parameters_applies_every_parameter_rule() {
             E::InboundSelfClaimFeeTooLarge,
         ),
         (
-            |p| p.attestation_retention_ms = 1,
-            E::AttestationRetentionTooShort,
-        ),
-        (
-            |p| p.attestation_retention_ms = u64::MAX,
-            E::AttestationRetentionTooLong,
-        ),
-        (
-            |p| p.attestation_stall_ms = 1,
-            E::AttestationStallOutOfRange,
-        ),
-        (
-            |p| p.max_attestation_entries_per_instruction = 1,
-            E::AttestationEntriesOutOfRange,
-        ),
-        (
             |p| p.max_exempt_transactions_per_block = 1,
             E::ExemptTransactionsOutOfRange,
         ),
+        (
+            |p| p.fast_pause_panel_seats = 6,
+            E::FastPausePanelSeatsNotAdmitted,
+        ),
+        (
+            |p| p.fast_pause_panel_term_ms = 1,
+            E::FastPausePanelTermTooShort,
+        ),
+        (
+            |p| p.fast_pause_seat_accept_window_ms = 1,
+            E::FastPauseSeatAcceptWindowOutOfRange,
+        ),
+        (
+            |p| p.fast_pause_endorse_window_ms = 1,
+            E::FastPauseEndorseWindowOutOfRange,
+        ),
+        (
+            |p| p.fast_pause_renew_lead_ms = 1,
+            E::FastPauseRenewLeadOutOfRange,
+        ),
+        (|p| p.fast_pause_hold_ms = u64::MAX, E::FastPauseHoldTooLong),
     ];
     for (update, error) in cases {
         assert_eq!(
@@ -1912,28 +2038,31 @@ fn base_revisions_must_be_exactly_the_sorted_subject_list() {
 
     let mut missing = valid.clone();
     missing.base_revisions.remove(4);
+    // A subject no action names, at its sorted position.
     let mut extra = valid.clone();
-    extra
-        .base_revisions
-        .push(SccpGovernanceBaseRevisionV1::from((
-            SccpGovernanceSubjectV1::BridgeKeyFault(peer(8)),
-            0,
-        )));
+    assert_eq!(
+        extra.base_revisions[3].subject,
+        SccpGovernanceSubjectV1::RouteControl(BSC)
+    );
+    extra.base_revisions.insert(
+        4,
+        SccpGovernanceBaseRevisionV1::from((SccpGovernanceSubjectV1::RouteControl(TON), 0)),
+    );
     let mut unsorted = valid.clone();
     unsorted.base_revisions.swap(1, 2);
     let mut reversed = valid.clone();
     reversed.base_revisions.reverse();
     let mut duplicated = valid.clone();
-    let repeated = duplicated.base_revisions[3].clone();
+    let repeated = duplicated.base_revisions[3];
     duplicated.base_revisions.insert(3, repeated);
     let mut wrong_subject = valid.clone();
     wrong_subject.base_revisions[0].subject = SccpGovernanceSubjectV1::LightClient(BSC);
-    let mut wrong_peer = valid.clone();
-    wrong_peer
-        .base_revisions
-        .last_mut()
-        .expect("fault subject")
-        .subject = SccpGovernanceSubjectV1::BridgeKeyFault(peer(4));
+    let mut wrong_network = valid.clone();
+    assert_eq!(
+        wrong_network.base_revisions[3].subject,
+        SccpGovernanceSubjectV1::RouteControl(BSC)
+    );
+    wrong_network.base_revisions[3].subject = SccpGovernanceSubjectV1::RouteControl(ETH);
     let mut empty = valid;
     empty.base_revisions.clear();
     for (name, candidate) in [
@@ -1943,7 +2072,7 @@ fn base_revisions_must_be_exactly_the_sorted_subject_list() {
         ("reversed", reversed),
         ("duplicated", duplicated),
         ("wrong subject", wrong_subject),
-        ("wrong peer", wrong_peer),
+        ("wrong network", wrong_network),
         ("empty", empty),
     ] {
         assert_eq!(
@@ -1960,7 +2089,7 @@ fn errors_name_the_offending_action() {
         validate(vec![
             freeze(ETH),
             taira_paused(BSC, true),
-            release(TRON, 0, "")
+            release(TON, 0, "")
         ]),
         Err(SccpGovernanceStaticError::ZeroAmount { action: 2 })
     );
@@ -1975,10 +2104,10 @@ fn errors_name_the_offending_action() {
     );
     let nested = SccpGovernanceStaticError::InvalidParameters {
         action: 0,
-        error: SccpParametersError::AttestationStallOutOfRange,
+        error: SccpParametersError::FastPauseEndorseWindowOutOfRange,
     }
     .to_string();
-    assert!(nested.contains("attestation_stall_ms"), "{nested}");
+    assert!(nested.contains("fast_pause_endorse_window_ms"), "{nested}");
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2011,18 +2140,6 @@ fn params_location(update: fn(&mut SccpParametersV1, u64)) -> U64Location {
 /// Every location at which a proposal can carry a `u64`, besides `base_revisions`.
 fn u64_locations() -> Vec<(&'static str, U64Location)> {
     vec![
-        (
-            "initial_roster_generation",
-            location(|value| {
-                SccpGovernanceActionV1::RegisterRoute(SccpRegisterRouteActionV1 {
-                    network: ETH,
-                    revision: 1,
-                    deployment: evm([0x22; 20]),
-                    max_wrapped_supply: 1,
-                    initial_roster_generation: value,
-                })
-            }),
-        ),
         ("ws_bound_ms", lc_location(|p, v| p.ws_bound_ms = v)),
         (
             "set_retention_ms",
@@ -2053,33 +2170,52 @@ fn u64_locations() -> Vec<(&'static str, U64Location)> {
             }),
         ),
         (
-            "roster_max_age_ms",
-            params_location(|p, v| p.roster_max_age_ms = v),
+            "committee_validity_ms",
+            params_location(|p, v| p.committee_validity_ms = v),
         ),
         (
-            "roster_validity_ms",
-            params_location(|p, v| p.roster_validity_ms = v),
+            "committee_heartbeat_ms",
+            params_location(|p, v| p.committee_heartbeat_ms = v),
+        ),
+        (
+            "forgery_evidence_grace_ms",
+            params_location(|p, v| p.forgery_evidence_grace_ms = v),
+        ),
+        (
+            "destination_progress_cap_ms",
+            params_location(|p, v| p.destination_progress_cap_ms = v),
         ),
         (
             "outbound_ttl_ms",
             params_location(|p, v| p.outbound_ttl_ms = v),
         ),
         (
-            "attestation_retention_ms",
-            params_location(|p, v| p.attestation_retention_ms = v),
+            "fast_pause_panel_term_ms",
+            params_location(|p, v| p.fast_pause_panel_term_ms = v),
         ),
         (
-            "attestation_stall_ms",
-            params_location(|p, v| p.attestation_stall_ms = v),
+            "fast_pause_seat_accept_window_ms",
+            params_location(|p, v| p.fast_pause_seat_accept_window_ms = v),
         ),
-        ("fault height", location(|value| clear_fault(3, value))),
+        (
+            "fast_pause_endorse_window_ms",
+            params_location(|p, v| p.fast_pause_endorse_window_ms = v),
+        ),
+        (
+            "fast_pause_renew_lead_ms",
+            params_location(|p, v| p.fast_pause_renew_lead_ms = v),
+        ),
+        (
+            "fast_pause_hold_ms",
+            params_location(|p, v| p.fast_pause_hold_ms = v),
+        ),
     ]
 }
 
 #[test]
 fn every_payload_u64_is_bounded_by_two_to_the_fifty_three() {
     let locations = u64_locations();
-    assert_eq!(locations.len(), 13);
+    assert_eq!(locations.len(), 16);
     for (field, build) in &locations {
         let at = proposal(vec![build(JSON_MAX)]);
         assert_eq!(at.first_json_u64_violation(), None, "{field} at 2^53 - 1");
@@ -2130,19 +2266,12 @@ fn base_revisions_are_bounded_by_two_to_the_fifty_three() {
 #[test]
 fn static_validation_reports_the_json_bound() {
     let live = network_id(1);
-    let generation = proposal(vec![SccpGovernanceActionV1::RegisterRoute(
-        SccpRegisterRouteActionV1 {
-            network: ETH,
-            revision: 1,
-            deployment: evm([0x22; 20]),
-            max_wrapped_supply: 1,
-            initial_roster_generation: JSON_MAX + 1,
-        },
-    )]);
+    let mut data = checkpoint();
+    data.source_height = JSON_MAX + 1;
     assert!(matches!(
-        generation.validate_static(&live),
+        proposal(vec![install_checkpoint(ETH, data)]).validate_static(&live),
         Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger { detail })
-            if detail.contains("initial_roster_generation")
+            if detail.contains("source_height")
     ));
     let mut data = checkpoint();
     data.source_time_ms = JSON_MAX + 1;
@@ -2151,10 +2280,15 @@ fn static_validation_reports_the_json_bound() {
         Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger { detail })
             if detail.contains("source_time_ms")
     ));
+    // The only field of the table without an upper bound of its own is the panel term: a term
+    // above the bound, with every table rule met, is caught by the JSON invariant.
+    let long_term = set_parameters(parameters_with(|p| {
+        p.fast_pause_panel_term_ms = JSON_MAX + 1
+    }));
     assert!(matches!(
-        proposal(vec![clear_fault(3, JSON_MAX + 1)]).validate_static(&live),
+        proposal(vec![long_term]).validate_static(&live),
         Err(SccpGovernanceStaticError::ExceedsJsonSafeInteger { detail })
-            if detail.contains("fault height")
+            if detail.contains("fast_pause_panel_term_ms")
     ));
     // Light-client params above the bound fail their own validation first.
     let mut lc_over = initialize(ETH);

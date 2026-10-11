@@ -80,18 +80,11 @@ pub enum HttpEndpointKind {
     EthereumBeacon,
     /// BNB Smart Chain JSON-RPC.
     Bsc,
-    /// TRON HTTP API.
-    Tron,
 }
 
 impl HttpEndpointKind {
     /// Every HTTP endpoint list.
-    pub const ALL: [Self; 4] = [
-        Self::EthereumExecution,
-        Self::EthereumBeacon,
-        Self::Bsc,
-        Self::Tron,
-    ];
+    pub const ALL: [Self; 3] = [Self::EthereumExecution, Self::EthereumBeacon, Self::Bsc];
 
     /// Configuration key of the list.
     pub const fn as_str(self) -> &'static str {
@@ -99,7 +92,6 @@ impl HttpEndpointKind {
             Self::EthereumExecution => "ethereum_execution",
             Self::EthereumBeacon => "ethereum_beacon",
             Self::Bsc => "bsc",
-            Self::Tron => "tron",
         }
     }
 
@@ -109,7 +101,6 @@ impl HttpEndpointKind {
             Self::EthereumExecution => defaults::sccp::endpoints::ETHEREUM_EXECUTION,
             Self::EthereumBeacon => defaults::sccp::endpoints::ETHEREUM_BEACON,
             Self::Bsc => defaults::sccp::endpoints::BSC,
-            Self::Tron => defaults::sccp::endpoints::TRON,
         }
     }
 
@@ -119,7 +110,6 @@ impl HttpEndpointKind {
             Self::EthereumExecution => &endpoints.ethereum_execution,
             Self::EthereumBeacon => &endpoints.ethereum_beacon,
             Self::Bsc => &endpoints.bsc,
-            Self::Tron => &endpoints.tron,
         }
     }
 }
@@ -983,12 +973,17 @@ mod tests {
             }
             assert!(!kind.as_str().is_empty());
         }
+        assert_eq!(
+            HttpEndpointKind::ALL.map(HttpEndpointKind::as_str),
+            ["ethereum_execution", "ethereum_beacon", "bsc"],
+            "the HTTP endpoint kinds are execution, beacon and BSC"
+        );
         let keeper = SccpLightClientKeeper::default();
         let from_config =
-            EndpointSet::from_keeper_config(&keeper, HttpEndpointKind::Tron).expect("defaults");
+            EndpointSet::from_keeper_config(&keeper, HttpEndpointKind::Bsc).expect("defaults");
         assert_eq!(
             from_config.endpoints(),
-            EndpointSet::compiled_defaults(HttpEndpointKind::Tron).endpoints()
+            EndpointSet::compiled_defaults(HttpEndpointKind::Bsc).endpoints()
         );
     }
 
@@ -1062,25 +1057,25 @@ mod tests {
         let plain = Endpoint::new(url("https://rpc.example.org"));
         assert_eq!(
             plain
-                .request_url("/wallet/getnowblock")
+                .request_url("/eth/v1/beacon/light_client/finality_update")
                 .expect("url")
                 .as_str(),
-            "https://rpc.example.org/wallet/getnowblock"
+            "https://rpc.example.org/eth/v1/beacon/light_client/finality_update"
         );
         assert_eq!(
             plain.request_url("").expect("url").as_str(),
             "https://rpc.example.org/"
         );
-        let keyed = Endpoint::new(url("https://rpc.example.org/tron/key/?network=main"));
+        let keyed = Endpoint::new(url("https://rpc.example.org/v2/key/?network=main"));
         assert_eq!(
             keyed
                 .request_url("/eth/v1/beacon/light_client/updates?start_period=1&count=2")
                 .expect("url")
                 .as_str(),
-            "https://rpc.example.org/tron/key/eth/v1/beacon/light_client/updates?network=main&start_period=1&count=2"
+            "https://rpc.example.org/v2/key/eth/v1/beacon/light_client/updates?network=main&start_period=1&count=2"
         );
         assert_eq!(keyed.origin(), "https://rpc.example.org");
-        assert!(plain.request_url("wallet").is_err());
+        assert!(plain.request_url("eth").is_err());
         assert!(plain.request_url("/a#b").is_err());
     }
 
@@ -1293,9 +1288,11 @@ mod tests {
         assert_eq!(set.preferred(), 2);
         // Wrapping: a discredited last endpoint hands over to the first.
         let _ = run_with_failover(&set, &policy, &sleeper, None, |endpoint| -> Result<(), _> {
-            Err(RpcError::Api {
+            Err(RpcError::JsonRpc {
                 endpoint: endpoint.origin().to_owned(),
-                message: "class x : y".to_owned(),
+                code: -32000,
+                message: "header not found".to_owned(),
+                data: None,
             })
         });
         assert_eq!(set.preferred(), 0);

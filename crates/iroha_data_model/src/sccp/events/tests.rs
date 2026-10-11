@@ -10,12 +10,6 @@ use iroha_crypto::{Algorithm, KeyPair};
 const ETH: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
 const TON: SccpNetworkV1 = SccpNetworkV1::TonMainnet;
 
-fn peer(seed: u8) -> PeerId {
-    let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
-        .expect("deterministic Ed25519 seed");
-    PeerId::new(key_pair.public_key().clone())
-}
-
 fn account(seed: u8) -> AccountId {
     let key_pair = KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519)
         .expect("deterministic Ed25519 seed");
@@ -29,6 +23,12 @@ fn point() -> SccpLcPointV1 {
         source_time_ms: 1_758_000_000_000,
     }
 }
+
+/// Codec index of every variant, in declaration order. Indices 2 to 9 belonged to the events of
+/// the attestation transport and stay unassigned.
+const CODEC_INDICES: [u32; 18] = [
+    0, 1, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+];
 
 /// One event of every variant, in declaration order, with its JSON tag.
 #[allow(clippy::too_many_lines)]
@@ -54,76 +54,6 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
                 history_size: 4,
             }),
             "block_committed",
-        ),
-        (
-            SccpEvent::SubjectCreated(SccpSubjectCreatedV1 {
-                height: 10,
-                generation: 2,
-                message_count: 3,
-                rotation: true,
-            }),
-            "subject_created",
-        ),
-        (
-            SccpEvent::AttestationSigned(SccpAttestationSignedV1 {
-                height: 10,
-                generation: 2,
-                signer_index: 30,
-                address: [3; 20],
-            }),
-            "attestation_signed",
-        ),
-        (
-            SccpEvent::BlockAttested(SccpBlockAttestedV1 {
-                height: 10,
-                generation: 2,
-                signer_bitmap: 0b1011,
-            }),
-            "block_attested",
-        ),
-        (
-            SccpEvent::RosterGenerationCreated(SccpRosterGenerationCreatedV1 {
-                generation: 3,
-                digest: [4; 32],
-                activation_height: 11,
-                valid_until_ms: 1_759_209_600_000,
-            }),
-            "roster_generation_created",
-        ),
-        (
-            SccpEvent::RosterDerivationFailed(SccpRosterDerivationFailedV1 {
-                height: 3_600,
-                generation: 2,
-                reason: SccpRosterDerivationFailureV1::RosterSizeOutOfRange,
-                roster_size: 32,
-            }),
-            "roster_derivation_failed",
-        ),
-        (
-            SccpEvent::HandoffStalled(SccpHandoffStalledV1 {
-                height: 3_600,
-                generation: 2,
-            }),
-            "handoff_stalled",
-        ),
-        (
-            SccpEvent::BridgeKeySet(SccpBridgeKeySetV1 {
-                peer: peer(1),
-                address: Some([5; 20]),
-                account: Some(account(5)),
-                activation_epoch: 4,
-            }),
-            "bridge_key_set",
-        ),
-        (
-            SccpEvent::AttestationFault(SccpAttestationFaultV1 {
-                peer: peer(2),
-                address: [6; 20],
-                height: 9,
-                statement_hash: [7; 32],
-                reported_at_height: 12,
-            }),
-            "attestation_fault",
         ),
         (
             SccpEvent::InboundProven(SccpInboundProvenV1 {
@@ -286,7 +216,7 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
                 subjects: vec![
                     SccpGovernanceSubjectV1::Route(ETH),
                     SccpGovernanceSubjectV1::RouteControl(ETH),
-                    SccpGovernanceSubjectV1::BridgeKeyFault(peer(3)),
+                    SccpGovernanceSubjectV1::Parameters,
                 ],
             }),
             "governance_enacted",
@@ -297,7 +227,11 @@ fn every_event() -> Vec<(SccpEvent, &'static str)> {
 #[test]
 fn every_event_roundtrips_with_a_snake_case_tag() {
     let events = every_event();
-    assert_eq!(events.len(), 26, "§4.17 lists 26 events");
+    assert_eq!(
+        events.len(),
+        CODEC_INDICES.len(),
+        "one event of every variant"
+    );
     for (event, tag) in &events {
         roundtrip(event);
         let value = norito::json::to_value(event).expect("value");
@@ -311,10 +245,58 @@ fn every_event_roundtrips_with_a_snake_case_tag() {
 }
 
 #[test]
-fn codec_indices_follow_declaration_order() {
-    for (index, (event, _)) in every_event().into_iter().enumerate() {
-        let tag = u32::try_from(index).expect("small").encode();
-        assert!(event.encode().starts_with(&tag), "{event:?}");
+fn codec_indices_are_explicit_and_skip_the_retired_ones() {
+    let events = every_event();
+    assert_eq!(events.len(), CODEC_INDICES.len());
+    for ((event, _), index) in events.into_iter().zip(CODEC_INDICES) {
+        assert!(event.encode().starts_with(&index.encode()), "{event:?}");
+    }
+    assert!(CODEC_INDICES.is_sorted());
+    assert!(CODEC_INDICES.iter().all(|index| !(2..=9).contains(index)));
+}
+
+#[test]
+fn sccp_event_rejects_the_retired_attestation_and_roster_tags() {
+    use norito::codec::DecodeAll as _;
+
+    // The freed indices and the first index above the last variant decode to nothing, whatever
+    // payload follows.
+    for index in (2_u32..=9).chain([26, u32::MAX]) {
+        for filler in [0, 1, 32, 256] {
+            let mut encoded = index.encode();
+            encoded.extend_from_slice(&vec![0x11; filler]);
+            assert!(
+                SccpEvent::decode_all(&mut encoded.as_slice()).is_err(),
+                "event index {index} with {filler} payload bytes"
+            );
+        }
+    }
+    let (kept, _) = every_event().swap_remove(1);
+    let kept_json = norito::json::to_json(&kept).expect("json");
+    assert!(
+        kept_json.contains(r#""event":"block_committed""#),
+        "{kept_json}"
+    );
+    for tag in [
+        "subject_created",
+        "attestation_signed",
+        "block_attested",
+        "roster_generation_created",
+        "roster_derivation_failed",
+        "handoff_stalled",
+        "bridge_key_set",
+        "attestation_fault",
+    ] {
+        let retired = kept_json.replace("block_committed", tag);
+        assert!(
+            norito::json::from_json::<SccpEvent>(&retired).is_err(),
+            "{retired}"
+        );
+        let empty = format!(r#"{{"event":"{tag}","payload":{{}}}}"#);
+        assert!(
+            norito::json::from_json::<SccpEvent>(&empty).is_err(),
+            "{empty}"
+        );
     }
 }
 
@@ -346,13 +328,6 @@ fn event_set_matches_exactly_its_variant() {
 
 #[test]
 fn optional_payload_fields_are_explicit_and_cover_none() {
-    let revocation = SccpEvent::BridgeKeySet(SccpBridgeKeySetV1 {
-        peer: peer(9),
-        address: None,
-        account: None,
-        activation_epoch: 8,
-    });
-    roundtrip(&revocation);
     let removal = SccpEvent::RevisionActivationChanged(SccpRevisionActivationChangedV1 {
         network: TON,
         revision: 3,
@@ -381,12 +356,6 @@ fn optional_payload_fields_are_explicit_and_cover_none() {
 #[test]
 fn enum_payloads_roundtrip_in_every_variant() {
     for reason in [
-        SccpRosterDerivationFailureV1::MissingNextEpochSnapshot,
-        SccpRosterDerivationFailureV1::RosterSizeOutOfRange,
-    ] {
-        roundtrip(&reason);
-    }
-    for reason in [
         SccpBounceReasonV1::UndecodableRecipient,
         SccpBounceReasonV1::EscrowRecipient,
         SccpBounceReasonV1::InadmissibleController,
@@ -404,7 +373,10 @@ fn enum_payloads_roundtrip_in_every_variant() {
 
 #[test]
 fn amounts_are_decimal_strings() {
-    let (event, _) = every_event().swap_remove(10);
+    let (event, _) = every_event()
+        .into_iter()
+        .find(|(event, _)| matches!(event, SccpEvent::InboundProven(_)))
+        .expect("inbound proven sample");
     let json = norito::json::to_json(&event).expect("json");
     assert!(
         json.contains(&format!("\"amount\":\"{}\"", u128::MAX)),

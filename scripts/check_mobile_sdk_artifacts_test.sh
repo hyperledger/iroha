@@ -62,6 +62,7 @@ wallet_symbols=(
   connect_norito_kagemusha_wallet_activity_v1
   connect_norito_kagemusha_wallet_setup_v1
   connect_norito_kagemusha_wallet_enrollment_v1
+  connect_norito_kagemusha_wallet_enrollment_refusal_v1
   connect_norito_kagemusha_wallet_execute_v1
   connect_norito_kagemusha_wallet_load_original_validate_v1
   connect_norito_kagemusha_wallet_request_status_v1
@@ -79,16 +80,17 @@ wallet_symbols=(
   connect_norito_kagemusha_wallet_registration_source_relocate_v1
 )
 wallet_jni_symbols=()
-for method in revision openBegin openFinish openCancel close activity call setup enrollment execute snapshot review executeReviewed discardReview; do
+for method in revision openBegin openFinish openCancel close activity call setup enrollment enrollmentRefusal execute snapshot review executeReviewed discardReview; do
   wallet_jni_symbols+=("Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_${method}")
 done
 for method in beginInstallation registerInstallation closeInstallation relocateRegistrationSource; do
   wallet_jni_symbols+=("Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_${method}")
 done
+wallet_jni_symbols+=("Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletObservationNativeV1_observe")
 load_original_jni_symbols=(
   Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletLoadOriginalNativeV1_validate
 )
-auth_jni_symbols=(
+retired_auth_jni_symbols=(
   Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_reserve
   Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_restore
 )
@@ -143,7 +145,7 @@ while IFS= read -r symbol; do
   required_fixture_symbols+=("$symbol")
 done < <(bash -c 'source "$1"; printf "%s\n" "${REQUIRED_PROTOCOL_C_SYMBOLS[@]}"' gate "$symbol_gate_dir/gate.sh")
 [[ "${#required_fixture_symbols[@]}" -gt 0 ]] || fail "required protocol symbols could not be read"
-required_jni_fixture_symbols=("${wallet_jni_symbols[@]}" "${load_original_jni_symbols[@]}" "${auth_jni_symbols[@]}")
+required_jni_fixture_symbols=("${wallet_jni_symbols[@]}" "${load_original_jni_symbols[@]}")
 retired_offline_prefix="$(bash -c 'source "$1"; printf "%s" "$RETIRED_KAGEMUSHA_C_PREFIX"' gate "$symbol_gate_dir/gate.sh")"
 [[ "$retired_offline_prefix" == connect_norito_*_ ]] || fail "retired offline prefix could not be read"
 
@@ -199,6 +201,13 @@ for retired in \
   fi
   grep -Eq 'retired KAGEMUSHA (C|JNI) namespace' <<<"$output" \
     || fail "binary-symbol gate rejected $retired without naming the retired namespace"
+done
+for retired in "${retired_auth_jni_symbols[@]}"; do
+  if output="$(run_symbol_gate elf "$retired")"; then
+    fail "binary-symbol gate accepted retired first-device JNI export: $retired"
+  fi
+  grep -Fq "retired first-device JNI symbol $retired" <<<"$output" \
+    || fail "binary-symbol gate rejected $retired without naming the retired first-device export"
 done
 retired_jni_symbols=()
 for ((index = 0; index < 2048; index++)); do

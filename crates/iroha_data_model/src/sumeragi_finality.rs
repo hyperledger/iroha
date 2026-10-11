@@ -49,6 +49,12 @@ pub use native_lanes::{
 };
 mod commitment;
 pub use commitment::*;
+pub mod certified_result;
+pub use certified_result::{
+    CertifiedResultError, CertifiedResultScope, CertifiedResultV1, FinalityHeaderError,
+    MAX_RESULT_BODY_BYTES, RESULT_BODY_TAG, SccpFinalityHeaderFieldsV1, SccpFinalityHeaderV1,
+    committee_root, context_committee_root,
+};
 mod checkpoint;
 pub use checkpoint::{MAX_FINALITY_CHECKPOINT_BYTES, SumeragiFinalityCheckpoint};
 mod compact;

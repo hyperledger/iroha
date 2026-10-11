@@ -990,6 +990,9 @@ CORE_MUTATIONS = [
     m("HC223", "original AMX Worker replay: omit resumption of a preceding parked original occurrence",
       ["sumeragi::executor::amx_retry_tests::rejected_amx_worker_occurrence_retains_source_prefix_and_replays_before_later_partial_occurrence"]),
 
+    m("HC224", "native pulse demand: treat a committed Parliament slot row as mandatory control",
+      ["sumeragi::epoch_beacon::producer::tests::execution_tests::pending_parliament_slots_create_no_native_control_demand_and_never_block_unrelated_work"]),
+
 ]
 
 

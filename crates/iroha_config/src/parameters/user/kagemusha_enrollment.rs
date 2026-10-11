@@ -5,7 +5,7 @@ use iroha_data_model::kagemusha::*;
 use std::result::Result;
 
 mod worker;
-pub use worker::{KagemushaEnrollmentGoogle, KagemushaEnrollmentWorker};
+pub use worker::KagemushaEnrollmentWorker;
 
 /// Optional issuer configuration; absence disables enrollment serving.
 #[derive(Clone, ReadConfig, norito::JsonDeserialize)]
@@ -171,7 +171,7 @@ impl KagemushaEnrollmentProvider {
         certificate
             .verify_role(&scheme, KagemushaWalletSignerRoleV1::Enrollment)
             .map_err(|_| "selected certificate is not rooted Enrollment authority")?;
-        let worker = self.worker.checked(enrollment.platform)?;
+        let worker = self.worker.checked(&enrollment.platform)?;
         absolute_path(&self.signer_private_key)?;
         absolute_path(&self.observation_credential)?;
         Ok(actual::KagemushaEnrollmentProvider {

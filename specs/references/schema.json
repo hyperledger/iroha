@@ -25019,10 +25019,6 @@
         "tag": "bsc_mainnet"
       },
       {
-        "discriminant": 67,
-        "tag": "tron_mainnet"
-      },
-      {
         "discriminant": 68,
         "tag": "ton_mainnet"
       }

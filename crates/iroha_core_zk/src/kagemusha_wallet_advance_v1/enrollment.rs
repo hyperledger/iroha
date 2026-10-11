@@ -74,6 +74,8 @@ mod dates_policy;
 pub(super) struct RetainedGenerationDispatchV1 {
     intent: KagemushaWalletIntentV1,
     request: KagemushaWalletKeyGenerationRequestV1,
+    /// Pre-key request whose enrollment phase the published marker advances.
+    request_id: Option<[u8; 32]>,
 }
 
 /// An actual successful vendor reply held by this same provider until marker custody is durable.
@@ -83,6 +85,8 @@ pub(super) struct RetainedGeneratedKeyV1 {
     intent: KagemushaWalletIntentV1,
     request: KagemushaWalletKeyGenerationRequestV1,
     payment_key: KagemushaDevicePublicKeyV1,
+    /// Pre-key request whose enrollment phase the published marker advances.
+    request_id: Option<[u8; 32]>,
 }
 
 /// Exact original Core E1 dates; DATA retained before the original generation grant.
@@ -516,6 +520,7 @@ where
             dates,
             slot,
             generation_policy,
+            Some(authorization.request_id()),
             |provider| authorization.check(provider),
         )
     }
@@ -534,9 +539,60 @@ where
             .platform
             .key_generation_policy()
             .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
-        self.begin_enrollment_inner(challenge, profile, dates, slot, policy, |_| Ok(()))
+        // Production slots are always phased: the simulator selects a synthetic attempt binding
+        // first, as the pre-key owner does before its Slot publication. Invalid originals skip
+        // it, so their own refusals stay observable.
+        let request_id = if dates.is_valid()
+            && challenge.validate().is_ok()
+            && challenge.scheme_id == self.scheme_id
+        {
+            // The owner's order: Client, Accepted permit, phase, Slot selection (synthetic
+            // originals: the provider checks presence and the exact accepted digest only).
+            let request_id =
+                super::kagemusha_wallet_provider_digest_v1("test-enrollment-request", &slot.0);
+            let accepted = [
+                b"test accepted permit".as_slice(),
+                &challenge.challenge_digest(),
+            ]
+            .concat();
+            let permit_digest = super::kagemusha_wallet_prekey_permit_digest_v1(&accepted);
+            let client = b"test client";
+            self.prekey_retain(&request_id, super::PreKeyRecordV1::Client, client)?;
+            self.prekey_retain(&request_id, super::PreKeyRecordV1::Accepted, &accepted)?;
+            let binding = super::KagemushaWalletEnrollmentBindingV1::new(
+                request_id,
+                slot.0,
+                super::kagemusha_wallet_prekey_client_digest_v1(client),
+                [1; 32],
+                permit_digest,
+                *challenge,
+                dates,
+                profile,
+                policy,
+                self.platform.anchor_policy(),
+            );
+            self.select_enrollment_binding(&binding)?;
+            let selection = norito::encode_canonical(&super::PreKeySlotSelectionV1 {
+                version: 1,
+                client_nonce: [1; 32],
+                permit_digest,
+                slot: slot.0,
+                generation_policy: policy.tag(),
+            })
+            .map_err(|_| KagemushaWalletProviderErrorV1::Invalid {
+                field: "test slot selection",
+            })?;
+            self.prekey_retain(&request_id, super::PreKeyRecordV1::Slot, &selection)?;
+            Some(request_id)
+        } else {
+            None
+        };
+        self.begin_enrollment_inner(challenge, profile, dates, slot, policy, request_id, |_| {
+            Ok(())
+        })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn begin_enrollment_inner(
         &mut self,
         challenge: &KagemushaWalletEnrollmentChallengeV1,
@@ -544,6 +600,7 @@ where
         dates: KagemushaWalletEnrollmentDatesV1,
         slot: KagemushaWalletSlotIdV1,
         generation_policy: KagemushaWalletKeyGenerationPolicyV1,
+        request_id: Option<[u8; 32]>,
         check: impl Fn(&Self) -> Result<(), KagemushaWalletProviderErrorV1>,
     ) -> Result<KagemushaWalletEnrollmentStepV1, KagemushaWalletProviderErrorV1> {
         if !dates.is_valid() {
@@ -562,6 +619,10 @@ where
         self.platform
             .storage_state()
             .map_err(KagemushaWalletProviderErrorV1::Unavailable)?;
+        // A locally abandoned (pre-E2) slot never starts E2 or receives a generation grant.
+        if self.abandoned_without_marker(&slot)? {
+            return Ok(KagemushaWalletEnrollmentStepV1::SlotAbandoned { slot });
+        }
         // E2.
         kagemusha_wallet_probe_noreplace_v1(&self.store)?;
         if !self.ballast_present()? && !self.write_ballast()? {
@@ -591,6 +652,19 @@ where
             dates,
         };
         let bytes = encode_envelope_v1(&intent, KAGEMUSHA_WALLET_INTENT_MAX_BYTES_V1)?;
+        // The durable phase names this exact intent before it is published.
+        // Every intent is selected by its attempt's durable phase before it exists.
+        let request_id = self
+            .slot_phase_request(&slot, request_id)
+            .and_then(|request_id| {
+                request_id.ok_or(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                    object: "enrollment phase",
+                })
+            });
+        let request_id = self.guard(&slot, request_id)?;
+        let selected = self.select_intent_phase(&request_id, &intent);
+        self.guard(&slot, selected)?;
+        let request_id = Some(request_id);
         match self.store.write_new(
             &kagemusha_wallet_slot_dir_v1(&slot),
             &kagemusha_wallet_fixed_name_v1(KAGEMUSHA_WALLET_INTENT_NAME_V1),
@@ -631,12 +705,12 @@ where
             }
             self.require_storage()?;
             check(self)?;
-            self.retain_generation_dispatch(&slot, &intent, request)?;
+            self.retain_generation_dispatch(&slot, &intent, request, request_id)?;
             let grant = KagemushaWalletFreshGenerationV1::new(&self.platform, slot, request);
             let generated = self.platform.key_generate_fresh(grant);
-            return self.finish_enrollment(&slot, &intent, request, generated);
+            return self.finish_enrollment(&slot, &intent, request, generated, request_id);
         }
-        self.continue_enrollment(&slot, &intent, check)
+        self.continue_enrollment(&slot, &intent, check, request_id)
     }
 
     pub(crate) fn resume_enrollment_checked(
@@ -666,7 +740,10 @@ where
                 field: "pre-key retained intent",
             });
         }
-        self.resume_enrollment_inner(&slot, false, |provider| authorization.check(provider))
+        let request_id = authorization.request_id();
+        self.resume_enrollment_inner(&slot, false, Some(request_id), |provider| {
+            authorization.check(provider)
+        })
     }
 
     /// Resume an interrupted enrollment of `slot` (design E2a-E4b).
@@ -684,6 +761,7 @@ where
         self.resume_enrollment_inner(
             slot,
             liveness == KagemushaWalletChallengeLivenessV1::Expired,
+            None,
             |_| Ok(()),
         )
     }
@@ -692,6 +770,7 @@ where
         &mut self,
         slot: &KagemushaWalletSlotIdV1,
         expired: bool,
+        request_id: Option<[u8; 32]>,
         check: impl Fn(&Self) -> Result<(), KagemushaWalletProviderErrorV1>,
     ) -> Result<KagemushaWalletEnrollmentStepV1, KagemushaWalletProviderErrorV1> {
         match self.reconcile_slot(slot, None)? {
@@ -722,7 +801,7 @@ where
                     &bytes,
                 ));
                 self.guard(slot, adopted)?;
-                self.continue_enrollment(slot, &intent, check)
+                self.continue_enrollment(slot, &intent, check, request_id)
             }
             KagemushaWalletSlotStatusV1::SlotAbandoned => {
                 Ok(KagemushaWalletEnrollmentStepV1::SlotAbandoned { slot: *slot })
@@ -752,6 +831,7 @@ where
         slot: &KagemushaWalletSlotIdV1,
         intent: &KagemushaWalletIntentV1,
         check: impl Fn(&Self) -> Result<(), KagemushaWalletProviderErrorV1>,
+        request_id: Option<[u8; 32]>,
     ) -> Result<KagemushaWalletEnrollmentStepV1, KagemushaWalletProviderErrorV1> {
         if intent.key_generation_policy()?
             != KagemushaWalletKeyGenerationPolicyV1::DefinitiveAbsence
@@ -777,9 +857,17 @@ where
             }
         }
         check(self)?;
-        self.retain_generation_dispatch(slot, intent, request)?;
+        // Generation follows only the durably selected intent of this exact attempt.
+        let request_id = self.slot_phase_request(slot, request_id)?.ok_or(
+            KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                object: "enrollment phase",
+            },
+        )?;
+        self.select_intent_phase(&request_id, intent)?;
+        let request_id = Some(request_id);
+        self.retain_generation_dispatch(slot, intent, request, request_id)?;
         let generated = self.platform.key_generate(slot, &request);
-        self.finish_enrollment(slot, intent, request, generated)
+        self.finish_enrollment(slot, intent, request, generated, request_id)
     }
 
     fn retain_generation_dispatch(
@@ -787,6 +875,7 @@ where
         slot: &KagemushaWalletSlotIdV1,
         intent: &KagemushaWalletIntentV1,
         request: KagemushaWalletKeyGenerationRequestV1,
+        request_id: Option<[u8; 32]>,
     ) -> Result<(), KagemushaWalletProviderErrorV1> {
         if self.generation_dispatches.contains_key(slot)
             || self.generation_results.contains_key(slot)
@@ -800,6 +889,7 @@ where
             RetainedGenerationDispatchV1 {
                 intent: *intent,
                 request,
+                request_id,
             },
         );
         Ok(())
@@ -812,6 +902,7 @@ where
         intent: &KagemushaWalletIntentV1,
         request: KagemushaWalletKeyGenerationRequestV1,
         generated: KagemushaWalletKeyGenerationV1,
+        request_id: Option<[u8; 32]>,
     ) -> Result<KagemushaWalletEnrollmentStepV1, KagemushaWalletProviderErrorV1> {
         let KagemushaWalletKeyGenerationV1::Generated(payment_key) = generated else {
             if matches!(generated, KagemushaWalletKeyGenerationV1::AlreadyPresent) {
@@ -819,12 +910,13 @@ where
             }
             // Unavailable may follow a successful vendor return whose readback or JNI
             // delivery failed. Keep its exact dispatch until the readback-only query answers.
-            return self.publish_enrollment_marker(slot, intent, generated);
+            return self.publish_enrollment_marker(slot, intent, generated, request_id);
         };
         let reply = RetainedGeneratedKeyV1 {
             intent: *intent,
             request,
             payment_key,
+            request_id,
         };
         match self.generation_results.entry(*slot) {
             std::collections::btree_map::Entry::Vacant(entry) => {
@@ -861,6 +953,27 @@ where
         &mut self,
         slot: &KagemushaWalletSlotIdV1,
     ) -> Result<Option<KagemushaWalletEnrollmentStepV1>, KagemushaWalletProviderErrorV1> {
+        // A locally abandoned slot is terminal before any recovery: its retained dispatch or
+        // reply is dropped without asking the platform, probing or adopting the key.
+        if self.has_retained_generation(slot) && self.abandoned_without_marker(slot)? {
+            return Ok(Some(KagemushaWalletEnrollmentStepV1::SlotAbandoned {
+                slot: *slot,
+            }));
+        }
+        if self.has_retained_generation(slot) {
+            // The slot's phase and exact originals are authenticated before the platform is
+            // asked for a retained reply or the key is probed.
+            let state = self.enrollment_phase_for_slot(slot)?.ok_or(
+                KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                    object: "enrollment phase",
+                },
+            )?;
+            if state.phase.intent_digest().is_none() {
+                return Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                    object: "intent without selected phase",
+                });
+            }
+        }
         if !self.generation_results.contains_key(slot) {
             let Some(dispatch) = self.generation_dispatches.get(slot).copied() else {
                 return Ok(None);
@@ -887,6 +1000,7 @@ where
                             intent: dispatch.intent,
                             request: dispatch.request,
                             payment_key,
+                            request_id: dispatch.request_id,
                         },
                     );
                     self.generation_dispatches.remove(slot);
@@ -956,6 +1070,7 @@ where
                 slot,
                 &intent,
                 KagemushaWalletKeyGenerationV1::Generated(reply.payment_key),
+                reply.request_id,
             )? {
                 KagemushaWalletEnrollmentStepV1::Enrolled { .. } => {}
                 KagemushaWalletEnrollmentStepV1::Pending { .. } => {
@@ -964,9 +1079,11 @@ where
                     ));
                 }
                 KagemushaWalletEnrollmentStepV1::SlotAbandoned { .. } => {
-                    return Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
-                        object: "generated slot abandoned",
-                    });
+                    // Abandoned before publication: the reply is dropped, never adopted.
+                    self.generation_results.remove(slot);
+                    return Ok(Some(KagemushaWalletEnrollmentStepV1::SlotAbandoned {
+                        slot: *slot,
+                    }));
                 }
             }
         }
@@ -989,11 +1106,14 @@ where
     }
 
     /// E4 publication after an actual platform generation result; never generates a key.
-    fn publish_enrollment_marker(
+    /// Under a pre-key attempt the durable phase selects the marker before publication and
+    /// commits it before the anchor is raised or the Enrolled step is exposed.
+    pub(super) fn publish_enrollment_marker(
         &mut self,
         slot: &KagemushaWalletSlotIdV1,
         intent: &KagemushaWalletIntentV1,
         generated: KagemushaWalletKeyGenerationV1,
+        request_id: Option<[u8; 32]>,
     ) -> Result<KagemushaWalletEnrollmentStepV1, KagemushaWalletProviderErrorV1> {
         let anchor = intent.anchor()?;
         let payment_key = match generated {
@@ -1006,7 +1126,23 @@ where
                 return Err(KagemushaWalletProviderErrorV1::Unavailable(reason));
             }
         };
-        // E4.
+        // E4, never under an abandoned slot: its key is never initialized.
+        if self.abandoned_without_marker(slot)? {
+            return Ok(KagemushaWalletEnrollmentStepV1::SlotAbandoned { slot: *slot });
+        }
+        // Every marker is selected by its attempt's durable phase before it exists.
+        let request_id = self
+            .slot_phase_request(slot, request_id)
+            .and_then(|request_id| {
+                request_id.ok_or(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                    object: "enrollment phase",
+                })
+            });
+        let request_id = self.guard(slot, request_id)?;
+        // Every path that reaches E4 (first publication, retained reply, restoration) passes
+        // the same phase gate before anything is written.
+        let gate = self.require_marker_publication(slot, &request_id, intent);
+        self.guard(slot, gate)?;
         let marker =
             KagemushaWalletMarkerV1::enrollment(&intent.challenge, payment_key).map_err(|_| {
                 KagemushaWalletProviderErrorV1::Invalid {
@@ -1020,6 +1156,8 @@ where
             None,
             kagemusha_wallet_boot_stamp_v1(&self.boot()),
         )?;
+        let selected = self.select_marker_phase(&request_id, *record.marker_digest(), payment_key);
+        self.guard(slot, selected)?;
         let published = kagemusha_wallet_publish_marker_v1(&self.store, record);
         let durable = match self.guard(slot, published) {
             Ok(KagemushaWalletMarkerPublicationV1::Durable(durable)) => durable,
@@ -1034,6 +1172,22 @@ where
             }
             Err(error) => return Err(error),
         };
+        // Committed before the anchor names the marker or any later step uses it.
+        match self.commit_marker_phase(
+            &request_id,
+            *durable.record().marker_digest(),
+            *durable.record().marker_file_digest(),
+        ) {
+            Ok(()) => {}
+            Err(KagemushaWalletProviderErrorV1::Uncertain(_)) => {
+                self.poison(slot);
+                return Ok(KagemushaWalletEnrollmentStepV1::Pending { slot: *slot });
+            }
+            Err(error) => {
+                self.poison(slot);
+                return Err(error);
+            }
+        }
         match kagemusha_wallet_raise_anchor_v1(&self.platform, durable.record()) {
             Ok(()) => {}
             Err(KagemushaWalletProviderErrorV1::Uncertain(_)) => {
@@ -1365,6 +1519,330 @@ where
         }
     }
 
+    /// Whether `slot` has any marker generation, read strictly; never probes the key.
+    /// Unavailable or corrupt storage is an error, never "no marker".
+    ///
+    /// # Errors
+    /// `Unavailable` on a storage or read error; `UnavailableCustodyData` for a corrupt marker.
+    pub(crate) fn has_enrollment_marker(
+        &self,
+        slot: &KagemushaWalletSlotIdV1,
+    ) -> Result<bool, KagemushaWalletProviderErrorV1> {
+        self.require_storage()?;
+        let present =
+            kagemusha_wallet_load_current_marker_v1(&self.store, slot, &self.scheme_id)?.is_some();
+        self.require_storage()?;
+        Ok(present)
+    }
+
+    /// The visible intent of `slot`, required to be exactly the one its phase selected (same
+    /// binding-derived intent and same selected digest). Read-only.
+    ///
+    /// # Errors
+    /// A missing or different intent, unreadable storage.
+    pub(super) fn require_selected_intent(
+        &self,
+        slot: &KagemushaWalletSlotIdV1,
+        state: &super::KagemushaWalletEnrollmentPhaseStateV1,
+    ) -> Result<KagemushaWalletIntentV1, KagemushaWalletProviderErrorV1> {
+        let intent = self.read_intent(slot)?.ok_or(
+            KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                object: "enrollment phase intent",
+            },
+        )?;
+        if intent != state.binding.intent()
+            || intent.slot != slot.0
+            || state.phase.intent_digest()
+                != Some(super::enrollment_phase::kagemusha_wallet_intent_digest_v1(
+                    &intent,
+                )?)
+        {
+            return Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                object: "enrollment phase intent",
+            });
+        }
+        Ok(intent)
+    }
+
+    /// Phase gate of every generation-zero marker publication of a phased slot. `IntentSelected`
+    /// permits the first publication of the exact selected intent's marker. `MarkerSelected`
+    /// permits republishing a lost selected marker only with no journal record and no named
+    /// keychain anchor (the anchor binds the exact lost file). `PreIntent` and
+    /// `MarkerCommitted` permit nothing: a committed marker is never reconstructed. Read-only.
+    ///
+    /// # Errors
+    /// `UnavailableCustodyData` or `LostCustody` for the refusals above; unreadable storage or
+    /// keychain.
+    pub(super) fn require_marker_publication(
+        &self,
+        slot: &KagemushaWalletSlotIdV1,
+        request_id: &[u8; 32],
+        intent: &KagemushaWalletIntentV1,
+    ) -> Result<(), KagemushaWalletProviderErrorV1> {
+        let state = self.enrollment_phase(request_id)?.ok_or(
+            KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                object: "enrollment phase",
+            },
+        )?;
+        if state.binding.slot != slot.0
+            || *intent != state.binding.intent()
+            || state.phase.intent_digest()
+                != Some(super::enrollment_phase::kagemusha_wallet_intent_digest_v1(
+                    intent,
+                )?)
+        {
+            return Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                object: "enrollment phase intent",
+            });
+        }
+        match state.phase {
+            super::KagemushaWalletEnrollmentPhaseV1::IntentSelected { .. } => Ok(()),
+            super::KagemushaWalletEnrollmentPhaseV1::MarkerSelected { .. } => {
+                if self.slot_files(slot)?.journal {
+                    return Err(KagemushaWalletProviderErrorV1::LostCustody(
+                        super::KagemushaWalletLostCustodyV1::JournalWithoutMarker,
+                    ));
+                }
+                if intent.anchor()? == super::platform::KagemushaWalletAnchorPolicyV1::Keychain
+                    && super::anchor::kagemusha_wallet_read_anchor_v1(&self.platform, slot)?
+                        .is_some_and(|anchor| anchor.named)
+                {
+                    return Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                        object: "anchored enrollment marker",
+                    });
+                }
+                Ok(())
+            }
+            super::KagemushaWalletEnrollmentPhaseV1::MarkerCommitted { .. } => {
+                Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                    object: "committed enrollment marker",
+                })
+            }
+            super::KagemushaWalletEnrollmentPhaseV1::PreIntent => {
+                Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                    object: "intent without selected phase",
+                })
+            }
+        }
+    }
+
+    /// Restore the exact intent that the pre-key phase selected but which no file holds. The
+    /// intent is rebuilt from the binding and published create-new only after its digest
+    /// matches the selected one. This grants no generation authority and never recreates a
+    /// fresh-generation grant.
+    ///
+    /// # Errors
+    /// A phase without a selected intent, a digest mismatch, a different existing intent,
+    /// unavailable or uncertain storage.
+    pub(super) fn restore_selected_intent(
+        &mut self,
+        slot: &KagemushaWalletSlotIdV1,
+        state: &super::KagemushaWalletEnrollmentPhaseStateV1,
+    ) -> Result<(), KagemushaWalletProviderErrorV1> {
+        let intent = state.binding.intent();
+        if intent.slot != slot.0
+            || state.phase.intent_digest()
+                != Some(super::enrollment_phase::kagemusha_wallet_intent_digest_v1(
+                    &intent,
+                )?)
+        {
+            return Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                object: "enrollment phase intent",
+            });
+        }
+        self.require_storage()?;
+        kagemusha_wallet_prepare_slot_dirs_v1(&self.store, slot)?;
+        let bytes = encode_envelope_v1(&intent, KAGEMUSHA_WALLET_INTENT_MAX_BYTES_V1)?;
+        let written = write_once(
+            &self.store,
+            &kagemusha_wallet_slot_dir_v1(slot),
+            &kagemusha_wallet_fixed_name_v1(KAGEMUSHA_WALLET_INTENT_NAME_V1),
+            &bytes,
+            KAGEMUSHA_WALLET_INTENT_MAX_BYTES_V1,
+        );
+        match self.guard(slot, written)? {
+            WriteOnceV1::Written => Ok(()),
+            WriteOnceV1::Existing(_) => {
+                Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                    object: "enrollment phase intent",
+                })
+            }
+        }
+    }
+
+    /// Whether `slot` is a strictly validated, durable abandoned slot without any marker or
+    /// journal record. Never probes a key; an unclassified slot answers `false`.
+    ///
+    /// # Errors
+    /// Unavailable storage, a corrupt record or conflicting marker/journal custody.
+    pub(crate) fn is_abandoned_without_marker(
+        &mut self,
+        slot: &KagemushaWalletSlotIdV1,
+    ) -> Result<bool, KagemushaWalletProviderErrorV1> {
+        self.abandoned_without_marker(slot)
+    }
+
+    /// Holder abandonment of an enrollment that has no marker (design §3.2 no-marker form).
+    ///
+    /// The caller has authenticated the slot's retained pre-key Client, Accepted permit and
+    /// Slot originals and the durable enrollment phase binding of `request_id` against them.
+    /// Under this provider's exclusive ownership (custody lock and `&mut`), the phase decides:
+    /// `PreIntent` proves that no intent and no key exist; `IntentSelected` requires the exact
+    /// selected intent, restored create-new from the binding when its file is absent; either
+    /// marker phase prohibits the local form (the marker form, with a selected marker restored
+    /// by reconciliation, applies instead). Readable custody must also show no marker, retained
+    /// E5, E6, credential, abandonment or other journal record. It then publishes the
+    /// holder-abandoned record durably and only then drops any retained generation state. It
+    /// never probes, generates, adopts or deletes a key, so it covers a pre-E2 slot and a
+    /// spent fresh-generation grant whose lookup is unknown. An existing valid abandoned-slot
+    /// record stands, whatever its reason.
+    ///
+    /// # Errors
+    /// `Invalid` when a marker exists or was selected (use the marker form); `LostCustody` for
+    /// journal records without a marker; `UnavailableCustodyData` for a lost phase, intent or
+    /// record; `Unavailable`/`Uncertain` for unreadable or uncertain storage. Nothing is terminal
+    /// then.
+    pub(crate) fn abandon_unmarked_enrollment(
+        &mut self,
+        slot: &KagemushaWalletSlotIdV1,
+        request_id: &[u8; 32],
+    ) -> Result<(), KagemushaWalletProviderErrorV1> {
+        let checked = self.check_unmarked_abandonment(slot, request_id);
+        self.guard(slot, checked)?;
+        // Storage must still be available immediately before publication.
+        self.require_storage()?;
+        self.abandon_slot(slot, KagemushaWalletSlotAbandonReasonV1::HolderAbandoned)?;
+        self.require_storage()?;
+        self.generation_dispatches.remove(slot);
+        self.generation_results.remove(slot);
+        self.poison(slot);
+        Ok(())
+    }
+
+    /// Checks of [`Self::abandon_unmarked_enrollment`]; they write only a restored intent and
+    /// the slot directories that hold the record.
+    fn check_unmarked_abandonment(
+        &mut self,
+        slot: &KagemushaWalletSlotIdV1,
+        request_id: &[u8; 32],
+    ) -> Result<(), KagemushaWalletProviderErrorV1> {
+        // The slot's phase, cross-checked with every retained Slot selection and the attempt's
+        // originals, must be this request's.
+        let state = self
+            .enrollment_phase_for_slot(slot)?
+            .filter(|state| state.binding.request_id == *request_id)
+            .ok_or(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                object: "enrollment phase",
+            })?;
+        if state.phase.marker_selected() {
+            return Err(KagemushaWalletProviderErrorV1::Invalid {
+                field: "abandon.marker",
+            });
+        }
+        self.require_storage()?;
+        if kagemusha_wallet_load_current_marker_v1(&self.store, slot, &self.scheme_id)?.is_some() {
+            return Err(KagemushaWalletProviderErrorV1::Invalid {
+                field: "abandon.marker",
+            });
+        }
+        let files = self.slot_files(slot)?;
+        if files.journal {
+            return Err(KagemushaWalletProviderErrorV1::LostCustody(
+                super::KagemushaWalletLostCustodyV1::JournalWithoutMarker,
+            ));
+        }
+        if files.abandoned {
+            // An earlier abandonment, whatever its reason, stands; it must decode strictly.
+            self.read_abandoned_record(slot)?;
+            return self.require_storage();
+        }
+        match state.phase {
+            super::KagemushaWalletEnrollmentPhaseV1::PreIntent => {
+                if files.intent || files.generation_attempt || self.has_retained_generation(slot) {
+                    return Err(KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+                        object: "intent without selected phase",
+                    });
+                }
+                // E2 never prepared this slot: create only its directories to hold the record.
+                kagemusha_wallet_prepare_slot_dirs_v1(&self.store, slot)?;
+            }
+            super::KagemushaWalletEnrollmentPhaseV1::IntentSelected { .. } => {
+                if !files.intent {
+                    self.restore_selected_intent(slot, &state)?;
+                }
+                let intent = self.require_selected_intent(slot, &state)?;
+                if files.generation_attempt {
+                    self.validate_generation_attempt(slot, &intent)?;
+                }
+            }
+            super::KagemushaWalletEnrollmentPhaseV1::MarkerSelected { .. }
+            | super::KagemushaWalletEnrollmentPhaseV1::MarkerCommitted { .. } => {
+                return Err(KagemushaWalletProviderErrorV1::Invalid {
+                    field: "abandon.marker",
+                });
+            }
+        }
+        // Every negative answer above counts only while storage stayed available.
+        self.require_storage()
+    }
+
+    /// Strictly decode the abandoned-slot record of `slot`, then make that exact record durable
+    /// (republished on a fresh inode once per process) before the slot counts as terminally
+    /// abandoned.
+    pub(super) fn adopt_abandoned_record(
+        &self,
+        slot: &KagemushaWalletSlotIdV1,
+    ) -> Result<KagemushaWalletSlotAbandonReasonV1, KagemushaWalletProviderErrorV1> {
+        let (bytes, reason) = self.abandoned_record_bytes(slot)?;
+        self.adopt_exact(
+            &kagemusha_wallet_slot_dir_v1(slot),
+            &kagemusha_wallet_fixed_name_v1(KAGEMUSHA_WALLET_ABANDONED_NAME_V1),
+            &bytes,
+        )?;
+        Ok(reason)
+    }
+
+    /// Strictly decode the abandoned-slot record of `slot`.
+    pub(super) fn read_abandoned_record(
+        &self,
+        slot: &KagemushaWalletSlotIdV1,
+    ) -> Result<KagemushaWalletSlotAbandonReasonV1, KagemushaWalletProviderErrorV1> {
+        self.abandoned_record_bytes(slot).map(|(_, reason)| reason)
+    }
+
+    fn abandoned_record_bytes(
+        &self,
+        slot: &KagemushaWalletSlotIdV1,
+    ) -> Result<(Vec<u8>, KagemushaWalletSlotAbandonReasonV1), KagemushaWalletProviderErrorV1> {
+        let corrupt = KagemushaWalletProviderErrorV1::UnavailableCustodyData {
+            object: "abandoned slot",
+        };
+        let bytes = match self.store.read(
+            &kagemusha_wallet_slot_dir_v1(slot),
+            &kagemusha_wallet_fixed_name_v1(KAGEMUSHA_WALLET_ABANDONED_NAME_V1),
+            KAGEMUSHA_WALLET_INTENT_MAX_BYTES_V1,
+        ) {
+            KagemushaWalletReadV1::Present(bytes) => bytes,
+            KagemushaWalletReadV1::Absent => {
+                return Err(KagemushaWalletProviderErrorV1::Unavailable(
+                    KagemushaWalletUnavailableV1::Busy,
+                ));
+            }
+            KagemushaWalletReadV1::Oversized => return Err(corrupt),
+            KagemushaWalletReadV1::Unavailable(reason) => {
+                return Err(KagemushaWalletProviderErrorV1::Unavailable(reason));
+            }
+        };
+        let record: KagemushaWalletAbandonedSlotV1 =
+            decode_envelope_v1(&bytes, KAGEMUSHA_WALLET_INTENT_MAX_BYTES_V1)
+                .map_err(|_| corrupt.clone())?;
+        if record.version != KAGEMUSHA_WALLET_ENROLLMENT_FILE_VERSION_V1 || record.slot != slot.0 {
+            return Err(corrupt);
+        }
+        let reason = KagemushaWalletSlotAbandonReasonV1::from_tag(record.reason).ok_or(corrupt)?;
+        Ok((bytes, reason))
+    }
+
     /// Record that `slot` is never used again (create-new; an existing record is kept).
     ///
     /// Storage must be available now: the decision rests on the slot showing no marker.
@@ -1383,14 +1861,14 @@ where
         let dir = kagemusha_wallet_slot_dir_v1(slot);
         let name = kagemusha_wallet_fixed_name_v1(KAGEMUSHA_WALLET_ABANDONED_NAME_V1);
         let written = match self.store.write_new(&dir, &name, &bytes) {
-            // An earlier abandonment, whatever its reason, stands: make it durable.
+            // An earlier abandonment, whatever its reason, stands: adopt it durably.
             KagemushaWalletPublishOutcomeV1::NotPublished(
                 KagemushaWalletNotPublishedV1::DestinationExists,
-            ) => self
-                .store
-                .sync_file(&dir, &name)
-                .and_then(|()| self.store.sync_dir(&dir))
-                .map_err(KagemushaWalletProviderErrorV1::Unavailable),
+            ) => self.adopt_abandoned_record(slot).map(|_| ()),
+            KagemushaWalletPublishOutcomeV1::Published => {
+                self.note_durable(&dir, &name, &bytes);
+                Ok(())
+            }
             outcome => kagemusha_wallet_require_published_v1(outcome),
         };
         self.guard(slot, written)

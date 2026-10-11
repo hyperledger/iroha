@@ -416,7 +416,9 @@ def build() -> dict:
     return {
         "schema": "iroha.sccp.bls-consensus.v1",
         "spec": "specs/sccp.md §3.8; specs/sumeragi.md §1 item 6 (revision 5)",
-        "generator": "scripts/sccp_reference/generate.py (independent Python reference)",
+        "generator": "scripts/sccp_reference/generate.py (independent Python reference) writes this file alone; "
+        "iroha_crypto::bls::consensus reproduces every row "
+        "(crates/iroha_crypto/src/signature/bls/consensus/tests/python_reference.rs)",
         "conventions": "byte strings are 0x-prefixed lowercase hex; field elements are 0x-prefixed hex integers; G1 points are "
         "{compressed (ZCash 48 B), eip2537 (128 B)} and G2 points {compressed (ZCash 96 B), evm192 (x.c0‖x.c1‖y.c0‖y.c1, "
         "48 B limbs), eip2537 (256 B)}",
@@ -427,12 +429,17 @@ def build() -> dict:
         "consensus_allowlist": allowlist_vectors(),
         "ethereum_standard_inputs": ethereum_standard_inputs(),
         "ethereum_mainnet_sync_committee": ethereum_mainnet_vector(),
+        "rust_only_vectors": "the vectors that need the w3f transcript of iroha_crypto (pinned w3f proofs of "
+        "possession, a w3f-transcript signature over a consensus digest, a DST_SIG signature presented to the generic "
+        "API and a proof of possession used as a signature) are not rows of this file. They live in "
+        "fixtures/sccp/bls_consensus_rust_v1.json (schema iroha.bls_consensus.rust.v1), generated and drift-checked "
+        "by iroha_crypto. The Python reference checks in pytests/scripts/test_sccp_reference.py every row of that "
+        "file it can decide without the w3f transcript: the standard sign, verify and aggregate vectors, the "
+        "allowlist rows and rejections, and the key and consensus-API negatives; the proofs of possession and the "
+        "verdict of the generic-API negative stay Rust-only",
         "todo": [
             "TODO: import the remaining ethereum/bls12-381-tests release cases (its malformed-input verify and "
             "deserialization cases) once the archive is vendored; the standard inputs and the captured mainnet "
             "aggregate above are the current Ethereum cross-checks",
-            "TODO: pinned w3f proof-of-possession vectors, a w3f-transcript signature over a consensus digest, a "
-            "DST_SIG signature presented to the generic API and a PoP used as a signature need iroha_crypto; the Rust "
-            "reference (iroha_crypto::bls::consensus) adds them and must reproduce every row of this file",
         ],
     }

@@ -206,14 +206,8 @@ pub fn preverify(
         digests.committed_time_ms(),
     )
     .map_err(|error| reject(format!("proof: {error}")))?;
-    bind_transfer_event(
-        submit.network,
-        &verified,
-        &deployment,
-        &payload,
-        &message_id,
-    )
-    .map_err(|error| reject(error.to_string()))?;
+    bind_transfer_event(&verified, &deployment, &payload, &message_id)
+        .map_err(|error| reject(error.to_string()))?;
     Ok(keys(authority, &message_id))
 }
 

@@ -114,8 +114,6 @@ public final class HttpClientTransport implements IrohaClient {
   private static final String PIPELINE_STATUS_SIGNAL = "android.torii.pipeline.status";
   private static final String REDACTION_FAILURE_SIGNAL = "android.telemetry.redaction.failure";
   private static final long U32_MAX = 4_294_967_295L;
-  private static final String TRON_BASE58_ALPHABET =
-      "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   private static final String ENTRYPOINT_HASH_HEADER = "x-iroha-entrypoint-hash";
 
   private final HttpTransportExecutor executor;
@@ -3762,71 +3760,6 @@ public final class HttpClientTransport implements IrohaClient {
           field + " must be a " + expectedByteLength + "-byte hex string");
     }
     return normalized;
-  }
-
-  static String normalizeTronBase58CheckAddress(final String value, final String field) {
-    final String normalized = normalizeNonBlank(value, field);
-    if (!normalized.equals(value)) {
-      throw new IllegalArgumentException(field + " must be a TRON Base58Check address");
-    }
-    final byte[] decoded = decodeBase58(normalized, field);
-    if (decoded.length != 25) {
-      throw new IllegalArgumentException(field + " must be a TRON Base58Check address");
-    }
-    final byte[] payload = Arrays.copyOfRange(decoded, 0, 21);
-    final byte[] checksum = Arrays.copyOfRange(decoded, 21, 25);
-    final byte[] expectedChecksum = Arrays.copyOfRange(sha256(sha256(payload)), 0, 4);
-    if (!Arrays.equals(checksum, expectedChecksum)) {
-      throw new IllegalArgumentException(field + " must be a TRON Base58Check address");
-    }
-    boolean nonZeroAddress = false;
-    for (int i = 1; i < payload.length; i++) {
-      if (payload[i] != 0) {
-        nonZeroAddress = true;
-        break;
-      }
-    }
-    if ((payload[0] & 0xff) != 0x41 || !nonZeroAddress) {
-      throw new IllegalArgumentException(field + " must be a TRON Base58Check address");
-    }
-    return normalized;
-  }
-
-  private static byte[] decodeBase58(final String value, final String field) {
-    final ArrayList<Integer> decoded = new ArrayList<>();
-    for (int i = 0; i < value.length(); i++) {
-      final int digit = TRON_BASE58_ALPHABET.indexOf(value.charAt(i));
-      if (digit < 0) {
-        throw new IllegalArgumentException(field + " must be a TRON Base58Check address");
-      }
-      int carry = digit;
-      for (int outputIndex = decoded.size() - 1; outputIndex >= 0; outputIndex--) {
-        final int next = decoded.get(outputIndex) * 58 + carry;
-        decoded.set(outputIndex, next & 0xff);
-        carry = next >>> 8;
-      }
-      while (carry > 0) {
-        decoded.add(0, carry & 0xff);
-        carry >>>= 8;
-      }
-    }
-    int leadingZeroes = 0;
-    while (leadingZeroes < value.length() && value.charAt(leadingZeroes) == '1') {
-      leadingZeroes++;
-    }
-    final byte[] result = new byte[leadingZeroes + decoded.size()];
-    for (int i = 0; i < decoded.size(); i++) {
-      result[leadingZeroes + i] = (byte) (int) decoded.get(i);
-    }
-    return result;
-  }
-
-  private static byte[] sha256(final byte[] value) {
-    try {
-      return MessageDigest.getInstance("SHA-256").digest(value);
-    } catch (final NoSuchAlgorithmException ex) {
-      throw new IllegalStateException("SHA-256 is unavailable", ex);
-    }
   }
 
   static String normalizeHex32(final String value, final String field) {

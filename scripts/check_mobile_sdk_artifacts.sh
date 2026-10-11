@@ -501,6 +501,7 @@ REQUIRED_PROTOCOL_C_SYMBOLS=(
   connect_norito_kagemusha_wallet_account_original_v1
   connect_norito_kagemusha_wallet_account_display_v1
   connect_norito_kagemusha_wallet_enrollment_v1
+  connect_norito_kagemusha_wallet_enrollment_refusal_v1
 )
 REQUIRED_WALLET_JNI_SYMBOLS=(
   Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_revision
@@ -512,6 +513,7 @@ REQUIRED_WALLET_JNI_SYMBOLS=(
   Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_call
   Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_setup
   Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_enrollment
+  Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_enrollmentRefusal
   Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_execute
   Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_snapshot
   Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_beginInstallation
@@ -526,7 +528,8 @@ REQUIRED_WALLET_JNI_SYMBOLS=(
 REQUIRED_LOAD_ORIGINAL_JNI_SYMBOLS=(
   Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletLoadOriginalNativeV1_validate
 )
-REQUIRED_AUTH_JNI_SYMBOLS=(
+# Retired with the Google first-device sign-up key at bridge ABI 29.
+RETIRED_AUTH_JNI_SYMBOLS=(
   Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_reserve
   Java_org_hyperledger_iroha_sdk_crypto_keystore_NativeFirstDeviceAuthKeyJniV1_restore
 )
@@ -566,9 +569,14 @@ check_binary_symbols() {
   [[ -n "$symbols" ]] || { fail "$label has no inspectable exported symbols"; return; }
   local symbol
   if [[ "$nm_mode" == "elf" ]]; then
-    for symbol in "${REQUIRED_WALLET_JNI_SYMBOLS[@]}" "${REQUIRED_LOAD_ORIGINAL_JNI_SYMBOLS[@]}" "${REQUIRED_AUTH_JNI_SYMBOLS[@]}"; do
+    for symbol in "${REQUIRED_WALLET_JNI_SYMBOLS[@]}" "${REQUIRED_LOAD_ORIGINAL_JNI_SYMBOLS[@]}"; do
       if ! grep -Fxq "$symbol" <<<"$symbols"; then
         fail "$label is missing $symbol"
+      fi
+    done
+    for symbol in "${RETIRED_AUTH_JNI_SYMBOLS[@]}"; do
+      if grep -Fxq "$symbol" <<<"$symbols"; then
+        fail "$label exposes retired first-device JNI symbol $symbol"
       fi
     done
     local retired_jni_prefix

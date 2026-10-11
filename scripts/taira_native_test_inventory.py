@@ -427,6 +427,8 @@ NATIVE_CORE_TEST_OWNERS = (
         'native_active_session_from_a_foreign_real_committee_refuses_before_signing',
         'readiness_reprobes_same_applied_cut_without_signing_and_excludes_stale_generation',
         'readiness_no_demand_does_not_require_a_beacon_session',
+        'parliament_attempt_admission_derives_the_slot_index_and_no_pulse_demand',
+        'readiness_horizon_is_native_only_with_pending_parliament_slots',
         'control_retries_use_original_tip_without_decoding_history_again',
         'control_requires_original_tip_and_matching_published_hash_journal',
         'valid_same_roster_foreign_generation_refuses_production_readiness_and_capture',
@@ -434,6 +436,8 @@ NATIVE_CORE_TEST_OWNERS = (
     ('native executed beacon controls', 'sumeragi/epoch_beacon/producer/tests.rs', 'sumeragi/epoch_beacon/producer/execution_tests.rs', 'execution_tests', 'sumeragi::epoch_beacon::producer::tests::execution_tests', (
         'transported_pulse_executes_once_and_cold_replay_reproduces_the_certified_result',
         'native_pulse_refusals_preserve_the_exact_predecessor_and_require_actual_work',
+        'pending_parliament_slots_create_no_native_control_demand_and_never_block_unrelated_work',
+        'npos_boundary_pulse_stays_mandatory_with_or_without_pending_parliament_slots',
     )),
     ('native frozen epoch schedule', 'sumeragi/schedule.rs', 'sumeragi/schedule/tests.rs', 'tests', 'sumeragi::schedule::tests', (
         'chain_params_record_round_trips_the_core_and_on_chain_forms',

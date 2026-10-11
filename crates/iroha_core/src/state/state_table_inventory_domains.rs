@@ -98,13 +98,14 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::Name,
-        reason: "Norito schema names of the node-local enrollment journal scope, immutable selection, progress record, eligibility exchange, permit and worker preparation originals. The exclusive filesystem journal provides local custody and ordering, not a State commitment or independent authorization",
+        reason: "Norito schema names of the node-local enrollment journal scope, immutable selection, progress record, eligibility and worker-refusal exchanges, permit and worker preparation originals. The exclusive filesystem journal provides local custody and ordering, not a State commitment or independent authorization",
         literals: &[
             r"iroha_core.kagemusha.enrollment.eligibility_record.v1",
             r"iroha_core.kagemusha.enrollment.journal_permit.v1",
             r"iroha_core.kagemusha.enrollment.journal_scope.v1",
             r"iroha_core.kagemusha.enrollment.phase.v1",
             r"iroha_core.kagemusha.enrollment.record.v1",
+            r"iroha_core.kagemusha.enrollment.refusal_exchange.v1",
             r"iroha_core.kagemusha.enrollment.selection.v1",
             r"iroha_core.kagemusha.enrollment.worker_preparation.v1",
             r"iroha_core.kagemusha.enrollment.worker_prepared.v1",
@@ -134,10 +135,11 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
     },
     OtherDomains {
         usage: Use::LocalArtifact,
-        reason: "Exact installed issuer journal scope original, its local digest and the local attempt cursor over one durable operation record excluding its eligibility exchange index. These fence original filesystem custody and phase ordering; no journal digest is a certified State root or an eligibility/signing grant",
+        reason: "Exact installed issuer journal scope original, its local digest, the bounded exact-byte adoption memo and the local attempt cursor over one durable operation record excluding its eligibility exchange index. These fence original filesystem custody and phase ordering; no journal digest is a certified State root or an eligibility/signing grant",
         literals: &[
             r"iroha:kagemusha:eligibility:attempt-cursor:v1\0",
             r"iroha:kagemusha:enrollment-issuer:v1\0",
+            r"iroha:kagemusha:issuer-journal-adopted:v1\0",
             r"iroha:kagemusha:issuer-journal-scope:v1\0",
         ],
     },
@@ -174,8 +176,11 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
         usage: Use::ResultBinding,
         reason: "Domain tags of the execution result R, of the certified block identity and of lane results: they bind the listed roots and the fields of the listed protocol carriers, and commit no State content of their own",
         literals: &[
+            r"SCCP/COMMITTEE/V1",
+            r"SCCP/FINALITY/V1",
             r"iroha/sumeragi/certified-block/v1",
             r"iroha/sumeragi/lane/result/v1",
+            r"iroha/sumeragi/result-body/v1",
             r"iroha/sumeragi/result/v1",
         ],
     },

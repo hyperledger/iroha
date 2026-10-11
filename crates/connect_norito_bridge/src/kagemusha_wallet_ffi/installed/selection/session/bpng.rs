@@ -9,13 +9,14 @@ const FI: &str = "mibank.bpng";
 pub(in super::super) struct Authority {
     key: PublicKey,
     release: [u8; 32],
-    roots: [Vec<u8>; 2],
+    /// The signed runtime's Apple App Attestation root DER. Android selects no root original.
+    apple_root: Vec<u8>,
 }
 
 pub(in super::super) fn authority(
     value: &Value,
     signed_app: &[u8],
-    roots: [Vec<u8>; 2],
+    apple_root: Vec<u8>,
 ) -> Result<Authority> {
     let selected = exact(
         value,
@@ -40,7 +41,7 @@ pub(in super::super) fn authority(
         // Raw SHA-256 of the exact authenticated application manifest is the bounded
         // release preimage. The enclosing v7 signature, not this hash, grants authority.
         release: hash(signed_app),
-        roots,
+        apple_root,
     })
 }
 
@@ -53,10 +54,10 @@ pub(super) fn authenticate(
     let [token, proof, root] = originals;
     // BPNG has a registered Ed25519 HTTP request proof at Core, not a DPoP JWT.
     // Native selects this grammar from the authenticated release, never a caller flag.
-    if !proof.is_empty() || root != selected.roots[usize::from(!android)].as_slice() {
+    // Apple supplies exactly the signed runtime's root; Android supplies none.
+    if !proof.is_empty() || (!android && root != selected.apple_root.as_slice()) {
         return Err(invalid());
     }
-    bounded(root, 16_384)?;
     let (header, claims, signature) = compact(token, 16_384)?;
     let header_value = json(&segment(header)?, 1024, false)?;
     let header_map = exact(&header_value, &["alg", "typ"])?;
@@ -110,18 +111,7 @@ pub(super) fn authenticate(
     } else {
         &selection.apple_enrollment
     };
-    let pinned = match policy.platform {
-        KagemushaWalletEnrollmentPlatformV1::Android {
-            attestation_root_sha256,
-            ..
-        }
-        | KagemushaWalletEnrollmentPlatformV1::Apple {
-            attestation_root_sha256,
-        } => attestation_root_sha256,
-    };
-    if hash(root) != pinned {
-        return Err(invalid());
-    }
+    let attestation_root_der = session_root(android, policy, root)?;
     Ok(Session {
         token: Zeroizing::new(token.to_vec()),
         proof: Zeroizing::new(Vec::new()),
@@ -130,8 +120,8 @@ pub(super) fn authenticate(
         config: iroha_core_zk::kagemusha_wallet_enrollment_v1::EnrollmentConfigV1 {
             scheme: selection.scheme,
             app: app.clone(),
-            policy: *policy,
-            attestation_root_der: root.to_vec(),
+            policy: policy.clone(),
+            attestation_root_der,
             installation: selection.installation,
             enrollment_certificate: selection.enrollment_certificate,
             service_origin: ISSUER.as_bytes().to_vec(),

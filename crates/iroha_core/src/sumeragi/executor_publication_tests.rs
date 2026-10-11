@@ -784,10 +784,24 @@ fn canonical_replay_origin_retains_transition_idempotence_through_publication_re
                         status: crate::state::GovernanceProposalStatus::Proposed,
                     },
                 );
-                CertifiedTestChain::start(TestChainConfig::new(world, 1_000))
-                    .expect("actual signed genesis with initial governance World")
+                // Parliament attempt creation freezes the consensus-native NPoS pulse cadence,
+                // so the governance World is fixed under an actual signed NPoS genesis.
+                let mut config = TestChainConfig::new(world, 1_000);
+                config.consensus_mode =
+                    iroha_data_model::parameter::system::SumeragiConsensusMode::Npos;
+                config
+                    .genesis_parameters
+                    .push(iroha_data_model::parameter::Parameter::Custom(
+                        iroha_data_model::parameter::system::SumeragiNposParameters {
+                            slashing_delay_blocks: 1,
+                            ..Default::default()
+                        }
+                        .into_custom_parameter(),
+                    ));
+                CertifiedTestChain::start(config)
+                    .expect("actual signed NPoS genesis with initial governance World")
             },
-            ConsensusMode::Permissioned,
+            ConsensusMode::Npos,
             move |chain, worker, blocks, _| {
                 // Signed instructions create the real reducer state and event before
                 // the original execution witness and publication surface are captured.

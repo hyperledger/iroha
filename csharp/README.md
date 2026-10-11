@@ -17,7 +17,7 @@ the domain-separated complete-artifact hash. Singular manifest queries use
 Singular queries use the current native query discriminants and Norito newtype
 framing. Domain endorsement queries and domain transfer/metadata instructions require the fully qualified `domain.dataspace`
 identity, for example `banka.universal`.
-These operations require the ABI-28 Rust domain validator and exact canonical ASCII
+These operations require the ABI-29 Rust domain validator and exact canonical ASCII
 labels, including admitted IDNA A-labels; raw Unicode and alternate spellings are
 rejected. The native pinned UTS-46 owner also decides underscore and hyphen admission.
 NFT instructions use the same fully qualified domain inside `name$domain.dataspace`.
@@ -33,7 +33,7 @@ field and the `TriggerId`/`Json` newtype fields; transaction metadata uses that 
 - A canonical, domainless I105 account ID and its 32-byte Ed25519 seed for signing
 
 Account construction, parsing, and every operation that admits account identities
-require the packaged ABI-28 Rust bridge for the current runtime identifier. Privacy
+require the packaged ABI-29 Rust bridge for the current runtime identifier. Privacy
 and native SoraFS validation use the same bridge. Transport-only anonymous reads do
 not construct account identities.
 
@@ -449,7 +449,7 @@ matching the Kotlin Kaigi encoder's fail-closed scope until the Rust pinned
 NFC/UTS-46 owner is shared. Display text supports UTF-8. Account instruction
 encoding covers all eleven published controller curve IDs and complete canonical
 multisig policies with a u16 member count. Address decoding checks key envelopes;
-every public address constructor and parser additionally requires the ABI-28
+every public address constructor and parser additionally requires the ABI-29
 Rust address owner for complete key and policy admission. Missing native
 validation raises `NativeBridgeUnavailable`; structural checks cannot admit an
 account by themselves. Canonical I105 parsing rejects surrounding Unicode
@@ -538,7 +538,7 @@ This uses Core's default change diversifier; reusing a nondefault input diversif
 would produce another owner. `ConfidentialNotes` supplies native-backed default
 diversifier, owner, commitment, root and path helpers without managed cryptography.
 
-Run the two-proof disposable example with the current ABI-28 runtime library
+Run the two-proof disposable example with the current ABI-29 runtime library
 available to the .NET loader. `ConfidentialProverException.Code == -101` means
 the bridge is missing or lacks the required wallet contract; install the matching
 current native artifact for your runtime identifier before retrying:

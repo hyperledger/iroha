@@ -51,7 +51,8 @@ pub enum SccpExemptClassV1 {
     KeyBinding,
     /// One `SubmitSccpAttestationFaultV1` that records a new fault (§4.11).
     Fault,
-    /// A keeper advance of one light client from a bridge key's account (§4.13.4).
+    /// An advance of one light client that is not a `Backfill`, from any authority, which may
+    /// be unregistered (§4.13.4).
     KeeperAdvance {
         /// Advanced source network; at most one exempt advance per network per block.
         network: SccpNetworkV1,
@@ -312,7 +313,14 @@ pub fn classify(
 }
 
 /// Return whether `authority` may be absent from state for `executable` because of an SCCP
-/// rule: a bridge-key registration from the new key's own account (§4.2.3).
+/// rule (§4.19):
+///
+/// * a keeper advance: exactly one `AdvanceSccpLightClientV1` that
+///   [`super::light_clients::keeper_advance_eligible`] accepts, from any authority. This is the
+///   eligibility predicate of [`super::fees::exempt_class`] without its "SCCP exists" gate,
+///   which needs state: where SCCP is absent the advance is not exempt, owes the ordinary fee
+///   and fails closed at execution;
+/// * a bridge-key registration from the new key's own account (§4.2.3).
 #[must_use]
 pub fn allows_unregistered_authority(executable: &Executable, authority: &AccountId) -> bool {
     let Executable::Instructions(instructions) = executable else {
@@ -321,6 +329,9 @@ pub fn allows_unregistered_authority(executable: &Executable, authority: &Accoun
     let [only] = instructions.as_ref() else {
         return false;
     };
+    if let Some(advance) = downcast::<AdvanceSccpLightClientV1>(only) {
+        return super::light_clients::keeper_advance_eligible(advance);
+    }
     downcast::<SetSccpBridgeKeyV1>(only)
         .and_then(|set| set.public_key)
         .and_then(|public_key| super::bridge_keys::account_of(&public_key).ok())
@@ -869,5 +880,58 @@ mod tests {
         ));
         assert!(block_exempt_cap_ok(&view, &[SccpExemptClassV1::Fault]));
         assert_eq!(exempt_cap(&view), None);
+    }
+
+    #[test]
+    fn an_eligible_keeper_advance_admits_an_absent_authority() {
+        use crate::smartcontracts::isi::sccp::test_support::SampleInstructions as I;
+        use iroha_sccp::light_client::{
+            ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
+            proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
+        };
+        let frame = |advance: SccpLcAdvanceV1| AdvanceSccpLightClientV1 {
+            network: SccpNetworkV1::EthereumMainnet,
+            expected_state_hash: None,
+            advance: advance.to_bytes().expect("bounded advance"),
+        };
+        let advance = frame(SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
+            updates: Vec::new(),
+        }));
+        let backfill = frame(SccpLcAdvanceV1::Backfill {
+            segment: SccpLcSegmentV1::Ethereum(EthereumHeaderSegmentV1 {
+                headers: Vec::new(),
+            }),
+        });
+        let admits = |seed: u8, instructions: Vec<InstructionBox>| {
+            let transaction = signed(seed, instructions);
+            allows_unregistered_authority(transaction.instructions(), transaction.authority())
+        };
+        // The rule does not look at the authority: any key may advance.
+        for seed in [0x65, 0x66] {
+            assert!(admits(seed, vec![advance.clone().into()]));
+        }
+        assert!(
+            !admits(0x65, vec![backfill.into()]),
+            "a Backfill pays the ordinary fee"
+        );
+        assert!(
+            !admits(0x65, vec![I::advance().into()]),
+            "an undecodable frame pays the ordinary fee"
+        );
+        assert!(
+            !admits(0x65, vec![advance.clone().into(), advance.clone().into()]),
+            "only a single advance has the keeper-advance shape"
+        );
+        assert!(
+            !admits(0x65, vec![advance.into(), I::inbound().into()]),
+            "a self-claim with advances uses the generic self-registration rule"
+        );
+        for other in [
+            InstructionBox::from(I::settle()),
+            I::record().into(),
+            I::equivocation().into(),
+        ] {
+            assert!(!admits(0x65, vec![other]));
+        }
     }
 }

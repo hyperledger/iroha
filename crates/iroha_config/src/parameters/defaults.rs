@@ -4084,12 +4084,6 @@ pub mod zk {
             nonzero!(8_u64 * 1024 * 1024);
         /// Maximum framed native-finality header bytes committed in one block.
         pub const MAX_NATIVE_HEADER_BYTES_PER_BLOCK: NonZeroU64 = nonzero!(32_u64 * 1024 * 1024);
-        /// Maximum secp256k1 recoveries in one transaction.
-        ///
-        /// A full TRON advance carries 16 segments of at most 128 signed headers apiece.
-        pub const MAX_SECP256K1_RECOVERIES_PER_TRANSACTION: NonZeroU32 = nonzero!(2_048_u32);
-        /// Maximum secp256k1 recoveries committed in one block.
-        pub const MAX_SECP256K1_RECOVERIES_PER_BLOCK: NonZeroU32 = nonzero!(8_192_u32);
         /// Maximum Ed25519 signature checks in one transaction.
         ///
         /// A full TON advance carries 16 key-block hops signed by at most 1,024 validators
@@ -4781,32 +4775,25 @@ pub mod settlement {
         pub const HALT_PCT: u8 = 2;
     }
 }
-/// Node-local SCCP defaults for `[sccp.attestor]` and `[sccp.light_client_keeper]`
-/// (`specs/sccp.md` §4.9, §4.13.4). Every value works without operator input.
+/// Node-local SCCP defaults for `[sccp.keeper]` and `[sccp.light_client_keeper]`
+/// (`specs/sccp.md` §4.13.4). Every value works without operator input.
 pub mod sccp {
-    /// `[sccp.attestor]` defaults.
-    pub mod attestor {
-        /// The attestor runs on every node by default.
+    /// `[sccp.keeper]` defaults.
+    pub mod keeper {
+        /// The keeper runs by default.
         pub const ENABLED: bool = true;
-        /// Bridge-key directory below `kura.store_dir`, used while `key_dir` is empty.
-        pub const KEY_DIR_UNDER_KURA_STORE: &str = "sccp/bridge-keys";
-        /// Register the node's newest bridge key with `SetSccpBridgeKeyV1` automatically.
-        pub const AUTO_REGISTER: bool = true;
-        /// Attestation entries per `SubmitSccpAttestationsV1` transaction.
-        pub const MAX_ENTRIES_PER_TRANSACTION: u32 = 64;
-        /// Largest accepted `max_entries_per_transaction`; the node also caps it at runtime
-        /// by the on-chain `max_attestation_entries_per_instruction`.
-        pub const MAX_ENTRIES_PER_TRANSACTION_CEILING: u32 = 1_024;
-        /// Blocks after which still-unrecorded attestation entries are resubmitted.
-        pub const RESUBMIT_AFTER_BLOCKS: u64 = 3;
-        /// Largest lead of a rotation subject's `timestamp_ms` over the local clock that is signed.
-        pub const MAX_CLOCK_DRIFT_MS: u64 = 3_600_000;
-        /// Longest graceful-shutdown delay spent getting pending subjects recorded.
-        pub const SHUTDOWN_GRACE_MS: u64 = 30_000;
+        /// Keeper-key directory below `kura.store_dir`, used while `key_dir` is empty.
+        pub const KEY_DIR_UNDER_KURA_STORE: &str = "sccp/keeper-key";
+        /// Submit due keepalives (§4.7.4).
+        pub const KEEPALIVE: bool = true;
+        /// Keepalive stagger per canonical committee index.
+        pub const KEEPALIVE_STAGGER_MS: u64 = 15_000;
+        /// Watch the registered destinations for certificates that Taira did not produce.
+        pub const WATCH: bool = true;
     }
     /// `[sccp.light_client_keeper]` defaults.
     pub mod light_client_keeper {
-        /// The keeper runs by default; it acts only while the node holds a registered bridge key.
+        /// The keeper advances stale light clients by default.
         pub const ENABLED: bool = true;
         /// `0` advances once `ws_bound_ms / 4` of each light client has elapsed without progress.
         pub const ADVANCE_AFTER_MS: u64 = 0;
@@ -4843,8 +4830,6 @@ pub mod sccp {
             "https://bsc-dataseed.bnbchain.org",
             "https://bsc-rpc.publicnode.com",
         ];
-        /// TRON mainnet HTTP API endpoints.
-        pub const TRON: &[&str] = &["https://api.trongrid.io", "https://tron-rpc.publicnode.com"];
         /// TON mainnet liteservers as `<ipv4>:<port>:<base64 ed25519 public key>`, copied from
         /// the `liteservers` array of `https://ton.org/global-config.json` (signed-integer IP
         /// converted to dotted form).

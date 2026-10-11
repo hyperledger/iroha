@@ -55,6 +55,16 @@ fn selection() -> EnrollmentSelectionV1 {
         stable_selection: b"unadmitted stable scope DATA".to_vec(),
     }
 }
+fn worker_refusal() -> iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1 {
+    iroha_data_model::kagemusha::KagemushaWalletEnrollmentRefusalV1::from_code(3).unwrap()
+}
+fn refusal_exchange() -> WorkerRefusalExchange {
+    WorkerRefusalExchange {
+        action: 1,
+        exchange: [9; 32],
+        dispatch_time_ms: 2_000,
+    }
+}
 pub(super) fn initialized() -> (tempfile::TempDir, PrivateDirectory, EnrollmentJournalV1) {
     let temp = tempfile::tempdir().unwrap();
     #[cfg(unix)]
@@ -102,7 +112,7 @@ fn original_selection_deadline_and_exact_result_survive_restart() {
         .unwrap();
     assert_eq!(dispatch.into_original(), b"worker request DATA");
     journal
-        .retain_worker_result(&mut attempt, b"worker result DATA".to_vec(), false, 601_000)
+        .retain_worker_result(&mut attempt, b"worker result DATA".to_vec(), None, 601_000)
         .unwrap();
     let mut signing = attempt.record.clone();
     signing.phase = EnrollmentJournalPhaseV1::Signing;
@@ -175,20 +185,72 @@ fn rejection_is_terminal_and_mismatched_result_cannot_replace_it() {
         .select_verification_originals(&mut attempt, vec![1], vec![2], 2_000)
         .unwrap();
     journal
-        .retain_worker_result(&mut attempt, vec![3], true, 0)
+        .retain_worker_result(
+            &mut attempt,
+            vec![3],
+            Some((worker_refusal(), refusal_exchange())),
+            0,
+        )
         .unwrap();
     journal
-        .retain_worker_result(&mut attempt, vec![3], true, 0)
+        .retain_worker_result(
+            &mut attempt,
+            vec![3],
+            Some((worker_refusal(), refusal_exchange())),
+            0,
+        )
         .unwrap();
     assert_eq!(attempt.phase(), EnrollmentJournalPhaseV1::Rejected);
     assert_eq!(
-        journal.retain_worker_result(&mut attempt, vec![3], false, 1_000),
+        journal.retain_worker_result(&mut attempt, vec![3], None, 1_000),
         Err(Conflict)
     );
     assert_eq!(
-        journal.retain_worker_result(&mut attempt, vec![4], true, 0),
+        journal.retain_worker_result(
+            &mut attempt,
+            vec![4],
+            Some((worker_refusal(), refusal_exchange())),
+            0
+        ),
         Err(Conflict)
     );
+    // The first terminal exchange is kept: the same reply under another exchange conflicts.
+    let mut other = refusal_exchange();
+    other.exchange = [10; 32];
+    assert_eq!(
+        journal.retain_worker_result(&mut attempt, vec![3], Some((worker_refusal(), other)), 0),
+        Err(Conflict)
+    );
+    // A refusal without its exchange selection, or an exchange without a refusal, is not a
+    // canonical record.
+    for (refusal, exchange) in [(3_u16, None), (0, Some(refusal_exchange()))] {
+        let mut record = attempt.record.clone();
+        record.worker_refusal = refusal;
+        record.worker_refusal_exchange = exchange;
+        assert_eq!(encode(&record), Err(Invalid));
+    }
+    for exchange in [
+        WorkerRefusalExchange {
+            action: 0,
+            ..refusal_exchange()
+        },
+        WorkerRefusalExchange {
+            action: 4,
+            ..refusal_exchange()
+        },
+        WorkerRefusalExchange {
+            exchange: [0; 32],
+            ..refusal_exchange()
+        },
+        WorkerRefusalExchange {
+            dispatch_time_ms: 1_999,
+            ..refusal_exchange()
+        },
+    ] {
+        let mut record = attempt.record.clone();
+        record.worker_refusal_exchange = Some(exchange);
+        assert_eq!(encode(&record), Err(Invalid), "{exchange:?}");
+    }
     assert_eq!(journal.retain_issued(&mut attempt, vec![5]), Err(Conflict));
 }
 
@@ -217,11 +279,11 @@ fn challenge_interval_and_all_original_bounds_fail_before_dispatch() {
         .select_verification_originals(&mut attempt, vec![1], vec![2], 1_000)
         .unwrap();
     assert_eq!(
-        journal.retain_worker_result(&mut attempt, Vec::new(), false, 1_000),
+        journal.retain_worker_result(&mut attempt, Vec::new(), None, 1_000),
         Err(Invalid)
     );
     journal
-        .retain_worker_result(&mut attempt, vec![3], false, 1_000)
+        .retain_worker_result(&mut attempt, vec![3], None, 1_000)
         .unwrap();
     let mut signing = attempt.record.clone();
     signing.phase = EnrollmentJournalPhaseV1::Signing;

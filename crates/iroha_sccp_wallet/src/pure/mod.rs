@@ -8,11 +8,10 @@
 //!   `rotateRosters` batches;
 //! - [`control`]: Parliament control bundles and the §7.1 control decisions;
 //! - [`evm`]: EVM calldata, EIP-1559 transactions and signing, unsigned export and owner-only key
-//!   files; [`tron`] and [`ton`] hold the other destination encodings.
+//!   files; [`ton`] holds the TON destination encodings.
 
 pub mod bundle;
 pub mod control;
 pub mod evm;
 pub mod rotation;
 pub mod ton;
-pub mod tron;

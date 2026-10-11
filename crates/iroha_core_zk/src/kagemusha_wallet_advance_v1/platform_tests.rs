@@ -330,7 +330,6 @@ fn wallet_advance_v1_platform_tags_and_message() {
     for profile in [
         KagemushaWalletKeyProfileV1::SecureElement,
         KagemushaWalletKeyProfileV1::SecureElementOrTee,
-        KagemushaWalletKeyProfileV1::AndroidTee,
     ] {
         assert_eq!(
             KagemushaWalletKeyProfileV1::from_tag(profile.tag()),
@@ -338,6 +337,8 @@ fn wallet_advance_v1_platform_tags_and_message() {
         );
     }
     assert_eq!(KagemushaWalletKeyProfileV1::from_tag(0), None);
+    // The retired policy-selected TEE-only profile fails closed.
+    assert_eq!(KagemushaWalletKeyProfileV1::from_tag(3), None);
     assert_eq!(KagemushaWalletKeyProfileV1::from_tag(4), None);
     let bytes = [7_u8; 32];
     assert_eq!(

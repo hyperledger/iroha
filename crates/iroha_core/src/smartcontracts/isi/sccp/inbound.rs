@@ -62,15 +62,14 @@ pub fn decode_inbound_payload(
     Ok(payload)
 }
 
-/// Check that the verified proof's event is the burn of `payload` by `deployment` on
-/// `network` (§4.12.1 step 4, §4.12.2): an event carrying the payload (ETH, BSC), or a
-/// successful `transferToTaira` call from which Taira rebuilds exactly this payload (TRON).
+/// Check that the verified proof's event is the burn of `payload` by `deployment`
+/// (§4.12.1 step 4, §4.12.2): a transfer event carrying the payload's message id, sender,
+/// nonce and hash.
 ///
 /// # Errors
 ///
 /// Fails when the event is not a transfer to Taira of this payload from this deployment.
 pub fn bind_transfer_event(
-    network: iroha_data_model::bridge::SccpNetworkV1,
     verified: &SccpVerifiedProofV1,
     deployment: &iroha_data_model::sccp::deployment::SccpDeploymentV1,
     payload: &SccpTransferPayloadV1,
@@ -95,20 +94,6 @@ pub fn bind_transfer_event(
                 || *nonce != payload.nonce
                 || *payload_hash != expected_hash
             {
-                return Err(mismatch());
-            }
-            Ok(*locator)
-        }
-        SccpNormalizedEventV1::TransferCall {
-            emitter,
-            caller,
-            call,
-            locator,
-        } => {
-            let rebuilt = call
-                .inbound_payload(network, payload.route_revision, caller)
-                .map_err(|_| mismatch())?;
-            if !emitter.matches(deployment) || rebuilt != *payload {
                 return Err(mismatch());
             }
             Ok(*locator)
@@ -245,8 +230,7 @@ pub fn execute_submit_inbound(
     }
     let verified =
         light_clients::verify_source_proof(state_transaction, network, &instruction.proof)?;
-    let source_locator =
-        bind_transfer_event(network, &verified, &deployment, &payload, &message_id)?;
+    let source_locator = bind_transfer_event(&verified, &deployment, &payload, &message_id)?;
     let fee_due = proof_fee_due(
         state_transaction,
         authority,
@@ -356,6 +340,61 @@ mod tests {
         decode_inbound_payload(SccpNetworkV1::EthereumMainnet, 2, &bytes).expect_err("revision");
         decode_inbound_payload(SccpNetworkV1::BscMainnet, 1, &bytes).expect_err("network");
         assert_eq!(recipient_account(&payload), Some(authority(1)));
+    }
+
+    #[test]
+    fn a_transfer_event_binds_only_its_own_payload_and_deployment() {
+        use iroha_data_model::sccp::{
+            deployment::{SccpDeploymentV1, SccpEvmDeploymentV1},
+            outbound::SccpVoidKindV1,
+        };
+        use iroha_sccp::light_client::proof::SccpSourceEmitterV1;
+
+        let payload = inbound_payload(1, address_bytes(&authority(1)));
+        let message_id = [0x5a; 32];
+        let locator = SccpSourceLocatorV1 {
+            source_height: 9,
+            block_hash: [3; 32],
+            index_in_block: 2,
+        };
+        let deployment = SccpDeploymentV1::Evm(SccpEvmDeploymentV1 {
+            address: [0x11; 20],
+            runtime_code_hash: [0x22; 32],
+        });
+        let transfer = |emitter: [u8; 20], nonce: u64| SccpVerifiedProofV1 {
+            event: SccpNormalizedEventV1::TransferToTaira {
+                emitter: SccpSourceEmitterV1::Evm(emitter),
+                message_id,
+                sender: payload.sender.clone(),
+                nonce,
+                payload_hash: payload.payload_hash().expect("hash"),
+                locator,
+            },
+            checkpoints: Vec::new(),
+        };
+        let bind = |verified: &SccpVerifiedProofV1, id: &[u8; 32]| {
+            bind_transfer_event(verified, &deployment, &payload, id)
+        };
+        assert_eq!(
+            bind(&transfer([0x11; 20], payload.nonce), &message_id).expect("bound"),
+            locator
+        );
+        bind(&transfer([0x12; 20], payload.nonce), &message_id).expect_err("another contract");
+        bind(&transfer([0x11; 20], payload.nonce + 1), &message_id).expect_err("another nonce");
+        bind(&transfer([0x11; 20], payload.nonce), &[0x5b; 32]).expect_err("another message");
+        let void = SccpVerifiedProofV1 {
+            event: SccpNormalizedEventV1::Void {
+                emitter: SccpSourceEmitterV1::Evm([0x11; 20]),
+                kind: SccpVoidKindV1::Expired,
+                first_nonce: payload.nonce,
+                count: 1,
+                message_id_or_zero: message_id,
+                locator,
+            },
+            checkpoints: Vec::new(),
+        };
+        let error = bind(&void, &message_id).expect_err("a void is not a transfer");
+        assert!(error.to_string().contains("transfer to Taira"), "{error}");
     }
 
     #[test]

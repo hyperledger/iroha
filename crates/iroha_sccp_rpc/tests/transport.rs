@@ -29,7 +29,6 @@ use iroha_sccp_rpc::{
     evm::{BlockId, BlockTag, EvmCallRequest, EvmClient, U256},
     http::{HttpConfig, HttpTransport, JsonRpcCall, RpcError},
     limits::{JsonLimits, SMALL_RESPONSE_BYTES},
-    tron::TronClient,
 };
 use norito::json::Value;
 
@@ -464,10 +463,6 @@ fn beacon(server: &MockServer) -> BeaconClient {
     BeaconClient::new(transport(&[server], 1).0)
 }
 
-fn tron(server: &MockServer) -> TronClient {
-    TronClient::new(transport(&[server], 1).0)
-}
-
 fn hex32(text: &str) -> [u8; 32] {
     let mut out = [0_u8; 32];
     hex::decode_to_slice(text.trim_start_matches("0x"), &mut out).expect("32-byte hex");
@@ -477,12 +472,6 @@ fn hex32(text: &str) -> [u8; 32] {
 fn hex20(text: &str) -> [u8; 20] {
     let mut out = [0_u8; 20];
     hex::decode_to_slice(text.trim_start_matches("0x"), &mut out).expect("20-byte hex");
-    out
-}
-
-fn hex21(text: &str) -> [u8; 21] {
-    let mut out = [0_u8; 21];
-    hex::decode_to_slice(text, &mut out).expect("21-byte hex");
     out
 }
 
@@ -632,14 +621,18 @@ fn timeouts_and_refused_connections_fail_over() {
 
 #[test]
 fn client_errors_and_json_rpc_errors_are_answers_not_failover() {
-    let a = MockServer::start(vec![recorded("tron/walletsolidity_getcontractinfo_405")]);
+    let a = MockServer::start(vec![Reply::status(
+        405,
+        "text/html",
+        b"<html><body><h1>405 Method Not Allowed</h1></body></html>",
+    )]);
     let b = MockServer::start(Vec::new());
     let (transport, _) = transport(&[&a, &b], 3);
     let error = transport
         .post(
-            "/walletsolidity/getcontractinfo",
+            "/eth/v1/beacon/headers/finalized",
             "application/json",
-            br#"{"value":"41a614f803b6fd780986a42c78ec9c7f77e6ded13c"}"#,
+            br#"{"id":"finalized"}"#,
             "application/json",
         )
         .expect_err("405");
@@ -877,7 +870,10 @@ fn not_found_and_bad_data_rotate_the_next_request() {
     assert_eq!((a.request_count(), b.request_count()), (1, 1));
 
     // Malformed data decoded inside the attempt discredits its endpoint too.
-    let a = MockServer::start(vec![Reply::rpc_result(r#""0x01""#)]);
+    let a = MockServer::start(vec![
+        Reply::rpc_result(r#""0x01""#),
+        recorded("evm/eth_chainId"),
+    ]);
     let b = MockServer::start(vec![recorded("evm/eth_chainId")]);
     let client = EvmClient::new(transport_pair(&a, &b));
     let error = client.chain_id().expect_err("non-canonical quantity");
@@ -889,28 +885,10 @@ fn not_found_and_bad_data_rotate_the_next_request() {
     assert_eq!(client.chain_id().expect("next endpoint"), 1);
     assert_eq!((a.request_count(), b.request_count()), (1, 1));
 
-    // So does a TRON API error; callers whose verification rejects data
-    // rotate explicitly.
-    let a = MockServer::start(vec![
-        recorded("tron/wallet_getblockbynum_api_error"),
-        recorded("tron/wallet_getnowblock"),
-    ]);
-    let b = MockServer::start(vec![recorded("tron/wallet_getnowblock")]);
-    let client = TronClient::new(transport_pair(&a, &b));
-    assert!(matches!(
-        client.block_by_num(1).expect_err("API error"),
-        RpcError::Api { .. }
-    ));
-    assert_eq!(
-        client.now_block().expect("next endpoint").header.number,
-        86_588_679
-    );
+    // Callers whose verification rejects data rotate explicitly.
     assert_eq!(client.transport().endpoints().preferred(), 1);
     client.transport().rotate_preferred();
-    assert_eq!(
-        client.now_block().expect("rotated back").header.number,
-        86_588_679
-    );
+    assert_eq!(client.chain_id().expect("rotated back"), 1);
     assert_eq!((a.request_count(), b.request_count()), (2, 1));
 }
 
@@ -1057,18 +1035,18 @@ fn refused_credentials_fail_over() {
     let forbidden = MockServer::start(vec![Reply::status(
         403,
         "application/json",
-        br#"{"Error":"request rate exceeded, the query server is suspended"}"#,
+        br#"{"message":"request rate exceeded, the query server is suspended"}"#,
     )]);
     let unauthorized = MockServer::start(vec![Reply::status(
         401,
         "application/json",
         br#"{"message":"invalid API key"}"#,
     )]);
-    let answering = MockServer::start(vec![recorded("tron/wallet_getnowblock")]);
-    let (tron_transport, sleeper) = transport(&[&forbidden, &unauthorized, &answering], 1);
-    let client = TronClient::new(tron_transport);
-    let head = client.now_block().expect("third endpoint answers");
-    assert_eq!(head.header.number, 86_588_679);
+    let answering = MockServer::start(vec![recorded("evm/eth_blockNumber")]);
+    let (keyed_transport, sleeper) = transport(&[&forbidden, &unauthorized, &answering], 1);
+    let client = EvmClient::new(keyed_transport);
+    let head = client.block_number().expect("third endpoint answers");
+    assert_eq!(head, 0x18d_af53);
     let order = [&forbidden, &unauthorized, &answering].map(|server| server.requests()[0].sequence);
     assert!(
         order[0] < order[1] && order[1] < order[2],
@@ -1083,8 +1061,8 @@ fn refused_credentials_fail_over() {
         br#"{"message":"forbidden"}"#,
     )]);
     let (lonely, _) = transport(&[&forbidden], 1);
-    let error = TronClient::new(lonely)
-        .now_block()
+    let error = EvmClient::new(lonely)
+        .block_number()
         .expect_err("the only endpoint refuses");
     assert!(
         matches!(
@@ -1111,13 +1089,6 @@ fn success_bodies_that_are_not_json_fail_over() {
     assert_eq!(client.chain_id().expect("second endpoint"), 1);
     assert_eq!((html.request_count(), answering.request_count()), (1, 1));
     assert_eq!(client.transport().endpoints().preferred(), 1);
-
-    let html = MockServer::start(vec![page()]);
-    let answering = MockServer::start(vec![recorded("tron/walletsolidity_getnowblock")]);
-    let client = TronClient::new(transport_pair(&html, &answering));
-    let solid = client.solidity_now_block().expect("second endpoint");
-    assert_eq!(solid.header.number, 86_588_661);
-    assert_eq!((html.request_count(), answering.request_count()), (1, 1));
     assert_eq!(
         answering.requests()[0].header("content-type"),
         Some("application/json")
@@ -1700,237 +1671,4 @@ fn beacon_headers_are_read_as_json() {
         "{error:?}"
     );
     assert_eq!(server.requests()[1].target, "/eth/v1/beacon/headers/42");
-}
-
-// ---------------------------------------------------------------------------
-// TRON HTTP API
-// ---------------------------------------------------------------------------
-
-const USDT: &str = "41a614f803b6fd780986a42c78ec9c7f77e6ded13c";
-
-#[test]
-fn tron_blocks_keep_raw_transaction_bytes() {
-    let server = MockServer::start(vec![
-        recorded("tron/wallet_getblockbynum"),
-        recorded("tron/wallet_getblockbynum_missing"),
-        recorded("tron/wallet_getnowblock"),
-        recorded("tron/walletsolidity_getnowblock"),
-    ]);
-    let client = tron(&server);
-    let block = client
-        .block_by_num(86_588_651)
-        .expect("block")
-        .expect("known block");
-    assert_eq!(block.header.number, 86_588_651);
-    assert_eq!(block.header.version, 37);
-    assert_eq!(block.header.timestamp, 1_790_438_358_000);
-    assert_eq!(block.header.witness_address[0], 0x41);
-    assert_eq!(block.header.witness_signature.len(), 65);
-    assert_eq!(&block.block_id[..8], &86_588_651_u64.to_be_bytes());
-    assert_eq!(block.transactions.len(), 2);
-    let usdt = &block.transactions[1];
-    assert_eq!(
-        usdt.tx_id,
-        hex32("6386e9f37d890da8924f089a0adbcd16a09ac0ff6a979cc9357cf7feb25e9f54")
-    );
-    assert_eq!(usdt.raw_data_hex[0], 0x0a);
-    assert_eq!(usdt.signatures.len(), 1);
-    assert_eq!(usdt.ret.len(), 1);
-    let request = &server.requests()[0];
-    assert_eq!(request.target, "/wallet/getblockbynum");
-    assert_eq!(
-        request.json().get("num").and_then(Value::as_u64),
-        Some(86_588_651)
-    );
-
-    assert_eq!(client.block_by_num(999_999_999).expect("missing"), None);
-    let head = client.now_block().expect("head");
-    assert_eq!(head.header.number, 86_588_679);
-    let solid = client.solidity_now_block().expect("solid head");
-    assert_eq!(solid.header.number, 86_588_661);
-    assert_eq!(server.requests()[3].target, "/walletsolidity/getnowblock");
-}
-
-#[test]
-fn tron_block_ranges() {
-    let server = MockServer::start(vec![recorded("tron/wallet_getblockbylimitnext")]);
-    let client = tron(&server);
-    let blocks = client
-        .blocks_by_limit_next(86_588_649, 86_588_651)
-        .expect("range");
-    assert_eq!(
-        blocks
-            .iter()
-            .map(|block| block.header.number)
-            .collect::<Vec<_>>(),
-        vec![86_588_649, 86_588_650]
-    );
-    assert_eq!(blocks[1].header.parent_hash, blocks[0].block_id);
-    let body = server.requests()[0].json();
-    assert_eq!(
-        body.get("startNum").and_then(Value::as_u64),
-        Some(86_588_649)
-    );
-    assert_eq!(body.get("endNum").and_then(Value::as_u64), Some(86_588_651));
-    assert!(client.blocks_by_limit_next(5, 5).is_err());
-    assert!(client.blocks_by_limit_next(0, 101).is_err());
-    assert_eq!(server.request_count(), 1);
-}
-
-#[test]
-fn tron_transaction_info_and_contract_code() {
-    let server = MockServer::start(vec![
-        recorded("tron/walletsolidity_gettransactioninfobyid"),
-        recorded("tron/walletsolidity_gettransactioninfobyid_missing"),
-        recorded("tron/wallet_getcontractinfo"),
-    ]);
-    let client = tron(&server);
-    let txid = hex32("6386e9f37d890da8924f089a0adbcd16a09ac0ff6a979cc9357cf7feb25e9f54");
-    let info = client
-        .solidity_transaction_info(&txid)
-        .expect("info")
-        .expect("known transaction");
-    assert_eq!(info.id, txid);
-    assert_eq!(info.block_number, 86_588_651);
-    assert_eq!(info.contract_address, Some(hex21(USDT)));
-    assert_eq!(info.logs.len(), 1);
-    assert_eq!(
-        info.logs[0].topics[0],
-        hex32("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef")
-    );
-    assert_eq!(info.logs[0].data.len(), 32);
-    assert_eq!(info.result, None);
-    assert_eq!(
-        server.requests()[0]
-            .json()
-            .get("value")
-            .and_then(Value::as_str),
-        Some("6386e9f37d890da8924f089a0adbcd16a09ac0ff6a979cc9357cf7feb25e9f54")
-    );
-    assert_eq!(
-        client.solidity_transaction_info(&[0; 32]).expect("missing"),
-        None
-    );
-
-    let contract = client
-        .contract_info(&hex21(USDT))
-        .expect("contract")
-        .expect("deployed");
-    assert_eq!(contract.runtime_code.len(), 14_945);
-    assert!(contract.contract_state.is_some());
-    assert_eq!(server.requests()[2].target, "/wallet/getcontractinfo");
-    assert!(client.contract_info(&[0; 21]).is_err(), "non-TRON address");
-    assert_eq!(server.request_count(), 3);
-}
-
-#[test]
-fn tron_constant_calls_and_reverts() {
-    let server = MockServer::start(vec![
-        recorded("tron/wallet_triggerconstantcontract"),
-        recorded("tron/wallet_triggerconstantcontract_revert"),
-    ]);
-    let client = tron(&server);
-    let owner = hex21(&format!("41{}", "00".repeat(20)));
-    let decimals = client
-        .trigger_constant_contract(&owner, &hex21(USDT), &[0x31, 0x3c, 0xe5, 0x67])
-        .expect("decimals()");
-    assert!(!decimals.reverted());
-    assert_eq!(decimals.constant_result.len(), 1);
-    assert_eq!(decimals.constant_result[0][31], 6);
-    assert_eq!(decimals.energy_used, 2_207);
-    let body = server.requests()[0].json();
-    assert_eq!(body.get("data").and_then(Value::as_str), Some("313ce567"));
-    assert_eq!(
-        body.get("contract_address").and_then(Value::as_str),
-        Some(USDT)
-    );
-
-    let transfer = client
-        .trigger_constant_contract(&owner, &hex21(USDT), &[0xa9, 0x05, 0x9c, 0xbb])
-        .expect("transfer()");
-    assert!(transfer.reverted());
-    assert_eq!(
-        transfer.message.as_deref(),
-        Some(&b"REVERT opcode executed"[..])
-    );
-    assert_eq!(transfer.constant_result, vec![Vec::<u8>::new()]);
-}
-
-#[test]
-fn tron_constant_calls_against_solidified_state() {
-    // The recorded head-state answer is replayed: both routes answer with the
-    // same `TransactionExtention` shape.
-    let server = MockServer::start(vec![recorded("tron/wallet_triggerconstantcontract")]);
-    let client = tron(&server);
-    let owner = format!("41{}", "00".repeat(20));
-    let decimals = client
-        .solidity_trigger_constant_contract(&hex21(&owner), &hex21(USDT), &[0x31, 0x3c, 0xe5, 0x67])
-        .expect("decimals()");
-    assert!(!decimals.reverted());
-    assert_eq!(decimals.constant_result[0][31], 6);
-    let request = &server.requests()[0];
-    assert_eq!(request.method, "POST");
-    assert_eq!(request.target, "/walletsolidity/triggerconstantcontract");
-    let body = request.json();
-    assert_eq!(
-        body.get("owner_address").and_then(Value::as_str),
-        Some(owner.as_str())
-    );
-    assert_eq!(body.get("data").and_then(Value::as_str), Some("313ce567"));
-    assert!(
-        client
-            .solidity_trigger_constant_contract(&[0; 21], &hex21(USDT), &[])
-            .is_err(),
-        "non-TRON owner"
-    );
-    assert_eq!(server.request_count(), 1, "invalid requests are not sent");
-}
-
-#[test]
-fn tron_broadcasts_and_api_errors() {
-    let txid = "ab".repeat(32);
-    let server = MockServer::start(vec![
-        recorded("tron/wallet_broadcasthex_sigerror"),
-        recorded("tron/wallet_broadcasthex_parse_error"),
-        Reply::json(&format!(
-            r#"{{"result":true,"code":"SUCCESS","message":"","txid":"{txid}"}}"#
-        )),
-        recorded("tron/wallet_getblockbynum_api_error"),
-    ]);
-    let client = tron(&server);
-    let rejected = client
-        .broadcast_hex(&[0x0a, 0x01, 0x00])
-        .expect("rejection");
-    assert!(!rejected.result);
-    assert_eq!(rejected.code.as_deref(), Some("SIGERROR"));
-    assert_eq!(
-        rejected.message.as_deref(),
-        Some("Validate signature error: miss sig or contract")
-    );
-    assert_eq!(
-        rejected.txid,
-        Some(hex32(
-            "949d86e53d6a03f8d09ef021c8bedbcd9b881c0d1dc37f4d5fbb6eaff4ebe9d9"
-        ))
-    );
-    let error = client.broadcast_hex(&[0x0a, 0x02]).expect_err("unparsable");
-    assert!(
-        matches!(&error, RpcError::Api { message, .. } if message.contains("InvalidProtocolBufferException")),
-        "{error:?}"
-    );
-    let accepted = client.broadcast_hex(&[0x0a, 0x01, 0x00]).expect("accepted");
-    assert!(accepted.result);
-    assert_eq!(accepted.message, None);
-    assert_eq!(accepted.txid, Some([0xab; 32]));
-    assert_eq!(
-        server.requests()[2]
-            .json()
-            .get("transaction")
-            .and_then(Value::as_str),
-        Some("0a0100")
-    );
-    let error = client.block_by_num(1).expect_err("API error");
-    assert!(matches!(error, RpcError::Api { .. }), "{error:?}");
-    assert!(client.broadcast_hex(&[]).is_err());
-    assert_eq!(server.request_count(), 4);
 }

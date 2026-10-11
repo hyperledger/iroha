@@ -345,6 +345,12 @@ public final class ParliamentApiV1Tests {
             proposal ->
                 proposal.put(
                     "base_revisions",
+                    List.of(
+                        sccpSubject(
+                            "light_client", map("network", "tron_mainnet", "profile", null)))),
+            proposal ->
+                proposal.put(
+                    "base_revisions",
                     List.of(sccpSubject("bridge_key_fault", "ea0130" + "ab".repeat(48)))),
             proposal ->
                 proposal.put(

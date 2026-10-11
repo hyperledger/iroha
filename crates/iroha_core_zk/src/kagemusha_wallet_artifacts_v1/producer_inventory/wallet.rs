@@ -225,6 +225,22 @@ impl QualifiedWalletSourcesV1 {
     pub const fn omega(&self) -> &QualifiedOmegaProgramV1 {
         &self.omega
     }
+    /// Design §5.3: the largest peak proving memory over every installed relation the wallet
+    /// proves, namely each σ, every Q key, every route's A and W stages, and Ω. One prover
+    /// runs at a time, so this bounds any step and the lineage fold that follows it.
+    /// # Errors
+    /// A descriptor whose bound cannot be computed.
+    pub fn peak_proving_memory_bytes(&self) -> Result<u64, Error> {
+        let mut peak = peak_proving_memory(self.sigmas.metadata())?
+            .max(peak_proving_memory([self.omega.key()])?);
+        for program in &self.q {
+            peak = peak.max(peak_proving_memory(program.keys())?);
+        }
+        for route in &self.routes {
+            peak = peak.max(route.stage_memory_bytes());
+        }
+        Ok(peak)
+    }
     /// The exact qualified owner selected by operation and both sigma selectors.
     /// # Errors
     /// Undefined or incompatible own/incoming selector for the requested operation.

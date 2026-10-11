@@ -1,12 +1,12 @@
 # Generated instruction record identities
 
 `instruction_record_generated_identity_frames.json` contains immutable captures
-for the current instruction records and concrete generic instantiations. Its 330
-type rows preserve 373 populated values and 1,492 complete root, vector, option
+for the current instruction records and concrete generic instantiations. Its 327
+type rows preserve 370 populated values and 1,480 complete root, vector, option
 and map frames.
 
 The fixture SHA-256 is
-`2ce498cf8288135055266e99495c828c706ee3162fe10a3c97ba4252c453aea5`.
+`4dcc87d9f3fd55847fb3a9609a2868c287d18254dcd822048c87bc9254c0a8ba`.
 `ClaimPublicLaneRewards` contains one mandatory exact authenticated fee claim
 against funded XOR custody. The manual recipient instruction and its record-ledger
 claim fields are removed. The external `staking_reward_identity_capture` native
@@ -183,3 +183,25 @@ The two networkless root frames remain only as explicit negative controls in
 both. No networkless receipt decoder or production fallback is introduced.
 Only these two positive cases changed; all nominal and directional identities,
 the other 330 rows, and the 331-row, 374-case inventory remain unchanged.
+
+On 2026-10-11, the `SubmitSccpOutboundVoidV1` case was recaptured after the TRON
+profile left SCCP v1: its populated value named `SccpNetworkV1::TronMainnet`
+(tag `0x43`), which no longer decodes, and now names `BscMainnet` (tag `0x42`).
+The maintained `print_sccp_instruction_record_fixture_rows` producer printed all
+ten SCCP rows from the current typed samples with root, vector, option and map
+roundtrips; only this row's four frames differ from the earlier capture (the
+network tag and the frame checksum). Its nominal and directional identities, the
+other 329 rows and the 330-row, 373-case inventory are unchanged. The retired
+tag is covered by the negative decode tests of `SccpNetworkV1`.
+
+Later on 2026-10-11, the SCCP attestation transport was removed (`specs/sccp.md`
+revision 5): the rows of `SetSccpBridgeKeyV1`, `SubmitSccpAttestationsV1` and
+`SubmitSccpAttestationFaultV1` were deleted with their instructions, and the
+`InitializeSccpV1` case was recaptured because `SccpParametersV1` became the
+complete fifteen-field table of §4.1. The same producer printed the seven
+remaining SCCP rows; the four `InitializeSccpV1` frames are the only frames that
+differ, and its nominal and directional identities are unchanged. The rows were
+applied by script (three deletions and one replacement, with the fixture's own
+JSON formatting) rather than by a complete native capture. The other 326 rows
+are byte-identical, and the inventory holds 327 rows and 370 cases. The retired
+wire identifiers are covered by `retired_sccp_wire_ids_are_unregistered`.

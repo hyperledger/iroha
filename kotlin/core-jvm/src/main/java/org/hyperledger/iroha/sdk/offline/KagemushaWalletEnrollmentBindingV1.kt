@@ -3,8 +3,6 @@
 
 package org.hyperledger.iroha.sdk.offline
 
-import java.util.Base64
-
 /**
  * Current E1 enrollment hashes for one retained challenge transcript and Native payment key.
  *
@@ -12,7 +10,7 @@ import java.util.Base64
  * account, app policy, enrollment policy and issuer nonce. It is the transcript, not its Norito
  * frame or an authentication-device challenge. The payment key is the existing Native-selected
  * uncompressed P-256 SEC1 public key. Inputs are copied and structurally checked; this class
- * authenticates neither the issuer's selection nor hardware/Google evidence and grants no custody.
+ * authenticates neither the issuer's selection nor hardware evidence and grants no custody.
  *
  * Uses the canonical [KagemushaWalletWireV1.digest] SHA-256 domains from wallet wire section 3.1
  * and the server's `WalletEnrollmentScope`, without an extra hash of either result.
@@ -43,9 +41,6 @@ class KagemushaWalletEnrollmentBindingV1(challengeTranscript: ByteArray, payment
 
     /** `H("enrollment-key-binding", challengeDigest || paymentKeySec1)`, exactly 32 bytes. */
     fun enrollmentKeyBinding(): ByteArray = binding.copyOf()
-
-    /** Google Standard Integrity `requestHash`: unpadded base64url of [enrollmentKeyBinding]. */
-    fun playIntegrityRequestHash(): String = Base64.getUrlEncoder().withoutPadding().encodeToString(binding)
 
     override fun toString(): String = "KagemushaWalletEnrollmentBindingV1(binding=[REDACTED])"
 }

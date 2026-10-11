@@ -5666,6 +5666,37 @@ def test_core_upload_account_key_mutation_requires_its_actual_named_native_resul
     assert result["named"]["failed"] == sorted(name for name, state in rows if state == "FAILED")
 
 
+def test_native_pulse_demand_mutation_has_a_distinct_owner_and_rule():
+    """Merged governance and allocation controls must select independent mutations."""
+    mid = "HC224"
+    name = "pending_parliament_slots_create_no_native_control_demand_and_never_block_unrelated_work"
+    selector = "sumeragi::epoch_beacon::producer::tests::execution_tests::" + name
+    ids = [rule.id for rule in gate.CORE_MUTATIONS]
+    assert len(ids) == len(set(ids))
+    rules = gate.index_mutations(gate.CORE_MUTATIONS)
+    assert rules[mid].tests == (selector,) and not rules[mid].scenarios
+    assert rules["HC220"].tests == (
+        "state::account_key_refusal_tests::upload_account_key_preserves_original_refusal_fields_scope_and_same_source_retry",
+    )
+    assert gate.has_switch(mid, core=True)
+    for family in ({}, {"model": True}, {"daemon": True}, {"sdk": True},
+                   {"deploy": True}, {"torii": True}, {"norito": True}):
+        assert not gate.has_switch(mid, **family)
+    core = ROOT / "crates/iroha_core/src"
+    owners = {path.relative_to(core).as_posix() for path in core.rglob("*.rs")
+              if f'sumeragi_core_mutation = "{mid}"' in path.read_text()}
+    assert owners == {"sumeragi/epoch_beacon.rs"}
+    source = (core / "sumeragi/epoch_beacon.rs").read_text()
+    assert source.count('sumeragi_core_mutation = "HC224"') == 2
+    assert 'sumeragi_core_mutation = "HC220"' not in source
+    controls = (core / "sumeragi/epoch_beacon/producer/execution_tests.rs").read_text()
+    assert "fn " + name + "()" in controls
+    rows = re.findall(r"^\| " + mid + r" \|.*$", (ROOT / "specs/sumeragi.md").read_text(), re.MULTILINE)
+    assert len(rows) == 1 and name in rows[0]
+    build = (ROOT / "crates/iroha_core/build.rs").read_text()
+    assert 'mentions(Path::new("src"), &needle)' in build
+
+
 @pytest.mark.parametrize("mid,path,delegation,causal", [
     ("DM25", "json_key_codec.rs", "<Self as json::JsonObjectKeyOwned>::from_json_key_text(encoded)",
      "AccountId storage key must retain its original scoped refusal"),

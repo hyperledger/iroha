@@ -679,22 +679,19 @@ mod tests {
             activation_height: 4,
             proposal_id: [8; 32],
         };
-        store::light_client_profiles::insert(&mut stx, (SccpNetworkV1::TronMainnet, 2), activation)
+        store::light_client_profiles::insert(&mut stx, (SccpNetworkV1::BscMainnet, 2), activation)
             .expect("activation");
         assert_eq!(light_client_profiles(&*stx.world, 3), genesis);
         let activated = light_client_profiles(&*stx.world, 4);
-        let tron = activated
+        let bsc = activated
             .iter()
-            .find(|status| status.network == SccpNetworkV1::TronMainnet)
-            .expect("tron");
-        assert_eq!(tron.version, 2);
-        assert_eq!(tron.profile_hash, [7; 32]);
-        assert_eq!(tron.activation_height, Some(4));
-        assert_eq!(tron.proposal_id, Some([8; 32]));
-        assert_eq!(
-            tron.supported_until_ms, None,
-            "this release lacks version 2"
-        );
+            .find(|status| status.network == SccpNetworkV1::BscMainnet)
+            .expect("bsc");
+        assert_eq!(bsc.version, 2);
+        assert_eq!(bsc.profile_hash, [7; 32]);
+        assert_eq!(bsc.activation_height, Some(4));
+        assert_eq!(bsc.proposal_id, Some([8; 32]));
+        assert_eq!(bsc.supported_until_ms, None, "this release lacks version 2");
         // Capabilities report the profiles of the next block, and the policy hash commits to
         // the same active versions (the SCCP input of the confidential policy digest).
         let reported = capabilities(&stx);

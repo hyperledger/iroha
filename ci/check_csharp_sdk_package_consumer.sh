@@ -210,7 +210,7 @@ if (Encoding.UTF8.GetString(canonicalMessage) != expectedMessage)
 if (SoraFsReferenceValidators.RequiredBridgeAbiVersion != 27u
     || !SoraFsReferenceValidators.IsAppealFinanceAvailable())
 {
-    throw new InvalidOperationException("Packed ABI-28 SoraFS native bridge is unavailable");
+    throw new InvalidOperationException("Packed ABI-29 SoraFS native bridge is unavailable");
 }
 
 // Probe the actual library resolved from the installed, manifest-verified package.

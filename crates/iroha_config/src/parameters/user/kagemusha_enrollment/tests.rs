@@ -91,10 +91,9 @@ fn fixture() -> KagemushaEnrollmentIssuer {
                 verifier_sha256_hex: "42".repeat(32),
                 openssl_executable: "/opt/issuer/openssl".into(),
                 openssl_sha256_hex: "43".repeat(32),
-                attestation_root: "/opt/issuer/root.pem".into(),
+                attestation_root: Some("/opt/issuer/root.pem".into()),
                 store_directory: "/var/lib/issuer/worker".into(),
                 exchange_timeout_ms: 60_000,
-                google: None,
             },
             signer_private_key: "/var/lib/iroha/private/enrollment-signer".into(),
         }],
@@ -260,14 +259,23 @@ fn debug_omits_custody_paths_handles_and_endpoints() {
 #[test]
 fn worker_original_paths_pins_timeouts_and_platform_are_required() {
     let base = fixture().providers.remove(0).worker;
-    let platform = KagemushaWalletEnrollmentPlatformV1::Apple {
+    let apple = KagemushaWalletEnrollmentPlatformV1::Apple {
         attestation_root_sha256: [9; 32],
     };
-    let edits: [fn(&mut KagemushaEnrollmentWorker); 10] = [
+    let android = KagemushaWalletEnrollmentPlatformV1::Android {
+        root_set: vec![KagemushaWalletAndroidRootV1 {
+            family: KagemushaWalletAndroidRootFamilyV1::GoogleCa1,
+            spki_sha256: [9; 32],
+            revocation_source: KagemushaWalletRevocationSourceV1::GoogleAttestationStatus,
+        }],
+        patch_floor_yyyymm: 202_608,
+    };
+    let edits: [fn(&mut KagemushaEnrollmentWorker); 11] = [
         |worker| worker.python_executable = "relative".into(),
         |worker| worker.verifier_archive = "/private/../archive".into(),
         |worker| worker.openssl_executable.clear(),
-        |worker| worker.attestation_root.clear(),
+        |worker| worker.attestation_root = Some(PathBuf::new()),
+        |worker| worker.attestation_root = None,
         |worker| worker.store_directory.clear(),
         |worker| worker.python_sha256_hex = "00".repeat(32),
         |worker| worker.verifier_sha256_hex = "FF".repeat(32),
@@ -278,20 +286,18 @@ fn worker_original_paths_pins_timeouts_and_platform_are_required() {
     for edit in edits {
         let mut invalid = base.clone();
         edit(&mut invalid);
-        assert!(invalid.checked(platform).is_err());
+        assert!(invalid.checked(&apple).is_err());
     }
-    let mut with_google = base.clone();
-    with_google.google = Some(KagemushaEnrollmentGoogle {
-        policy_original: "/private/google.json".into(),
-        policy_sha256_hex: "44".repeat(32),
-        oauth_credential: "/private/oauth".into(),
-    });
-    assert!(with_google.checked(platform).is_err());
+    // Android selects no root original: its KeyMint chain carries the root.
+    assert!(base.clone().checked(&android).is_err());
+    let mut rootless = base.clone();
+    rootless.attestation_root = None;
+    assert_eq!(rootless.checked(&android).unwrap().attestation_root, None);
     for millis in [1, 300_000] {
         let mut valid = base.clone();
         valid.exchange_timeout_ms = millis;
         assert_eq!(
-            valid.checked(platform).unwrap().exchange_timeout,
+            valid.checked(&apple).unwrap().exchange_timeout,
             Duration::from_millis(millis)
         );
     }

@@ -49,6 +49,9 @@ SELF_TESTS=(
   --self-test-missing-domain-rust-symbol
   --self-test-bad-domain-length-width
   --self-test-bad-abi
+  --self-test-bad-wallet-memory-rust-status
+  --self-test-bad-wallet-storage-header-status
+  --self-test-retired-wallet-no-space-status
   --self-test-missing-privacy-header-symbol
   --self-test-bad-privacy-signature
   --self-test-missing-privacy-rust-symbol
@@ -205,10 +208,11 @@ KAGEMUSHA_WALLET_EXPORTS = {
     "connect_norito_kagemusha_wallet_account_original_v1",
     "connect_norito_kagemusha_wallet_account_display_v1",
     "connect_norito_kagemusha_wallet_enrollment_v1",
+    "connect_norito_kagemusha_wallet_enrollment_refusal_v1",
 }
 KAGEMUSHA_WALLET_JNI_EXPORTS = {
     "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletNativeV1_" + method
-    for method in ("revision", "openBegin", "openFinish", "openCancel", "close", "activity", "call", "setup", "enrollment", "execute", "review", "executeReviewed", "discardReview", "snapshot")
+    for method in ("revision", "openBegin", "openFinish", "openCancel", "close", "activity", "call", "setup", "enrollment", "enrollmentRefusal", "execute", "review", "executeReviewed", "discardReview", "snapshot")
 } | {
     "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_beginInstallation",
     "Java_org_hyperledger_iroha_sdk_offline_wallet_KagemushaWalletInstalledRuntimeNativeV1_registerInstallation",
@@ -572,13 +576,27 @@ require_signature_parity(
     | {"connect_norito_bridge_abi_version", "connect_norito_free", "connect_norito_domain_id_validate_v1"}
 )
 
-require(r"#define\s+CONNECT_NORITO_BRIDGE_ABI_VERSION\s+28\b", header, "C bridge ABI version")
-require(r"pub\s+const\s+PRIVACY_BRIDGE_ABI_VERSION_V1:\s*u32\s*=\s*28\s*;", privacy, "Rust bridge ABI version")
+require(r"#define\s+CONNECT_NORITO_BRIDGE_ABI_VERSION\s+29\b", header, "C bridge ABI version")
+require(r"pub\s+const\s+PRIVACY_BRIDGE_ABI_VERSION_V1:\s*u32\s*=\s*29\s*;", privacy, "Rust bridge ABI version")
 require(
     r"const\s+CONNECT_NORITO_BRIDGE_ABI_VERSION:\s*u32\s*=\s*PRIVACY_BRIDGE_ABI_VERSION_V1\s*;",
     rust,
     "bridge ABI binding",
 )
+# Design §5.3 typed runtime capacity results: one C name per Native status, no alias.
+for rust_name, value in (("NOT_ENOUGH_STORAGE", "-12"), ("NOT_ENOUGH_MEMORY", "-14")):
+    require(
+        rf"pub\s+const\s+{rust_name}\s*:\s*i32\s*=\s*{value}\s*;",
+        native_rust,
+        f"Rust KAGEMUSHA wallet {rust_name} status",
+    )
+    require(
+        rf"#define\s+CONNECT_NORITO_KAGEMUSHA_WALLET_{rust_name}\s+{value}(?:\s|$)",
+        header,
+        f"C KAGEMUSHA wallet {rust_name} status",
+    )
+if re.search(r"\bpub\s+const\s+NO_SPACE\b", native_rust):
+    raise SystemExit("[connect-norito-header] retired KAGEMUSHA wallet NO_SPACE status")
 for rust_name, value, header_name in (
     ("ERR_PARLIAMENT_TIMED_OVN", "-505", "CONNECT_NORITO_ERR_PARLIAMENT_TIMED_OVN"),
     (
@@ -656,7 +674,7 @@ if umbrella_contract(umbrella) != [
     raise SystemExit("[connect-norito-header] umbrella header drift")
 
 print(
-    "[connect-norito-header] ABI 28 synchronized: "
+    "[connect-norito-header] ABI 29 synchronized: "
     f"{len(PRIVACY_EXPORTS)} privacy, "
     f"{len(SORAFS_REFERENCE_EXPORTS)} SoraFS, {len(DETACHED_EXPORTS)} detached, "
     f"{len(PARLIAMENT_EXPORTS)} Parliament, {len(RETAIL_EXPORTS)} retail-fee, "
@@ -992,8 +1010,27 @@ if [[ "${MODE}" == --self-test-* ]]; then
       ;;
     --self-test-bad-abi)
       replace_once "${tmp_header}" \
-        "#define CONNECT_NORITO_BRIDGE_ABI_VERSION 28" \
+        "#define CONNECT_NORITO_BRIDGE_ABI_VERSION 29" \
         "#define CONNECT_NORITO_BRIDGE_ABI_VERSION 22"
+      ;;
+    --self-test-bad-wallet-memory-rust-status)
+      replace_once "${tmp}/kagemusha_wallet_ffi.rs" \
+        "pub const NOT_ENOUGH_MEMORY: i32 = -14;" \
+        "pub const NOT_ENOUGH_MEMORY: i32 = -15;"
+      expected_diagnostic="missing or invalid Rust KAGEMUSHA wallet NOT_ENOUGH_MEMORY status"
+      ;;
+    --self-test-bad-wallet-storage-header-status)
+      replace_once "${tmp_header}" \
+        "#define CONNECT_NORITO_KAGEMUSHA_WALLET_NOT_ENOUGH_STORAGE -12" \
+        "#define CONNECT_NORITO_KAGEMUSHA_WALLET_NOT_ENOUGH_STORAGE -13"
+      expected_diagnostic="missing or invalid C KAGEMUSHA wallet NOT_ENOUGH_STORAGE status"
+      ;;
+    --self-test-retired-wallet-no-space-status)
+      replace_once "${tmp}/kagemusha_wallet_ffi.rs" \
+        "pub const TERMINAL: i32 = -13;" \
+        "pub const TERMINAL: i32 = -13;
+pub const NO_SPACE: i32 = -12;"
+      expected_diagnostic="retired KAGEMUSHA wallet NO_SPACE status"
       ;;
     --self-test-missing-privacy-header-symbol)
       replace_once "${tmp_header}" \

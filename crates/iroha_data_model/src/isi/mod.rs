@@ -436,9 +436,6 @@ impl_direct_instruction_box!(crate::isi::vpn::RefundExpiredVpnLease);
 // Allow direct boxing of the SCCP v1 instructions (`specs/sccp.md` §4).
 impl_direct_instruction_box!(
     crate::isi::sccp::InitializeSccpV1,
-    crate::isi::sccp::SetSccpBridgeKeyV1,
-    crate::isi::sccp::SubmitSccpAttestationsV1,
-    crate::isi::sccp::SubmitSccpAttestationFaultV1,
     crate::isi::sccp::RecordSccpMessage,
     crate::isi::sccp::SubmitSccpInboundMessageV1,
     crate::isi::sccp::SettleSccpV1,

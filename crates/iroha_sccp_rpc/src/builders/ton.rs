@@ -693,9 +693,7 @@ impl SourceChainBuilder for TonBuilder {
                 light_client,
                 now_ms,
             ),
-            SourceEventRefV1::Evm { .. } | SourceEventRefV1::Tron { .. } => {
-                Err(BuildError::Inconsistent("not a TON event".into()))
-            }
+            SourceEventRefV1::Evm { .. } => Err(BuildError::Inconsistent("not a TON event".into())),
         }
     }
 }

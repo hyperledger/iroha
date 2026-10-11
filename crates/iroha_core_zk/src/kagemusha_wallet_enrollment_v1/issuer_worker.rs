@@ -16,7 +16,10 @@ use iroha_data_model::kagemusha::*;
 use norito::json::{self, Value};
 use sha2::{Digest as _, Sha256};
 
-use super::{IssuerEvidenceV1, PlatformEvidenceV1, PreKeyDispatchV1, RequestV1};
+use super::{
+    IssuerEvidenceV1, PlatformEvidenceV1, PreKeyDispatchV1, RequestV1,
+    carrier::{ANDROID_CERTIFICATE_MAX_BYTES, ANDROID_CHAIN_MAX, ANDROID_CHAIN_MIN},
+};
 
 #[path = "issuer_worker_protocol.rs"]
 mod protocol;
@@ -25,7 +28,8 @@ pub use protocol::{VerifierExchangeV1, VerifierPreparationV1};
 #[path = "issuer_worker_configuration.rs"]
 mod configuration;
 pub use configuration::{
-    GoogleDecoderOriginalV1, VerifierConfigurationV1, VerifierRuntimeSelectionV1,
+    ANDROID_VENDOR_ADAPTER_PROFILES_V1, VerifierConfigurationV1, VerifierRuntimeSelectionV1,
+    require_qualified_android_adapters_v1,
 };
 
 const SCHEMA: &str = "iroha.kagemusha.wallet-e1-verifier.v1";
@@ -62,17 +66,24 @@ pub enum ActionV1 {
     Inspect,
 }
 
-/// Separate outcome classes; none is a credential, approval, or permission to repeat verification.
+/// Separate worker outcome classes; none is a credential, approval, or permission to repeat
+/// verification. Only `Refused` is a terminal E1 outcome here: `Evidence` is an intermediate
+/// verification result that the issuer turns into Issued only by signing and retaining E6, and
+/// `Unavailable`/`OutcomeUnknown` are recovery states, never retained as the answer.
 #[derive(Debug)]
 pub enum OutcomeV1 {
     /// The private worker retained this projection and its original evidence.
     Evidence(EvidenceProjectionV1),
-    /// An attempted verification has no recoverable result; keep the attempt consumed.
+    /// The worker claimed the operation and an effect may have taken place, but it holds no
+    /// retained result. Recovery never verifies again as a first attempt.
     OutcomeUnknown,
-    /// The worker could not finish; recovery remains distinct from a new verification.
+    /// The worker could not decide before any effect. When durable worker state shows a
+    /// pre-effect outage, `Complete`/`Recover` resume the same claim with the exact E5,
+    /// configuration and first dispatch time.
     Unavailable,
-    /// The worker rejected the request or evidence; this is no narrower attestation verdict.
-    Rejected,
+    /// The worker refused the evidence with exactly one closed platform refusal reason
+    /// (codes 1–10 of design §2.4). The challenge is consumed; every retry returns this code.
+    Refused(KagemushaWalletEnrollmentRefusalV1),
 }
 
 /// Checked consistency of the worker's exact result. Only an authenticated worker channel
@@ -83,7 +94,7 @@ pub struct EvidenceProjectionV1 {
     pub kind: KagemushaWalletEvidenceKindV1,
     /// Model evidence with a digest independently derived from exact originals.
     pub evidence: KagemushaWalletEvidenceV1,
-    /// Original platform objects, including issuer-acquired Google response bytes on Android.
+    /// Original platform objects: the exact Android chain, or the Apple originals.
     pub originals: IssuerEvidenceV1,
     /// Apple's retained key/counter pair; absent on Android.
     pub apple_counter: Option<([u8; 32], u32)>,
@@ -183,20 +194,12 @@ impl VerifierRequestV1 {
         let mobile =
             PlatformEvidenceV1::decode(&request.body.evidence, approved_policy).map_err(Error)?;
         let (platform, evidence) = match mobile {
-            PlatformEvidenceV1::Android {
-                certificates,
-                play_integrity_token,
-            } => {
-                let token = std::str::from_utf8(&play_integrity_token)
-                    .map_err(|_| Error("opaque token UTF-8"))?;
-                (
-                    "android",
-                    norito::json!({
-                        "chain_base64": (certificates.iter().map(|v| STANDARD.encode(v)).collect::<Vec<_>>()),
-                        "play_integrity_token": (token),
-                    }),
-                )
-            }
+            PlatformEvidenceV1::Android { certificates } => (
+                "android",
+                norito::json!({
+                    "chain_base64": (certificates.iter().map(|v| STANDARD.encode(v)).collect::<Vec<_>>()),
+                }),
+            ),
             PlatformEvidenceV1::Apple {
                 key_id,
                 attestation,
@@ -263,12 +266,42 @@ impl VerifierRequestV1 {
     ) -> Result<OutcomeV1, Error> {
         let (value, dispatch_time_ms) = exchange.request_response(self, frame)?;
         if text(&value, "outcome")? == "evidence" {
+            if value.get("refusal_code") != Some(&Value::Null) {
+                return Err(Error("evidence refusal code"));
+            }
             let original = binary(text(&value, "evidence_base64")?, MAX_RESULT)?;
             return self
                 .projection_at(original, dispatch_time_ms)
                 .map(OutcomeV1::Evidence);
         }
-        protocol::failure(&value)
+        protocol::failure(&value, Some(self.is_android()))
+    }
+
+    /// Closed refusal reason of an exact refused reply that the issuer retained, together with
+    /// the selection of the exchange that produced it, after [`Self::response`] authenticated
+    /// it. `exchange` is that exchange rebuilt from this request with [`Self::packet`] and the
+    /// retained action, journal incarnation, exchange identifier and dispatch time; the reply is
+    /// checked again against every binding of that exchange (identifier, request digest,
+    /// journal incarnation, configuration, platform code). Every retry of the consumed attempt
+    /// returns this same reason; the frame is never re-verified as a new attempt.
+    /// # Errors
+    /// A frame that is not an exact refused reply to `exchange` for this request.
+    pub fn retained_refusal(
+        &self,
+        exchange: &VerifierExchangeV1,
+        frame: &[u8],
+    ) -> Result<KagemushaWalletEnrollmentRefusalV1, Error> {
+        match self.response(exchange, frame)? {
+            OutcomeV1::Refused(reason) => Ok(reason),
+            _ => Err(Error("retained refusal")),
+        }
+    }
+
+    fn is_android(&self) -> bool {
+        matches!(
+            self.preparation.policy.platform,
+            KagemushaWalletEnrollmentPlatformV1::Android { .. }
+        )
     }
 
     /// Recheck an exact evidence original retained by the issuer after an authenticated reply.
@@ -337,7 +370,12 @@ impl VerifierRequestV1 {
             .get("original_items_base64")
             .and_then(Value::as_array)
             .ok_or(Error("evidence items"))?;
-        if !(2..=9).contains(&encoded.len()) {
+        let count = if kind.is_android() {
+            ANDROID_CHAIN_MIN..=ANDROID_CHAIN_MAX
+        } else {
+            2..=2
+        };
+        if !count.contains(&encoded.len()) {
             return Err(Error("evidence item count"));
         }
         let mut items = encoded
@@ -345,11 +383,7 @@ impl VerifierRequestV1 {
             .enumerate()
             .map(|(index, v)| {
                 let maximum = if kind.is_android() {
-                    if index + 1 == encoded.len() {
-                        128 * 1024
-                    } else {
-                        16 * 1024
-                    }
+                    ANDROID_CERTIFICATE_MAX_BYTES
                 } else if index == 0 {
                     65_536
                 } else {
@@ -358,31 +392,21 @@ impl VerifierRequestV1 {
                 binary(v.as_str().ok_or(Error("evidence item"))?, maximum)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let (originals, apple_counter) = match (body.policy.platform, kind) {
+        let (originals, apple_counter) = match (&body.policy.platform, kind) {
             (
-                KagemushaWalletEnrollmentPlatformV1::Android { hardware, .. },
+                KagemushaWalletEnrollmentPlatformV1::Android { .. },
                 KagemushaWalletEvidenceKindV1::AndroidKeyMintTee
                 | KagemushaWalletEvidenceKindV1::AndroidKeyMintStrongBox,
             ) => {
-                if matches!(
-                    (hardware, kind),
-                    (
-                        KagemushaWalletAndroidHardwareV1::Tee,
-                        KagemushaWalletEvidenceKindV1::AndroidKeyMintStrongBox
-                    ) | (
-                        KagemushaWalletAndroidHardwareV1::StrongBox,
-                        KagemushaWalletEvidenceKindV1::AndroidKeyMintTee
-                    )
-                ) || value.get("app_attest_key_id") != Some(&Value::Null)
+                // The attested level chooses TEE or StrongBox; both are admitted.
+                if value.get("app_attest_key_id") != Some(&Value::Null)
                     || value.get("app_attest_counter") != Some(&Value::Null)
                 {
                     return Err(Error("Android evidence policy"));
                 }
-                let google_response = items.pop().ok_or(Error("Google original"))?;
                 (
                     IssuerEvidenceV1::Android {
                         certificates: items,
-                        google_response,
                     },
                     None,
                 )
@@ -391,9 +415,6 @@ impl VerifierRequestV1 {
                 KagemushaWalletEnrollmentPlatformV1::Apple { .. },
                 KagemushaWalletEvidenceKindV1::AppleAppAttest,
             ) => {
-                if items.len() != 2 {
-                    return Err(Error("Apple original count"));
-                }
                 let key_id = digest(&value, "app_attest_key_id")?;
                 let counter = u32::try_from(integer(&value, "app_attest_counter")?)
                     .map_err(|_| Error("Apple counter"))?;
@@ -433,9 +454,10 @@ impl VerifierRequestV1 {
             .validate_enrollment_for_kind(kind)
             .map_err(|_| Error("evidence facts"))?;
         // These are facts of the actual retained adapters, beyond the generic Model minimum.
+        // Fact bit 9 (Play Integrity) is retired issuer output: newly produced evidence never
+        // carries it, although historical credentials and their renewals keep it valid.
         let required = if kind.is_android() {
-            KAGEMUSHA_WALLET_FACT_PLAY_INTEGRITY_SIGNAL_V1
-                | KAGEMUSHA_WALLET_FACT_REVOCATION_LIST_CLEAR_V1
+            KAGEMUSHA_WALLET_FACT_REVOCATION_LIST_CLEAR_V1
         } else {
             KAGEMUSHA_WALLET_FACT_APP_ATTEST_PRODUCTION_V1
         };

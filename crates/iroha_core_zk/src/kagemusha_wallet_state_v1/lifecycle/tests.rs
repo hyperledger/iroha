@@ -140,6 +140,98 @@ fn exact_request_replay_survives_restart_without_reproving_or_resigning() {
 }
 
 #[test]
+fn runtime_capacity_refuses_before_proving_with_typed_results_and_keeps_the_plan() {
+    use crate::kagemusha_wallet_capacity_v1::{
+        KagemushaWalletRuntimeCapacityV1, KagemushaWalletRuntimeResourcesV1,
+    };
+    use crate::kagemusha_wallet_state_v1::capacity::OPERATION_RESERVATION_BYTES;
+    let mut wallet = prepared_wallet();
+    let signatures = wallet.custody.signatures;
+    wallet.proofs.capacity = KagemushaWalletRuntimeCapacityV1 {
+        storage_bytes: 1_000,
+        memory_bytes: 2_000,
+    };
+    let enough_storage = OPERATION_RESERVATION_BYTES + 1_000;
+    wallet.custody.resources = KagemushaWalletRuntimeResourcesV1 {
+        storage_bytes: enough_storage - 1,
+        memory_bytes: Some(u64::MAX),
+    };
+    assert!(matches!(
+        wallet.execute(request()),
+        Err(Error::NotEnoughStorage)
+    ));
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+    assert_eq!(wallet.custody.signatures, signatures, "nothing debited");
+    // The durable plan stays: the request is still preparing, never performed or refused.
+    assert_eq!(
+        wallet.retry_request(&request().request_id).unwrap(),
+        RequestStatusV1::Preparing
+    );
+    wallet.custody.resources = KagemushaWalletRuntimeResourcesV1 {
+        storage_bytes: enough_storage,
+        memory_bytes: Some(1_999),
+    };
+    assert!(matches!(
+        wallet.execute(request()),
+        Err(Error::NotEnoughMemory)
+    ));
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 0);
+    assert_eq!(wallet.custody.signatures, signatures);
+    // An unanswered memory probe evaluates storage only; proving and commit both check.
+    wallet.custody.resources.memory_bytes = None;
+    let queries = wallet.custody.resource_queries;
+    let complete = wallet.execute(request()).unwrap();
+    assert!(matches!(complete, Completion::Complete(_)));
+    assert_eq!(wallet.proofs.preparation_proofs.load(Ordering::SeqCst), 1);
+    assert_eq!(wallet.custody.signatures, signatures + 1);
+    assert_eq!(wallet.custody.resource_queries, queries + 2);
+    // A retained outcome never depends on current capacity.
+    wallet.custody.resources = KagemushaWalletRuntimeResourcesV1 {
+        storage_bytes: 0,
+        memory_bytes: Some(0),
+    };
+    let queries = wallet.custody.resource_queries;
+    assert_eq!(wallet.execute(request()).unwrap(), complete);
+    assert_eq!(wallet.custody.resource_queries, queries);
+    assert_eq!(wallet.custody.signatures, signatures + 1);
+}
+
+#[test]
+fn runtime_capacity_refuses_a_fresh_commit_but_never_a_retained_one() {
+    use crate::kagemusha_wallet_capacity_v1::KagemushaWalletRuntimeResourcesV1;
+    let mut wallet = wallet();
+    wallet.custody.resources = KagemushaWalletRuntimeResourcesV1 {
+        storage_bytes: 0,
+        memory_bytes: Some(u64::MAX),
+    };
+    assert!(matches!(
+        wallet.commit(bootstrap()),
+        Err(Error::NotEnoughStorage)
+    ));
+    assert_eq!(wallet.custody.signatures, 0, "refused before Advance");
+    wallet.custody.resources = KagemushaWalletRuntimeResourcesV1 {
+        storage_bytes: u64::MAX / 2,
+        memory_bytes: Some(0),
+    };
+    wallet.proofs.capacity.memory_bytes = 1;
+    assert!(matches!(
+        wallet.commit(bootstrap()),
+        Err(Error::NotEnoughMemory)
+    ));
+    assert_eq!(wallet.custody.signatures, 0);
+    wallet.custody.resources.memory_bytes = Some(1);
+    let complete = wallet.commit(bootstrap()).unwrap();
+    assert!(matches!(complete, Completion::Complete(_)));
+    assert_eq!(wallet.custody.signatures, 1);
+    wallet.custody.resources = KagemushaWalletRuntimeResourcesV1 {
+        storage_bytes: 0,
+        memory_bytes: Some(0),
+    };
+    assert_eq!(wallet.commit(bootstrap()).unwrap(), complete);
+    assert_eq!(wallet.custody.signatures, 1);
+}
+
+#[test]
 fn durable_plan_resumes_after_proof_failure_without_resampling() {
     let mut wallet = prepared_wallet();
     wallet.proofs.fail_preparation_proof = true;

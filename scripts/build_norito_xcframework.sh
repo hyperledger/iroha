@@ -1779,8 +1779,8 @@ protocol_abis = re.findall(
     protocol.read_text(encoding="utf-8"),
     re.MULTILINE,
 )
-if header_abis != ["28"]:
-    raise SystemExit("authoritative NoritoBridge public header ABI is not exact 28")
+if header_abis != ["29"]:
+    raise SystemExit("authoritative NoritoBridge public header ABI is not exact 29")
 if bridge_aliases != ["PRIVACY_BRIDGE_ABI_VERSION_V1"]:
     raise SystemExit("NoritoBridge Rust ABI alias is not exact")
 if protocol_abis != header_abis:
@@ -1986,7 +1986,8 @@ cat > "$PUBLISH_MANIFEST" <<EOF
     "connect_norito_kagemusha_wallet_observe_v1",
     "connect_norito_kagemusha_wallet_account_original_v1",
     "connect_norito_kagemusha_wallet_account_display_v1",
-    "connect_norito_kagemusha_wallet_enrollment_v1"
+    "connect_norito_kagemusha_wallet_enrollment_v1",
+    "connect_norito_kagemusha_wallet_enrollment_refusal_v1"
   ],
   "forbidden_symbols": [
     "connect_norito_kagemusha_v1_payment_request_validate",
@@ -2153,8 +2154,8 @@ for root, directories, files in os.walk(xcframework, followlinks=False):
 
 with manifest_path.open("r", encoding="utf-8") as handle:
     manifest = json.load(handle, object_pairs_hook=object_without_duplicates)
-if manifest.get("native_bridge_abi_version") != 28:
-    raise SystemExit("staged NoritoBridge manifest does not bind exact ABI 28")
+if manifest.get("native_bridge_abi_version") != 29:
+    raise SystemExit("staged NoritoBridge manifest does not bind exact ABI 29")
 hashes = manifest.get("hashes")
 if not isinstance(hashes, dict) or set(hashes) != set(expected_slices):
     raise SystemExit("staged NoritoBridge manifest has a non-canonical slice inventory")

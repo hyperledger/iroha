@@ -453,7 +453,6 @@ pub fn compiled_profiles() -> Vec<SccpChainProfileViewV1> {
     [
         SccpNetworkV1::EthereumMainnet,
         SccpNetworkV1::BscMainnet,
-        SccpNetworkV1::TronMainnet,
         SccpNetworkV1::TonMainnet,
     ]
     .into_iter()
@@ -1327,7 +1326,13 @@ mod tests {
             detail.supported_until_ms,
             SccpChainProfilesV1::genesis().supported_until_ms(ETH)
         );
-        assert_eq!(compiled_profiles().len(), 4);
+        assert_eq!(
+            compiled_profiles()
+                .iter()
+                .map(|profile| profile.network)
+                .collect::<Vec<_>>(),
+            [ETH, SccpNetworkV1::BscMainnet, SccpNetworkV1::TonMainnet]
+        );
         assert_eq!(compiled_supported_until_ms(SccpNetworkV1::SoraTaira), None);
         // Once the next block runs a version this release does not compile, the light client is
         // neither usable nor bounded here.
