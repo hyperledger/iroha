@@ -920,8 +920,20 @@ initialized heads. The holder may abandon an unused enrollment, for example
 after an E1 refusal (§2.4) or an interruption that cannot resume, only while
 Bootstrap has never been selected. Once Bootstrap is selected or commits,
 including an uncertain activation response, recover that incarnation and use
-§6.3; do not abandon funded obligations. Abandonment has two forms, chosen by the
-slot's durable state. The names below are Native's slot statuses
+§6.3; do not abandon funded obligations. Before any permit or slot has been
+accepted, Native may also cancel the authenticated retained Client. Under the
+same exclusive provider ownership used for permit admission and authorization,
+it authenticates that exact Client, definitively establishes the absence of
+Accepted, Slot and Phase originals, and durably publishes an immutable Cancelled
+record bound to the Client digest. Missing, corrupt or uncertain custody is
+Unavailable and never authorizes a fresh attempt. Every later permit admission
+and authorization rechecks Cancelled before any side effect, including after
+restart or a delayed issuer reply. Successful cancellation returns
+`LocalAbandoned`; it has no ledger instruction or slot/key effects. A different
+request identity may then start while the old Client and cancellation remain
+retained. If an Accepted original already exists, this pre-permit form refuses.
+For selected slots, abandonment has two forms, chosen by the slot's durable
+state. The names below are Native's slot statuses
 (`KagemushaWalletSlotStatusV1`). Two different Native names say Pending. The
 enrollment progress `EnrollmentProgressV1::Pending`, which Native reports for
 slot status `Empty` or `IntentOnly`, is the no-marker form below; "abandon from

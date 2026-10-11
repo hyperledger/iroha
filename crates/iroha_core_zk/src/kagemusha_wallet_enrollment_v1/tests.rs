@@ -627,6 +627,173 @@ fn resign_permit(
     .unwrap()
 }
 #[test]
+fn prekey_cancellation_survives_restart_and_refuses_late_permit_without_key_effects() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 191);
+    let mut current = owner(&f, &d);
+    let first = dispatch(&f, &mut current);
+    let late = permit(&f, &first).encode_canonical().unwrap();
+    assert_eq!(
+        current.abandon().unwrap(),
+        EnrollmentAbandonmentV1::LocalAbandoned
+    );
+    assert_eq!(current.abandonment_ledger_instruction().unwrap(), None);
+    assert!(current.accept_permit(&late).is_err());
+    assert!(current.authorize(&[1; 64]).is_err());
+    drop(current);
+    let mut current = owner(&f, &d);
+    let resumed = dispatch(&f, &mut current);
+    assert_eq!(
+        resumed.stable_selection().unwrap(),
+        first.stable_selection().unwrap()
+    );
+    assert_eq!(
+        current.abandon().unwrap(),
+        EnrollmentAbandonmentV1::LocalAbandoned
+    );
+    assert!(
+        current
+            .accept_permit(&permit(&f, &resumed).encode_canonical().unwrap())
+            .is_err()
+    );
+    d.platform.with(|state| assert_eq!(state.generate_calls, 0));
+    // A different request may start, while the cancelled identity remains terminal.
+    current
+        .begin(
+            &[12; 32],
+            &norito::encode_canonical(&f.account).unwrap(),
+            &norito::encode_canonical(&f.asset).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        current.abandon().unwrap(),
+        EnrollmentAbandonmentV1::LocalAbandoned
+    );
+}
+
+#[test]
+fn prekey_cancellation_loses_to_accepted_permit_under_exclusive_owner() {
+    let f = fixture();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 199);
+    let mut current = owner(&f, &d);
+    let first = dispatch(&f, &mut current);
+    current
+        .accept_permit(&permit(&f, &first).encode_canonical().unwrap())
+        .unwrap();
+    assert!(current.abandon().is_err());
+    drop(current);
+    let mut current = owner(&f, &d);
+    let resumed = dispatch(&f, &mut current);
+    assert_eq!(resumed.purpose, KagemushaEnrollmentPermitPurposeV1::Resume);
+    assert!(current.abandonment_ledger_instruction().is_err());
+    assert!(
+        !d.fs
+            .visible_names(&KagemushaWalletCustodyDirV1::root())
+            .iter()
+            .any(|name| name.ends_with("-cancelled.norito"))
+    );
+    d.platform.with(|state| assert_eq!(state.generate_calls, 0));
+}
+
+#[test]
+fn prekey_cancellation_uncertain_publication_is_adopted_before_terminal_retry() {
+    let f = fixture();
+    let baseline = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 197);
+    let mut current = owner(&f, &baseline);
+    dispatch(&f, &mut current);
+    let start = baseline.fs.steps();
+    current.abandon().unwrap();
+    let trace = baseline.fs.trace_since(start);
+    let rename = trace
+        .iter()
+        .rposition(|step| *step == KagemushaWalletSimStepV1::RenameNoReplace)
+        .unwrap();
+    let sync = rename
+        + trace[rename..]
+            .iter()
+            .position(|step| *step == KagemushaWalletSimStepV1::SyncDir)
+            .unwrap();
+    let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 197);
+    let mut current = owner(&f, &d);
+    let first = dispatch(&f, &mut current);
+    d.fs.inject(
+        d.fs.steps() + u64::try_from(sync).unwrap(),
+        KagemushaWalletSimFaultV1::Error,
+    );
+    assert!(current.abandon().is_err());
+    d.fs.clear_faults();
+    let before = d.fs.steps();
+    assert_eq!(
+        current.abandon().unwrap(),
+        EnrollmentAbandonmentV1::LocalAbandoned
+    );
+    assert!(
+        d.fs.trace_since(before)
+            .contains(&KagemushaWalletSimStepV1::SyncDir)
+    );
+    drop(current);
+    d.fs.restart();
+    let mut current = owner(&f, &d);
+    dispatch(&f, &mut current);
+    assert_eq!(
+        current.abandon().unwrap(),
+        EnrollmentAbandonmentV1::LocalAbandoned
+    );
+    assert!(
+        current
+            .accept_permit(&permit(&f, &first).encode_canonical().unwrap())
+            .is_err()
+    );
+    d.platform.with(|state| assert_eq!(state.generate_calls, 0));
+}
+
+#[test]
+fn prekey_cancellation_refuses_missing_client_corrupt_binding_and_uncertain_publication() {
+    let f = fixture();
+    for fault in 0..3 {
+        let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 193 + fault);
+        let mut current = owner(&f, &d);
+        let first = dispatch(&f, &mut current);
+        let root = KagemushaWalletCustodyDirV1::root();
+        let client =
+            d.fs.visible_names(&root)
+                .into_iter()
+                .find(|name| name.ends_with("-client.norito"))
+                .unwrap();
+        match fault {
+            0 => {
+                d.fs.unlink(&root, &client).unwrap();
+            }
+            1 => {
+                d.fs.place_unsynced(&root, &client, b"changed client");
+            }
+            _ => {
+                d.fs.inject(d.fs.steps(), KagemushaWalletSimFaultV1::Error);
+            }
+        }
+        assert!(current.abandon().is_err());
+        d.fs.clear_faults();
+        d.platform.with(|state| assert_eq!(state.generate_calls, 0));
+        if fault == 2 {
+            dispatch(&f, &mut current);
+            current.abandon().unwrap();
+            let cancelled =
+                d.fs.visible_names(&root)
+                    .into_iter()
+                    .find(|name| name.ends_with("-cancelled.norito"))
+                    .unwrap();
+            d.fs.place_unsynced(&root, &cancelled, &[0; 32]);
+            assert!(current.abandon().is_err());
+            assert!(
+                current
+                    .accept_permit(&permit(&f, &first).encode_canonical().unwrap())
+                    .is_err()
+            );
+        }
+    }
+}
+
+#[test]
 fn prekey_stable_selection_preserves_originals_and_excludes_only_dispatch_fields() {
     let f = fixture();
     let d = DeviceV1::new(KagemushaWalletAnchorPolicyV1::NotRequired, 101);

@@ -186,7 +186,8 @@ class KagemushaWalletEnrollmentV1 internal constructor(handle: Long, private val
      * Permanently abandon this unused enrollment (design §3.2), for example after an E1 refusal,
      * an ineligible pre-E5 check or an interruption that cannot resume. Native chooses the form
      * from the slot's durable state: [KagemushaWalletEnrollmentAbandonmentV1.LocalAbandoned] when
-     * no marker exists (nothing to submit), otherwise the exact retained signed
+     * the authenticated retained Client has no accepted permit or selected slot, or no marker
+     * exists in a selected slot (nothing to submit), otherwise the exact retained signed
      * [KagemushaWalletEnrollmentAbandonmentV1.Abandonment] frame, byte for byte on every retry.
      * Native refuses once Bootstrap is selected; a returned frame does not mean the ledger
      * accepted it. A fresh enrollment may start as soon as this returns.
