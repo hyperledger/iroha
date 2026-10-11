@@ -1,4 +1,5 @@
-//! Authenticated native height inputs for the SCCP post-execution roster hook.
+//! Authenticated native height inputs for the SCCP post-execution hook: the committee of a
+//! height and, at an epoch boundary, the next one (`specs/sccp.md` §4.2.2, §4.6).
 //!
 //! The original output finalizer advances the World consensus schedule before SCCP reads it.
 //! Each ready slot retains the exact epoch authorization and ordered committee. At an epoch
@@ -9,7 +10,7 @@ use crate::state::WorldReadOnly;
 use iroha_data_model::parameter::system::ConsensusMode;
 use iroha_model_base::peer::PeerId;
 
-/// Consensus inputs of one height for the SCCP roster rule (§4.3.2).
+/// Consensus inputs of one height for the SCCP generation step (§4.2.2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SccpHeightInputsV1 {
     /// Consensus mode that selected the roster.
@@ -122,7 +123,7 @@ impl SccpHeightInputsV1 {
         })
     }
 
-    /// Return whether the height is the last one of its epoch (§4.3.2 boundary).
+    /// Return whether the height is the last one of its epoch (an epoch boundary, §4.2.2).
     #[must_use]
     pub fn is_boundary(&self) -> bool {
         self.height == self.epoch_end_height

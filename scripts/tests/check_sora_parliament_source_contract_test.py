@@ -1853,23 +1853,6 @@ def test_state_binds_its_retained_publication_module(original: str, replacement:
         guard.require_parliament_commit_publication(source.replace(original, replacement, 1))
 
 
-@pytest.mark.parametrize("original,replacement", (
-    ("let sccp_header = sb._curr_block;", "let sccp_header = foreign_header;"),
-    ("crate::smartcontracts::isi::sccp::hook::apply_block_start(&mut sb, &sccp_header)",
-     "crate::smartcontracts::isi::sccp::hook::apply_block_start(&mut other, &sccp_header)"),
-    ("crate::smartcontracts::isi::sccp::hook::apply_block_start(&mut sb, &sccp_header)\n"
-     "            .map_err(StateBlockStartError::Storage)?;", ""),
-))
-def test_sccp_heartbeat_keeps_the_original_ordered_start_owner(
-    original: str, replacement: str,
-) -> None:
-    """The required SCCP heartbeat cannot be omitted or use a different State/header."""
-    source = guard.read(STATE_PATH)
-    assert source.count(original) == 1
-    with pytest.raises(RuntimeError, match="start phases"):
-        guard.require_block_start_enactment_phases(source.replace(original, replacement, 1))
-
-
 @pytest.mark.parametrize("path,original,replacement", (
     ("crates/iroha_core/src/sumeragi/executor/replay.rs",
      "instance: source.instance(),", "instance: foreign.instance(),"),

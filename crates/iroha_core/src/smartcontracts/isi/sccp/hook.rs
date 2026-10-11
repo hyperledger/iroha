@@ -1,37 +1,38 @@
-//! SCCP block hooks (`specs/sccp.md` §4.3.2, §4.5). Owner: ws30.
+//! SCCP block hook (`specs/sccp.md` §4.5). Owner: ws30.
 //!
-//! * [`finalize_block`] runs in `ValidBlock::finalize_owned_execution_metadata` after every
-//!   transaction of block `h` and before the output seal, with the consensus inputs of `h`
-//!   ([`SccpHeightInputsV1`]): it commits the block's leaves, appends the history leaf, applies
-//!   bridge-key promotion and the roster rule at rotation heights, writes the attestation
-//!   subject and prunes.
-//! * [`heartbeat_start_work_pending`] tells `State::deterministic_start_work_pending` that the
-//!   candidate block must be produced even with an empty queue because its creation time
-//!   crosses the current generation's heartbeat.
-//! * [`apply_block_start`] runs at block start, next to the due Parliament certificates and
-//!   before the block's transactions, and writes the heartbeat marker.
+//! [`finalize_block`] runs in `ValidBlock::finalize_owned_execution_metadata` after every
+//! transaction of block `h` and before the output seal, with the consensus inputs of `h`
+//! ([`SccpHeightInputsV1`]): it commits the block's leaves, appends the history leaf and
+//! prunes expired light-client records.
 //!
-//! With SCCP absent every hook is a no-op.
+//! Block start has no SCCP work: a block exists only for a transaction, never for SCCP.
+//!
+//! With SCCP absent the hook is a no-op.
 
-use super::{commitment, height::SccpHeightInputsV1, params, prune, roster, store, subjects};
-use crate::{
-    block::BlockValidationError,
-    state::{StateBlock, StateReadOnly, StateStorageAdmissionError, WorldReadOnly},
-};
-use iroha_data_model::{block::BlockHeader, sccp::attestation::SccpAttestationSubjectV1};
+use super::{commitment, height::SccpHeightInputsV1, light_clients, params};
+use crate::{block::BlockValidationError, state::StateBlock};
+use iroha_data_model::block::BlockHeader;
+
+/// Per-block work bound of the pruning step: the most light-client sets and checkpoints one
+/// block deletes (§4.11, §4.13.1).
+pub const MAX_PRUNE_DELETIONS_PER_BLOCK: usize = 1_024;
 
 /// Run the SCCP post-execution step of block `header` (§4.5).
 ///
 /// `height_inputs` are the authenticated consensus inputs of the block's height: from the
 /// Sumeragi core's authenticated schedule on the production and signed-genesis paths. They
 /// are `None` only for component fixtures that execute without consensus and for a height
-/// whose inputs could not be derived; SCCP then commits leaves and history but derives no
-/// roster and writes no subject (fail closed).
+/// whose inputs could not be derived.
 ///
-/// The steps run in one transaction, in §4.5 order: (a) commit the block's leaves and append
-/// the history leaf; (b) at rotation heights apply key promotion and the roster rule; (c)
-/// write the subject when the block has messages, is a boundary, or created a generation;
-/// (d) record stalled handoffs; (e) prune within the per-block budget.
+/// The hook runs in one transaction: it commits the block's leaves and appends the history
+/// leaf (§4.5 step 1), then prunes expired light-client sets and checkpoints within the
+/// per-block budget (§4.11, §4.13.1).
+///
+/// TODO: WP-S2: run the rest of §4.5 here, in order: the generation step (G4, G7, G2), the
+/// anchor append (A1), the pruning of generation records and anchor chunk roots (§4.11) and
+/// the finality header `X_h` (§4.6). They read `height_inputs` and replace the roster rule and
+/// the attestation subject of the retired attestation transport; without inputs the header is
+/// inactive (fail closed).
 ///
 /// # Errors
 ///
@@ -47,56 +48,14 @@ pub fn finalize_block(
     }
     #[cfg(test)]
     observed::record(header, height_inputs);
-    let Some(parameters) = store::parameters::get(&state_block.world).clone() else {
-        return Ok(());
-    };
-    let network_id = *state_block.network_id().as_bytes();
+    // TODO: WP-S2: the generation step and the finality header consume the inputs.
+    let _ = height_inputs;
     let height = header.height().get();
-    let now_ms = header.creation_time_ms;
     let mut stx = state_block
         .try_transaction()
         .map_err(BlockValidationError::StateStorageAdmission)?;
-
-    let committed = commitment::commit_block(&mut stx, height)?;
-    let step = match height_inputs {
-        Some(inputs) => Some(roster::apply_roster_rule(
-            &mut stx,
-            &network_id,
-            &parameters,
-            height,
-            now_ms,
-            inputs,
-        )?),
-        None => None,
-    };
-
-    if let (Some(inputs), Some(step)) = (height_inputs, step) {
-        let required = committed.is_some() || step.boundary || step.created_digest.is_some();
-        let signer = roster::generation_for_height(&*stx.world, height).and_then(|generation| {
-            store::rosters::get(&*stx.world, &generation).map(|roster| (generation, roster.digest))
-        });
-        if let (true, Some((generation, roster_digest))) = (required, signer) {
-            let (history_root, history_size) = commitment::history_root_and_size(&*stx.world);
-            subjects::write_subject(
-                &mut stx,
-                SccpAttestationSubjectV1 {
-                    height,
-                    epoch: inputs.epoch,
-                    timestamp_ms: now_ms,
-                    sccp_root: committed.map_or([0; 32], |commitment| commitment.root),
-                    message_count: committed.map_or(0, |commitment| commitment.message_count),
-                    history_root,
-                    history_size,
-                    generation,
-                    roster_digest,
-                    next_roster_digest: step.created_digest.unwrap_or([0; 32]),
-                },
-            )?;
-        }
-    }
-
-    subjects::record_stalled_handoffs(&mut stx, parameters.attestation_stall_ms, now_ms)?;
-    prune::prune(&mut stx, now_ms, prune::MAX_PRUNE_DELETIONS_PER_BLOCK);
+    commitment::commit_block(&mut stx, height)?;
+    light_clients::prune(&mut stx, MAX_PRUNE_DELETIONS_PER_BLOCK);
     stx.apply();
     Ok(())
 }
@@ -171,54 +130,25 @@ pub(crate) mod observed {
     }
 }
 
-/// Return whether block start of `candidate_header` has SCCP work: its creation time reaches
-/// the heartbeat of the current generation and the heartbeat marker has not fired for it
-/// (§4.3.2). `world` is the committed parent state.
-#[must_use]
-pub fn heartbeat_start_work_pending(
-    world: &(impl WorldReadOnly + ?Sized),
-    candidate_header: &BlockHeader,
-) -> bool {
-    if !params::exists(world) {
-        return false;
-    }
-    roster::heartbeat_due(world, candidate_header.creation_time_ms)
-        .is_some_and(|generation| *store::heartbeat_marker::get(world) != Some(generation))
-}
-
-/// Apply SCCP block-start work of `header` (the heartbeat marker, §4.3.2).
-///
-/// The marker fires at most once per generation, which makes the heartbeat block
-/// deterministic start-of-block work even on an idle Taira.
-///
-/// # Errors
-///
-/// Propagates local storage admission failures of the block-start transaction.
-pub fn apply_block_start(
-    state_block: &mut StateBlock<'_>,
-    header: &BlockHeader,
-) -> Result<(), StateStorageAdmissionError> {
-    if !heartbeat_start_work_pending(&state_block.world, header) {
-        return Ok(());
-    }
-    let Some(generation) = roster::heartbeat_due(&state_block.world, header.creation_time_ms)
-    else {
-        return Ok(());
-    };
-    let mut stx = state_block.try_transaction()?;
-    store::heartbeat_marker::set(&mut stx, Some(generation));
-    stx.apply();
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::smartcontracts::isi::sccp::{
-        store,
-        test_support::{blank_state, header},
+        leaves, store,
+        test_support::{authority, blank_state, header, peer},
     };
-    use iroha_data_model::sccp::params::SccpParametersV1;
+    use iroha_data_model::{
+        bridge::SccpNetworkV1,
+        sccp::{
+            control::{SccpLeafRefV1, SccpTransferLeafRefV1},
+            light_client::{
+                SccpLcCheckpointDataV1, SccpLcCheckpointOriginV1, SccpLcCheckpointV1, SccpLcHeadV1,
+                SccpLcPointV1, SccpLightClientParamsV1, SccpLightClientV1,
+            },
+            outbound::{SccpOutboundMessageRecordV1, SccpOutboundStatusV1},
+            params::SccpParametersV1,
+        },
+    };
 
     #[test]
     fn proposal_observer_is_scoped_across_threads_and_releases_on_unwind() {
@@ -246,15 +176,10 @@ mod tests {
     }
 
     #[test]
-    fn hooks_are_no_ops_without_sccp() {
+    fn the_hook_is_a_no_op_without_sccp() {
         let state = blank_state();
         let candidate = header(2);
-        assert!(!heartbeat_start_work_pending(
-            &state.world_view(),
-            &candidate
-        ));
         let mut block = state.block(candidate);
-        apply_block_start(&mut block, &candidate).expect("no-op block start");
         let _ = observed::take();
         finalize_block(&mut block, &candidate, None).expect("no-op finalizer");
         assert!(
@@ -262,107 +187,168 @@ mod tests {
             "the finalizer returns before reading inputs without SCCP"
         );
         assert!(store::block_commitments::is_empty(&block.world));
-        assert_eq!(*store::heartbeat_marker::get(&block.world), None);
+        assert!(block.world.sccp_execution_write_set_bytes().is_empty());
     }
 
     #[test]
-    fn keyless_or_empty_rosters_fail_closed_without_failing_the_block() {
+    fn finalize_block_commits_leaves_and_history_only() {
         let state = blank_state();
         let candidate = header(2);
         let mut block = state.block(candidate);
+        let message_id = [7; 32];
         {
             let mut stx = block.transaction();
             store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
+            let commitment_index = leaves::allocate_leaf(
+                &mut stx,
+                SccpLeafRefV1::Transfer(SccpTransferLeafRefV1 { message_id }),
+            )
+            .expect("leaf");
+            store::outbound_messages::insert(
+                &mut stx,
+                message_id,
+                SccpOutboundMessageRecordV1 {
+                    network: SccpNetworkV1::EthereumMainnet,
+                    revision: 1,
+                    nonce: 0,
+                    height: 2,
+                    commitment_index,
+                    deadline_ms: 99,
+                    sender: authority(1),
+                    amount: 1,
+                    payload: vec![7],
+                    leaf: [8; 32],
+                    status: SccpOutboundStatusV1::Recorded,
+                },
+            )
+            .expect("record");
             stx.apply();
         }
-        assert!(!heartbeat_start_work_pending(&block.world, &candidate));
-        apply_block_start(&mut block, &candidate).expect("no-op block start");
         let _ = observed::take();
         let inputs = SccpHeightInputsV1 {
             mode: iroha_data_model::parameter::system::ConsensusMode::Npos,
             height: 2,
             epoch: 0,
             epoch_end_height: 2,
-            roster: Vec::new(),
-            next_roster: Some(Vec::new()),
+            roster: (1..=4).map(peer).collect(),
+            next_roster: Some((1..=4).map(peer).collect()),
         };
-        finalize_block(&mut block, &candidate, Some(&inputs)).expect("empty roster fails closed");
-        finalize_block(&mut block, &candidate, None).expect("no inputs: no roster work");
-        assert!(store::rosters::is_empty(&block.world));
-        assert_eq!(observed::take(), vec![(2, Some(inputs)), (2, None)]);
+        finalize_block(&mut block, &candidate, Some(&inputs)).expect("hook");
+        assert_eq!(observed::take(), vec![(2, Some(inputs))]);
+        let commitment = store::block_commitments::get(&block.world, &2).expect("commitment");
+        assert_eq!((commitment.message_count, commitment.history_index), (1, 0));
+        assert_eq!(store::history::get(&block.world).size, 1);
+        assert_eq!(store::history_leaves::len(&block.world), 1);
     }
 
     #[test]
-    fn genesis_creates_generation_one_and_the_heartbeat_fires_once() {
-        use crate::smartcontracts::isi::sccp::test_support::peer;
-        use iroha_data_model::sccp::keys::{SccpBridgeKeyStateV1, SccpBridgeKeyV1};
-        use std::num::NonZeroU64;
-
+    fn the_hook_prunes_expired_light_client_checkpoints() {
         let state = blank_state();
-        let genesis = header(1);
-        let mut block = state.block(genesis);
+        let candidate = header(2);
+        let mut block = state.block(candidate);
+        let network = SccpNetworkV1::EthereumMainnet;
         {
             let mut stx = block.transaction();
             store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
-            for seed in 1..=4_u8 {
-                let key = SccpBridgeKeyV1 {
-                    public_key: [2; 33],
-                    address: [seed * 16; 20],
-                    activation_epoch: 0,
-                    registered_at_height: 1,
-                    faulted: false,
-                };
-                store::bridge_keys::insert(
+            let mut params = SccpLightClientParamsV1::defaults_for(network).expect("external");
+            params.checkpoint_prune_after_ms = 1;
+            let light_client = SccpLightClientV1 {
+                params,
+                head: SccpLcHeadV1 {
+                    latest_set_id: 2,
+                    latest_finalized: SccpLcPointV1 {
+                        source_height: 200,
+                        block_hash: [7; 32],
+                        source_time_ms: 1,
+                    },
+                    last_progress_taira_ms: 1,
+                },
+                frozen: None,
+                state_hash: [8; 32],
+            };
+            store::light_clients::insert(&mut stx, network, light_client).expect("light client");
+            for source_height in [120, 150] {
+                light_clients::record_checkpoint(
                     &mut stx,
-                    peer(seed),
-                    SccpBridgeKeyStateV1 {
-                        active: Some(key),
-                        ..SccpBridgeKeyStateV1::default()
+                    network,
+                    SccpLcCheckpointV1 {
+                        data: SccpLcCheckpointDataV1 {
+                            source_height,
+                            block_hash: [1; 32],
+                            state_root: Some([2; 32]),
+                            receipts_or_tx_root: [3; 32],
+                            source_time_ms: source_height,
+                        },
+                        recorded_at_taira_ms: 0,
+                        origin: SccpLcCheckpointOriginV1::Advance,
                     },
                 )
-                .expect("key");
+                .expect("checkpoint");
             }
             stx.apply();
         }
-        let inputs = SccpHeightInputsV1 {
-            mode: iroha_data_model::parameter::system::ConsensusMode::Npos,
-            height: 1,
-            epoch: 0,
-            epoch_end_height: 1_000_000,
-            roster: (1..=4).map(peer).collect(),
-            next_roster: None,
-        };
-        finalize_block(&mut block, &genesis, Some(&inputs)).expect("genesis hook");
-        let (generation, first) = roster::current(&block.world).expect("generation 1");
-        assert_eq!(generation, 1);
-        assert!(!first.is_inert());
-        assert!(
-            !subjects::exists(&block.world, 1),
-            "no messages, no boundary"
-        );
+        // Block 2 runs at 8 000 ms, past the retention of checkpoints recorded at 0. The
+        // lowest checkpoint of a stride bucket is permanent; the other one is pruned.
+        finalize_block(&mut block, &candidate, None).expect("hook");
+        let _ = observed::take();
+        assert!(store::light_client_checkpoints::contains(
+            &block.world,
+            &(network, 120)
+        ));
+        assert!(!store::light_client_checkpoints::contains(
+            &block.world,
+            &(network, 150)
+        ));
+    }
 
-        let max_age = SccpParametersV1::taira_default().roster_max_age_ms;
-        let early = BlockHeader::new(
-            NonZeroU64::new(2).expect("nonzero"),
+    #[test]
+    fn block_start_has_no_sccp_work() {
+        let state = blank_state();
+        {
+            let mut parent = state.block(header(1));
+            {
+                let mut stx = parent.transaction();
+                store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
+                stx.apply();
+            }
+            parent
+                .commit_world_overlay_for_testing()
+                .expect("commit the parent World");
+        }
+        // SCCP exists in the committed parent, and the block is created long after any
+        // committee heartbeat: block start still writes no SCCP state.
+        let late = BlockHeader::new(
+            std::num::NonZeroU64::new(2).expect("nonzero"),
             None,
             None,
-            first.valid_from_ms + max_age - 1,
+            10 * SccpParametersV1::taira_default().committee_validity_ms,
             0,
         );
-        assert!(!heartbeat_start_work_pending(&block.world, &early));
-        let due = BlockHeader::new(
-            NonZeroU64::new(2).expect("nonzero"),
-            None,
-            None,
-            first.valid_from_ms + max_age,
-            0,
-        );
-        assert!(heartbeat_start_work_pending(&block.world, &due));
-        apply_block_start(&mut block, &due).expect("marker");
-        assert_eq!(*store::heartbeat_marker::get(&block.world), Some(1));
+        let block = state.block(late);
+        assert!(crate::smartcontracts::isi::sccp::params::exists(
+            &block.sccp_parent_world_view()
+        ));
         assert!(
-            !heartbeat_start_work_pending(&block.world, &due),
-            "the marker fires once per generation"
+            block.world.sccp_execution_write_set_bytes().is_empty(),
+            "block start has no SCCP work"
         );
+    }
+
+    #[test]
+    fn a_block_without_leaves_writes_nothing() {
+        let state = blank_state();
+        let candidate = header(3);
+        let mut block = state.block(candidate);
+        {
+            let mut stx = block.transaction();
+            store::parameters::set(&mut stx, Some(SccpParametersV1::taira_default()));
+            stx.apply();
+        }
+        let before = block.world.sccp_execution_write_set_bytes();
+        let _ = observed::take();
+        finalize_block(&mut block, &candidate, None).expect("no leaves");
+        assert_eq!(block.world.sccp_execution_write_set_bytes(), before);
+        assert!(store::block_commitments::is_empty(&block.world));
+        assert_eq!(observed::take(), vec![(3, None)]);
     }
 }

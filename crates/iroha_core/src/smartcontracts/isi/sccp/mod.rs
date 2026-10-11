@@ -1,4 +1,4 @@
-//! SCCP v1 core: state access, block hooks, admission and the ten v1 instructions
+//! SCCP v1 core: state access, the block hook, admission and the seven v1 instructions
 //! (`specs/sccp.md` §4).
 //!
 //! The [`Execute`] implementations below delegate each v1 instruction to exactly one entry
@@ -6,23 +6,21 @@
 //!
 //! | Modules | Owner |
 //! |---|---|
-//! | [`init`], [`params`], [`bridge_keys`], [`attestations`], [`faults`], [`admission`], [`fees`] | ws31 (inbound eligibility arms: ws41) |
-//! | [`hook`], [`roster`], [`commitment`], [`subjects`], [`prune`] | ws30 |
+//! | [`init`], [`params`], [`admission`], [`fees`] | ws31 (inbound eligibility arms: ws41) |
+//! | [`hook`], [`commitment`] | ws30 |
 //! | [`outbound`], [`escrow`], [`recipients`] | ws32 |
 //! | [`registry`], [`governance`], [`controls`], [`light_clients`] (Parliament half) | ws33 |
 //! | [`light_clients`] (advance half), [`inbound`], [`settle`], [`voids`], [`self_claim`] | ws41 |
-//! | [`read`] (views and proof bundles served by Torii) | ws35 |
+//! | [`read`] (views served by Torii) | ws35 |
+//! | [`parliament_iface`] (the one seam to Parliament-owned functions; stubs today) | WP-S5, WP-S9 |
 //!
-//! With SCCP absent (no `sccp_parameters`), every hook is a no-op and admission classifies no
+//! With SCCP absent (no `sccp_parameters`), the hook is a no-op and admission classifies no
 //! transaction as SCCP-exempt, so block production and queue behavior are unchanged.
 
 pub mod admission;
-pub mod attestations;
-pub mod bridge_keys;
 pub mod commitment;
 pub mod controls;
 pub mod escrow;
-pub mod faults;
 pub mod fees;
 pub mod governance;
 pub mod height;
@@ -33,15 +31,13 @@ pub mod leaves;
 pub mod light_clients;
 pub mod outbound;
 pub mod params;
-pub mod prune;
+pub mod parliament_iface;
 pub mod read;
 pub mod recipients;
 pub mod registry;
-pub mod roster;
 pub mod self_claim;
 pub mod settle;
 pub mod store;
-pub mod subjects;
 pub mod voids;
 pub mod witness;
 
@@ -59,14 +55,13 @@ use iroha_data_model::{
         error::InstructionExecutionError as Error,
         sccp::{
             AdvanceSccpLightClientV1, InitializeSccpV1, RecordSccpMessage,
-            ReportSccpLightClientEquivocationV1, SetSccpBridgeKeyV1, SettleSccpV1,
-            SubmitSccpAttestationFaultV1, SubmitSccpAttestationsV1, SubmitSccpInboundMessageV1,
+            ReportSccpLightClientEquivocationV1, SettleSccpV1, SubmitSccpInboundMessageV1,
             SubmitSccpOutboundVoidV1,
         },
     },
 };
 
-/// Return whether `instruction` is one of the ten SCCP v1 instructions.
+/// Return whether `instruction` is one of the seven SCCP v1 instructions.
 ///
 /// Every SCCP instruction routes to the universal dataspace (§4.19) and is admitted by the
 /// Initial executor because core enforces every SCCP rule.
@@ -74,9 +69,6 @@ use iroha_data_model::{
 pub fn is_sccp_instruction(instruction: &dyn Instruction) -> bool {
     let any = instruction.as_any();
     any.is::<InitializeSccpV1>()
-        || any.is::<SetSccpBridgeKeyV1>()
-        || any.is::<SubmitSccpAttestationsV1>()
-        || any.is::<SubmitSccpAttestationFaultV1>()
         || any.is::<RecordSccpMessage>()
         || any.is::<SubmitSccpInboundMessageV1>()
         || any.is::<SettleSccpV1>()
@@ -102,9 +94,6 @@ macro_rules! delegate_execute {
 
 delegate_execute! {
     InitializeSccpV1 => init::execute_initialize,
-    SetSccpBridgeKeyV1 => bridge_keys::execute_set_bridge_key,
-    SubmitSccpAttestationsV1 => attestations::execute_submit_attestations,
-    SubmitSccpAttestationFaultV1 => faults::execute_submit_fault,
     RecordSccpMessage => outbound::execute_record,
     SubmitSccpInboundMessageV1 => inbound::execute_submit_inbound,
     SettleSccpV1 => settle::execute_settle,
@@ -123,6 +112,7 @@ mod tests {
 
     #[test]
     fn every_v1_instruction_is_recognized_and_nothing_else_is() {
+        assert_eq!(SampleInstructions::all().len(), 7);
         for instruction in SampleInstructions::all() {
             assert!(is_sccp_instruction(&*instruction), "{instruction:?}");
         }

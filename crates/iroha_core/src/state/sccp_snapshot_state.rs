@@ -17,22 +17,16 @@ use crate::smartcontracts::isi::sccp::store;
 use iroha_data_model::{
     bridge::SccpNetworkV1,
     sccp::{
-        attestation::{
-            SccpAttestationStatusV1, SccpAttestationSubjectV1, SccpBlockCommitmentV1,
-            SccpHistoryStateV1,
-        },
+        commitment::{SccpBlockCommitmentV1, SccpHistoryStateV1},
         control::{SccpControlRecordV1, SccpLeafRefV1},
         governance::SccpGovernanceSubjectV1,
         inbound::SccpInboundRecordV1,
-        keys::{SccpAttestationFaultRecordV1, SccpBridgeKeyStateV1},
-        keys_index::SccpPruneCursorV1,
         light_client::{
             SccpLcCheckpointV1, SccpLcConsensusSetV1, SccpLcProfileActivationV1, SccpLightClientV1,
         },
         outbound::SccpOutboundMessageRecordV1,
         params::SccpParametersV1,
         registry::SccpRouteV1,
-        roster::SccpBridgeRosterV1,
     },
 };
 use norito::json::JsonSerialize as _;
@@ -45,22 +39,10 @@ pub(crate) const SCCP_SNAPSHOT_MEMBER: &str = "sccp";
 pub(crate) struct SnapshotSccpState {
     pub(super) sccp_parameters: Cell<Option<SccpParametersV1>>,
     pub(super) sccp_reset_nonce: Cell<Option<[u8; 32]>>,
-    pub(super) sccp_bridge_keys: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_bridge_key_owners: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_rosters: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_roster_current: Cell<u64>,
-    pub(super) sccp_heartbeat_marker: Cell<Option<u64>>,
     pub(super) sccp_block_leaves: snapshot_storage::SnapshotStorage,
     pub(super) sccp_block_commitments: snapshot_storage::SnapshotStorage,
     pub(super) sccp_history: Cell<SccpHistoryStateV1>,
     pub(super) sccp_history_leaves: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_attestation_subjects: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_attestation_status: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_attestation_signatures: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_attestation_faults: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_member_last_signed: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_handoff_stalled: snapshot_storage::SnapshotStorage,
-    pub(super) sccp_prune_cursor: Cell<SccpPruneCursorV1>,
     pub(super) sccp_outbound_messages: snapshot_storage::SnapshotStorage,
     pub(super) sccp_outbound_by_nonce: snapshot_storage::SnapshotStorage,
     pub(super) sccp_control_messages: snapshot_storage::SnapshotStorage,
@@ -102,22 +84,10 @@ macro_rules! serialize_sccp_fields {
         serialize_sccp_fields!(@members $world, $out, $serialize;
             cell sccp_parameters,
             cell sccp_reset_nonce,
-            store sccp_bridge_keys,
-            store sccp_bridge_key_owners,
-            store sccp_rosters,
-            cell sccp_roster_current,
-            cell sccp_heartbeat_marker,
             store sccp_block_leaves,
             store sccp_block_commitments,
             cell sccp_history,
             store sccp_history_leaves,
-            store sccp_attestation_subjects,
-            store sccp_attestation_status,
-            store sccp_attestation_signatures,
-            store sccp_attestation_faults,
-            store sccp_member_last_signed,
-            store sccp_handoff_stalled,
-            cell sccp_prune_cursor,
             store sccp_outbound_messages,
             store sccp_outbound_by_nonce,
             store sccp_control_messages,
@@ -224,16 +194,6 @@ impl SnapshotSccpState {
             valid_reset_nonce,
         )?;
         validate_cell(&self.sccp_history, "sccp_history", valid_history)?;
-        let bridge_keys = self
-            .sccp_bridge_keys
-            .decode::<PeerId, SccpBridgeKeyStateV1>("sccp_bridge_keys", |_, _| true)?;
-        let bridge_key_owners = self.sccp_bridge_key_owners.decode::<[u8; 20], PeerId>(
-            "sccp_bridge_key_owners",
-            store::bridge_key_owners::valid_entry,
-        )?;
-        let rosters = self
-            .sccp_rosters
-            .decode::<u64, SccpBridgeRosterV1>("sccp_rosters", store::rosters::valid_entry)?;
         let block_leaves = self.sccp_block_leaves.decode::<(u64, u32), SccpLeafRefV1>(
             "sccp_block_leaves",
             store::block_leaves::valid_entry,
@@ -247,30 +207,6 @@ impl SnapshotSccpState {
         let history_leaves = self
             .sccp_history_leaves
             .decode::<u64, (u64, [u8; 32])>("sccp_history_leaves", |_, _| true)?;
-        let attestation_subjects = self
-            .sccp_attestation_subjects
-            .decode::<u64, SccpAttestationSubjectV1>(
-                "sccp_attestation_subjects",
-                store::attestation_subjects::valid_entry,
-            )?;
-        let attestation_status = self
-            .sccp_attestation_status
-            .decode::<u64, SccpAttestationStatusV1>("sccp_attestation_status", |_, _| true)?;
-        let attestation_signatures = self
-            .sccp_attestation_signatures
-            .decode::<(u64, u8), [u8; 65]>("sccp_attestation_signatures", |_, _| true)?;
-        let attestation_faults = self
-            .sccp_attestation_faults
-            .decode::<([u8; 20], u64), SccpAttestationFaultRecordV1>(
-                "sccp_attestation_faults",
-                |_, _| true,
-            )?;
-        let member_last_signed = self
-            .sccp_member_last_signed
-            .decode::<[u8; 20], u64>("sccp_member_last_signed", |_, _| true)?;
-        let handoff_stalled = self
-            .sccp_handoff_stalled
-            .decode::<u64, u64>("sccp_handoff_stalled", |_, _| true)?;
         let outbound_messages = self
             .sccp_outbound_messages
             .decode::<[u8; 32], SccpOutboundMessageRecordV1>("sccp_outbound_messages", |_, _| {
@@ -332,22 +268,10 @@ impl SnapshotSccpState {
             )?;
         world.sccp_parameters = self.sccp_parameters;
         world.sccp_reset_nonce = self.sccp_reset_nonce;
-        world.sccp_bridge_keys = bridge_keys;
-        world.sccp_bridge_key_owners = bridge_key_owners;
-        world.sccp_rosters = rosters;
-        world.sccp_roster_current = self.sccp_roster_current;
-        world.sccp_heartbeat_marker = self.sccp_heartbeat_marker;
         world.sccp_block_leaves = block_leaves;
         world.sccp_block_commitments = block_commitments;
         world.sccp_history = self.sccp_history;
         world.sccp_history_leaves = history_leaves;
-        world.sccp_attestation_subjects = attestation_subjects;
-        world.sccp_attestation_status = attestation_status;
-        world.sccp_attestation_signatures = attestation_signatures;
-        world.sccp_attestation_faults = attestation_faults;
-        world.sccp_member_last_signed = member_last_signed;
-        world.sccp_handoff_stalled = handoff_stalled;
-        world.sccp_prune_cursor = self.sccp_prune_cursor;
         world.sccp_outbound_messages = outbound_messages;
         world.sccp_outbound_by_nonce = outbound_by_nonce;
         world.sccp_control_messages = control_messages;

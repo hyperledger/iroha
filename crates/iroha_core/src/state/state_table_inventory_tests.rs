@@ -1512,7 +1512,7 @@ const APPLICATION_ACCUMULATORS: &[ApplicationAccumulator] = &[
             "world.sccp_history",
             "world.sccp_history_leaves",
         ],
-        statement: "inclusion of an SCCP message leaf in the root of its block and of that block root in the history accumulator, for the statements that bridge keys sign",
+        statement: "inclusion of an SCCP message leaf in the root of its block and of that block root in the history accumulator",
         domains: &[],
         evidence: &[(
             "crates/iroha_core/src/smartcontracts/isi/sccp/commitment.rs",
@@ -3515,15 +3515,13 @@ fn sccp_write_set_fields() -> Vec<String> {
     let (body, _) = body
         .split_once("\n        out\n    }")
         .expect("the SCCP write-set encoder returns its bytes");
+    // The field names are the `sccp_*` identifiers of the two macro invocations, however
+    // rustfmt lays their arguments out.
     let fields: Vec<String> = body
-        .lines()
-        .filter_map(|line| line.trim().strip_suffix(','))
-        .filter(|name| {
-            name.starts_with("sccp_")
-                && name
-                    .bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+        .split(|character: char| {
+            !(character.is_ascii_lowercase() || character.is_ascii_digit() || character == '_')
         })
+        .filter(|name| name.starts_with("sccp_"))
         .map(|name| format!("world.{name}"))
         .collect();
     assert!(!fields.is_empty(), "the SCCP write set names no field");
@@ -7039,14 +7037,6 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
         (2_u64, [1_u8; 32])
     );
     typed_table!(
-        sccp_attestation_signatures,
-        (7_u64, 1_u8),
-        [1_u8; 65],
-        [2_u8; 65]
-    );
-    typed_table!(sccp_member_last_signed, [7_u8; 20], 1_u64, 2_u64);
-    typed_table!(sccp_handoff_stalled, 7_u64, 1_u64, 2_u64);
-    typed_table!(
         consensus_keys_by_pk,
         "typed-public-key".to_owned(),
         vec![ConsensusKeyId::new(ConsensusKeyRole::Validator, "first")],
@@ -7102,8 +7092,6 @@ fn typed_world_table_mutations_change_the_certified_world_state_root() {
     typed_cell!(merge_hint_roots, vec![Hash::new(b"hint")]);
     typed_cell!(merge_global_state_root, Some(Hash::new(b"root")));
     typed_cell!(sccp_reset_nonce, Some([1_u8; 32]));
-    typed_cell!(sccp_roster_current, 4_u64);
-    typed_cell!(sccp_heartbeat_marker, Some(8_u64));
 
     macro_rules! typed_derived {
         ($field:ident, $key:expr, $value:expr) => {{
@@ -7675,11 +7663,6 @@ fn state_hash_function_scan_lists_every_state_reader_that_returns_a_hash() {
     }
     // The functions of the tree that only the whole header matches are listed.
     for (path, name, count) in [
-        (
-            "crates/iroha_core/src/smartcontracts/isi/sccp/subjects.rs",
-            "statement_digest",
-            1,
-        ),
         (
             "crates/iroha_core/src/governance/parliament/planner.rs",
             "verified_pulse",

@@ -1130,9 +1130,9 @@ struct EagerAdmissionStateAccess<'view, W: WorldReadOnly> {
     world: &'view W,
     nexus: &'view Nexus,
     pipeline: &'view Pipeline,
-    /// Committed SCCP attestation statement digests (block hashes and the live `NetworkId`),
-    /// which SCCP exempt pre-verification checks signatures against.
-    sccp_digests: &'view dyn crate::smartcontracts::isi::sccp::subjects::SccpStatementDigests,
+    /// Committed state SCCP exempt pre-verification reads beyond World: the live `NetworkId`
+    /// and the committed block time.
+    sccp_view: &'view dyn crate::smartcontracts::isi::sccp::admission::SccpAdmissionView,
     next_block_height: u64,
     ledger_time_ms: u64,
 }
@@ -1141,7 +1141,7 @@ impl<W: WorldReadOnly> EagerAdmissionStateAccess<'_, W> {
         world: &'view W,
         nexus: &'view Nexus,
         pipeline: &'view Pipeline,
-        sccp_digests: &'view dyn crate::smartcontracts::isi::sccp::subjects::SccpStatementDigests,
+        sccp_view: &'view dyn crate::smartcontracts::isi::sccp::admission::SccpAdmissionView,
         next_block_height: u64,
         ledger_time_ms: u64,
     ) -> EagerAdmissionStateAccess<'view, W> {
@@ -1149,7 +1149,7 @@ impl<W: WorldReadOnly> EagerAdmissionStateAccess<'_, W> {
             world,
             nexus,
             pipeline,
-            sccp_digests,
+            sccp_view,
             next_block_height,
             ledger_time_ms,
         }
@@ -1182,7 +1182,7 @@ impl<W: WorldReadOnly> QueueAdmissionStateAccess for EagerAdmissionStateAccess<'
     ) -> Result<Option<SccpAdmissionKeysV1>, SccpAdmissionRejectV1> {
         crate::smartcontracts::isi::sccp::admission::classify(
             self.world,
-            self.sccp_digests,
+            self.sccp_view,
             self.next_block_height,
             transaction,
         )
@@ -9057,83 +9057,94 @@ pub mod tests {
     }
     #[test]
     fn bounded_pending_snapshot_caps_fee_exempt_sccp_transactions() {
-        use crate::{
-            smartcontracts::isi::sccp::{
-                admission::{self, SccpExemptClassV1},
-                bridge_keys, roster, subjects,
-                test_support::sample_bridge_key_state,
-            },
-            sumeragi::test_chain::{CertifiedTestChain, TestChainConfig, fixture_validators},
+        use crate::smartcontracts::isi::sccp::{
+            admission::{self, SccpExemptClassV1},
+            test_support::sample_route,
         };
         use iroha_data_model::{
-            IntoKeyValue, isi::sccp::SubmitSccpAttestationsV1,
-            sccp::attestation::SccpAttestationSignatureV1,
+            IntoKeyValue,
+            account::AccountAddress,
+            bridge::SccpNetworkV1,
+            isi::sccp::SettleSccpV1,
+            sccp::{
+                inbound::{
+                    SccpInboundRecordV1, SccpInboundStatusV1, SccpPendingReasonV1,
+                    SccpSourceLocatorV1,
+                },
+                registry::SccpRouteActivationV1,
+            },
         };
-        use iroha_sccp::v1::key_file::SccpBridgeKeyFileV1;
+        use iroha_sccp::v1::payload::SccpTransferPayloadV1;
 
-        let bridge_keys = (1_u8..=4)
-            .map(|seed| SccpBridgeKeyFileV1::new([seed; 32], 0).expect("bridge key"))
-            .collect::<Vec<_>>();
+        const NETWORK: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
+        /// 10 XOR in Taira units, above the self-claim fee.
+        const AMOUNT: u128 = 10_000_000_000;
+        // Two recipients each hold one pending inbound message that can settle, so each
+        // recipient's own settle is an eligible fee-exempt self-claim (`specs/sccp.md` §4.12.4).
+        let recipients = [0x71_u8, 0x72].map(|seed| {
+            KeyPair::try_from_seed(vec![seed; 32], Algorithm::Ed25519).expect("recipient key")
+        });
+        let message_ids = [[0x71_u8; 32], [0x72; 32]];
         let mut world = world_with_test_domains();
-        for key in &bridge_keys {
-            let account = bridge_keys::account_of(&key.public_key().expect("bridge public key"))
-                .expect("bridge account");
+        let alice = AccountId::new(ALICE_KEYPAIR.public_key().clone());
+        for account in recipients
+            .iter()
+            .map(|keys| AccountId::new(keys.public_key().clone()))
+            .chain([alice])
+        {
             let (id, value) = Account::new(account.clone())
                 .build(&account)
                 .into_key_value();
             world.accounts.insert(id, value);
         }
-        let alice = AccountId::new(ALICE_KEYPAIR.public_key().clone());
-        let (id, value) = Account::new(alice.clone()).build(&alice).into_key_value();
-        world.accounts.insert(id, value);
         {
             let mut parameters = iroha_data_model::sccp::params::SccpParametersV1::taira_default();
             parameters.max_exempt_transactions_per_block = 1;
             let mut world = world.block();
             *world.sccp_parameters.get_mut() = Some(parameters);
-            for ((peer, _), key) in fixture_validators().into_iter().zip(&bridge_keys) {
-                let mut binding = sample_bridge_key_state(1);
-                let active = binding.active.as_mut().expect("active bridge key");
-                active.public_key = key.public_key().expect("bridge public key");
-                active.address = key.address().expect("bridge address");
-                // A registered key's owner index makes its attestations eligible.
-                world
-                    .sccp_bridge_key_owners
-                    .insert(active.address, peer.clone());
-                world.sccp_bridge_keys.insert(peer, binding);
+            let mut route = sample_route(NETWORK);
+            let revision = route.revisions.get_mut(&1).expect("revision 1");
+            revision.activation = SccpRouteActivationV1::Bidirectional;
+            revision.liability = 2 * AMOUNT;
+            world.sccp_routes.insert(NETWORK, route);
+            for (keys, message_id) in recipients.iter().zip(message_ids) {
+                let recipient =
+                    AccountAddress::from_account_id(&AccountId::new(keys.public_key().clone()))
+                        .and_then(|address| address.canonical_bytes())
+                        .expect("recipient address");
+                let payload = SccpTransferPayloadV1::inbound(
+                    NETWORK,
+                    u64::from(message_id[0]),
+                    1,
+                    AMOUNT,
+                    vec![0x44; 20],
+                    recipient,
+                )
+                .and_then(|payload| payload.encode())
+                .expect("inbound payload");
+                world.sccp_inbound_messages.insert(
+                    message_id,
+                    SccpInboundRecordV1 {
+                        network: NETWORK,
+                        revision: 1,
+                        payload,
+                        source_locator: SccpSourceLocatorV1 {
+                            source_height: 7,
+                            block_hash: message_id,
+                            index_in_block: 0,
+                        },
+                        proven_at_height: 1,
+                        fee_due: 0,
+                        status: SccpInboundStatusV1::pending(SccpPendingReasonV1::Disabled),
+                    },
+                );
             }
             world.commit();
         }
-        // Genesis creates the real bridge roster; its initial non-rotation height
-        // has no attestation subject. Commit actual signed work at the original
-        // roster's heartbeat to obtain a certified rotation subject.
-        let mut chain =
-            CertifiedTestChain::start(TestChainConfig::new(world, 0)).expect("signed SCCP genesis");
-        assert!(subjects::statement_digest_of(&chain.state().view(), 1).is_none());
-        let heartbeat = {
-            let view = chain.state().view();
-            let (_, original_roster) =
-                roster::current(view.world()).expect("original genesis roster");
-            original_roster
-                .valid_from_ms
-                .checked_add(
-                    view.world()
-                        .sccp_parameters()
-                        .as_ref()
-                        .unwrap()
-                        .roster_max_age_ms,
-                )
-                .expect("original heartbeat time fits u64")
-        };
-        let work = chain.sign(
-            &ALICE_KEYPAIR,
-            [Log::new(Level::INFO, "certified SCCP heartbeat".into()).into()],
-            heartbeat,
-        );
-        assert_eq!(chain.commit_at(heartbeat, vec![work]), vec![true]);
-        let subject_height = chain.height();
-        let state = chain.state();
-        let (_time_handle, time_source) = TimeSource::new_mock(Duration::from_millis(heartbeat));
+        let kura = Kura::blank_kura_for_testing();
+        let query_handle = LiveQueryStore::start_test();
+        let state = State::new(world, kura, query_handle);
+        let (_time_handle, time_source) = TimeSource::new_mock(Duration::default());
         let queue = Arc::new(Queue::test(config_factory(), &time_source));
         let accepted = |keypair: &KeyPair, instructions: Vec<InstructionBox>| {
             let transaction = TransactionBuilder::new_with_time_source(
@@ -9155,42 +9166,17 @@ pub mod tests {
             )
             .expect("signed queue input accepted")
         };
-        let attestation = |key: &SccpBridgeKeyFileV1| {
-            let view = state.view();
-            let (_, roster) = roster::current(view.world()).expect("committed SCCP roster");
-            assert_eq!(roster.members.len(), 4);
-            assert!(!roster.is_inert());
-            let address = key.address().expect("bridge address");
-            let signer_index = u8::try_from(
-                roster
-                    .members
-                    .iter()
-                    .position(|member| member.address == address)
-                    .expect("original bridge key is a roster member"),
-            )
-            .expect("four-member index fits u8");
-            let digest = subjects::statement_digest_of(&view, subject_height)
-                .expect("original committed heartbeat statement digest");
-            let instruction = SubmitSccpAttestationsV1 {
-                entries: vec![SccpAttestationSignatureV1 {
-                    height: subject_height,
-                    signer_index,
-                    signature: key.sign_digest(&digest).expect("sign committed statement"),
-                }],
-            };
-            drop(view);
-            let signer = KeyPair::from_private_key(
-                iroha_crypto::PrivateKey::from_bytes(Algorithm::Secp256k1, key.secret())
-                    .expect("bridge signing scalar"),
-            )
-            .expect("bridge signing keypair");
-            accepted(&signer, vec![instruction.into()])
-        };
-        // Concurrent claims use distinct actual bridge accounts; an account may retain
-        // only one pending attestation batch under the SCCP admission contract.
+        // Concurrent claims come from distinct recipients; an account may retain only one
+        // pending self-claim under the SCCP admission contract.
         let transactions = vec![
-            attestation(&bridge_keys[0]),
-            attestation(&bridge_keys[1]),
+            accepted(
+                &recipients[0],
+                vec![SettleSccpV1::inbound(message_ids[0]).into()],
+            ),
+            accepted(
+                &recipients[1],
+                vec![SettleSccpV1::inbound(message_ids[1]).into()],
+            ),
             accepted(
                 &ALICE_KEYPAIR,
                 vec![Log::new(Level::INFO, "ordinary".into()).into()],
@@ -9231,11 +9217,11 @@ pub mod tests {
                 admission::exempt_class_of_entrypoint(view.world(), transaction.entrypoint())
             })
             .collect::<Vec<_>>();
-        assert_eq!(classes, vec![SccpExemptClassV1::Attestation]);
+        assert_eq!(classes, vec![SccpExemptClassV1::SelfClaim]);
         assert_eq!(queue.pending_sccp_exempt.lock().len(), 2);
         assert_eq!(
             queue.pending_sccp_exempt.lock().class_of(&hashes[1]),
-            Some(SccpExemptClassV1::Attestation),
+            Some(SccpExemptClassV1::SelfClaim),
             "selection preserves the capped input's original admission ownership"
         );
         assert!(
@@ -9244,7 +9230,7 @@ pub mod tests {
         );
         assert!(!admission::block_exempt_cap_ok(
             view.world(),
-            &[SccpExemptClassV1::Attestation; 2]
+            &[SccpExemptClassV1::SelfClaim; 2]
         ));
     }
     #[test]

@@ -36,7 +36,7 @@ fn every_sccp_member_is_serialized_in_field_order() {
     let json::Value::Object(members) = &value else {
         panic!("the envelope is an object");
     };
-    assert_eq!(members.len(), 31, "one member per SCCP world field");
+    assert_eq!(members.len(), 19, "one member per SCCP world field");
     let mut restored = World::default();
     restore(&text, &mut restored).expect("an empty envelope restores");
     assert_eq!(encoded(&restored), text);
@@ -57,15 +57,15 @@ fn sccp_snapshot_preserves_every_current_and_undo_envelope() {
         serialize_block_envelope(&prior, &mut left);
         serialize_block_envelope(&replacement, &mut right);
         assert_eq!(left, right, "the undo records restore identically");
-        assert_eq!(*replacement.sccp_roster_current.get(), 1);
-        assert_eq!(replacement.sccp_bridge_keys.len(), 1);
+        assert_eq!(*replacement.sccp_reset_nonce.get(), Some([1; 32]));
+        assert_eq!(replacement.sccp_block_commitments.len(), 1);
         assert_eq!(replacement.sccp_light_client_checkpoints.len(), 1);
     }
     {
         let view = restored.view();
-        assert_eq!(*view.sccp_roster_current(), 2);
-        assert_eq!(view.sccp_bridge_keys().len(), 2);
-        assert_eq!(view.sccp_rosters().len(), 2);
+        assert_eq!(*view.sccp_reset_nonce(), Some([3; 32]));
+        assert_eq!(view.sccp_block_commitments().len(), 2);
+        assert_eq!(view.sccp_history_leaves().len(), 2);
         assert_eq!(view.sccp_history().size, 1);
         assert!(view.sccp_parameters().is_some());
     }
@@ -148,23 +148,9 @@ fn world_with(write: impl FnOnce(&mut WorldBlock<'_>)) -> World {
 
 #[test]
 fn sccp_snapshot_rejects_every_storage_invariant_violation() {
-    use crate::smartcontracts::isi::sccp::test_support::{peer, sample_roster, sample_route};
-    use iroha_data_model::sccp::{
-        attestation::SccpBlockCommitmentV1, params::SCCP_MESSAGES_MAX_PER_BLOCK_V1,
-    };
+    use crate::smartcontracts::isi::sccp::test_support::sample_route;
+    use iroha_data_model::sccp::params::SCCP_MESSAGES_MAX_PER_BLOCK_V1;
     let network = SccpNetworkV1::EthereumMainnet;
-    let subject = |height: u64| SccpAttestationSubjectV1 {
-        height,
-        epoch: 1,
-        timestamp_ms: height * 4_000,
-        sccp_root: [1; 32],
-        message_count: 1,
-        history_root: [1; 32],
-        history_size: 1,
-        generation: 1,
-        roster_digest: [1; 32],
-        next_roster_digest: [0; 32],
-    };
     let control = |commitment_index| SccpControlRecordV1 {
         paused: true,
         height: 4,
@@ -183,24 +169,6 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
         history_index: 0,
     };
     let cases: Vec<(&str, World, World)> = vec![
-        (
-            "sccp_bridge_key_owners",
-            world_with(|block| {
-                block.sccp_bridge_key_owners.insert([0; 20], peer(1));
-            }),
-            world_with(|block| {
-                block.sccp_bridge_key_owners.insert([1; 20], peer(1));
-            }),
-        ),
-        (
-            "sccp_rosters",
-            world_with(|block| {
-                block.sccp_rosters.insert(2, sample_roster(1, 5));
-            }),
-            world_with(|block| {
-                block.sccp_rosters.insert(1, sample_roster(1, 5));
-            }),
-        ),
         (
             "sccp_block_leaves",
             world_with(|block| {
@@ -236,15 +204,6 @@ fn sccp_snapshot_rejects_every_storage_invariant_violation() {
             }),
             world_with(|block| {
                 block.sccp_block_commitments.insert(4, commitment(1));
-            }),
-        ),
-        (
-            "sccp_attestation_subjects",
-            world_with(|block| {
-                block.sccp_attestation_subjects.insert(5, subject(4));
-            }),
-            world_with(|block| {
-                block.sccp_attestation_subjects.insert(4, subject(4));
             }),
         ),
         (

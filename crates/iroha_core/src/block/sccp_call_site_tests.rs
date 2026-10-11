@@ -1,4 +1,4 @@
-// SCCP call sites of block validation (`specs/sccp.md` §4.3.2, §4.19): the per-block
+// SCCP call sites of block validation (`specs/sccp.md` §4.5, §4.6, §4.19): the per-block
 // exemption cap judged against the committed parent World, and the consensus height inputs the
 // post-execution hook receives from the authenticated native schedule, including genesis.
 
@@ -60,7 +60,12 @@ fn sccp_exempt_cap_is_judged_against_the_committed_parent_world() {
 
 #[test]
 fn sccp_exempt_cap_counts_eligible_entry_points_of_the_block() {
-    use crate::smartcontracts::isi::sccp::test_support::SampleInstructions;
+    use iroha_data_model::{bridge::SccpNetworkV1, isi::sccp::AdvanceSccpLightClientV1};
+    use iroha_sccp::light_client::{
+        bsc::BscLcAdvanceV1,
+        ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
+        proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
+    };
     let key_pair = KeyPair::try_from_seed(vec![0x54; 32], Algorithm::Ed25519)
         .expect("deterministic authority key");
     let signed = |instruction: InstructionBox| {
@@ -74,19 +79,40 @@ fn sccp_exempt_cap_counts_eligible_entry_points_of_the_block() {
         .with_instructions([instruction])
         .sign(key_pair.private_key())
     };
-    // Fault evidence is eligible whenever SCCP exists.
-    let fault = |height| {
-        let mut submit = SampleInstructions::fault();
-        submit.statement.height = height;
-        signed(submit.into())
+    // A keeper advance that is not a `Backfill` is eligible whenever SCCP exists, one per
+    // network per block.
+    let advance = |network, advance: SccpLcAdvanceV1| {
+        signed(
+            AdvanceSccpLightClientV1 {
+                network,
+                expected_state_hash: None,
+                advance: advance.to_bytes().expect("bounded advance"),
+            }
+            .into(),
+        )
     };
     let block = SignedBlock::genesis(
         vec![
-            fault(9),
-            fault(10),
-            // An attestation shape from an ordinary account is not eligible: it pays the
+            advance(
+                SccpNetworkV1::EthereumMainnet,
+                SccpLcAdvanceV1::Ethereum(EthereumLcAdvanceV1 {
+                    updates: Vec::new(),
+                }),
+            ),
+            advance(
+                SccpNetworkV1::BscMainnet,
+                SccpLcAdvanceV1::Bsc(BscLcAdvanceV1 { steps: Vec::new() }),
+            ),
+            // A `Backfill` has the keeper-advance shape and is not eligible: it pays the
             // ordinary fee and is not counted.
-            signed(SampleInstructions::attestations().into()),
+            advance(
+                SccpNetworkV1::EthereumMainnet,
+                SccpLcAdvanceV1::Backfill {
+                    segment: SccpLcSegmentV1::Ethereum(EthereumHeaderSegmentV1 {
+                        headers: Vec::new(),
+                    }),
+                },
+            ),
             crate::smartcontracts::isi::sccp::test_support::sample_signed_transaction(),
         ],
         key_pair.private_key(),
@@ -220,7 +246,7 @@ fn sccp_hook_receives_scheduled_height_inputs_on_the_sumeragi_core_path() {
 }
 
 #[test]
-fn sccp_unauthed_genesis_writes_never_supply_roster_authority() {
+fn sccp_unauthed_genesis_writes_never_supply_committee_authority() {
     use crate::smartcontracts::isi::sccp::height::SccpHeightSourceV1;
     let (_key, genesis) = sccp_call_site_genesis();
     let state = crate::smartcontracts::isi::sccp::test_support::blank_state();

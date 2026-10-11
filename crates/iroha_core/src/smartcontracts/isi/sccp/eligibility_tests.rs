@@ -11,7 +11,7 @@
 
 use super::{
     admission::{self, SccpExemptClassV1},
-    bridge_keys, escrow, fees,
+    escrow, fees,
     inbound::{SccpProvenInboundV1, record_proven},
     settle::{self, execute_settle},
     store,
@@ -21,7 +21,7 @@ use super::{
     },
 };
 use crate::state::{State, StateReadOnly, StateTransaction};
-use iroha_crypto::{Algorithm, Hash, KeyPair, PrivateKey};
+use iroha_crypto::{Algorithm, Hash, KeyPair};
 use iroha_data_model::{
     NetworkId,
     account::{Account, AccountAddress, AccountId},
@@ -45,7 +45,7 @@ use iroha_sccp::{
         ethereum::{EthereumHeaderSegmentV1, EthereumLcAdvanceV1},
         proof::{SccpLcAdvanceV1, SccpLcSegmentV1},
     },
-    v1::{key_file::SccpBridgeKeyFileV1, payload::SccpTransferPayloadV1},
+    v1::payload::SccpTransferPayloadV1,
 };
 
 const ETH: SccpNetworkV1 = SccpNetworkV1::EthereumMainnet;
@@ -135,13 +135,6 @@ fn set_enabled(stx: &mut StateTransaction<'_, '_>, enabled: bool) {
     let mut params = store::parameters::get(&*stx.world).clone().expect("SCCP");
     params.enabled = enabled;
     store::parameters::set(stx, Some(params));
-}
-
-fn bridge_key_pair(key: &SccpBridgeKeyFileV1) -> KeyPair {
-    KeyPair::from_private_key(
-        PrivateKey::from_bytes(Algorithm::Secp256k1, key.secret()).expect("bridge scalar"),
-    )
-    .expect("bridge key pair")
 }
 
 /// The committed parent World every case is judged against.
@@ -658,14 +651,4 @@ fn only_an_eligible_advance_admits_an_absent_authority() {
         address_bytes(&keeper)
     )]));
     assert!(!admits(vec![SettleSccpV1::refund(ETH, 1, 0).into()]));
-}
-
-#[test]
-fn a_bridge_key_is_recognised_by_its_secp256k1_account() {
-    let key = SccpBridgeKeyFileV1::new([0x31; 32], 0).expect("key");
-    let pair = bridge_key_pair(&key);
-    assert_eq!(
-        AccountId::new(pair.public_key().clone()),
-        bridge_keys::account_of(&key.public_key().expect("public key")).expect("account")
-    );
 }

@@ -480,8 +480,6 @@ pub(super) const OTHER_DOMAINS: &[OtherDomains] = &[
             r"iroha.private_settlement.finalize_atomic_bundle.v1",
             r"iroha.private_settlement.register_atomic_prepare.v1",
             r"iroha.private_settlement.rotate_pool_policy.v1",
-            r"iroha.sccp.bridge_key.v1",
-            r"iroha.sccp.other.v1",
             r"iroha.streaming.snapshot.v1",
             r"iroha.sumeragi.amx.begin.v1",
             r"iroha.sumeragi.amx.prepare.v1",

@@ -13,11 +13,10 @@
 //! the bundled advances applied; until then that shape pays the ordinary fee.
 
 use super::{
-    admission::{SccpAdmissionKeysV1, SccpAdmissionRejectV1, SccpExemptClassV1},
+    admission::{SccpAdmissionKeysV1, SccpAdmissionRejectV1, SccpAdmissionView, SccpExemptClassV1},
     inbound::{bind_transfer_event, decode_inbound_payload, recipient_account},
     light_clients::{WorldLightClientView, admission_profiles},
     settle, store,
-    subjects::SccpStatementDigests,
 };
 use crate::state::WorldReadOnly;
 use iroha_data_model::{
@@ -159,7 +158,7 @@ pub fn eligible(
 /// keys (one pending self-claim per authority and per message id).
 ///
 /// A settle needs a `Pending` record. A proof needs a revision that accepts proofs, a message
-/// that is not yet proven, a proof that verifies against the light client at `digests`'
+/// that is not yet proven, a proof that verifies against the light client at `view`'s
 /// committed time under the profiles active at `next_block_height`, and an event that binds
 /// the payload.
 ///
@@ -168,7 +167,7 @@ pub fn eligible(
 /// Rejects a transaction that is not a self-claim or whose claim is invalid.
 pub fn preverify(
     world: &(impl WorldReadOnly + ?Sized),
-    digests: &(impl SccpStatementDigests + ?Sized),
+    view: &(impl SccpAdmissionView + ?Sized),
     next_block_height: u64,
     authority: &AccountId,
     transaction: &SignedTransaction,
@@ -187,7 +186,7 @@ pub fn preverify(
     let payload = decode_inbound_payload(submit.network, submit.revision, &submit.payload)
         .map_err(|error| reject(error.to_string()))?;
     let message_id = payload
-        .message_id(digests.taira_network_id().as_bytes())
+        .message_id(view.taira_network_id().as_bytes())
         .map_err(|error| reject(format!("payload: {error}")))?;
     if store::inbound_messages::contains(world, &message_id) {
         return Err(reject("the message is already proven"));
@@ -203,7 +202,7 @@ pub fn preverify(
         &WorldLightClientView(world),
         submit.network,
         &submit.proof,
-        digests.committed_time_ms(),
+        view.committed_time_ms(),
     )
     .map_err(|error| reject(format!("proof: {error}")))?;
     bind_transfer_event(&verified, &deployment, &payload, &message_id)
