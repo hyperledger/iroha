@@ -64,6 +64,20 @@ pub enum ActionV1 {
     /// A missing or unclaimed operation is unavailable; a claimed operation without a result
     /// remains outcome-unknown. Reading after the challenge deadline grants no new attempt.
     Inspect,
+    /// Refresh only revocation of an already successful Android enrollment. This never
+    /// claims or changes an enrollment and cannot produce evidence for issuance.
+    RecheckRevocation,
+}
+
+/// Fresh private-channel revocation decision, never enrollment evidence or a credential.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevocationOutcomeV1 {
+    /// The retained chain is not listed by its current selected revocation sources.
+    Current,
+    /// A current revocation source or successful retained enrollment is unavailable.
+    Unavailable,
+    /// The retained chain is currently listed.
+    Revoked,
 }
 
 /// Separate worker outcome classes; none is a credential, approval, or permission to repeat
@@ -264,6 +278,9 @@ impl VerifierRequestV1 {
         exchange: &VerifierExchangeV1,
         frame: &[u8],
     ) -> Result<OutcomeV1, Error> {
+        if matches!(exchange.action(), Some(ActionV1::RecheckRevocation)) {
+            return Err(Error("revocation is not enrollment evidence"));
+        }
         let (value, dispatch_time_ms) = exchange.request_response(self, frame)?;
         if text(&value, "outcome")? == "evidence" {
             if value.get("refusal_code") != Some(&Value::Null) {
@@ -275,6 +292,34 @@ impl VerifierRequestV1 {
                 .map(OutcomeV1::Evidence);
         }
         protocol::failure(&value, Some(self.is_android()))
+    }
+
+    /// Bind a fresh revocation-only reply to this exact retained request and exchange.
+    /// The caller must authenticate the private channel; no cached reply grants freshness.
+    /// # Errors
+    /// Wrong action/platform, substituted bindings, evidence, or any non-revocation refusal.
+    pub fn revocation_response(
+        &self,
+        exchange: &VerifierExchangeV1,
+        frame: &[u8],
+    ) -> Result<RevocationOutcomeV1, Error> {
+        if !self.is_android()
+            || !matches!(exchange.action(), Some(ActionV1::RecheckRevocation))
+        {
+            return Err(Error("revocation exchange kind"));
+        }
+        let (value, _) = exchange.request_response(self, frame)?;
+        if value.get("evidence_base64") != Some(&Value::Null) {
+            return Err(Error("revocation carries evidence"));
+        }
+        match (text(&value, "outcome")?, value.get("refusal_code")) {
+            ("current", Some(Value::Null)) => Ok(RevocationOutcomeV1::Current),
+            ("unavailable", Some(Value::Null)) => Ok(RevocationOutcomeV1::Unavailable),
+            ("refused", Some(code)) if code.as_u64() == Some(6) => {
+                Ok(RevocationOutcomeV1::Revoked)
+            }
+            _ => Err(Error("revocation outcome")),
+        }
     }
 
     /// Closed refusal reason of an exact refused reply that the issuer retained, together with

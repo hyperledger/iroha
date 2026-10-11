@@ -71,7 +71,7 @@ def dispatch(owner, original, action):
 
 
 def packet(action="recover", *, exchange="31" * 32, owner=None, original=b"{}"):
-    operation = action in ("complete", "recover", "inspect")
+    operation = action in ("complete", "recover", "inspect", "recheck_revocation")
     return encode({"schema": SCHEMA, "version": 1, "exchange_id": exchange, "action": action,
         "journal_incarnation": None if action == "journal" else ("21" * 32 if owner is None else owner.counters.incarnation.hex()),
         "preparation_base64": None if action == "journal" else base64.b64encode(
@@ -1148,6 +1148,78 @@ class AndroidIntegratedWorkerTests(unittest.TestCase):
                 self.assertEqual(calls, [revocation.GOOGLE_STATUS_URL])
                 self.assertEqual(dispatch(owner, request, "recover"), result)
                 self.assertEqual(len(calls), 1)
+
+    def test_later_revocation_refresh_preserves_exact_issued_evidence_and_recovery(self):
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            directory = Path(temporary).resolve()
+            config, request, chain = self.fixture(directory)
+            owner = self.actual_owner(config, directory, stack)
+            entries = []
+            calls = self.transport(stack, entries=entries)
+            owner.revocation.google._clock = lambda: None
+            original_result = dispatch(owner, request, "complete")
+            prepared = preparation_original(owner, request)
+            arguments = dict(incarnation=owner.counters.incarnation, preparation=prepared,
+                account_signature=ACCOUNT_SIGNATURE,
+                dispatch_time_ms=exact_json(request, MAX_REQUEST)["expires_at_ms"] + 1)
+            with closing(owner.counters._connect()) as connection:
+                before = connection.execute("SELECT * FROM wallet_e1_attempts").fetchall()
+            owner.recheck_revocation(request, **arguments)
+            entries.append(revocation.certificate_serial(chain[1]))
+            with self.assertRaises(EvidenceRefused) as refused:
+                owner.recheck_revocation(request, **arguments)
+            self.assertEqual(refused.exception.code, Code.ATTESTATION_REVOKED)
+            with patch.object(owner.revocation.google, "_fetch", side_effect=revocation.RevocationUnavailable("outage")):
+                with self.assertRaises(revocation.RevocationUnavailable):
+                    owner.recheck_revocation(request, **arguments)
+            with closing(owner.counters._connect()) as connection:
+                self.assertEqual(connection.execute("SELECT * FROM wallet_e1_attempts").fetchall(), before)
+            self.assertEqual(dispatch(owner, request, "recover"), original_result)
+            self.assertEqual(dispatch(owner, request, "inspect"), original_result)
+            self.assertEqual(len(calls), 3)
+
+    def test_current_revocation_packet_binds_exact_retained_request_and_has_no_evidence(self):
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            directory = Path(temporary).resolve()
+            config, request, chain = self.fixture(directory)
+            owner = self.actual_owner(config, directory, stack)
+            self.transport(stack)
+            original_result = dispatch(owner, request, "complete")
+            def exchange(message):
+                output = io.BytesIO()
+                serve(owner, io.BytesIO(len(message).to_bytes(4, "little") + message), output)
+                return exact_json(read_packet(io.BytesIO(output.getvalue())), MAX_PACKET)
+            message = packet("recheck_revocation", owner=owner, original=request)
+            response = exchange(message)
+            self.assertEqual(response["outcome"], "current")
+            self.assertEqual(response["request_sha256"], hashlib.sha256(message).hexdigest())
+            self.assertIsNone(response["evidence_base64"])
+            for field, replacement in (("journal_incarnation", "33" * 32),
+                                       ("account_signature_base64", base64.b64encode(b"x" * 64).decode())):
+                changed = exact_json(message, MAX_PACKET)
+                changed[field] = replacement
+                self.assertNotEqual(exchange(encode(changed))["outcome"], "current")
+            # A newly offered request cannot borrow successful evidence from the same owner.
+            changed = exact_json(request, MAX_REQUEST)
+            changed["evidence"]["chain_base64"][0] = base64.b64encode(chain[1]).decode()
+            self.assertEqual(exchange(packet("recheck_revocation", owner=owner, original=encode(changed)))["outcome"], "rejected")
+            self.assertEqual(dispatch(owner, request, "inspect"), original_result)
+
+    def test_operator_denylist_refresh_refuses_without_rewriting_enrollment(self):
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            directory = Path(temporary).resolve()
+            config, request, chain = self.fixture(directory)
+            owner = self.actual_owner(config, directory, stack)
+            self.transport(stack)
+            original_result = dispatch(owner, request, "complete")
+            owner.revocation.denylist.offer(encode({"version": 1, "sequence": 2,
+                "entries": [{"spki_sha256": spki_sha256(chain[1]).hex()}]}))
+            with self.assertRaises(EvidenceRefused) as refused:
+                owner.recheck_revocation(request, incarnation=owner.counters.incarnation,
+                    preparation=preparation_original(owner, request), account_signature=ACCOUNT_SIGNATURE,
+                    dispatch_time_ms=exact_json(request, MAX_REQUEST)["trusted_time_ms"])
+            self.assertEqual(refused.exception.code, Code.ATTESTATION_REVOKED)
+            self.assertEqual(dispatch(owner, request, "inspect"), original_result)
 
     def test_revoked_chain_is_refused_with_a_retained_code(self):
         attestation_serial = revocation.certificate_serial(self.pki.der("attestation"))
